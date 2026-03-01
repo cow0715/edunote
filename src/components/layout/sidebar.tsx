@@ -11,7 +11,7 @@ import { toast } from 'sonner'
 const navItems = [
   { href: '/dashboard', label: '수업 목록', icon: BookOpen },
   { href: '/students', label: '학생 관리', icon: Users },
-  { href: '/reading-types', label: '독해 유형', icon: FileText },
+  { href: '/question-types', label: '문제 유형', icon: FileText },
 ]
 
 export function Sidebar() {
