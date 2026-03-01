@@ -47,7 +47,7 @@ export interface Week {
   created_at: string;
 }
 
-export interface ReadingType {
+export interface QuestionType {
   id: string;
   teacher_id: string;
   name: string;
@@ -60,9 +60,9 @@ export interface ExamQuestion {
   week_id: string;
   question_number: number;
   correct_answer: number;
-  reading_type_id: string;
+  question_type_id: string;
   created_at: string;
-  reading_type?: ReadingType;
+  question_type?: QuestionType;
 }
 
 export interface WeekScore {
@@ -112,5 +112,5 @@ export interface ShareData {
       questions: ExamQuestion[];
     }>;
   }>;
-  reading_types: ReadingType[];
+  question_types: QuestionType[];
 }
