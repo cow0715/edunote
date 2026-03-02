@@ -60,7 +60,8 @@ export interface ExamQuestion {
   week_id: string;
   question_number: number;
   correct_answer: number;
-  question_type_id: string;
+  question_type_id: string | null;
+  exam_type: 'vocab' | 'reading';
   created_at: string;
   question_type?: QuestionType;
 }
