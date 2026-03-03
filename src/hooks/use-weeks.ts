@@ -56,10 +56,18 @@ export function useExamQuestions(weekId: string) {
   })
 }
 
+export type QuestionPayload = {
+  question_number: number
+  correct_answer: number
+  question_type_id: string | null
+  exam_type: 'vocab' | 'reading'
+  choices: { choice_number: number; concept_tag_id: string | null }[]
+}
+
 export function useSaveExamQuestions(weekId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (questions: { question_number: number; correct_answer: number; question_type_id: string | null; exam_type: 'vocab' | 'reading' }[]) => {
+    mutationFn: async (questions: QuestionPayload[]) => {
       const res = await fetch(`/api/weeks/${weekId}/questions`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -75,3 +83,4 @@ export function useSaveExamQuestions(weekId: string) {
     onError: (e: Error) => toast.error(e.message),
   })
 }
+

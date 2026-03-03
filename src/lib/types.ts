@@ -55,6 +55,32 @@ export interface QuestionType {
   created_at: string;
 }
 
+export interface ConceptCategory {
+  id: string;
+  teacher_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface ConceptTag {
+  id: string;
+  teacher_id: string;
+  concept_category_id: string | null;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  concept_category?: ConceptCategory;
+}
+
+export interface ExamQuestionChoice {
+  id: string;
+  exam_question_id: string;
+  choice_number: number;
+  concept_tag_id: string;
+  concept_tag?: ConceptTag;
+}
+
 export interface ExamQuestion {
   id: string;
   week_id: string;
@@ -64,13 +90,14 @@ export interface ExamQuestion {
   exam_type: 'vocab' | 'reading';
   created_at: string;
   question_type?: QuestionType;
+  exam_question_choice?: ExamQuestionChoice[];
 }
 
 export interface WeekScore {
   id: string;
   week_id: string;
   student_id: string;
-  vocab_wrong: number;
+  vocab_correct: number;
   homework_done: number;
   memo: string | null;
   created_at: string;
@@ -94,7 +121,7 @@ export interface WeekScoreSummary {
   week_score_id: string | null;
   reading_correct: number;
   reading_total: number;
-  vocab_wrong: number;
+  vocab_correct: number;
   vocab_total: number;
   homework_done: number;
   homework_total: number;
