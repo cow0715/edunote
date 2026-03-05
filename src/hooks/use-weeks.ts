@@ -60,6 +60,7 @@ export type QuestionPayload = {
   question_number: number
   correct_answer: number
   question_type_id: string | null
+  concept_tag_id: string | null
   exam_type: 'vocab' | 'reading'
   choices: { choice_number: number; concept_tag_id: string | null }[]
 }

@@ -1,14 +1,21 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, Controller } from 'react-hook-form'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Student } from '@/lib/types'
 import { useCreateStudent, useUpdateStudent } from '@/hooks/use-students'
+
+const GRADE_OPTIONS = [
+  { value: '고1', label: '고1' },
+  { value: '고2', label: '고2' },
+  { value: '고3', label: '고3' },
+]
 
 interface FormValues {
   name: string
@@ -30,7 +37,7 @@ export function StudentFormDialog({ open, onClose, editTarget }: Props) {
   const createStudent = useCreateStudent()
   const updateStudent = useUpdateStudent()
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>()
+  const { register, handleSubmit, reset, control, formState: { errors } } = useForm<FormValues>()
 
   useEffect(() => {
     if (open) {
@@ -79,8 +86,23 @@ export function StudentFormDialog({ open, onClose, editTarget }: Props) {
               <Input id="school" placeholder="예) 중학교" {...register('school')} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="grade">학년</Label>
-              <Input id="grade" placeholder="예) 중3" {...register('grade')} />
+              <Label>학년</Label>
+              <Controller
+                name="grade"
+                control={control}
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="선택" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {GRADE_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
             </div>
           </div>
 

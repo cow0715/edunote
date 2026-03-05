@@ -10,7 +10,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   const { data, error } = await supabase
     .from('exam_question')
-    .select('*, question_type(*), exam_question_choice(*)')
+    .select('*, question_type(*), concept_tag(*, concept_category(*)), exam_question_choice(*)')
     .eq('week_id', weekId)
     .order('question_number')
 
@@ -34,6 +34,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     question_number: number
     correct_answer: number
     question_type_id: string | null
+    concept_tag_id: string | null
     exam_type: 'vocab' | 'reading'
     choices: { choice_number: number; concept_tag_id: string | null }[]
   }
@@ -63,7 +64,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       questions.map(({ choices: _choices, ...q }) => ({ ...q, week_id: weekId })),
       { onConflict: 'week_id,exam_type,question_number' }
     )
-    .select('*, question_type(*), exam_question_choice(*)')
+    .select('*, question_type(*), concept_tag(*, concept_category(*)), exam_question_choice(*)')
 
   if (error) {
     console.error('[PUT /api/weeks/[id]/questions] upsert', error)
