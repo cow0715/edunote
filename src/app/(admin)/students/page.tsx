@@ -1,12 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Users, Pencil, Trash2, Phone, School } from 'lucide-react'
+import { Plus, Users, Pencil, Trash2, Phone, School, Link } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { StudentFormDialog } from '@/components/students/student-form-dialog'
 import { useStudents, useDeleteStudent } from '@/hooks/use-students'
 import { Student } from '@/lib/types'
+import { toast } from 'sonner'
 
 export default function StudentsPage() {
   const { data: students, isLoading } = useStudents()
@@ -29,6 +30,12 @@ export default function StudentsPage() {
   function handleCreate() {
     setEditTarget(undefined)
     setDialogOpen(true)
+  }
+
+  function handleCopyLink(token: string) {
+    const url = `${window.location.origin}/share/${token}`
+    navigator.clipboard.writeText(url)
+    toast.success('공유 링크가 복사되었습니다')
   }
 
   return (
@@ -83,6 +90,9 @@ export default function StudentsPage() {
                     </div>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button size="sm" variant="outline" className="h-7 px-2 text-blue-500 hover:text-blue-600" onClick={() => handleCopyLink(s.share_token)} title="학부모 공유 링크 복사">
+                      <Link className="h-3.5 w-3.5" />
+                    </Button>
                     <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => handleEdit(s)}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>

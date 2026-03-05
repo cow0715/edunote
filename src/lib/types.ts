@@ -87,9 +87,11 @@ export interface ExamQuestion {
   question_number: number;
   correct_answer: number;
   question_type_id: string | null;
+  concept_tag_id: string | null;
   exam_type: 'vocab' | 'reading';
   created_at: string;
   question_type?: QuestionType;
+  concept_tag?: ConceptTag;
   exam_question_choice?: ExamQuestionChoice[];
 }
 

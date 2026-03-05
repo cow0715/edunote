@@ -95,7 +95,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
 
       {/* 설정 모달 */}
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{week.week_number}주차 설정</DialogTitle>
           </DialogHeader>
