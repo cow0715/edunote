@@ -15,11 +15,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const teacherId = await getTeacherId(supabase, user.id)
   if (!teacherId) return NextResponse.json({ error: '강사 정보 없음' }, { status: 404 })
 
-  const { name, phone, parent_phone, school, grade, memo } = await request.json()
+  const { name, phone, father_phone, mother_phone, school, grade, memo } = await request.json()
 
   const { data, error } = await supabase
     .from('student')
-    .update({ name, phone, parent_phone, school, grade, memo })
+    .update({ name, phone, father_phone, mother_phone, school, grade, memo })
     .eq('id', id)
     .eq('teacher_id', teacherId)
     .select()

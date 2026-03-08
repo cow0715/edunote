@@ -20,7 +20,8 @@ const GRADE_OPTIONS = [
 interface FormValues {
   name: string
   phone: string
-  parent_phone: string
+  father_phone: string
+  mother_phone: string
   school: string
   grade: string
   memo: string
@@ -45,12 +46,13 @@ export function StudentFormDialog({ open, onClose, editTarget }: Props) {
         ? {
             name: editTarget.name,
             phone: editTarget.phone ?? '',
-            parent_phone: editTarget.parent_phone ?? '',
+            father_phone: editTarget.father_phone ?? '',
+            mother_phone: editTarget.mother_phone ?? '',
             school: editTarget.school ?? '',
             grade: editTarget.grade ?? '',
             memo: editTarget.memo ?? '',
           }
-        : { name: '', phone: '', parent_phone: '', school: '', grade: '', memo: '' }
+        : { name: '', phone: '', father_phone: '', mother_phone: '', school: '', grade: '', memo: '' }
       )
     }
   }, [open, editTarget, reset])
@@ -106,14 +108,19 @@ export function StudentFormDialog({ open, onClose, editTarget }: Props) {
             </div>
           </div>
 
+          <div className="space-y-2">
+            <Label htmlFor="phone">학생 연락처</Label>
+            <Input id="phone" placeholder="010-0000-0000" {...register('phone')} />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label htmlFor="phone">학생 연락처</Label>
-              <Input id="phone" placeholder="010-0000-0000" {...register('phone')} />
+              <Label htmlFor="father_phone">아버지 연락처</Label>
+              <Input id="father_phone" placeholder="010-0000-0000" {...register('father_phone')} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="parent_phone">학부모 연락처</Label>
-              <Input id="parent_phone" placeholder="010-0000-0000" {...register('parent_phone')} />
+              <Label htmlFor="mother_phone">어머니 연락처</Label>
+              <Input id="mother_phone" placeholder="010-0000-0000" {...register('mother_phone')} />
             </div>
           </div>
 
