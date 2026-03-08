@@ -2,27 +2,36 @@
 
 import { use } from 'react'
 import Link from 'next/link'
-import { ChevronLeft } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { ChevronRight } from 'lucide-react'
 import { GradeGrid } from '@/components/grade/grade-grid'
 import { useWeek } from '@/hooks/use-weeks'
+import { useClass } from '@/hooks/use-classes'
 
 export default function GradePage({ params }: { params: Promise<{ classId: string; weekId: string }> }) {
   const { classId, weekId } = use(params)
   const { data: week, isLoading } = useWeek(weekId)
+  const { data: cls } = useClass(classId)
 
   if (isLoading) return <div className="h-8 w-48 animate-pulse rounded bg-gray-100" />
   if (!week) return <p className="text-sm text-gray-500">주차 정보를 찾을 수 없습니다</p>
 
   return (
     <div>
-      <div className="mb-6 flex items-center gap-2">
-        <Button variant="ghost" size="sm" asChild>
-          <Link href={`/dashboard/${classId}/weeks/${weekId}`}>
-            <ChevronLeft className="h-4 w-4" />
-            {week.week_number}주차 설정
-          </Link>
-        </Button>
+      {/* Breadcrumb */}
+      <div className="mb-6 flex items-center gap-1 text-sm text-gray-500">
+        <Link href="/dashboard" className="hover:text-gray-700 transition-colors">
+          수업 목록
+        </Link>
+        <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+        <Link href={`/dashboard/${classId}`} className="hover:text-gray-700 transition-colors">
+          {cls?.name ?? '수업'}
+        </Link>
+        <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+        <Link href={`/dashboard/${classId}/weeks/${weekId}`} className="hover:text-gray-700 transition-colors">
+          {week.week_number}주차
+        </Link>
+        <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+        <span className="text-gray-900 font-medium">채점</span>
       </div>
 
       <div className="mb-6">

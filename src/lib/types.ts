@@ -11,7 +11,8 @@ export interface Student {
   teacher_id: string;
   name: string;
   phone: string | null;
-  parent_phone: string | null;
+  father_phone: string | null;
+  mother_phone: string | null;
   school: string | null;
   grade: string | null;
   memo: string | null;

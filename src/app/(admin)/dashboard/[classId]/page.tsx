@@ -2,15 +2,16 @@
 
 import { use, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, UserPlus, UserMinus, Users, Settings } from 'lucide-react'
+import { ChevronLeft, UserPlus, UserMinus, Users, CalendarPlus, ClipboardList, Link as LinkIcon } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Class, ClassStudent, Student } from '@/lib/types'
+import { toast } from 'sonner'
 import { useClassStudents, useStudents, useAddClassStudent, useRemoveClassStudent } from '@/hooks/use-students'
-import { useWeeks } from '@/hooks/use-weeks'
+import { useWeeks, useCreateWeek } from '@/hooks/use-weeks'
 
 async function fetchClass(id: string): Promise<Class> {
   const res = await fetch(`/api/classes/${id}`)
@@ -31,12 +32,19 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   const { data: weeks = [] } = useWeeks(classId)
   const addStudent = useAddClassStudent(classId)
   const removeStudent = useRemoveClassStudent(classId)
+  const createWeek = useCreateWeek(classId)
 
   const enrolledIds = new Set((classStudents as ClassStudent[]).map((cs) => cs.student_id))
   const unenrolled = (allStudents as Student[]).filter((s) => !enrolledIds.has(s.id))
 
   function handleRemove(studentId: string) {
     if (confirm('수업에서 학생을 제거하시겠습니까?')) removeStudent.mutate(studentId)
+  }
+
+  function handleCopyLink(token: string) {
+    const url = `${window.location.origin}/share/${token}`
+    navigator.clipboard.writeText(url)
+    toast.success('공유 링크가 복사되었습니다')
   }
 
   if (classLoading) return <div className="h-8 w-48 rounded bg-gray-100 animate-pulse" />
@@ -101,14 +109,27 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
                         </p>
                       )}
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 px-2 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-600"
-                      onClick={() => handleRemove(cs.student_id)}
-                    >
-                      <UserMinus className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      {cs.student?.share_token && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-blue-400 hover:text-blue-600"
+                          onClick={() => handleCopyLink(cs.student!.share_token!)}
+                          title="학부모 공유 링크 복사"
+                        >
+                          <LinkIcon className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-600"
+                        onClick={() => handleRemove(cs.student_id)}
+                      >
+                        <UserMinus className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -118,9 +139,19 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
 
         {/* 주차 탭 */}
         <TabsContent value="weeks">
+          <div className="flex justify-end mb-3">
+            <Button size="sm" variant="outline" onClick={() => createWeek.mutate()} disabled={createWeek.isPending}>
+              <CalendarPlus className="mr-1.5 h-4 w-4" />
+              주차 추가
+            </Button>
+          </div>
+
           {weeks.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-12 text-center">
-              <p className="text-sm text-gray-500">주차 정보가 없어요</p>
+              <p className="text-sm text-gray-500">아직 주차가 없어요</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => createWeek.mutate()} disabled={createWeek.isPending}>
+                1주차 추가하기
+              </Button>
             </div>
           ) : (
             <div className="space-y-2">
@@ -140,8 +171,8 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
                     </div>
                     <Button size="sm" variant="outline" className="h-7 px-3" asChild>
                       <Link href={`/dashboard/${classId}/weeks/${week.id}`}>
-                        <Settings className="mr-1.5 h-3.5 w-3.5" />
-                        설정
+                        <ClipboardList className="mr-1.5 h-3.5 w-3.5" />
+                        채점/설정
                       </Link>
                     </Button>
                   </CardContent>

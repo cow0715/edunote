@@ -5,7 +5,8 @@ import { toast } from 'sonner'
 type StudentBody = {
   name: string
   phone: string
-  parent_phone: string
+  father_phone: string
+  mother_phone: string
   school: string
   grade: string
   memo: string

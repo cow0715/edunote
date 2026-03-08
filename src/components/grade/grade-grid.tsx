@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useGradeData, useSaveGrade, GradeRow } from '@/hooks/use-grade'
@@ -44,6 +45,8 @@ export function GradeGrid({ weekId, vocabTotal, homeworkTotal }: Props) {
   const { data, isLoading } = useGradeData(weekId)
   const saveGrade = useSaveGrade(weekId)
   const [rows, setRows] = useState<GradeRow[]>([])
+  const [savedAt, setSavedAt] = useState<Date | null>(null)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (!data) return
@@ -213,9 +216,29 @@ export function GradeGrid({ weekId, vocabTotal, homeworkTotal }: Props) {
         <p className="text-xs text-gray-400">
           출석 {rows.filter((r) => r.present).length} / 전체 {rows.length}명
         </p>
-        <Button onClick={() => saveGrade.mutate(rows)} disabled={saveGrade.isPending}>
-          {saveGrade.isPending ? '저장 중...' : '채점 저장'}
-        </Button>
+        <div className="flex items-center gap-3">
+          {savedAt && (
+            <span className="flex items-center gap-1 text-xs text-green-600">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              저장됨 ({savedAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })})
+            </span>
+          )}
+          <Button
+            onClick={() => {
+              saveGrade.mutate(rows, {
+                onSuccess: () => {
+                  const now = new Date()
+                  setSavedAt(now)
+                  if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+                  savedTimerRef.current = setTimeout(() => setSavedAt(null), 10000)
+                },
+              })
+            }}
+            disabled={saveGrade.isPending}
+          >
+            {saveGrade.isPending ? '저장 중...' : '채점 저장'}
+          </Button>
+        </div>
       </div>
     </div>
   )

@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, ClipboardList, Settings } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ClipboardList, Settings } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { WeekResultTable } from '@/components/grade/week-result-table'
 import { ExamSetupForm } from '@/components/exam/exam-setup-form'
 import { useWeek, useUpdateWeek } from '@/hooks/use-weeks'
+import { useClass } from '@/hooks/use-classes'
 
 interface WeekFormValues {
   start_date: string
@@ -24,6 +25,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   const { data: week, isLoading } = useWeek(weekId)
+  const { data: cls } = useClass(classId)
   const updateWeek = useUpdateWeek(weekId)
 
   const { register, handleSubmit, reset } = useForm<WeekFormValues>()
@@ -52,14 +54,17 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
 
   return (
     <div>
-      {/* 뒤로가기 */}
-      <div className="mb-6 flex items-center gap-2">
-        <Button variant="ghost" size="sm" asChild>
-          <Link href={`/dashboard/${classId}`}>
-            <ChevronLeft className="h-4 w-4" />
-            수업으로 돌아가기
-          </Link>
-        </Button>
+      {/* Breadcrumb */}
+      <div className="mb-6 flex items-center gap-1 text-sm text-gray-500">
+        <Link href="/dashboard" className="hover:text-gray-700 transition-colors">
+          수업 목록
+        </Link>
+        <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+        <Link href={`/dashboard/${classId}`} className="hover:text-gray-700 transition-colors">
+          {cls?.name ?? '수업'}
+        </Link>
+        <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+        <span className="text-gray-900 font-medium">{week?.week_number}주차</span>
       </div>
 
       {/* 헤더 */}

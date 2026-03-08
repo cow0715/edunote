@@ -12,6 +12,18 @@ export function useClasses() {
   return useQuery({ queryKey: ['classes'], queryFn: fetchClasses })
 }
 
+export function useClass(classId: string) {
+  return useQuery<Class>({
+    queryKey: ['class', classId],
+    queryFn: async () => {
+      const res = await fetch(`/api/classes/${classId}`)
+      if (!res.ok) throw new Error('수업 조회 실패')
+      return res.json()
+    },
+    enabled: !!classId,
+  })
+}
+
 export function useCreateClass() {
   const qc = useQueryClient()
   return useMutation({

@@ -37,11 +37,11 @@ export async function POST(request: Request) {
   const teacherId = await getTeacherId(supabase, user.id)
   if (!teacherId) return NextResponse.json({ error: '강사 정보 없음' }, { status: 404 })
 
-  const { name, phone, parent_phone, school, grade, memo } = await request.json()
+  const { name, phone, father_phone, mother_phone, school, grade, memo } = await request.json()
 
   const { data, error } = await supabase
     .from('student')
-    .insert({ teacher_id: teacherId, name, phone, parent_phone, school, grade, memo })
+    .insert({ teacher_id: teacherId, name, phone, father_phone, mother_phone, school, grade, memo })
     .select()
     .single()
 

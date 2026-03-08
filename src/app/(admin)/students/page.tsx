@@ -82,23 +82,30 @@ export default function StudentsPage() {
                           <School className="h-3 w-3" />{s.school ? `${s.school} ` : ''}{s.grade}
                         </span>
                       )}
-                      {s.parent_phone && (
+                      {s.father_phone && (
                         <span className="flex items-center gap-1 text-xs text-gray-400">
-                          <Phone className="h-3 w-3" />{s.parent_phone}
+                          <Phone className="h-3 w-3" />부 {s.father_phone}
+                        </span>
+                      )}
+                      {s.mother_phone && (
+                        <span className="flex items-center gap-1 text-xs text-gray-400">
+                          <Phone className="h-3 w-3" />모 {s.mother_phone}
                         </span>
                       )}
                     </div>
                   </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex gap-1">
                     <Button size="sm" variant="outline" className="h-7 px-2 text-blue-500 hover:text-blue-600" onClick={() => handleCopyLink(s.share_token)} title="학부모 공유 링크 복사">
                       <Link className="h-3.5 w-3.5" />
                     </Button>
-                    <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => handleEdit(s)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-7 px-2 text-red-500 hover:text-red-600" onClick={() => handleDelete(s.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => handleEdit(s)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-7 px-2 text-red-500 hover:text-red-600" onClick={() => handleDelete(s.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
