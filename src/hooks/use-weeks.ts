@@ -72,32 +72,4 @@ export function useExamQuestions(weekId: string) {
   })
 }
 
-export type QuestionPayload = {
-  question_number: number
-  correct_answer: number
-  question_type_id: string | null
-  concept_tag_id: string | null
-  exam_type: 'vocab' | 'reading'
-  choices: { choice_number: number; concept_tag_id: string | null }[]
-}
-
-export function useSaveExamQuestions(weekId: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (questions: QuestionPayload[]) => {
-      const res = await fetch(`/api/weeks/${weekId}/questions`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(questions),
-      })
-      if (!res.ok) throw new Error((await res.json()).error)
-      return res.json()
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['exam-questions', weekId] })
-      toast.success('시험 문항이 저장되었습니다')
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-}
 

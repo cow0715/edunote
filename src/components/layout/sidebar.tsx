@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
-import { BookOpen, Users, LogOut, GraduationCap, Tag } from 'lucide-react'
+import { BookOpen, Users, LogOut, GraduationCap, Tag, MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 
@@ -12,6 +12,7 @@ const navItems = [
   { href: '/dashboard', label: '수업 목록', icon: BookOpen },
   { href: '/students', label: '학생 관리', icon: Users },
   { href: '/concept-tags', label: '문제 유형', icon: Tag },
+  { href: '/messages', label: '메시지 내역', icon: MessageSquare },
 ]
 
 export function Sidebar() {

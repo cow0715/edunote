@@ -3,7 +3,7 @@
 import { use } from 'react'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
-import { GraduationCap, TrendingUp, TrendingDown, Minus, BookOpen, BookText, ClipboardCheck, Calendar } from 'lucide-react'
+import { GraduationCap, TrendingUp, TrendingDown, Minus, BookOpen, BookText, ClipboardCheck, Calendar, UserCheck } from 'lucide-react'
 import { TrendItem } from '@/components/share/score-trend-chart'
 
 const ScoreTrendChart = dynamic(
@@ -26,10 +26,10 @@ type StudentAnswer = {
     id: string
     week_id: string
     exam_type: 'reading' | 'vocab' | null
-    question_type: { id: string; name: string } | null
     concept_tag: { id: string; name: string } | null
   } | null
 }
+type AttendanceRecord = { id: string; class_id: string; date: string; status: 'present' | 'late' | 'absent' }
 type ShareData = {
   student: { id: string; name: string; school: string | null; grade: string | null }
   classes: { id: string; name: string }[]
@@ -37,6 +37,7 @@ type ShareData = {
   weekScores: WeekScore[]
   studentAnswers: StudentAnswer[]
   questions: { id: string; week_id: string }[]
+  attendance: AttendanceRecord[]
 }
 
 function useShareData(token: string) {
@@ -97,7 +98,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     </div>
   )
 
-  const { student, classes, weeks, weekScores, studentAnswers } = data
+  const { student, classes, weeks, weekScores, studentAnswers, attendance = [] } = data
 
   // 기본 맵
   const scoreMap = new Map(weekScores.map((s) => [s.week_id, s]))
@@ -144,6 +145,13 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     ? readingRates[readingRates.length - 1] - readingRates[readingRates.length - 2]
     : null
 
+  // ── 출결 통계 ──────────────────────────────────────────────────────
+  const totalAttendance = attendance.length
+  const presentCount = attendance.filter((a) => a.status === 'present').length
+  const lateCount = attendance.filter((a) => a.status === 'late').length
+  const absentCount = attendance.filter((a) => a.status === 'absent').length
+  const recentAttendance = [...attendance].slice(0, 8)
+
   // ── 최신 주차 하이라이트 ───────────────────────────────────────────
   const latestWeek = scoredWeeks.length > 0 ? scoredWeeks[scoredWeeks.length - 1] : null
   const latestScore = latestWeek ? scoreMap.get(latestWeek.id)! : null
@@ -157,7 +165,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   studentAnswers
     .filter((a) => a.exam_question?.exam_type === 'reading')
     .forEach((a) => {
-      const typeName = a.exam_question?.concept_tag?.name ?? a.exam_question?.question_type?.name
+      const typeName = a.exam_question?.concept_tag?.name
       if (!typeName) return
       const entry = typeWrongMap.get(typeName) ?? { name: typeName, wrong: 0, total: 0 }
       entry.total += 1
@@ -238,6 +246,15 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                 value={`${avgHomework}%`}
                 icon={<ClipboardCheck className="h-4 w-4 text-amber-600" />}
                 color="bg-amber-50"
+              />
+            )}
+            {totalAttendance > 0 && (
+              <StatCard
+                label="출석률"
+                value={`${Math.round(((presentCount + lateCount) / totalAttendance) * 100)}%`}
+                sub={`결석 ${absentCount}회`}
+                icon={<UserCheck className="h-4 w-4 text-purple-600" />}
+                color="bg-purple-50"
               />
             )}
             <StatCard
@@ -395,6 +412,37 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                   </div>
                 )
               })}
+            </div>
+          </div>
+        )}
+
+        {/* 출결 이력 */}
+        {recentAttendance.length > 0 && (
+          <div className="rounded-xl border bg-white p-5">
+            <h2 className="mb-4 font-semibold text-gray-800">최근 출결</h2>
+            <div className="flex flex-wrap gap-2">
+              {recentAttendance.map((a) => {
+                const statusLabel = a.status === 'present' ? '출석' : a.status === 'late' ? '지각' : '결석'
+                const statusStyle = a.status === 'present'
+                  ? 'bg-green-50 text-green-700 border-green-100'
+                  : a.status === 'late'
+                  ? 'bg-amber-50 text-amber-700 border-amber-100'
+                  : 'bg-red-50 text-red-700 border-red-100'
+                return (
+                  <div key={a.id} className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs ${statusStyle}`}>
+                    <span className="font-medium">{new Date(a.date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}</span>
+                    <span>{statusLabel}</span>
+                  </div>
+                )
+              })}
+            </div>
+            {totalAttendance > 8 && (
+              <p className="mt-3 text-xs text-gray-400">최근 8회 표시 · 전체 {totalAttendance}회</p>
+            )}
+            <div className="mt-3 flex gap-3 border-t pt-3 text-xs text-gray-500">
+              <span>출석 <strong className="text-green-600">{presentCount}</strong>회</span>
+              <span>지각 <strong className="text-amber-600">{lateCount}</strong>회</span>
+              <span>결석 <strong className="text-red-500">{absentCount}</strong>회</span>
             </div>
           </div>
         )}

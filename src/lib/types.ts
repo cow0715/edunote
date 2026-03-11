@@ -27,6 +27,7 @@ export interface Class {
   description: string | null;
   start_date: string;
   end_date: string;
+  schedule_days: string[];
   created_at: string;
 }
 
@@ -45,14 +46,6 @@ export interface Week {
   start_date: string | null;
   vocab_total: number;
   homework_total: number;
-  created_at: string;
-}
-
-export interface QuestionType {
-  id: string;
-  teacher_id: string;
-  name: string;
-  sort_order: number;
   created_at: string;
 }
 
@@ -87,11 +80,12 @@ export interface ExamQuestion {
   week_id: string;
   question_number: number;
   correct_answer: number;
-  question_type_id: string | null;
+  correct_answer_text: string | null;
+  grading_criteria: string | null;
   concept_tag_id: string | null;
   exam_type: 'vocab' | 'reading';
+  question_style: 'objective' | 'subjective';
   created_at: string;
-  question_type?: QuestionType;
   concept_tag?: ConceptTag;
   exam_question_choice?: ExamQuestionChoice[];
 }
@@ -112,9 +106,32 @@ export interface StudentAnswer {
   week_score_id: string;
   exam_question_id: string;
   student_answer: number | null;
+  student_answer_text: string | null;
   is_correct: boolean;
+  ai_feedback: string | null;
   created_at: string;
   exam_question?: ExamQuestion;
+}
+
+export interface Attendance {
+  id: string;
+  class_id: string;
+  student_id: string;
+  date: string;
+  status: 'present' | 'late' | 'absent';
+  note: string | null;
+  created_at: string;
+  student?: Student;
+}
+
+export interface MessageLog {
+  id: string;
+  student_id: string;
+  week_id: string;
+  message: string;
+  sent_at: string;
+  student?: Student;
+  week?: Week & { class?: Class };
 }
 
 // 채점 현황 조회용 집계 타입
@@ -143,5 +160,4 @@ export interface ShareData {
       questions: ExamQuestion[];
     }>;
   }>;
-  question_types: QuestionType[];
 }
