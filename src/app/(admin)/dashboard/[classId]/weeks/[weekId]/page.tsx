@@ -22,6 +22,7 @@ import { generateSessionDates } from '@/lib/schedule'
 interface WeekFormValues {
   start_date: string
   vocab_total: number
+  reading_total: number
   homework_total: number
 }
 
@@ -42,6 +43,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
       reset({
         start_date: week.start_date ?? '',
         vocab_total: week.vocab_total,
+        reading_total: week.reading_total,
         homework_total: week.homework_total,
       })
     }
@@ -51,6 +53,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
     await updateWeek.mutateAsync({
       start_date: values.start_date,
       vocab_total: Number(values.vocab_total),
+      reading_total: Number(values.reading_total),
       homework_total: Number(values.homework_total),
     })
     setSettingsOpen(false)
@@ -60,6 +63,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
     await updateWeek.mutateAsync({
       start_date: values.start_date,
       vocab_total: Number(values.vocab_total),
+      reading_total: Number(values.reading_total),
       homework_total: Number(values.homework_total),
     })
   }
@@ -117,7 +121,10 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
       {/* 메인: 결과 현황 */}
       <WeekResultTable
         weekId={weekId}
+        classId={classId}
+        startDate={week.start_date}
         vocabTotal={week.vocab_total}
+        readingTotal={week.reading_total}
         homeworkTotal={week.homework_total}
       />
 
@@ -141,7 +148,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
                   <Label htmlFor="start_date">수업일</Label>
                   <Input id="start_date" type="date" className="w-48" {...register('start_date')} />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="vocab_total">단어시험 총 개수</Label>
                     <div className="flex items-center gap-2">
@@ -151,6 +158,19 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
                         min={0}
                         className="w-24"
                         {...register('vocab_total', { valueAsNumber: true })}
+                      />
+                      <span className="text-sm text-gray-400">개</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="reading_total">진단평가 총 개수</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="reading_total"
+                        type="number"
+                        min={0}
+                        className="w-24"
+                        {...register('reading_total', { valueAsNumber: true })}
                       />
                       <span className="text-sm text-gray-400">개</span>
                     </div>

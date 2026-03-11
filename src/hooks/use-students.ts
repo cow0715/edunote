@@ -76,6 +76,7 @@ export function useClassStudents(classId: string) {
       if (!res.ok) throw new Error('수업 학생 조회 실패')
       return res.json()
     },
+    enabled: !!classId,
   })
 }
 
