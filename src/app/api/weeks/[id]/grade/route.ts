@@ -52,6 +52,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     student_name: string
     present: boolean
     vocab_correct: number
+    reading_correct: number
     homework_done: number
     memo: string
     answers: {
@@ -87,7 +88,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const { data: score, error: scoreError } = await supabase
       .from('week_score')
       .upsert(
-        { week_id: weekId, student_id: row.student_id, vocab_correct: row.vocab_correct, homework_done: row.homework_done, memo: row.memo || null },
+        { week_id: weekId, student_id: row.student_id, vocab_correct: row.vocab_correct, reading_correct: row.reading_correct, homework_done: row.homework_done, memo: row.memo || null },
         { onConflict: 'week_id,student_id' }
       )
       .select()

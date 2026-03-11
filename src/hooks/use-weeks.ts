@@ -43,7 +43,7 @@ export function useWeek(weekId: string) {
 export function useUpdateWeek(weekId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (body: { start_date: string; vocab_total: number; homework_total: number }) => {
+    mutationFn: async (body: { start_date: string; vocab_total: number; reading_total: number; homework_total: number }) => {
       const res = await fetch(`/api/weeks/${weekId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

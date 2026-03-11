@@ -29,11 +29,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
 
-  const { start_date, vocab_total, homework_total } = await request.json()
+  const { start_date, vocab_total, reading_total, homework_total } = await request.json()
 
   const { data, error } = await supabase
     .from('week')
-    .update({ start_date, vocab_total, homework_total })
+    .update({ start_date, vocab_total, reading_total, homework_total })
     .eq('id', id)
     .select()
     .single()

@@ -32,6 +32,7 @@ function StudentCard({
   row,
   questions,
   vocabTotal,
+  readingTotal,
   homeworkTotal,
   onChange,
   onAnswerChange,
@@ -40,6 +41,7 @@ function StudentCard({
   row: GradeRow
   questions: ExamQuestion[]
   vocabTotal: number
+  readingTotal: number
   homeworkTotal: number
   onChange: (key: keyof GradeRow, value: unknown) => void
   onAnswerChange: (questionId: string, value: number | null) => void
@@ -67,7 +69,7 @@ function StudentCard({
 
       {open && (
         <div className="border-t px-4 py-3 space-y-4">
-          {/* 단어 + 숙제 */}
+          {/* 단어 + 진단평가 + 숙제 */}
           <div className="flex gap-6">
             {vocabTotal > 0 && (
               <div className="space-y-1">
@@ -83,6 +85,20 @@ function StudentCard({
                 />
               </div>
             )}
+            {readingTotal > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs text-gray-400">진단평가 <span className="text-gray-300">/{readingTotal}</span></p>
+                <Input
+                  type="number"
+                  min={0}
+                  max={readingTotal}
+                  value={row.reading_correct}
+                  onChange={(e) => onChange('reading_correct', Number(e.target.value))}
+                  disabled={!row.present}
+                  className="h-8 w-20 text-center"
+                />
+              </div>
+            )}
             {homeworkTotal > 0 && (
               <div className="space-y-1">
                 <p className="text-xs text-gray-400">숙제 <span className="text-gray-300">/{homeworkTotal}</span></p>
@@ -90,6 +106,7 @@ function StudentCard({
                   type="number"
                   min={0}
                   max={homeworkTotal}
+                  step={0.5}
                   value={row.homework_done}
                   onChange={(e) => onChange('homework_done', Number(e.target.value))}
                   disabled={!row.present}
@@ -177,10 +194,11 @@ function StudentCard({
 interface Props {
   weekId: string
   vocabTotal: number
+  readingTotal: number
   homeworkTotal: number
 }
 
-export function GradeGrid({ weekId, vocabTotal, homeworkTotal }: Props) {
+export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal }: Props) {
   const { data, isLoading } = useGradeData(weekId)
   const saveGrade = useSaveGrade(weekId)
   const [rows, setRows] = useState<GradeRow[]>([])
@@ -203,6 +221,7 @@ export function GradeGrid({ weekId, vocabTotal, homeworkTotal }: Props) {
       student_id: string
       id: string
       vocab_correct: number
+      reading_correct: number
       homework_done: number
       memo: string | null
       student_answer: SavedAnswer[]
@@ -220,6 +239,7 @@ export function GradeGrid({ weekId, vocabTotal, homeworkTotal }: Props) {
           student_name: cs.student?.name ?? '',
           present: true,                    // 기본값 true (채점 포함)
           vocab_correct: score?.vocab_correct ?? 0,
+          reading_correct: score?.reading_correct ?? 0,
           homework_done: score?.homework_done ?? 0,
           memo: score?.memo ?? '',
           answers: (questions ?? []).map((q: ExamQuestion) => {
@@ -287,6 +307,7 @@ export function GradeGrid({ weekId, vocabTotal, homeworkTotal }: Props) {
           questions={questions}
           vocabTotal={vocabTotal}
           homeworkTotal={homeworkTotal}
+          readingTotal={readingTotal}
           onChange={(key, value) => updateRow(row.student_id, key, value)}
           onAnswerChange={(qId, value) => updateAnswer(row.student_id, qId, value)}
           onAnswerTextChange={(qId, text) => updateAnswerText(row.student_id, qId, text)}

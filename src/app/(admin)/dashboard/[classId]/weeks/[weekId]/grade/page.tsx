@@ -46,6 +46,7 @@ export default function GradePage({ params }: { params: Promise<{ classId: strin
       <GradeGrid
         weekId={weekId}
         vocabTotal={week.vocab_total}
+        readingTotal={week.reading_total}
         homeworkTotal={week.homework_total}
       />
     </div>

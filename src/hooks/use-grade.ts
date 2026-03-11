@@ -6,6 +6,7 @@ export type GradeRow = {
   student_name: string
   present: boolean
   vocab_correct: number
+  reading_correct: number
   homework_done: number
   memo: string
   answers: { exam_question_id: string; student_answer: number | null; student_answer_text?: string; is_correct?: boolean; ai_feedback?: string }[]

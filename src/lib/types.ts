@@ -45,6 +45,7 @@ export interface Week {
   week_number: number;
   start_date: string | null;
   vocab_total: number;
+  reading_total: number;
   homework_total: number;
   created_at: string;
 }
@@ -95,6 +96,7 @@ export interface WeekScore {
   week_id: string;
   student_id: string;
   vocab_correct: number;
+  reading_correct: number;
   homework_done: number;
   memo: string | null;
   created_at: string;
