@@ -49,7 +49,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
   const { data: studentAnswers } = scoreIds.length > 0
     ? await supabase
         .from('student_answer')
-        .select('id, week_score_id, is_correct, student_answer, exam_question(id, week_id, exam_type, question_type(id, name), concept_tag(id, name))')
+        .select('id, week_score_id, is_correct, student_answer, exam_question(id, week_id, exam_type, concept_tag(id, name))')
         .in('week_score_id', scoreIds)
     : { data: [] }
 
@@ -62,6 +62,16 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
         .order('question_number')
     : { data: [] }
 
+  // 출결 데이터
+  const { data: attendanceRecords } = classIds.length > 0
+    ? await supabase
+        .from('attendance')
+        .select('id, class_id, date, status')
+        .in('class_id', classIds)
+        .eq('student_id', student.id)
+        .order('date', { ascending: false })
+    : { data: [] }
+
   return NextResponse.json({
     student,
     classes,
@@ -69,5 +79,6 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
     weekScores: weekScores ?? [],
     studentAnswers: studentAnswers ?? [],
     questions: questions ?? [],
+    attendance: attendanceRecords ?? [],
   })
 }

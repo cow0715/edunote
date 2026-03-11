@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -23,10 +23,21 @@ interface Props {
   editTarget?: Class
 }
 
+const DAYS = [
+  { key: 'mon', label: '월' },
+  { key: 'tue', label: '화' },
+  { key: 'wed', label: '수' },
+  { key: 'thu', label: '목' },
+  { key: 'fri', label: '금' },
+  { key: 'sat', label: '토' },
+  { key: 'sun', label: '일' },
+]
+
 export function ClassFormDialog({ open, onClose, editTarget }: Props) {
   const isEdit = !!editTarget
   const createClass = useCreateClass()
   const updateClass = useUpdateClass()
+  const [scheduleDays, setScheduleDays] = useState<string[]>([])
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>()
 
@@ -41,14 +52,21 @@ export function ClassFormDialog({ open, onClose, editTarget }: Props) {
           }
         : { name: '', description: '', start_date: '', end_date: '' }
       )
+      setScheduleDays(editTarget?.schedule_days ?? [])
     }
   }, [open, editTarget, reset])
 
+  function toggleDay(day: string) {
+    setScheduleDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+    )
+  }
+
   async function onSubmit(values: FormValues) {
     if (isEdit && editTarget) {
-      await updateClass.mutateAsync({ id: editTarget.id, ...values })
+      await updateClass.mutateAsync({ id: editTarget.id, ...values, schedule_days: scheduleDays })
     } else {
-      await createClass.mutateAsync(values)
+      await createClass.mutateAsync({ ...values, schedule_days: scheduleDays })
     }
     onClose()
   }
@@ -102,6 +120,31 @@ export function ClassFormDialog({ open, onClose, editTarget }: Props) {
               />
               {errors.end_date && <p className="text-xs text-red-500">{errors.end_date.message}</p>}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>수업 요일</Label>
+            <div className="flex gap-1.5">
+              {DAYS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => toggleDay(key)}
+                  className={`flex h-9 w-9 items-center justify-center rounded-lg text-sm font-medium transition-colors border
+                    ${scheduleDays.includes(key)
+                      ? 'bg-primary text-white border-primary'
+                      : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                    }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {scheduleDays.length > 0 && (
+              <p className="text-xs text-gray-400">
+                주 {scheduleDays.length}회 · 선택된 요일로 주차가 자동 생성됩니다
+              </p>
+            )}
           </div>
 
           <div className="flex justify-end gap-2 pt-2">

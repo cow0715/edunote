@@ -10,9 +10,14 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { WeekResultTable } from '@/components/grade/week-result-table'
-import { ExamSetupForm } from '@/components/exam/exam-setup-form'
+import { SmsSheet } from '@/components/grade/sms-sheet'
+import { AttendanceManager } from '@/components/attendance/attendance-manager'
+import { AnswerSheetUploader } from '@/components/grade/answer-sheet-uploader'
 import { useWeek, useUpdateWeek } from '@/hooks/use-weeks'
 import { useClass } from '@/hooks/use-classes'
+import { useClassStudents } from '@/hooks/use-students'
+import { ClassStudent } from '@/lib/types'
+import { generateSessionDates } from '@/lib/schedule'
 
 interface WeekFormValues {
   start_date: string
@@ -26,9 +31,11 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
 
   const { data: week, isLoading } = useWeek(weekId)
   const { data: cls } = useClass(classId)
+  const { data: classStudents = [] } = useClassStudents(classId)
   const updateWeek = useUpdateWeek(weekId)
 
-  const { register, handleSubmit, reset } = useForm<WeekFormValues>()
+  const [activeTab, setActiveTab] = useState('basic')
+  const { register, handleSubmit, reset, formState: { isDirty } } = useForm<WeekFormValues>()
 
   useEffect(() => {
     if (week) {
@@ -47,6 +54,21 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
       homework_total: Number(values.homework_total),
     })
     setSettingsOpen(false)
+  }
+
+  async function onSubmitWithoutClose(values: WeekFormValues) {
+    await updateWeek.mutateAsync({
+      start_date: values.start_date,
+      vocab_total: Number(values.vocab_total),
+      homework_total: Number(values.homework_total),
+    })
+  }
+
+  function handleTabChange(value: string) {
+    if (activeTab === 'basic' && value !== 'basic' && isDirty) {
+      handleSubmit(onSubmitWithoutClose)()
+    }
+    setActiveTab(value)
   }
 
   if (isLoading) return <div className="h-8 w-48 animate-pulse rounded bg-gray-100" />
@@ -82,6 +104,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
             <Settings className="mr-2 h-4 w-4" />
             설정
           </Button>
+          <SmsSheet weekId={weekId} weekNumber={week.week_number} />
           <Button asChild>
             <Link href={`/dashboard/${classId}/weeks/${weekId}/grade`}>
               <ClipboardList className="mr-2 h-4 w-4" />
@@ -99,16 +122,17 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
       />
 
       {/* 설정 모달 */}
-      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="sm:max-w-2xl">
+      <Dialog open={settingsOpen} onOpenChange={(v) => { setSettingsOpen(v); if (!v) setActiveTab('basic') }}>
+        <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{week.week_number}주차 설정</DialogTitle>
           </DialogHeader>
 
-          <Tabs defaultValue="basic" className="pt-2">
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="pt-2">
             <TabsList className="w-full">
               <TabsTrigger value="basic" className="flex-1">기본 정보</TabsTrigger>
-              <TabsTrigger value="exam" className="flex-1">시험 문항</TabsTrigger>
+              <TabsTrigger value="answer-sheet" className="flex-1">해설지</TabsTrigger>
+              <TabsTrigger value="attendance" className="flex-1">출결</TabsTrigger>
             </TabsList>
 
             <TabsContent value="basic" className="space-y-4 pt-4">
@@ -153,8 +177,19 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
               </form>
             </TabsContent>
 
-            <TabsContent value="exam" className="pt-4">
-              <ExamSetupForm weekId={weekId} />
+            <TabsContent value="answer-sheet" className="pt-4">
+              <AnswerSheetUploader weekId={weekId} />
+            </TabsContent>
+
+            <TabsContent value="attendance" className="pt-4">
+              <AttendanceManager
+                classId={classId}
+                classStudents={classStudents as ClassStudent[]}
+                defaultDate={week.start_date ?? undefined}
+                scheduledDates={cls && (cls.schedule_days?.length ?? 0) > 0
+                  ? generateSessionDates(cls.start_date, cls.end_date, cls.schedule_days)
+                  : undefined}
+              />
             </TabsContent>
           </Tabs>
         </DialogContent>

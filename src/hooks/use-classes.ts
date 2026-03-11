@@ -24,10 +24,31 @@ export function useClass(classId: string) {
   })
 }
 
+export function useSyncWeeks(classId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (force: boolean) => {
+      const res = await fetch(`/api/classes/${classId}/weeks/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force }),
+      })
+      return res.json()
+    },
+    onSuccess: (data) => {
+      if (!data.warning) {
+        qc.invalidateQueries({ queryKey: ['weeks', classId] })
+        toast.success(`주차 동기화 완료 (총 ${data.total}회)`)
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
 export function useCreateClass() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (body: { name: string; description: string; start_date: string; end_date: string }) => {
+    mutationFn: async (body: { name: string; description: string; start_date: string; end_date: string; schedule_days: string[] }) => {
       const res = await fetch('/api/classes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -50,7 +71,7 @@ export function useCreateClass() {
 export function useUpdateClass() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, ...body }: { id: string; name: string; description: string; start_date: string; end_date: string }) => {
+    mutationFn: async ({ id, ...body }: { id: string; name: string; description: string; start_date: string; end_date: string; schedule_days: string[] }) => {
       const res = await fetch(`/api/classes/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

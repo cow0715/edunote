@@ -14,7 +14,17 @@ type ScoreRecord = {
   student_id: string
   vocab_correct: number
   homework_done: number
-  student_answer: { exam_question_id: string; student_answer: number | null; is_correct: boolean }[]
+  student_answer: {
+    exam_question_id: string
+    student_answer: number | null
+    student_answer_text: string | null
+    is_correct: boolean
+    ai_feedback: string | null
+  }[]
+}
+
+function questionLabel(q: ExamQuestion): string {
+  return q.concept_tag?.concept_category?.name ?? '문항'
 }
 
 function StatusBadge({ present, scored }: { present: boolean; scored: boolean }) {
@@ -43,11 +53,14 @@ export function WeekResultTable({ weekId, vocabTotal, homeworkTotal }: Props) {
             <th className="px-4 py-2.5 text-left">학생</th>
             {(questions as ExamQuestion[]).map((q) => (
               <th key={q.id} className="px-3 py-2.5 text-center">
-                {q.question_type?.name ?? '독해'} {q.question_number}번
+                {questionLabel(q)} {q.question_number}번
+                {q.question_style === 'subjective' && (
+                  <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-700">서술</span>
+                )}
               </th>
             ))}
             {questions.length > 0 && (
-              <th className="px-3 py-2.5 text-center">독해 합계</th>
+              <th className="px-3 py-2.5 text-center">합계</th>
             )}
             {vocabTotal > 0 && (
               <th className="px-3 py-2.5 text-center">단어정답</th>
@@ -78,14 +91,24 @@ export function WeekResultTable({ weekId, vocabTotal, homeworkTotal }: Props) {
                 {(questions as ExamQuestion[]).map((q) => {
                   const ans = score?.student_answer?.find((a) => a.exam_question_id === q.id)
                   return (
-                    <td key={q.id} className="px-3 py-3 text-center">
+                    <td key={q.id} className="px-3 py-3 text-center align-top">
                       {!present ? (
                         <span className="text-gray-300">-</span>
                       ) : ans ? (
-                        <span className={ans.is_correct ? 'font-semibold text-green-600' : 'text-red-500'}>
-                          {ans.student_answer ?? '-'}
-                          {ans.is_correct ? ' ✓' : ' ✗'}
-                        </span>
+                        q.question_style === 'subjective' ? (
+                          <div className="space-y-1 text-left">
+                            <p className="text-xs text-gray-500 leading-snug">{ans.student_answer_text ?? '-'}</p>
+                            <span className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-medium ${
+                              ans.is_correct ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
+                            }`}>
+                              {ans.is_correct ? '✓ 정답' : `✗ ${ans.ai_feedback || '오답'}`}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className={ans.is_correct ? 'font-semibold text-green-600' : 'text-red-500'}>
+                            {ans.student_answer ?? '-'}{ans.is_correct ? ' ✓' : ' ✗'}
+                          </span>
+                        )
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
