@@ -36,7 +36,7 @@ export function useSaveGrade(weekId: string) {
       return res.json()
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['grade', weekId] })
+      qc.refetchQueries({ queryKey: ['grade', weekId] })
       toast.success('채점이 저장되었습니다')
     },
     onError: (e: Error) => toast.error(e.message),

@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
-import { parseAnswerSheet, gradeSubjectiveAnswers, SubjectiveStudentAnswer } from '@/lib/anthropic'
+import { parseAnswerSheet, gradeSubjectiveAnswers, SubjectiveStudentAnswer, TagCategory } from '@/lib/anthropic'
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const supabase = await createClient()
@@ -9,13 +9,53 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
 
+  const { data: teacher } = await supabase.from('teacher').select('id').eq('auth_id', user.id).single()
+  const teacherId = teacher?.id ?? null
+
+  // 카테고리 + 태그 조회 (AI 프롬프트용 + 매칭용)
+  const tagList: { id: string; name: string }[] = []
+  const tagCategories: TagCategory[] = []
+
+  if (teacherId) {
+    const { data: categories } = await supabase
+      .from('concept_category')
+      .select('id, name')
+      .eq('teacher_id', teacherId)
+      .order('sort_order')
+
+    const { data: tags } = await supabase
+      .from('concept_tag')
+      .select('id, name, concept_category_id')
+      .eq('teacher_id', teacherId)
+      .order('sort_order')
+
+    for (const t of tags ?? []) tagList.push(t)
+
+    for (const cat of categories ?? []) {
+      const catTags = (tags ?? [])
+        .filter((t) => t.concept_category_id === cat.id)
+        .map((t) => t.name)
+      if (catTags.length > 0) tagCategories.push({ categoryName: cat.name, tags: catTags })
+    }
+  }
+
+  // AI가 정확한 태그명을 반환하므로 정확 일치 우선, 공백 무시 폴백
+  function matchTagId(questionType: string | null): string | null {
+    if (!questionType) return null
+    const exact = tagList.find((t) => t.name === questionType)
+    if (exact) return exact.id
+    const q = questionType.replace(/\s/g, '').toLowerCase()
+    const norm = tagList.find((t) => t.name.replace(/\s/g, '').toLowerCase() === q)
+    return norm?.id ?? null
+  }
+
   const { fileData, mimeType } = await request.json()
   if (!fileData || !mimeType) return NextResponse.json({ error: '파일 없음' }, { status: 400 })
 
   // ── 1. 해설지 파싱 ────────────────────────────────────────────────────
   let parsedAnswers
   try {
-    parsedAnswers = await parseAnswerSheet(fileData, mimeType)
+    parsedAnswers = await parseAnswerSheet(fileData, mimeType, tagCategories)
   } catch (e) {
     console.error('[parse-answers] 파싱 실패', e)
     return NextResponse.json({ error: '해설지 파싱 실패. 파일을 확인해주세요.' }, { status: 422 })
@@ -41,7 +81,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         week_id: weekId,
         exam_type: 'reading',
         question_number: a.question_number,
-        question_style: a.question_style,
+        question_style: (['objective', 'subjective'] as const).includes(a.question_style) ? a.question_style : 'objective',
+        concept_tag_id: matchTagId(a.question_type ?? null),
         correct_answer: a.correct_answer,
         correct_answer_text: a.correct_answer_text,
         grading_criteria: a.grading_criteria,
