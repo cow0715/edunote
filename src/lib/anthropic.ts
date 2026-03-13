@@ -107,15 +107,19 @@ JSON 배열만 출력 (다른 텍스트 없이):
 export type ParsedAnswer = {
   question_number: number
   question_style: 'objective' | 'subjective'
+  question_type: string | null        // 문제 유형명 (예: "빈칸", "순서", "글의 목적 파악")
   correct_answer: number          // 객관식: 1-5, 서술형: 0
   correct_answer_text: string | null  // 서술형 모범답안
   grading_criteria: string | null     // 서술형 채점 기준
   explanation: string | null          // 오답 해설 (SMS 활용)
 }
 
+export type TagCategory = { categoryName: string; tags: string[] }
+
 export async function parseAnswerSheet(
   fileData: string,  // base64
   mimeType: string,  // image/jpeg, image/png, application/pdf 등
+  tagCategories: TagCategory[] = [],
 ): Promise<ParsedAnswer[]> {
   const isImage = mimeType.startsWith('image/')
   const isPdf = mimeType === 'application/pdf'
@@ -126,6 +130,12 @@ export async function parseAnswerSheet(
 
   if (!isImage && !isPdf) throw new Error('지원하지 않는 파일 형식입니다 (PDF 또는 이미지만 가능)')
 
+  const tagListSection = tagCategories.length > 0
+    ? `\n아래 유형 목록에서 가장 적합한 것을 정확히 그대로 선택하세요:\n${
+        tagCategories.map((c) => `[${c.categoryName}]: ${c.tags.join(', ')}`).join('\n')
+      }\nquestion_type은 반드시 위 목록 중 하나를 정확히 그대로 입력하세요. 해당 없으면 null.\n`
+    : '\n- question_type: 해설지에 명시된 문제 유형명 한국어 추출. 없으면 null.\n'
+
   const prompt = `이 답안해설지에서 각 문항의 정답과 해설을 추출하세요.
 
 추출 규칙:
@@ -133,9 +143,11 @@ export async function parseAnswerSheet(
 - 서술형/주관식: correct_answer는 0, correct_answer_text에 모범답안 텍스트
 - explanation: 해당 문항의 오답 포인트나 해설 (없으면 null)
 - grading_criteria: 서술형 채점 기준 설명 (없으면 null)
+${tagListSection}
+question_style은 반드시 "objective"(객관식) 또는 "subjective"(서술형/주관식) 둘 중 하나만 사용하세요. 다른 값은 절대 사용하지 마세요.
 
 JSON 배열만 출력 (다른 텍스트 없이):
-[{"question_number":1,"question_style":"objective","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"..."}]`
+[{"question_number":1,"question_style":"objective","question_type":"가정법/조동사","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"..."}]`
 
   const res = await anthropic.messages.create({
     model: 'claude-opus-4-6',

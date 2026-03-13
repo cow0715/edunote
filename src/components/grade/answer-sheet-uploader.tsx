@@ -5,6 +5,7 @@ import { Upload, CheckCircle2, AlertTriangle, Loader2, FileText } from 'lucide-r
 import { Button } from '@/components/ui/button'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useGradeData } from '@/hooks/use-grade'
 
 interface Props {
   weekId: string
@@ -21,6 +22,11 @@ export function AnswerSheetUploader({ weekId }: Props) {
   const [file, setFile] = useState<File | null>(null)
   const [status, setStatus] = useState<Status>({ type: 'idle' })
   const qc = useQueryClient()
+  const { data: gradeData } = useGradeData(weekId)
+
+  const hasExistingAnswers = (gradeData?.weekScores ?? []).some(
+    (s: { student_answer?: unknown[] }) => (s.student_answer?.length ?? 0) > 0
+  )
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -31,6 +37,11 @@ export function AnswerSheetUploader({ weekId }: Props) {
 
   async function handleUpload() {
     if (!file) return
+
+    if (hasExistingAnswers) {
+      const ok = window.confirm('이미 입력된 학생 답안이 있습니다.\n해설지를 다시 올리면 기존 답안이 모두 삭제됩니다.\n계속하시겠습니까?')
+      if (!ok) return
+    }
 
     setStatus({ type: 'loading', step: 'Claude가 해설지를 읽는 중...' })
 

@@ -1,27 +1,46 @@
 'use client'
 
-import { use } from 'react'
+import { use, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
-import { GraduationCap, TrendingUp, TrendingDown, Minus, BookOpen, BookText, ClipboardCheck, Calendar, UserCheck } from 'lucide-react'
+import { GraduationCap, BookOpen, BookText, ClipboardCheck, UserCheck, ChevronDown, ChevronUp } from 'lucide-react'
 import { TrendItem } from '@/components/share/score-trend-chart'
+import { WeeklyBarItem } from '@/components/share/weekly-bar-chart'
 
 const ScoreTrendChart = dynamic(
   () => import('@/components/share/score-trend-chart').then((m) => m.ScoreTrendChart),
   { ssr: false }
 )
-const ConceptWeakChart = dynamic(
-  () => import('@/components/share/concept-weak-chart').then((m) => m.ConceptWeakChart),
+const WrongTypePieChart = dynamic(
+  () => import('@/components/share/wrong-type-pie-chart').then((m) => m.WrongTypePieChart),
+  { ssr: false }
+)
+const WeeklyBarChart = dynamic(
+  () => import('@/components/share/weekly-bar-chart').then((m) => m.WeeklyBarChart),
   { ssr: false }
 )
 
-type Week = { id: string; class_id: string; week_number: number; start_date: string | null; vocab_total: number; homework_total: number }
-type WeekScore = { id: string; week_id: string; vocab_correct: number; homework_done: number; memo: string | null }
+type Week = {
+  id: string
+  class_id: string
+  week_number: number
+  start_date: string | null
+  vocab_total: number
+  reading_total: number
+  homework_total: number
+}
+type WeekScore = {
+  id: string
+  week_id: string
+  reading_correct: number
+  vocab_correct: number
+  homework_done: number
+  memo: string | null
+}
 type StudentAnswer = {
   id: string
   week_score_id: string
   is_correct: boolean
-  student_answer: number | null
   exam_question: {
     id: string
     week_id: string
@@ -36,7 +55,6 @@ type ShareData = {
   weeks: Week[]
   weekScores: WeekScore[]
   studentAnswers: StudentAnswer[]
-  questions: { id: string; week_id: string }[]
   attendance: AttendanceRecord[]
 }
 
@@ -52,17 +70,11 @@ function useShareData(token: string) {
 }
 
 function StatCard({ label, value, sub, icon, color }: {
-  label: string
-  value: string
-  sub?: string
-  icon: React.ReactNode
-  color: string
+  label: string; value: string; sub?: string; icon: React.ReactNode; color: string
 }) {
   return (
     <div className="rounded-xl border bg-white p-4">
-      <div className={`mb-2 flex h-8 w-8 items-center justify-center rounded-lg ${color}`}>
-        {icon}
-      </div>
+      <div className={`mb-2 flex h-8 w-8 items-center justify-center rounded-lg ${color}`}>{icon}</div>
       <p className="text-2xl font-bold text-gray-900">{value}</p>
       <p className="mt-0.5 text-xs text-gray-500">{label}</p>
       {sub && <p className="mt-1 text-xs text-gray-400">{sub}</p>}
@@ -70,28 +82,23 @@ function StatCard({ label, value, sub, icon, color }: {
   )
 }
 
-function ProgressBar({ value, max, color }: { value: number; max: number; color: string }) {
-  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
-        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
-      </div>
-      <span className="w-8 text-right text-xs font-medium text-gray-600">{pct}%</span>
-    </div>
-  )
+const ATT_STYLE: Record<string, string> = {
+  present: 'bg-green-50 text-green-700 border-green-200',
+  late:    'bg-amber-50 text-amber-700 border-amber-200',
+  absent:  'bg-red-50 text-red-600 border-red-200',
 }
+const ATT_LABEL: Record<string, string> = { present: '출석', late: '지각', absent: '결석' }
 
 export default function SharePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
   const { data, isLoading, error } = useShareData(token)
+  const [expandedWeekId, setExpandedWeekId] = useState<string | null>(null)
 
   if (isLoading) return (
     <div className="flex min-h-screen items-center justify-center">
       <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
     </div>
   )
-
   if (error || !data) return (
     <div className="flex min-h-screen items-center justify-center text-gray-400">
       학생 정보를 찾을 수 없습니다
@@ -100,8 +107,8 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
 
   const { student, classes, weeks, weekScores, studentAnswers, attendance = [] } = data
 
-  // 기본 맵
-  const scoreMap = new Map(weekScores.map((s) => [s.week_id, s]))
+  // ── 기본 맵 ────────────────────────────────────────────────────────
+  const scoreByWeek = new Map(weekScores.map((s) => [s.week_id, s]))
   const answersByScore = new Map<string, StudentAnswer[]>()
   studentAnswers.forEach((a) => {
     const list = answersByScore.get(a.week_score_id) ?? []
@@ -109,78 +116,82 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     answersByScore.set(a.week_score_id, list)
   })
 
-  const scoredWeeks = weeks.filter((w) => scoreMap.has(w.id))
-
-  // ── 주차별 추이 데이터 (독해/단어 분리) ──────────────────────────
-  const trendData: TrendItem[] = scoredWeeks.map((w) => {
-    const score = scoreMap.get(w.id)!
-    const answers = answersByScore.get(score.id) ?? []
-    const readingAns = answers.filter((a) => a.exam_question?.exam_type === 'reading')
-    const readingRate = readingAns.length > 0
-      ? Math.round((readingAns.filter((a) => a.is_correct).length / readingAns.length) * 100)
-      : null
-    const vocabRate = w.vocab_total > 0
-      ? Math.round((score.vocab_correct / w.vocab_total) * 100)
-      : null
-    return { label: `${w.week_number}주`, readingRate, vocabRate }
-  })
+  // 주차 + 성적 병합 (성적 있는 것만)
+  const scoredWeeks = weeks
+    .filter((w) => scoreByWeek.has(w.id))
+    .sort((a, b) => a.week_number - b.week_number)
 
   // ── 요약 스탯 ──────────────────────────────────────────────────────
-  const readingRates = trendData.map((d) => d.readingRate).filter((v): v is number => v !== null)
-  const vocabRates = trendData.map((d) => d.vocabRate).filter((v): v is number => v !== null)
-  const homeworkRates = scoredWeeks
-    .filter((w) => w.homework_total > 0)
-    .map((w) => {
-      const s = scoreMap.get(w.id)!
-      return Math.round((s.homework_done / w.homework_total) * 100)
-    })
-
   const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null
-  const avgReading = avg(readingRates)
-  const avgVocab = avg(vocabRates)
-  const avgHomework = avg(homeworkRates)
 
-  // 최근 트렌드 (독해 기준)
-  const recentTrend = readingRates.length >= 2
-    ? readingRates[readingRates.length - 1] - readingRates[readingRates.length - 2]
-    : null
+  const readingRates = scoredWeeks
+    .map((w) => {
+      const s = scoreByWeek.get(w.id)!
+      return w.reading_total > 0 ? Math.round((s.reading_correct / w.reading_total) * 100) : null
+    })
+    .filter((v): v is number => v !== null)
 
-  // ── 출결 통계 ──────────────────────────────────────────────────────
+  const vocabRates = scoredWeeks
+    .map((w) => w.vocab_total > 0 ? Math.round((scoreByWeek.get(w.id)!.vocab_correct / w.vocab_total) * 100) : null)
+    .filter((v): v is number => v !== null)
+
+  const homeworkRates = scoredWeeks
+    .map((w) => w.homework_total > 0 ? Math.round((scoreByWeek.get(w.id)!.homework_done / w.homework_total) * 100) : null)
+    .filter((v): v is number => v !== null)
+
   const totalAttendance = attendance.length
   const presentCount = attendance.filter((a) => a.status === 'present').length
   const lateCount = attendance.filter((a) => a.status === 'late').length
   const absentCount = attendance.filter((a) => a.status === 'absent').length
-  const recentAttendance = [...attendance].slice(0, 8)
 
-  // ── 최신 주차 하이라이트 ───────────────────────────────────────────
-  const latestWeek = scoredWeeks.length > 0 ? scoredWeeks[scoredWeeks.length - 1] : null
-  const latestScore = latestWeek ? scoreMap.get(latestWeek.id)! : null
-  const latestAnswers = latestScore ? (answersByScore.get(latestScore.id) ?? []) : []
-  const latestReading = latestAnswers.filter((a) => a.exam_question?.exam_type === 'reading')
-  const latestReadingCorrect = latestReading.filter((a) => a.is_correct).length
-  const latestClassName = latestWeek ? (classes.find((c) => c.id === latestWeek.class_id)?.name ?? '') : ''
+  // ── 추이 차트 데이터 ───────────────────────────────────────────────
+  const trendData: TrendItem[] = scoredWeeks.map((w) => {
+    const s = scoreByWeek.get(w.id)!
+    const readingRate = w.reading_total > 0 ? Math.round((s.reading_correct / w.reading_total) * 100) : null
+    const vocabRate = w.vocab_total > 0 ? Math.round((s.vocab_correct / w.vocab_total) * 100) : null
+    return { label: `${w.week_number}주`, readingRate, vocabRate }
+  })
 
-  // ── 유형별 오답 분석 (독해 문제만) ────────────────────────────────
+  const barData: WeeklyBarItem[] = scoredWeeks.map((w) => {
+    const s = scoreByWeek.get(w.id)!
+    const item: WeeklyBarItem = { label: `${w.week_number}주` }
+    if (w.vocab_total > 0) item['단어'] = Math.round((s.vocab_correct / w.vocab_total) * 100)
+    if (w.homework_total > 0) item['숙제'] = Math.round((s.homework_done / w.homework_total) * 100)
+    return item
+  })
+
+  // ── 전체 오답 유형 (파이 차트용) ───────────────────────────────────
   const typeWrongMap = new Map<string, { name: string; wrong: number; total: number }>()
   studentAnswers
-    .filter((a) => a.exam_question?.exam_type === 'reading')
+    .filter((a) => a.exam_question?.exam_type === 'reading' && a.exam_question?.concept_tag)
     .forEach((a) => {
-      const typeName = a.exam_question?.concept_tag?.name
-      if (!typeName) return
-      const entry = typeWrongMap.get(typeName) ?? { name: typeName, wrong: 0, total: 0 }
+      const name = a.exam_question!.concept_tag!.name
+      const entry = typeWrongMap.get(name) ?? { name, wrong: 0, total: 0 }
       entry.total += 1
       if (!a.is_correct) entry.wrong += 1
-      typeWrongMap.set(typeName, entry)
+      typeWrongMap.set(name, entry)
     })
-
   const typeData = [...typeWrongMap.values()]
-    .filter((d) => d.total >= 2)
-    .map((d) => ({ ...d, rate: Math.round((d.wrong / d.total) * 100) }))
-    .sort((a, b) => b.rate - a.rate)
-    .slice(0, 8)
+    .filter((d) => d.wrong > 0)
+    .sort((a, b) => b.wrong - a.wrong)
 
-  // ── 최근 5주 이력 ──────────────────────────────────────────────────
-  const recentWeeks = [...scoredWeeks].reverse().slice(0, 5)
+  // ── 주차별 틀린 유형 ────────────────────────────────────────────────
+  function getWeekWrongTypes(weekId: string) {
+    const score = scoreByWeek.get(weekId)
+    if (!score) return []
+    const answers = answersByScore.get(score.id) ?? []
+    const map = new Map<string, number>()
+    answers
+      .filter((a) => !a.is_correct && a.exam_question?.exam_type === 'reading' && a.exam_question?.concept_tag)
+      .forEach((a) => {
+        const name = a.exam_question!.concept_tag!.name
+        map.set(name, (map.get(name) ?? 0) + 1)
+      })
+    return [...map.entries()].sort((a, b) => b[1] - a[1])
+  }
+
+  // ── 출결 맵 (날짜 기준) ────────────────────────────────────────────
+  const attByDate = new Map(attendance.map((a) => [a.date, a]))
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -194,220 +205,162 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
       <main className="mx-auto max-w-2xl space-y-5 px-4 py-6">
 
         {/* 학생 정보 */}
-        <div className="rounded-xl border bg-white px-5 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">{student.name}</h1>
-            {(student.school || student.grade) && (
-              <p className="mt-0.5 text-sm text-gray-500">
-                {[student.school, student.grade].filter(Boolean).join(' · ')}
-              </p>
-            )}
-          </div>
-          <div className="text-right text-sm text-gray-500">
-            <p>총 <strong className="text-gray-900">{weekScores.length}회</strong> 응시</p>
-            {recentTrend !== null && (
-              <p className={`mt-1 flex items-center justify-end gap-0.5 text-xs font-medium ${
-                recentTrend > 0 ? 'text-green-600' : recentTrend < 0 ? 'text-red-500' : 'text-gray-400'
-              }`}>
-                {recentTrend > 0
-                  ? <><TrendingUp className="h-3.5 w-3.5" /> +{recentTrend}%p</>
-                  : recentTrend < 0
-                  ? <><TrendingDown className="h-3.5 w-3.5" /> {recentTrend}%p</>
-                  : <><Minus className="h-3.5 w-3.5" /> 유지</>}
-              </p>
-            )}
-          </div>
+        <div className="rounded-xl border bg-white px-5 py-4">
+          <h1 className="text-xl font-bold text-gray-900">{student.name}</h1>
+          {(student.school || student.grade) && (
+            <p className="mt-0.5 text-sm text-gray-500">
+              {[student.school, student.grade].filter(Boolean).join(' · ')}
+            </p>
+          )}
         </div>
 
         {/* 요약 스탯 */}
         {weekScores.length > 0 && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {avgReading !== null && (
-              <StatCard
-                label="독해 평균"
-                value={`${avgReading}%`}
-                sub={`전체 ${readingRates.length}회 기준`}
-                icon={<BookOpen className="h-4 w-4 text-indigo-600" />}
-                color="bg-indigo-50"
-              />
+            {avg(readingRates) !== null && (
+              <StatCard label="시험 평균" value={`${avg(readingRates)}%`}
+                icon={<BookOpen className="h-4 w-4 text-indigo-600" />} color="bg-indigo-50" />
             )}
-            {avgVocab !== null && (
-              <StatCard
-                label="단어 평균"
-                value={`${avgVocab}%`}
-                sub={`전체 ${vocabRates.length}회 기준`}
-                icon={<BookText className="h-4 w-4 text-green-600" />}
-                color="bg-green-50"
-              />
+            {avg(vocabRates) !== null && (
+              <StatCard label="단어 평균" value={`${avg(vocabRates)}%`}
+                icon={<BookText className="h-4 w-4 text-green-600" />} color="bg-green-50" />
             )}
-            {avgHomework !== null && (
-              <StatCard
-                label="숙제 완료율"
-                value={`${avgHomework}%`}
-                icon={<ClipboardCheck className="h-4 w-4 text-amber-600" />}
-                color="bg-amber-50"
-              />
+            {avg(homeworkRates) !== null && (
+              <StatCard label="숙제 완료율" value={`${avg(homeworkRates)}%`}
+                icon={<ClipboardCheck className="h-4 w-4 text-amber-600" />} color="bg-amber-50" />
             )}
             {totalAttendance > 0 && (
-              <StatCard
-                label="출석률"
+              <StatCard label="출석률"
                 value={`${Math.round(((presentCount + lateCount) / totalAttendance) * 100)}%`}
                 sub={`결석 ${absentCount}회`}
-                icon={<UserCheck className="h-4 w-4 text-purple-600" />}
-                color="bg-purple-50"
-              />
+                icon={<UserCheck className="h-4 w-4 text-purple-600" />} color="bg-purple-50" />
             )}
-            <StatCard
-              label="총 응시"
-              value={`${weekScores.length}회`}
-              sub={`수업 ${classes.length}개`}
-              icon={<Calendar className="h-4 w-4 text-blue-600" />}
-              color="bg-blue-50"
-            />
           </div>
         )}
 
-        {/* 이번 주 성적 하이라이트 */}
-        {latestWeek && latestScore && (
-          <div className="rounded-xl border bg-white p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="font-semibold text-gray-800">
-                {latestClassName} {latestWeek.week_number}주차 성적
-              </h2>
-              {latestWeek.start_date && (
-                <span className="text-xs text-gray-400">
-                  {new Date(latestWeek.start_date).toLocaleDateString('ko-KR')}
-                </span>
-              )}
-            </div>
-            <div className="space-y-4">
-              {latestReading.length > 0 && (
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-1.5 text-gray-600">
-                      <BookOpen className="h-3.5 w-3.5 text-indigo-500" />독해
-                    </span>
-                    <span className="font-medium text-gray-800">
-                      {latestReadingCorrect}/{latestReading.length}
-                      <span className="ml-1 text-xs text-gray-400">
-                        ({Math.round((latestReadingCorrect / latestReading.length) * 100)}%)
-                      </span>
-                    </span>
-                  </div>
-                  <ProgressBar
-                    value={latestReadingCorrect}
-                    max={latestReading.length}
-                    color={latestReadingCorrect / latestReading.length >= 0.8 ? 'bg-green-500' : latestReadingCorrect / latestReading.length >= 0.6 ? 'bg-amber-400' : 'bg-red-400'}
-                  />
-                </div>
-              )}
-              {latestWeek.vocab_total > 0 && (
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-1.5 text-gray-600">
-                      <BookText className="h-3.5 w-3.5 text-green-500" />단어
-                    </span>
-                    <span className="font-medium text-gray-800">
-                      {latestScore.vocab_correct}/{latestWeek.vocab_total}
-                      <span className="ml-1 text-xs text-gray-400">
-                        ({Math.round((latestScore.vocab_correct / latestWeek.vocab_total) * 100)}%)
-                      </span>
-                    </span>
-                  </div>
-                  <ProgressBar
-                    value={latestScore.vocab_correct}
-                    max={latestWeek.vocab_total}
-                    color={latestScore.vocab_correct / latestWeek.vocab_total >= 0.8 ? 'bg-green-500' : latestScore.vocab_correct / latestWeek.vocab_total >= 0.6 ? 'bg-amber-400' : 'bg-red-400'}
-                  />
-                </div>
-              )}
-              {latestWeek.homework_total > 0 && (
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-1.5 text-gray-600">
-                      <ClipboardCheck className="h-3.5 w-3.5 text-amber-500" />숙제
-                    </span>
-                    <span className="font-medium text-gray-800">
-                      {latestScore.homework_done}/{latestWeek.homework_total}
-                    </span>
-                  </div>
-                  <ProgressBar
-                    value={latestScore.homework_done}
-                    max={latestWeek.homework_total}
-                    color="bg-amber-400"
-                  />
-                </div>
-              )}
-              {latestScore.memo && (
-                <div className="mt-1 rounded-lg bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
-                  💬 {latestScore.memo}
-                </div>
-              )}
-            </div>
+        {/* 차트 섹션 */}
+        {(typeData.length > 0 || barData.some((d) => d['단어'] || d['숙제'])) && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {typeData.length > 0 && (
+              <div className="rounded-xl border bg-white p-4">
+                <h2 className="mb-1 text-sm font-semibold text-gray-800">오답 유형 분포</h2>
+                <p className="mb-3 text-xs text-gray-400">전체 누적 · 오답 횟수 기준</p>
+                <WrongTypePieChart data={typeData} />
+              </div>
+            )}
+            {barData.some((d) => d['단어'] !== undefined || d['숙제'] !== undefined) && (
+              <div className="rounded-xl border bg-white p-4">
+                <h2 className="mb-1 text-sm font-semibold text-gray-800">단어 · 숙제 추이</h2>
+                <p className="mb-3 text-xs text-gray-400">주차별 달성률 (%)</p>
+                <WeeklyBarChart data={barData} />
+              </div>
+            )}
           </div>
         )}
 
-        {/* 점수 추이 */}
+        {/* 시험 점수 추이 */}
         {trendData.length >= 2 && (
-          <div className="rounded-xl border bg-white p-5">
-            <h2 className="mb-4 font-semibold text-gray-800">점수 추이</h2>
+          <div className="rounded-xl border bg-white p-4">
+            <h2 className="mb-3 text-sm font-semibold text-gray-800">시험 점수 추이</h2>
             <ScoreTrendChart data={trendData} />
           </div>
         )}
 
-        {/* 유형별 오답 분석 */}
-        {typeData.length > 0 && (
-          <div className="rounded-xl border bg-white p-5">
-            <h2 className="mb-1 font-semibold text-gray-800">유형별 오답 분석</h2>
-            <p className="mb-4 text-xs text-gray-400">독해 문제 기준 · 오답률 높은 순</p>
-            <ConceptWeakChart data={typeData} />
-          </div>
-        )}
-
-        {/* 최근 시험 이력 */}
-        {recentWeeks.length > 0 && (
-          <div className="rounded-xl border bg-white p-5">
-            <h2 className="mb-4 font-semibold text-gray-800">시험 이력</h2>
-            <div className="space-y-2">
-              {recentWeeks.map((w, i) => {
-                const score = scoreMap.get(w.id)!
-                const answers = answersByScore.get(score.id) ?? []
-                const readingAns = answers.filter((a) => a.exam_question?.exam_type === 'reading')
-                const readingCorrect = readingAns.filter((a) => a.is_correct).length
+        {/* 회차별 박스 */}
+        {scoredWeeks.length > 0 && (
+          <div className="rounded-xl border bg-white">
+            <div className="border-b px-5 py-3">
+              <h2 className="text-sm font-semibold text-gray-800">회차별 성적</h2>
+            </div>
+            <div className="divide-y">
+              {[...scoredWeeks].reverse().map((w) => {
+                const score = scoreByWeek.get(w.id)!
                 const className = classes.find((c) => c.id === w.class_id)?.name ?? ''
-                const rate = readingAns.length > 0 ? Math.round((readingCorrect / readingAns.length) * 100) : null
-                const isLatest = i === 0
+                const isExpanded = expandedWeekId === w.id
+                const wrongTypes = isExpanded ? getWeekWrongTypes(w.id) : []
+
+                // 해당 주차 날짜에 매칭되는 출결
+                const attRecord = w.start_date ? attByDate.get(w.start_date) : undefined
 
                 return (
-                  <div key={w.id} className={`rounded-lg px-4 py-3 ${isLatest ? 'bg-indigo-50 border border-indigo-100' : 'bg-gray-50'}`}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">
-                          {className} {w.week_number}주차
-                          {isLatest && <span className="ml-2 text-xs font-normal text-indigo-500">최근</span>}
-                        </p>
-                        {w.start_date && (
-                          <p className="text-xs text-gray-400">{new Date(w.start_date).toLocaleDateString('ko-KR')}</p>
+                  <div key={w.id}>
+                    <button
+                      type="button"
+                      className="w-full px-5 py-3.5 text-left hover:bg-gray-50 transition-colors"
+                      onClick={() => setExpandedWeekId(isExpanded ? null : w.id)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-900">
+                            {className} {w.week_number}주차
+                          </span>
+                          {w.start_date && (
+                            <span className="text-xs text-gray-400">
+                              {new Date(w.start_date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
+                            </span>
+                          )}
+                          {attRecord && (
+                            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${ATT_STYLE[attRecord.status]}`}>
+                              {ATT_LABEL[attRecord.status]}
+                            </span>
+                          )}
+                        </div>
+                        {isExpanded
+                          ? <ChevronUp className="h-4 w-4 text-gray-400" />
+                          : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                      </div>
+
+                      {/* 점수 요약 */}
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        {w.reading_total > 0 && (
+                          <span className="flex items-center gap-1 text-xs text-gray-600">
+                            <BookOpen className="h-3 w-3 text-indigo-400" />
+                            시험 <strong className={`ml-0.5 ${score.reading_correct / w.reading_total >= 0.8 ? 'text-green-600' : score.reading_correct / w.reading_total >= 0.6 ? 'text-amber-500' : 'text-red-500'}`}>
+                              {score.reading_correct}/{w.reading_total}
+                            </strong>
+                          </span>
+                        )}
+                        {w.vocab_total > 0 && (
+                          <span className="flex items-center gap-1 text-xs text-gray-600">
+                            <BookText className="h-3 w-3 text-green-400" />
+                            단어 <strong className="ml-0.5">{score.vocab_correct}/{w.vocab_total}</strong>
+                          </span>
+                        )}
+                        {w.homework_total > 0 && (
+                          <span className="flex items-center gap-1 text-xs text-gray-600">
+                            <ClipboardCheck className="h-3 w-3 text-amber-400" />
+                            숙제 <strong className="ml-0.5">{score.homework_done}/{w.homework_total}</strong>
+                          </span>
                         )}
                       </div>
-                      <div className="text-right">
-                        {rate !== null && (
-                          <p className={`text-base font-bold ${rate >= 80 ? 'text-green-600' : rate >= 60 ? 'text-amber-500' : 'text-red-500'}`}>
-                            독해 {readingCorrect}/{readingAns.length}
-                            <span className="ml-1 text-xs font-normal text-gray-400">({rate}%)</span>
+                    </button>
+
+                    {/* 확장: 틀린 유형 */}
+                    {isExpanded && (
+                      <div className="border-t bg-gray-50 px-5 py-4">
+                        {wrongTypes.length > 0 ? (
+                          <div>
+                            <p className="mb-2 text-xs font-medium text-gray-500">이번 회차 오답 유형</p>
+                            <div className="flex flex-wrap gap-2">
+                              {wrongTypes.map(([name, count]) => (
+                                <span key={name} className="flex items-center gap-1 rounded-full bg-red-50 border border-red-100 px-3 py-1 text-xs text-red-700 font-medium">
+                                  {name}
+                                  <span className="ml-0.5 rounded-full bg-red-100 px-1.5 text-[10px]">{count}</span>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-400">
+                            {w.reading_total > 0 ? '오답이 없거나 유형이 설정되지 않았습니다' : '시험 데이터가 없습니다'}
                           </p>
                         )}
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          {w.vocab_total > 0 && `단어 ${score.vocab_correct}/${w.vocab_total}`}
-                          {w.vocab_total > 0 && w.homework_total > 0 && ' · '}
-                          {w.homework_total > 0 && `숙제 ${score.homework_done}/${w.homework_total}`}
-                        </p>
+                        {score.memo && (
+                          <div className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+                            💬 {score.memo}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    {score.memo && (
-                      <p className="mt-2 text-xs text-gray-500 border-t border-gray-200 pt-2">
-                        💬 {score.memo}
-                      </p>
                     )}
                   </div>
                 )
@@ -417,32 +370,21 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
         )}
 
         {/* 출결 이력 */}
-        {recentAttendance.length > 0 && (
-          <div className="rounded-xl border bg-white p-5">
-            <h2 className="mb-4 font-semibold text-gray-800">최근 출결</h2>
-            <div className="flex flex-wrap gap-2">
-              {recentAttendance.map((a) => {
-                const statusLabel = a.status === 'present' ? '출석' : a.status === 'late' ? '지각' : '결석'
-                const statusStyle = a.status === 'present'
-                  ? 'bg-green-50 text-green-700 border-green-100'
-                  : a.status === 'late'
-                  ? 'bg-amber-50 text-amber-700 border-amber-100'
-                  : 'bg-red-50 text-red-700 border-red-100'
-                return (
-                  <div key={a.id} className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs ${statusStyle}`}>
-                    <span className="font-medium">{new Date(a.date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}</span>
-                    <span>{statusLabel}</span>
-                  </div>
-                )
-              })}
-            </div>
-            {totalAttendance > 8 && (
-              <p className="mt-3 text-xs text-gray-400">최근 8회 표시 · 전체 {totalAttendance}회</p>
-            )}
-            <div className="mt-3 flex gap-3 border-t pt-3 text-xs text-gray-500">
+        {attendance.length > 0 && (
+          <div className="rounded-xl border bg-white p-4">
+            <h2 className="mb-3 text-sm font-semibold text-gray-800">출결 현황</h2>
+            <div className="mb-3 flex gap-4 text-sm">
               <span>출석 <strong className="text-green-600">{presentCount}</strong>회</span>
               <span>지각 <strong className="text-amber-600">{lateCount}</strong>회</span>
               <span>결석 <strong className="text-red-500">{absentCount}</strong>회</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[...attendance].slice(0, 12).map((a) => (
+                <div key={a.id} className={`flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs ${ATT_STYLE[a.status]}`}>
+                  <span>{new Date(a.date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}</span>
+                  <span>{ATT_LABEL[a.status]}</span>
+                </div>
+              ))}
             </div>
           </div>
         )}

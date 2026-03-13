@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, Pencil, Trash2, Plus, Check, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, Pencil, Trash2, Plus, Check, X, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ConceptCategory, ConceptTag } from '@/lib/types'
@@ -9,6 +9,8 @@ import {
   useConceptCategories, useCreateConceptCategory, useUpdateConceptCategory, useDeleteConceptCategory,
   useConceptTags, useCreateConceptTag, useUpdateConceptTag, useDeleteConceptTag,
 } from '@/hooks/use-concept-tags'
+import { useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 
 function TagRow({ tag, onEdit, onDelete }: { tag: ConceptTag; onEdit: (t: ConceptTag) => void; onDelete: (id: string) => void }) {
   return (
@@ -33,6 +35,24 @@ export function ConceptTagManager() {
   const createTag = useCreateConceptTag()
   const updateTag = useUpdateConceptTag()
   const deleteTag = useDeleteConceptTag()
+  const queryClient = useQueryClient()
+  const [seeding, setSeeding] = useState(false)
+
+  async function handleSeedDefaults() {
+    if (!confirm('기존 문제 유형을 모두 삭제하고 수능 기본 유형으로 교체합니다. 계속할까요?')) return
+    setSeeding(true)
+    try {
+      const res = await fetch('/api/concept-tags/seed-defaults', { method: 'POST' })
+      if (!res.ok) throw new Error()
+      await queryClient.invalidateQueries({ queryKey: ['concept-categories'] })
+      await queryClient.invalidateQueries({ queryKey: ['concept-tags'] })
+      toast.success('기본 유형으로 교체 완료')
+    } catch {
+      toast.error('교체 실패')
+    } finally {
+      setSeeding(false)
+    }
+  }
 
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set())
   const [newCatName, setNewCatName] = useState('')
@@ -182,6 +202,14 @@ export function ConceptTagManager() {
           </div>
         )
       })}
+
+      {/* 기본 유형 불러오기 */}
+      <div className="flex justify-end pt-1">
+        <Button variant="outline" size="sm" onClick={handleSeedDefaults} disabled={seeding}>
+          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+          {seeding ? '교체 중...' : '수능 기본 유형으로 초기화'}
+        </Button>
+      </div>
 
       {/* 새 대분류 추가 */}
       <div className="flex gap-2 pt-2">
