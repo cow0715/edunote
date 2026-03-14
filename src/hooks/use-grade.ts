@@ -35,9 +35,13 @@ export function useSaveGrade(weekId: string) {
       if (!res.ok) throw new Error((await res.json()).error)
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.refetchQueries({ queryKey: ['grade', weekId] })
-      toast.success('채점이 저장되었습니다')
+      if (data?.ai_grading_failed) {
+        toast.warning(`채점 저장 완료 (서술형 AI 채점 실패: ${data.ai_error ?? '알 수 없는 오류'})`)
+      } else {
+        toast.success('채점이 저장되었습니다')
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   })

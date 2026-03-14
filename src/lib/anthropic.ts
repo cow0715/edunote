@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { GRADING_SYSTEM, GRADING_RULES, PARSE_ANSWER_SHEET_RULES, SMS_RULES } from './prompts'
 
 export const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -74,13 +75,7 @@ ${students.map((s) => {
 링크: ${s.share_url}`
 }).join('\n')}
 
-작성 기준:
-- 150자 이내 (링크 포함)
-- 선생님이 직접 쓰는 따뜻한 말투
-- 잘한 점 + 보완할 점 각 1가지씩만
-- 틀린 문항 개념을 자연스럽게 언급
-- 마지막에 링크 포함
-- 학부모님께 드리는 문자 형식
+${SMS_RULES}
 
 JSON 배열만 출력 (다른 텍스트 없이):
 [{"student_name": "이름", "message": "문자내용"}]`
@@ -138,13 +133,8 @@ export async function parseAnswerSheet(
 
   const prompt = `이 답안해설지에서 각 문항의 정답과 해설을 추출하세요.
 
-추출 규칙:
-- 객관식: correct_answer에 정답 번호(1~5), correct_answer_text는 null
-- 서술형/주관식: correct_answer는 0, correct_answer_text에 모범답안 텍스트
-- explanation: 해당 문항의 오답 포인트나 해설 (없으면 null)
-- grading_criteria: 서술형 채점 기준 설명 (없으면 null)
+${PARSE_ANSWER_SHEET_RULES}
 ${tagListSection}
-question_style은 반드시 "objective"(객관식) 또는 "subjective"(서술형/주관식) 둘 중 하나만 사용하세요. 다른 값은 절대 사용하지 마세요.
 
 JSON 배열만 출력 (다른 텍스트 없이):
 [{"question_number":1,"question_style":"objective","question_type":"가정법/조동사","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"..."}]`
@@ -177,8 +167,7 @@ export async function gradeSubjectiveAnswers(
 ): Promise<GradingResult[]> {
   if (answers.length === 0) return []
 
-  const prompt = `당신은 영어 문법/서술형 문제를 채점하는 전문 교사입니다.
-아래 문제별 모범답안과 학생들의 답안을 비교하여 채점하세요.
+  const prompt = `${GRADING_SYSTEM}
 
 ## 문제 정보
 ${questions.map((q) => `
@@ -203,15 +192,11 @@ ${answers.map((a) => `
   }
 ]
 
-채점 기준:
-- 철자/대소문자 오류는 관대하게 처리
-- 의미와 핵심 문법 구조가 맞으면 정답
-- 조건(단어 수, 특정 구문 필수 등)이 있으면 반드시 확인
-- feedback은 한국어로 간결하게`
+${GRADING_RULES}`
 
   const message = await anthropic.messages.create({
-    model: 'claude-opus-4-6',
-    max_tokens: 2048,
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 8096,
     messages: [{ role: 'user', content: prompt }],
   })
 

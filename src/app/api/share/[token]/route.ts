@@ -24,7 +24,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
   const classIds = classes.map((c) => c.id)
 
   if (classIds.length === 0) {
-    return NextResponse.json({ student, classes: [] })
+    return NextResponse.json({ student, classes: [], weeks: [], weekScores: [], studentAnswers: [], attendance: [] })
   }
 
   // 각 수업의 주차 목록

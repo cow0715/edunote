@@ -117,6 +117,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const questionByNumber = new Map(questions.map((q) => [q.question_number, q]))
   const questionById = new Map(questions.map((q) => [q.id, q]))
 
+  const OX_PATTERN = /^[OX](\s*\(.+\))?$/i
+
+  function gradeOX(correctAnswerText: string, studentAnswerText: string): boolean {
+    const correct = correctAnswerText.trim()
+    const student = studentAnswerText.trim()
+    if (/^O$/i.test(correct)) return /^o$/i.test(student)
+    const correction = correct.match(/\((.+)\)/)?.[1]?.trim().toLowerCase()
+    if (/^o$/i.test(student)) return false
+    return !!correction && student.toLowerCase() === correction
+  }
+
   const subjectiveForGrading: SubjectiveStudentAnswer[] = []
 
   for (const score of weekScores) {
@@ -133,13 +144,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           await supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
         }
       } else if (q.question_style === 'subjective' && a.student_answer_text?.trim()) {
-        subjectiveForGrading.push({
-          week_score_id: score.id,
-          exam_question_id: a.exam_question_id,
-          question_number: q.question_number,
-          student_name: studentNameMap.get(score.student_id) ?? score.student_id,
-          student_answer_text: a.student_answer_text!.trim(),
-        })
+        const isOX = q.correct_answer_text && OX_PATTERN.test(q.correct_answer_text.trim())
+        if (isOX) {
+          const isCorrect = gradeOX(q.correct_answer_text!, a.student_answer_text)
+          if (isCorrect !== a.is_correct) {
+            await supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
+          }
+        } else {
+          subjectiveForGrading.push({
+            week_score_id: score.id,
+            exam_question_id: a.exam_question_id,
+            question_number: q.question_number,
+            student_name: studentNameMap.get(score.student_id) ?? score.student_id,
+            student_answer_text: a.student_answer_text!.trim(),
+          })
+        }
       }
     }
   }

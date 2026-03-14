@@ -105,7 +105,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     </div>
   )
 
-  const { student, classes, weeks, weekScores, studentAnswers, attendance = [] } = data
+  const { student, classes, weeks, weekScores = [], studentAnswers = [], attendance = [] } = data
 
   // ── 기본 맵 ────────────────────────────────────────────────────────
   const scoreByWeek = new Map(weekScores.map((s) => [s.week_id, s]))
