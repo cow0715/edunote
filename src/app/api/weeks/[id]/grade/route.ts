@@ -72,8 +72,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const questionMap = new Map(allQuestions?.map((q) => [q.id, q]) ?? [])
 
+  // O/X 패턴 감지: "O", "X (단어)" 형식 → 코드로 직접 채점 (AI 불필요)
+  const OX_PATTERN = /^[OX](\s*\(.+\))?$/i
+
+  function gradeOX(correctAnswerText: string, studentAnswerText: string): boolean {
+    const correct = correctAnswerText.trim()
+    const student = studentAnswerText.trim()
+    if (/^O$/i.test(correct)) return /^o$/i.test(student)
+    // X (단어): 학생이 o → 오답, 수정어 일치 → 정답
+    const correction = correct.match(/\((.+)\)/)?.[1]?.trim().toLowerCase()
+    if (/^o$/i.test(student)) return false
+    return !!correction && student.toLowerCase() === correction
+  }
+
   // 서술형 배치 채점용 수집
   const subjectiveForGrading: SubjectiveStudentAnswer[] = []
+  const processedScoreIds: string[] = []
 
   for (const row of rows) {
     if (!row.present) {
@@ -99,17 +113,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: scoreError.message }, { status: 500 })
     }
 
+    processedScoreIds.push(score.id)
+
     if (row.answers.length > 0) {
       const answersToUpsert = row.answers.map((a) => {
         const q = questionMap.get(a.exam_question_id)
         const isSubjective = q?.question_style === 'subjective'
+        const isOX = isSubjective && q.correct_answer_text && OX_PATTERN.test(q.correct_answer_text.trim())
         return {
           week_score_id: score.id,
           exam_question_id: a.exam_question_id,
           student_answer: isSubjective ? null : a.student_answer,
           student_answer_text: isSubjective ? (a.student_answer_text ?? null) : null,
           is_correct: isSubjective
-            ? false // AI 채점 후 업데이트
+            ? isOX
+              ? gradeOX(q.correct_answer_text!, a.student_answer_text ?? '') // O/X: 코드 채점
+              : false                                                          // 자유서술: AI 채점 후 업데이트
             : (a.student_answer !== null && a.student_answer === q?.correct_answer),
         }
       })
@@ -123,10 +142,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         return NextResponse.json({ error: answerError.message }, { status: 500 })
       }
 
-      // 서술형 답안 수집
+      // 자유서술 답안만 AI 채점용으로 수집 (O/X 패턴 제외)
       for (const a of row.answers) {
         const q = questionMap.get(a.exam_question_id)
-        if (q?.question_style === 'subjective' && a.student_answer_text?.trim()) {
+        const isOX = q?.correct_answer_text && OX_PATTERN.test(q.correct_answer_text.trim())
+        if (q?.question_style === 'subjective' && !isOX && a.student_answer_text?.trim()) {
           subjectiveForGrading.push({
             week_score_id: score.id,
             exam_question_id: a.exam_question_id,
@@ -164,12 +184,38 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             .eq('exam_question_id', result.exam_question_id)
         }
       } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e)
         console.error('[POST /api/weeks/[id]/grade] AI grading failed', e)
-        // AI 실패해도 저장은 성공으로 처리, 클라이언트에 알림
-        return NextResponse.json({ ok: true, ai_grading_failed: true })
+        // AI 실패해도 저장은 성공으로 처리 (reading_correct는 객관식만 반영됨)
+        await Promise.all(
+          processedScoreIds.map(async (scoreId) => {
+            const { count } = await supabase
+              .from('student_answer')
+              .select('*', { count: 'exact', head: true })
+              .eq('week_score_id', scoreId)
+              .eq('is_correct', true)
+            await supabase.from('week_score').update({ reading_correct: count ?? 0 }).eq('id', scoreId)
+          })
+        )
+        return NextResponse.json({ ok: true, ai_grading_failed: true, ai_error: errMsg })
       }
     }
   }
+
+  // student_answer.is_correct 기준으로 reading_correct 자동 계산
+  await Promise.all(
+    processedScoreIds.map(async (scoreId) => {
+      const { count } = await supabase
+        .from('student_answer')
+        .select('*', { count: 'exact', head: true })
+        .eq('week_score_id', scoreId)
+        .eq('is_correct', true)
+      await supabase
+        .from('week_score')
+        .update({ reading_correct: count ?? 0 })
+        .eq('id', scoreId)
+    })
+  )
 
   return NextResponse.json({ ok: true })
 }

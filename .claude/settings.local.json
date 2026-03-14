@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node:*)",
+      "Bash(npx tsc --noEmit 2>&1)",
+      "Bash(find \"C:/Users/user/Desktop/edunote/src/app/\\(admin\\)\" -type f -name \"*.tsx\" -o -name \"*.ts\" | head -20)",
+      "Bash(find \"C:/Users/user/Desktop/edunote/src/app/api\" -type f -name \"*.ts\" | xargs grep -l \"exam_question\" 2>/dev/null)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
+}
