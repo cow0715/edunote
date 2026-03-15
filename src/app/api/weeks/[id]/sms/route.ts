@@ -67,8 +67,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const readingTotal = questions?.length ?? 0
 
-  // base URL (share 링크용)
-  const host = new URL(request.url).origin
+  // base URL (share 링크용) — NEXT_PUBLIC_APP_URL 환경변수 우선
+  const host = process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin
 
   // 학생별 input 구성
   const scoreMap = new Map(weekScores?.map((s) => [s.student_id, s]) ?? [])
