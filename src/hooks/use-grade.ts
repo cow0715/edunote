@@ -32,7 +32,12 @@ export function useSaveGrade(weekId: string) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(rows),
       })
-      if (!res.ok) throw new Error((await res.json()).error)
+      if (!res.ok) {
+        const text = await res.text()
+        let msg = '채점 저장 실패'
+        try { msg = JSON.parse(text).error ?? msg } catch { /* HTML 응답 등 */ }
+        throw new Error(msg)
+      }
       return res.json()
     },
     onSuccess: (data) => {

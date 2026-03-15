@@ -41,6 +41,16 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
 // 일괄 저장 + 서술형 AI 배치 채점
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    return await handlePost(request, params)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[POST /api/weeks/[id]/grade] unhandled error', e)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
+}
+
+async function handlePost(request: Request, params: Promise<{ id: string }>) {
   const supabase = await createClient()
   const { id: weekId } = await params
 
@@ -62,7 +72,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }[]
   }
 
-  const rows: GradeRow[] = await request.json()
+  let rows: GradeRow[]
+  try {
+    rows = await request.json()
+  } catch {
+    return NextResponse.json({ error: '요청 데이터 파싱 실패' }, { status: 400 })
+  }
 
   // 이 주차의 모든 문항 정보 한 번에 조회 (style, correct_answer, 모범답안)
   const { data: allQuestions } = await supabase
@@ -219,3 +234,4 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   return NextResponse.json({ ok: true })
 }
+
