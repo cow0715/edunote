@@ -143,7 +143,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   try {
     const generated = await generateSmsMessages(
-      { week_number: week.week_number, class_name: className },
+      { week_number: week.week_number, class_name: className, start_date: week.start_date },
       studentInputs
     )
 
