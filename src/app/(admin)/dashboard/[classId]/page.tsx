@@ -47,13 +47,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     if (confirm('수업에서 학생을 제거하시겠습니까?')) removeStudent.mutate(studentId)
   }
 
-  function handleCopyLink(token: string) {
-    const url = `${window.location.origin}/share/${token}`
-    navigator.clipboard.writeText(url)
-    toast.success('공유 링크가 복사되었습니다')
-  }
-
-  async function handleSync(force = false) {
+async function handleSync(force = false) {
     const result = await syncWeeks.mutateAsync(force)
     if (result?.warning) {
       setSyncWarning({ message: result.message, affected_weeks: result.affected_weeks })
@@ -136,8 +130,8 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
                           size="sm"
                           variant="ghost"
                           className="h-7 px-2 text-blue-400 hover:text-blue-600"
-                          onClick={() => handleCopyLink(cs.student!.share_token!)}
-                          title="학부모 공유 링크 복사"
+                          onClick={() => window.open(`/share/${cs.student!.share_token}`, '_blank')}
+                          title="학부모 공유 페이지 열기"
                         >
                           <LinkIcon className="h-3.5 w-3.5" />
                         </Button>

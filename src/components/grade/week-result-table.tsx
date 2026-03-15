@@ -3,6 +3,7 @@
 import { Badge } from '@/components/ui/badge'
 import { useGradeData } from '@/hooks/use-grade'
 import { useAttendance } from '@/hooks/use-attendance'
+import { ExternalLink } from 'lucide-react'
 
 interface Props {
   weekId: string
@@ -69,7 +70,7 @@ export function WeekResultTable({ weekId, classId, startDate, vocabTotal, readin
           </tr>
         </thead>
         <tbody className="divide-y">
-          {classStudents.map((cs: { student_id: string; student: { name: string } }) => {
+          {classStudents.map((cs: { student_id: string; student: { name: string; share_token?: string | null } }) => {
             const score = scoreMap.get(cs.student_id)
             const attendance = attendanceMap.get(cs.student_id)
             const attendanceBadge = attendance ? ATTENDANCE_BADGE[attendance] : null
@@ -94,13 +95,24 @@ export function WeekResultTable({ weekId, classId, startDate, vocabTotal, readin
                   </td>
                 )}
                 <td className="px-3 py-3 text-center">
-                  {attendanceBadge ? (
-                    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${attendanceBadge.className}`}>
-                      {attendanceBadge.label}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-gray-300">미입력</span>
-                  )}
+                  <div className="flex items-center justify-center gap-1.5">
+                    {attendanceBadge ? (
+                      <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${attendanceBadge.className}`}>
+                        {attendanceBadge.label}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-300">미입력</span>
+                    )}
+                    {cs.student?.share_token && (
+                      <button
+                        onClick={() => window.open(`/share/${cs.student.share_token}`, '_blank')}
+                        className="text-gray-300 hover:text-blue-500 transition-colors"
+                        title="학부모 공유 페이지"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             )
