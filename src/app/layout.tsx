@@ -10,7 +10,7 @@ const geist = Geist({
 })
 
 export const metadata: Metadata = {
-  title: '학원 관리 시스템',
+  title: '지혜로운 학습 리포트 by 추지혜T',
   description: '영어 학원 학생 관리 및 성적 분석',
 }
 
