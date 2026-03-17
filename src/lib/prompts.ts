@@ -28,6 +28,7 @@ export const GRADING_RULES = `━━━ 관대하게 처리 — 오답 처리하
 - 모범답안과 절 순서가 다르지만 의미·문법이 동일한 경우
 - 동의어/패러프레이즈 사용 (의미가 동일한 경우, 예: couldn't → was not able to)
 - 모범답안보다 더 많이 썼지만 핵심이 모두 포함되고 모순이 없는 경우
+- 줄바꿈, 여분의 공백, 들여쓰기 등 공백 문자 차이 (답의 내용으로 판단)
 
 ━━━ 반드시 오답 처리 — 핵심 오류 ━━━
 - 시제 오류 (가정법, 완료형 등 핵심 문법)
@@ -48,11 +49,36 @@ export const GRADING_RULES = `━━━ 관대하게 처리 — 오답 처리하
 // ── 해설지 파싱 ──────────────────────────────────────────────────────────
 
 export const PARSE_ANSWER_SHEET_RULES = `추출 규칙:
-- 객관식: correct_answer에 정답 번호(1~5), correct_answer_text는 null
-- 서술형/주관식: correct_answer는 0, correct_answer_text에 모범답안 텍스트
-- explanation: 해당 문항의 오답 포인트나 해설 (없으면 null)
-- grading_criteria: 서술형 채점 기준 설명 (없으면 null)
-- question_style은 반드시 "objective"(객관식) 또는 "subjective"(서술형/주관식) 둘 중 하나만 사용하세요. 다른 값은 절대 사용하지 마세요.`
+
+━━━ question_style 판단 순서 (반드시 이 순서대로) ━━━
+
+1. "multi_select" 먼저 확인:
+   - 문제에 "모두 고르시오", "옳은 것을 모두", "해당하는 것을 모두", "있는 것을 모두" 등 포함
+   - 정답이 복수의 번호 (①③, 1,3, 2,4,5 등)
+   - ※ multi_select는 서술형이 아님. 정답이 숫자 번호 여러 개면 무조건 multi_select.
+
+2. "ox": 정답이 "O" 또는 "X (수정어)" 형식인 문법 교정형
+
+3. "subjective": 정답이 영어 단어/구/문장인 서술형/영작
+
+4. "objective": 나머지 일반 객관식 (정답 1개, 1~5번)
+
+━━━ correct_answer / correct_answer_text ━━━
+- objective: correct_answer=정답번호(1~5), correct_answer_text=null
+- ox: correct_answer=0, correct_answer_text="O" 또는 "X (수정어)" (예: "X (has)")
+- multi_select: correct_answer=0, correct_answer_text=정답 선택지를 쉼표 구분으로 나열 (예: "1,3" 또는 "a,b,f"), 동그라미 숫자는 아라비아 숫자로 변환 (①→1)
+- subjective: correct_answer=0, correct_answer_text=모범답안 텍스트
+
+━━━ 소문항(sub_label) ━━━
+- 소문항이란: 하나의 문항 번호 안에 각각 별도의 채점 포인트가 있는 경우 (예: 5번 (A) 빈칸, 5번 (B) 빈칸)
+- sub_label: 소문자 알파벳으로 정규화 (A→"a", ①→"a", ②→"b")
+- 소문항 없으면 sub_label: null
+- ※ 주의: multi_select 정답의 선택지 기호(예: 정답이 "b, c, f"인 경우)는 소문항이 아님. 이 경우 sub_label=null, correct_answer_text="b,c,f"로 처리
+
+━━━ 기타 ━━━
+- explanation: 오답 포인트/해설 (없으면 null)
+- grading_criteria: 서술형 채점 기준 (없으면 null)
+- ※ 문항을 절대 건너뛰지 마세요. 정답 형식이 불명확해도 최대한 추론해서 추출하세요.`
 
 // ── SMS 생성 ─────────────────────────────────────────────────────────────
 

@@ -81,11 +81,12 @@ export interface ExamQuestion {
   id: string;
   week_id: string;
   question_number: number;
+  sub_label: string | null;  // 소문항 (예: 'a', 'b'), null = 소문항 없음
   correct_answer: number;
   correct_answer_text: string | null;
   grading_criteria: string | null;
   exam_type: 'vocab' | 'reading';
-  question_style: 'objective' | 'subjective';
+  question_style: 'objective' | 'subjective' | 'ox' | 'multi_select';
   created_at: string;
   exam_question_tag?: { concept_tag: ConceptTag | null }[];
   exam_question_choice?: ExamQuestionChoice[];
