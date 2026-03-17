@@ -1,14 +1,14 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Upload, CheckCircle2, AlertTriangle, Loader2, FileText } from 'lucide-react'
+import { Upload, CheckCircle2, AlertTriangle, Loader2, FileText, FileCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useGradeData } from '@/hooks/use-grade'
 
 interface Props {
   weekId: string
+  savedFilePath?: string | null
 }
 
 type Status =
@@ -17,16 +17,11 @@ type Status =
   | { type: 'done'; questions_parsed: number; students_regraded: number; subjective_grading_failed?: boolean }
   | { type: 'error'; message: string }
 
-export function AnswerSheetUploader({ weekId }: Props) {
+export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [status, setStatus] = useState<Status>({ type: 'idle' })
   const qc = useQueryClient()
-  const { data: gradeData } = useGradeData(weekId)
-
-  const hasExistingAnswers = (gradeData?.weekScores ?? []).some(
-    (s: { student_answer?: unknown[] }) => (s.student_answer?.length ?? 0) > 0
-  )
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -38,22 +33,17 @@ export function AnswerSheetUploader({ weekId }: Props) {
   async function handleUpload() {
     if (!file) return
 
-    if (hasExistingAnswers) {
-      const ok = window.confirm('이미 입력된 학생 답안이 있습니다.\n해설지를 다시 올리면 기존 답안이 모두 삭제됩니다.\n계속하시겠습니까?')
-      if (!ok) return
-    }
-
     setStatus({ type: 'loading', step: 'Claude가 해설지를 읽는 중...' })
 
     try {
       const base64 = await readFileAsBase64(file)
 
-      setStatus({ type: 'loading', step: '정답 추출 및 채점 중...' })
+      setStatus({ type: 'loading', step: '정답 추출 중...' })
 
       const res = await fetch(`/api/weeks/${weekId}/parse-answers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileData: base64, mimeType: file.type }),
+        body: JSON.stringify({ fileData: base64, mimeType: file.type, fileName: file.name }),
       })
 
       const data = await res.json()
@@ -70,11 +60,11 @@ export function AnswerSheetUploader({ weekId }: Props) {
         subjective_grading_failed: data.subjective_grading_failed,
       })
 
-      // 관련 쿼리 갱신
       qc.invalidateQueries({ queryKey: ['exam-questions', weekId] })
       qc.invalidateQueries({ queryKey: ['grade', weekId] })
+      qc.invalidateQueries({ queryKey: ['week', weekId] })
 
-      toast.success(`${data.questions_parsed}문항 파싱 완료, ${data.students_regraded}명 재채점`)
+      toast.success(`${data.questions_parsed}문항 파싱 완료${data.students_regraded > 0 ? `, ${data.students_regraded}명 재채점` : ''}`)
     } catch (e) {
       setStatus({ type: 'error', message: e instanceof Error ? e.message : '오류 발생' })
     }
@@ -83,9 +73,17 @@ export function AnswerSheetUploader({ weekId }: Props) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500">
-        PDF 또는 이미지 형식의 답안해설지를 업로드하면 Claude가 정답을 추출하고
-        기존 학생 답안을 자동으로 재채점합니다.
+        PDF 또는 이미지 형식의 답안해설지를 업로드하면 Claude가 정답을 추출합니다.
+        재업로드 시 기존 학생 답안은 유지되고 정답만 업데이트됩니다.
       </p>
+
+      {/* 저장된 파일 표시 */}
+      {savedFilePath && status.type !== 'done' && (
+        <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+          <FileCheck className="h-3.5 w-3.5 shrink-0" />
+          <span>저장된 해설지 있음 · <span className="font-mono opacity-70">{savedFilePath.split('/').pop()}</span></span>
+        </div>
+      )}
 
       {/* 파일 선택 영역 */}
       <div
@@ -125,7 +123,7 @@ export function AnswerSheetUploader({ weekId }: Props) {
           ) : (
             <>
               <Upload className="mr-2 h-4 w-4" />
-              해설지 읽고 채점하기
+              {savedFilePath ? '해설지 다시 등록' : '해설지 등록하기'}
             </>
           )}
         </Button>
@@ -139,7 +137,8 @@ export function AnswerSheetUploader({ weekId }: Props) {
             완료
           </div>
           <p className="text-xs text-green-700">
-            {status.questions_parsed}문항 정답 저장 · {status.students_regraded}명 재채점
+            {status.questions_parsed}문항 정답 저장
+            {status.students_regraded > 0 && ` · ${status.students_regraded}명 재채점`}
           </p>
           {status.subjective_grading_failed && (
             <p className="text-xs text-amber-600">서술형 AI 채점은 실패했습니다 (데이터는 저장됨)</p>
@@ -170,7 +169,6 @@ function readFileAsBase64(file: File): Promise<string> {
     const reader = new FileReader()
     reader.onload = () => {
       const result = reader.result as string
-      // data:image/jpeg;base64,XXXX → XXXX만 추출
       resolve(result.split(',')[1])
     }
     reader.onerror = reject

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
+import { X } from 'lucide-react'
 import { ExamQuestion } from '@/lib/types'
 import { useConceptCategories, useConceptTags } from '@/hooks/use-concept-tags'
 
@@ -27,44 +28,50 @@ export function QuestionTypeEditor({ weekId }: Props) {
   const { data: categories = [] } = useConceptCategories()
   const { data: allTags = [] } = useConceptTags()
 
-  // questionId → concept_tag_id
-  const [tagMap, setTagMap] = useState<Record<string, string | null>>({})
+  // questionId → 선택된 tagId[]
+  const [tagMap, setTagMap] = useState<Record<string, string[]>>({})
+  // questionId → 현재 "추가" 드롭다운 상태 { catId, tagId }
+  const [addState, setAddState] = useState<Record<string, { catId: string; tagId: string }>>({})
 
-  const questionSnapshot = questions.map((q) => `${q.id}:${q.concept_tag_id ?? ''}`).join(',')
+  const questionSnapshot = questions
+    .map((q) => `${q.id}:${(q.exam_question_tag ?? []).map((t) => t.concept_tag?.id).sort().join(',')}`)
+    .join('|')
+
   useEffect(() => {
     if (!questions.length) return
-    const map: Record<string, string | null> = {}
-    for (const q of questions) map[q.id] = q.concept_tag_id ?? null
+    const map: Record<string, string[]> = {}
+    for (const q of questions) {
+      map[q.id] = (q.exam_question_tag ?? [])
+        .map((t) => t.concept_tag?.id)
+        .filter((id): id is string => !!id)
+    }
     setTagMap(map)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionSnapshot])
 
   const readingQuestions = questions.filter((q) => q.exam_type === 'reading')
 
-  // 태그 ID로 대분류 ID 조회
-  function getCategoryId(tagId: string | null): string {
-    if (!tagId) return 'none'
-    return allTags.find((t) => t.id === tagId)?.concept_category_id ?? 'none'
+  function addTag(questionId: string) {
+    const tagId = addState[questionId]?.tagId
+    if (!tagId) return
+    setTagMap((prev) => {
+      const existing = prev[questionId] ?? []
+      if (existing.includes(tagId)) return prev
+      return { ...prev, [questionId]: [...existing, tagId] }
+    })
+    setAddState((prev) => ({ ...prev, [questionId]: { catId: prev[questionId]?.catId ?? '', tagId: '' } }))
   }
 
-  function handleCategoryChange(questionId: string, catId: string) {
-    // 대분류 바꾸면 중분류 초기화
-    setTagMap((prev) => ({ ...prev, [questionId]: null }))
-    // catId는 중분류 select 필터링에만 사용 (로컬 상태)
-    setCatOverride((prev) => ({ ...prev, [questionId]: catId === 'none' ? null : catId }))
-  }
-
-  // 대분류 select 임시 선택값 (tagMap에서 유도하되, 사용자가 바꾸면 override)
-  const [catOverride, setCatOverride] = useState<Record<string, string | null>>({})
-
-  function getActiveCatId(questionId: string): string {
-    if (questionId in catOverride) return catOverride[questionId] ?? 'none'
-    return getCategoryId(tagMap[questionId] ?? null)
+  function removeTag(questionId: string, tagId: string) {
+    setTagMap((prev) => ({
+      ...prev,
+      [questionId]: (prev[questionId] ?? []).filter((id) => id !== tagId),
+    }))
   }
 
   const save = useMutation({
     mutationFn: async () => {
-      const updates = Object.entries(tagMap).map(([id, concept_tag_id]) => ({ id, concept_tag_id }))
+      const updates = Object.entries(tagMap).map(([id, concept_tag_ids]) => ({ id, concept_tag_ids }))
       const res = await fetch(`/api/weeks/${weekId}/questions`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -73,7 +80,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
       if (!res.ok) throw new Error('저장 실패')
     },
     onSuccess: () => {
-      setCatOverride({})
+      setAddState({})
       qc.invalidateQueries({ queryKey: ['exam-questions', weekId] })
       qc.invalidateQueries({ queryKey: ['grade', weekId] })
       toast.success('문항 유형 저장 완료')
@@ -94,7 +101,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-400">
-        AI가 자동으로 유형을 인식합니다. 잘못된 경우 직접 변경 후 저장하세요.
+        AI가 자동으로 유형을 인식합니다. 한 문항에 유형을 여러 개 태그할 수 있습니다.
       </p>
 
       <div className="overflow-hidden rounded-lg border">
@@ -103,57 +110,109 @@ export function QuestionTypeEditor({ weekId }: Props) {
             <tr>
               <th className="w-12 px-3 py-2 text-left">번호</th>
               <th className="w-14 px-2 py-2 text-left">정답</th>
-              <th className="w-36 px-2 py-2 text-left">대분류</th>
-              <th className="px-2 py-2 text-left">중분류</th>
+              <th className="px-2 py-2 text-left">선택된 유형</th>
+              <th className="w-72 px-2 py-2 text-left">유형 추가</th>
             </tr>
           </thead>
           <tbody className="divide-y">
             {readingQuestions.map((q) => {
               const isSubjective = q.question_style === 'subjective'
-              const activeCatId = getActiveCatId(q.id)
-              const tagsInCat = activeCatId === 'none'
-                ? []
-                : allTags.filter((t) => t.concept_category_id === activeCatId)
+              const selectedTagIds = tagMap[q.id] ?? []
+              const { catId = '', tagId = '' } = addState[q.id] ?? {}
+              const tagsInCat = catId
+                ? allTags.filter((t) => t.concept_category_id === catId && !selectedTagIds.includes(t.id))
+                : []
 
               return (
                 <tr key={q.id} className="hover:bg-gray-50">
-                  <td className="px-3 py-1.5 font-medium">{q.question_number}번</td>
-                  <td className="px-2 py-1.5 text-gray-500 text-xs">
-                    {isSubjective ? <span className="rounded bg-purple-50 px-1.5 py-0.5 text-purple-600">서술형</span> : q.correct_answer}
+                  <td className="px-3 py-2 font-medium">{q.question_number}번</td>
+                  <td className="px-2 py-2 text-gray-500 text-xs">
+                    {isSubjective
+                      ? <span className="rounded bg-purple-50 px-1.5 py-0.5 text-purple-600">서술형</span>
+                      : q.correct_answer}
                   </td>
-                  <td className="px-2 py-1.5">
-                    <Select value={activeCatId} onValueChange={(v) => handleCategoryChange(q.id, v)}>
-                      <SelectTrigger className="h-7 text-xs">
-                        <SelectValue placeholder="대분류" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">—</SelectItem>
-                        {categories.map((cat) => (
-                          <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+
+                  {/* 선택된 태그 pills */}
+                  <td className="px-2 py-2">
+                    <div className="flex flex-wrap gap-1">
+                      {selectedTagIds.length === 0 && (
+                        <span className="text-xs text-gray-300">—</span>
+                      )}
+                      {selectedTagIds.map((tid) => {
+                        const tag = allTags.find((t) => t.id === tid)
+                        if (!tag) return null
+                        return (
+                          <span
+                            key={tid}
+                            className="inline-flex items-center gap-0.5 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700"
+                          >
+                            {tag.name}
+                            <button
+                              type="button"
+                              onClick={() => removeTag(q.id, tid)}
+                              className="ml-0.5 rounded-full text-indigo-400 hover:text-indigo-700"
+                            >
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          </span>
+                        )
+                      })}
+                    </div>
                   </td>
-                  <td className="px-2 py-1.5">
-                    <Select
-                      value={tagMap[q.id] ?? 'none'}
-                      onValueChange={(v) => {
-                        setTagMap((prev) => ({ ...prev, [q.id]: v === 'none' ? null : v }))
-                        // catOverride 제거 (태그에서 대분류 유도 가능)
-                        setCatOverride((prev) => { const n = { ...prev }; delete n[q.id]; return n })
-                      }}
-                      disabled={activeCatId === 'none'}
-                    >
-                      <SelectTrigger className="h-7 text-xs">
-                        <SelectValue placeholder={activeCatId === 'none' ? '대분류 먼저' : '중분류'} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">—</SelectItem>
-                        {tagsInCat.map((tag) => (
-                          <SelectItem key={tag.id} value={tag.id}>{tag.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+
+                  {/* 태그 추가 드롭다운 */}
+                  <td className="px-2 py-2">
+                    <div className="flex items-center gap-1">
+                      <Select
+                        value={catId || 'none'}
+                        onValueChange={(v) =>
+                          setAddState((prev) => ({
+                            ...prev,
+                            [q.id]: { catId: v === 'none' ? '' : v, tagId: '' },
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="h-7 w-28 text-xs">
+                          <SelectValue placeholder="대분류" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">—</SelectItem>
+                          {categories.map((cat) => (
+                            <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <Select
+                        value={tagId || 'none'}
+                        onValueChange={(v) =>
+                          setAddState((prev) => ({
+                            ...prev,
+                            [q.id]: { catId: prev[q.id]?.catId ?? '', tagId: v === 'none' ? '' : v },
+                          }))
+                        }
+                        disabled={!catId}
+                      >
+                        <SelectTrigger className="h-7 w-28 text-xs">
+                          <SelectValue placeholder={catId ? '중분류' : '대분류 먼저'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">—</SelectItem>
+                          {tagsInCat.map((tag) => (
+                            <SelectItem key={tag.id} value={tag.id}>{tag.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <button
+                        type="button"
+                        onClick={() => addTag(q.id)}
+                        disabled={!tagId}
+                        className="flex h-7 w-7 items-center justify-center rounded border text-sm font-bold text-gray-500 hover:bg-gray-100 disabled:opacity-30"
+                      >
+                        +
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )

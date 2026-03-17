@@ -141,7 +141,7 @@ function StudentCard({
                       return (
                         <div key={q.id} className="space-y-1">
                           <p className="text-xs text-gray-400">
-                            {q.concept_tag?.concept_category?.name ?? '문항'} {q.question_number}번
+                            {q.exam_question_tag?.map((t) => t.concept_tag?.name).filter(Boolean).join('/') || '문항'} {q.question_number}번
                           </p>
                           <AnswerCell
                             value={a?.student_answer ?? null}
@@ -162,7 +162,7 @@ function StudentCard({
                     <div key={q.id} className="space-y-1">
                       <p className="text-xs text-gray-400">
                         <span className="mr-1.5 rounded bg-amber-100 px-1 py-0.5 text-amber-700">서술</span>
-                        {q.concept_tag?.concept_category?.name ?? '문항'} {q.question_number}번
+                        {q.exam_question_tag?.map((t) => t.concept_tag?.name).filter(Boolean).join('/') || '문항'} {q.question_number}번
                         {q.correct_answer_text && (
                           <span className="ml-2 text-gray-300">모범답안: {q.correct_answer_text}</span>
                         )}

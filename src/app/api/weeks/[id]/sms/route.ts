@@ -43,7 +43,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // 현재 주차 채점 데이터
   const { data: weekScores } = await supabase
     .from('week_score')
-    .select('*, student_answer(is_correct, ai_feedback, student_answer_text, exam_question(question_number, question_style, concept_tag(name, concept_category(name))))')
+    .select('*, student_answer(is_correct, ai_feedback, student_answer_text, exam_question(question_number, question_style, exam_question_tag(concept_tag(name, concept_category(name)))))')
     .eq('week_id', weekId)
     .in('student_id', studentIds)
 
@@ -94,29 +94,42 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       exam_question: {
         question_number: number
         question_style: string
-        concept_tag: { name: string; concept_category: { name: string } | null } | null
+        exam_question_tag: { concept_tag: { name: string; concept_category: { name: string } | null } | null }[]
       } | null
     }
 
     const answers: AnswerRecord[] = score.student_answer ?? []
     const wrongAnswers = answers.filter((a) => !a.is_correct && a.exam_question)
 
+    function getTagNames(eq: AnswerRecord['exam_question']): { category: string; tags: string | null } {
+      const tags = eq?.exam_question_tag?.map((t) => t.concept_tag).filter(Boolean) ?? []
+      return {
+        category: tags[0]?.concept_category?.name ?? '문항',
+        tags: tags.length > 0 ? tags.map((t) => t!.name).join('/') : null,
+      }
+    }
+
     const wrongObjective = wrongAnswers
       .filter((a) => a.exam_question?.question_style !== 'subjective')
-      .map((a) => ({
-        question_number: a.exam_question!.question_number,
-        concept_category: a.exam_question!.concept_tag?.concept_category?.name
-          ?? '문항',
-        concept_tag: a.exam_question!.concept_tag?.name ?? null,
-      }))
+      .map((a) => {
+        const { category, tags } = getTagNames(a.exam_question)
+        return {
+          question_number: a.exam_question!.question_number,
+          concept_category: category,
+          concept_tag: tags,
+        }
+      })
 
     const wrongSubjective = wrongAnswers
       .filter((a) => a.exam_question?.question_style === 'subjective')
-      .map((a) => ({
-        question_number: a.exam_question!.question_number,
-        concept_category: a.exam_question!.concept_tag?.concept_category?.name ?? '서술형',
-        ai_feedback: a.ai_feedback ?? '',
-      }))
+      .map((a) => {
+        const { category } = getTagNames(a.exam_question)
+        return {
+          question_number: a.exam_question!.question_number,
+          concept_category: category,
+          ai_feedback: a.ai_feedback ?? '',
+        }
+      })
 
     const readingCorrect = answers.filter(
       (a) => a.is_correct && a.exam_question

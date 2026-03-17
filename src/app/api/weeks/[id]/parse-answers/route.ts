@@ -39,7 +39,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
   }
 
-  // AI가 정확한 태그명을 반환하므로 정확 일치 우선, 공백 무시 폴백
   function matchTagId(questionType: string | null): string | null {
     if (!questionType) return null
     const exact = tagList.find((t) => t.name === questionType)
@@ -49,7 +48,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return norm?.id ?? null
   }
 
-  const { fileData, mimeType } = await request.json()
+  const { fileData, mimeType, fileName } = await request.json()
   if (!fileData || !mimeType) return NextResponse.json({ error: '파일 없음' }, { status: 400 })
 
   // ── 1. 해설지 파싱 ────────────────────────────────────────────────────
@@ -65,39 +64,87 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: '문항을 찾을 수 없습니다' }, { status: 422 })
   }
 
-  // ── 2. 기존 reading 문항 전체 교체 ────────────────────────────────────
-  // 기존 문항 삭제 (student_answer cascade 포함)
-  await supabase
+  // ── 2. 파일 Storage 저장 (실패해도 파싱 계속) ─────────────────────────
+  try {
+    const safeName = (fileName as string | undefined)?.replace(/[/\\?%*:|"<>]/g, '_') ?? `${weekId}.bin`
+    const filePath = safeName
+
+    const fileBuffer = Buffer.from(fileData, 'base64')
+    const { error: storageErr } = await supabase.storage
+      .from('answer-sheets')
+      .upload(filePath, fileBuffer, { contentType: mimeType, upsert: true })
+    if (storageErr) {
+      console.error('[parse-answers] storage upload 실패:', storageErr)
+    } else {
+      const { error: weekErr } = await supabase.from('week').update({ answer_sheet_path: filePath }).eq('id', weekId)
+      if (weekErr) console.error('[parse-answers] week update 실패:', weekErr)
+    }
+  } catch (e) {
+    console.error('[parse-answers] storage 저장 예외:', e)
+  }
+
+  // ── 3. UPSERT: question_number 기준으로 업데이트, 신규만 삽입 ──────────
+  const { data: existingQuestions } = await supabase
     .from('exam_question')
-    .delete()
+    .select('id, question_number')
     .eq('week_id', weekId)
     .eq('exam_type', 'reading')
 
-  // 새 문항 삽입
-  const { data: inserted, error: insertErr } = await supabase
-    .from('exam_question')
-    .insert(
-      parsedAnswers.map((a) => ({
-        week_id: weekId,
-        exam_type: 'reading',
-        question_number: a.question_number,
-        question_style: (['objective', 'subjective'] as const).includes(a.question_style) ? a.question_style : 'objective',
-        concept_tag_id: matchTagId(a.question_type ?? null),
-        correct_answer: a.correct_answer,
-        correct_answer_text: a.correct_answer_text,
-        grading_criteria: a.grading_criteria,
-      }))
-    )
-    .select('id, question_number, question_style, correct_answer, correct_answer_text, grading_criteria')
+  const existingMap = new Map((existingQuestions ?? []).map((q) => [q.question_number, q]))
+  const parsedNumbers = new Set(parsedAnswers.map((a) => a.question_number))
 
-  if (insertErr) {
-    console.error('[parse-answers] insert 실패', insertErr)
-    return NextResponse.json({ error: insertErr.message }, { status: 500 })
+  type QuestionRow = { id: string; question_number: number; question_style: string; correct_answer: number; correct_answer_text: string | null; grading_criteria: string | null }
+  const questions: QuestionRow[] = []
+
+  for (const a of parsedAnswers) {
+    const style = (['objective', 'subjective'] as const).includes(a.question_style) ? a.question_style : 'objective'
+    const existing = existingMap.get(a.question_number)
+
+    if (existing) {
+      // 기존 문항 UPDATE (정답/스타일만 — 태그는 사용자 설정 유지)
+      const { data } = await supabase
+        .from('exam_question')
+        .update({ question_style: style, correct_answer: a.correct_answer, correct_answer_text: a.correct_answer_text, grading_criteria: a.grading_criteria })
+        .eq('id', existing.id)
+        .select('id, question_number, question_style, correct_answer, correct_answer_text, grading_criteria')
+        .single()
+      if (data) questions.push(data)
+    } else {
+      // 신규 문항 INSERT
+      const { data } = await supabase
+        .from('exam_question')
+        .insert({ week_id: weekId, exam_type: 'reading', question_number: a.question_number, question_style: style, correct_answer: a.correct_answer, correct_answer_text: a.correct_answer_text, grading_criteria: a.grading_criteria })
+        .select('id, question_number, question_style, correct_answer, correct_answer_text, grading_criteria')
+        .single()
+      if (data) questions.push(data)
+    }
   }
 
-  const questions = inserted ?? []
+  // 새 해설지에 없는 기존 문항: 학생 답안 없는 것만 삭제
+  for (const existing of existingQuestions ?? []) {
+    if (parsedNumbers.has(existing.question_number)) continue
+    const { count } = await supabase
+      .from('student_answer')
+      .select('*', { count: 'exact', head: true })
+      .eq('exam_question_id', existing.id)
+    if ((count ?? 0) === 0) {
+      await supabase.from('exam_question').delete().eq('id', existing.id)
+    }
+  }
 
-  // ── 3. 기존 학생 답안 재채점 ──────────────────────────────────────────
+  // 신규 문항에만 AI 태그 연결 (기존 문항 태그는 사용자 설정 유지)
+  const newlyInserted = questions.filter((q) => !existingMap.has(q.question_number))
+  const tagInserts: { exam_question_id: string; concept_tag_id: string }[] = []
+  for (const q of newlyInserted) {
+    const parsed = parsedAnswers.find((a) => a.question_number === q.question_number)
+    const tagId = matchTagId(parsed?.question_type ?? null)
+    if (tagId) tagInserts.push({ exam_question_id: q.id, concept_tag_id: tagId })
+  }
+  if (tagInserts.length > 0) {
+    await supabase.from('exam_question_tag').insert(tagInserts)
+  }
+
+  // ── 4. 기존 학생 답안 재채점 ──────────────────────────────────────────
   const { data: weekScores } = await supabase
     .from('week_score')
     .select('id, student_id, student_answer(id, exam_question_id, student_answer, student_answer_text, is_correct)')
@@ -163,7 +210,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
   }
 
-  // 서술형 AI 채점
   if (subjectiveForGrading.length > 0) {
     const subjectiveQuestions = [...new Set(subjectiveForGrading.map((a) => a.question_number))]
       .map((qNum) => {

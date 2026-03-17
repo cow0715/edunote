@@ -47,6 +47,7 @@ export interface Week {
   vocab_total: number;
   reading_total: number;
   homework_total: number;
+  answer_sheet_path: string | null;
   created_at: string;
 }
 
@@ -83,11 +84,10 @@ export interface ExamQuestion {
   correct_answer: number;
   correct_answer_text: string | null;
   grading_criteria: string | null;
-  concept_tag_id: string | null;
   exam_type: 'vocab' | 'reading';
   question_style: 'objective' | 'subjective';
   created_at: string;
-  concept_tag?: ConceptTag;
+  exam_question_tag?: { concept_tag: ConceptTag | null }[];
   exam_question_choice?: ExamQuestionChoice[];
 }
 
