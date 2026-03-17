@@ -45,7 +45,7 @@ type StudentAnswer = {
     id: string
     week_id: string
     exam_type: 'reading' | 'vocab' | null
-    concept_tag: { id: string; name: string } | null
+    exam_question_tag: { concept_tag: { id: string; name: string } | null }[]
   } | null
 }
 type AttendanceRecord = { id: string; class_id: string; date: string; status: 'present' | 'late' | 'absent' }
@@ -116,9 +116,21 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     answersByScore.set(a.week_score_id, list)
   })
 
-  // 주차 + 성적 병합 (성적 있는 것만)
+  // 출석한 주차 ID 집합 (결석 제외)
+  const attendedWeekIds = new Set(
+    attendance
+      .filter((a) => a.status !== 'absent')
+      .flatMap((a) => weeks.filter((w) => w.start_date === a.date).map((w) => w.id))
+  )
+
+  // 차트/통계용: 성적 있는 주차만
   const scoredWeeks = weeks
     .filter((w) => scoreByWeek.has(w.id))
+    .sort((a, b) => a.week_number - b.week_number)
+
+  // 회차별 목록용: 성적 있거나 출석한 주차 모두
+  const visibleWeeks = weeks
+    .filter((w) => scoreByWeek.has(w.id) || attendedWeekIds.has(w.id))
     .sort((a, b) => a.week_number - b.week_number)
 
   // ── 요약 스탯 ──────────────────────────────────────────────────────
@@ -163,13 +175,16 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   // ── 전체 오답 유형 (파이 차트용) ───────────────────────────────────
   const typeWrongMap = new Map<string, { name: string; wrong: number; total: number }>()
   studentAnswers
-    .filter((a) => a.exam_question?.exam_type === 'reading' && a.exam_question?.concept_tag)
+    .filter((a) => a.exam_question?.exam_type === 'reading')
     .forEach((a) => {
-      const name = a.exam_question!.concept_tag!.name
-      const entry = typeWrongMap.get(name) ?? { name, wrong: 0, total: 0 }
-      entry.total += 1
-      if (!a.is_correct) entry.wrong += 1
-      typeWrongMap.set(name, entry)
+      const tags = a.exam_question?.exam_question_tag?.map((t) => t.concept_tag).filter(Boolean) ?? []
+      for (const tag of tags) {
+        const name = tag!.name
+        const entry = typeWrongMap.get(name) ?? { name, wrong: 0, total: 0 }
+        entry.total += 1
+        if (!a.is_correct) entry.wrong += 1
+        typeWrongMap.set(name, entry)
+      }
     })
   const typeData = [...typeWrongMap.values()]
     .filter((d) => d.wrong > 0)
@@ -182,10 +197,12 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     const answers = answersByScore.get(score.id) ?? []
     const map = new Map<string, number>()
     answers
-      .filter((a) => !a.is_correct && a.exam_question?.exam_type === 'reading' && a.exam_question?.concept_tag)
+      .filter((a) => !a.is_correct && a.exam_question?.exam_type === 'reading')
       .forEach((a) => {
-        const name = a.exam_question!.concept_tag!.name
-        map.set(name, (map.get(name) ?? 0) + 1)
+        const tags = a.exam_question?.exam_question_tag?.map((t) => t.concept_tag).filter(Boolean) ?? []
+        for (const tag of tags) {
+          map.set(tag!.name, (map.get(tag!.name) ?? 0) + 1)
+        }
       })
     return [...map.entries()].sort((a, b) => b[1] - a[1])
   }
@@ -267,14 +284,14 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
         )}
 
         {/* 회차별 박스 */}
-        {scoredWeeks.length > 0 && (
+        {visibleWeeks.length > 0 && (
           <div className="rounded-xl border bg-white">
             <div className="border-b px-5 py-3">
               <h2 className="text-sm font-semibold text-gray-800">회차별 성적</h2>
             </div>
             <div className="divide-y">
-              {[...scoredWeeks].reverse().map((w) => {
-                const score = scoreByWeek.get(w.id)!
+              {[...visibleWeeks].reverse().map((w) => {
+                const score = scoreByWeek.get(w.id)
                 const className = classes.find((c) => c.id === w.class_id)?.name ?? ''
                 const isExpanded = expandedWeekId === w.id
                 const wrongTypes = isExpanded ? getWeekWrongTypes(w.id) : []
@@ -312,25 +329,49 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
 
                       {/* 점수 요약 */}
                       <div className="mt-2 flex flex-wrap gap-3">
-                        {w.reading_total > 0 && (
-                          <span className="flex items-center gap-1 text-xs text-gray-600">
-                            <BookOpen className="h-3 w-3 text-indigo-400" />
-                            시험 <strong className={`ml-0.5 ${score.reading_correct / w.reading_total >= 0.8 ? 'text-green-600' : score.reading_correct / w.reading_total >= 0.6 ? 'text-amber-500' : 'text-red-500'}`}>
-                              {score.reading_correct}/{w.reading_total}
-                            </strong>
-                          </span>
-                        )}
-                        {w.vocab_total > 0 && (
-                          <span className="flex items-center gap-1 text-xs text-gray-600">
-                            <BookText className="h-3 w-3 text-green-400" />
-                            단어 <strong className="ml-0.5">{score.vocab_correct}/{w.vocab_total}</strong>
-                          </span>
-                        )}
-                        {w.homework_total > 0 && (
-                          <span className="flex items-center gap-1 text-xs text-gray-600">
-                            <ClipboardCheck className="h-3 w-3 text-amber-400" />
-                            숙제 <strong className="ml-0.5">{score.homework_done}/{w.homework_total}</strong>
-                          </span>
+                        {score ? (() => {
+                          const hasReadingAnswers = answersByScore.get(score.id)
+                            ?.some((a) => a.exam_question?.exam_type === 'reading') ?? false
+                          return (
+                          <>
+                            {w.reading_total > 0 && (
+                              hasReadingAnswers ? (
+                                <span className="flex items-center gap-1 text-xs text-gray-600">
+                                  <BookOpen className="h-3 w-3 text-indigo-400" />
+                                  시험 <strong className={`ml-0.5 ${score.reading_correct / w.reading_total >= 0.8 ? 'text-green-600' : score.reading_correct / w.reading_total >= 0.6 ? 'text-amber-500' : 'text-red-500'}`}>
+                                    {score.reading_correct}/{w.reading_total}
+                                  </strong>
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-xs text-orange-400">
+                                  <BookOpen className="h-3 w-3" />
+                                  시험 <strong className="ml-0.5">미응시</strong>
+                                </span>
+                              )
+                            )}
+                            {w.vocab_total > 0 && (
+                              hasReadingAnswers ? (
+                                <span className="flex items-center gap-1 text-xs text-gray-600">
+                                  <BookText className="h-3 w-3 text-green-400" />
+                                  단어 <strong className="ml-0.5">{score.vocab_correct}/{w.vocab_total}</strong>
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-xs text-orange-400">
+                                  <BookText className="h-3 w-3" />
+                                  단어 <strong className="ml-0.5">미응시</strong>
+                                </span>
+                              )
+                            )}
+                            {w.homework_total > 0 && (
+                              <span className="flex items-center gap-1 text-xs text-gray-600">
+                                <ClipboardCheck className="h-3 w-3 text-amber-400" />
+                                숙제 <strong className="ml-0.5">{score.homework_done}/{w.homework_total}</strong>
+                              </span>
+                            )}
+                          </>
+                          )
+                        })() : (
+                          <span className="text-xs text-orange-400 font-medium">시험·과제 미제출</span>
                         )}
                       </div>
                     </button>
@@ -355,7 +396,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                             {w.reading_total > 0 ? '오답이 없거나 유형이 설정되지 않았습니다' : '시험 데이터가 없습니다'}
                           </p>
                         )}
-                        {score.memo && (
+                        {score?.memo && (
                           <div className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
                             💬 {score.memo}
                           </div>

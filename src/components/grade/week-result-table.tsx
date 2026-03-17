@@ -81,17 +81,26 @@ export function WeekResultTable({ weekId, classId, startDate, vocabTotal, readin
 
                 {readingTotal > 0 && (
                   <td className="px-3 py-3 text-center">
-                    {score ? <ScoreCell correct={score.reading_correct} total={readingTotal} /> : <span className="text-gray-300">-</span>}
+                    {score ? <ScoreCell correct={score.reading_correct} total={readingTotal} />
+                      : attendance && attendance !== 'absent'
+                        ? <span className="text-xs text-orange-400 font-medium">미응시</span>
+                        : <span className="text-gray-300">-</span>}
                   </td>
                 )}
                 {vocabTotal > 0 && (
                   <td className="px-3 py-3 text-center">
-                    {score ? <ScoreCell correct={score.vocab_correct} total={vocabTotal} /> : <span className="text-gray-300">-</span>}
+                    {score ? <ScoreCell correct={score.vocab_correct} total={vocabTotal} />
+                      : attendance && attendance !== 'absent'
+                        ? <span className="text-xs text-orange-400 font-medium">미응시</span>
+                        : <span className="text-gray-300">-</span>}
                   </td>
                 )}
                 {homeworkTotal > 0 && (
                   <td className="px-3 py-3 text-center">
-                    {score ? <ScoreCell correct={score.homework_done} total={homeworkTotal} /> : <span className="text-gray-300">-</span>}
+                    {score ? <ScoreCell correct={score.homework_done} total={homeworkTotal} />
+                      : attendance && attendance !== 'absent'
+                        ? <span className="text-xs text-orange-400 font-medium">미제출</span>
+                        : <span className="text-gray-300">-</span>}
                   </td>
                 )}
                 <td className="px-3 py-3 text-center">

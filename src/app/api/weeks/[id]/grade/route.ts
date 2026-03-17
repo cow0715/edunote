@@ -31,7 +31,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   const { data: questions } = await supabase
     .from('exam_question')
-    .select('*, concept_tag(*, concept_category(*))')
+    .select('*, exam_question_tag(concept_tag(*, concept_category(*)))')
     .eq('week_id', weekId)
     .eq('exam_type', 'reading')
     .order('question_number')

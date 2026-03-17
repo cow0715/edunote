@@ -49,7 +49,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
   const { data: studentAnswers } = scoreIds.length > 0
     ? await supabase
         .from('student_answer')
-        .select('id, week_score_id, is_correct, student_answer, exam_question(id, week_id, exam_type, concept_tag(id, name))')
+        .select('id, week_score_id, is_correct, student_answer, exam_question(id, week_id, exam_type, exam_question_tag(concept_tag(id, name)))')
         .in('week_score_id', scoreIds)
     : { data: [] }
 

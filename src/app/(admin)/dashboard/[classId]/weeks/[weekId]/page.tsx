@@ -200,7 +200,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
             </TabsContent>
 
             <TabsContent value="answer-sheet" className="pt-4">
-              <AnswerSheetUploader weekId={weekId} />
+              <AnswerSheetUploader weekId={weekId} savedFilePath={week?.answer_sheet_path} />
             </TabsContent>
 
             <TabsContent value="question-types" className="pt-4">

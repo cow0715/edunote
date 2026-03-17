@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Plus, Users, Pencil, Trash2, Phone, School, Link, Search } from 'lucide-react'
+import { Plus, Users, Pencil, Trash2, Phone, School, ExternalLink, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -9,7 +9,6 @@ import { StudentFormDialog } from '@/components/students/student-form-dialog'
 import { useStudents, useDeleteStudent, useClassStudents } from '@/hooks/use-students'
 import { useClasses } from '@/hooks/use-classes'
 import { Student } from '@/lib/types'
-import { toast } from 'sonner'
 
 export default function StudentsPage() {
   const { data: students, isLoading } = useStudents()
@@ -66,11 +65,6 @@ export default function StudentsPage() {
     setDialogOpen(true)
   }
 
-  function handleCopyLink(token: string) {
-    const url = `${window.location.origin}/share/${token}`
-    navigator.clipboard.writeText(url)
-    toast.success('공유 링크가 복사되었습니다')
-  }
 
   return (
     <div>
@@ -174,8 +168,8 @@ export default function StudentsPage() {
                     </div>
                   </div>
                   <div className="flex gap-1">
-                    <Button size="sm" variant="outline" className="h-7 px-2 text-blue-500 hover:text-blue-600" onClick={() => handleCopyLink(s.share_token)} title="학부모 공유 링크 복사">
-                      <Link className="h-3.5 w-3.5" />
+                    <Button size="sm" variant="outline" className="h-7 px-2 text-blue-500 hover:text-blue-600" onClick={() => window.open(`/share/${s.share_token}`, '_blank')} title="학부모 공유 페이지">
+                      <ExternalLink className="h-3.5 w-3.5" />
                     </Button>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => handleEdit(s)}>
