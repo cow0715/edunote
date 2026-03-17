@@ -30,6 +30,8 @@ export function QuestionTypeEditor({ weekId }: Props) {
 
   // questionId → 선택된 tagId[]
   const [tagMap, setTagMap] = useState<Record<string, string[]>>({})
+  // questionId → question_style
+  const [styleMap, setStyleMap] = useState<Record<string, string>>({})
   // questionId → 현재 "추가" 드롭다운 상태 { catId, tagId }
   const [addState, setAddState] = useState<Record<string, { catId: string; tagId: string }>>({})
 
@@ -40,12 +42,15 @@ export function QuestionTypeEditor({ weekId }: Props) {
   useEffect(() => {
     if (!questions.length) return
     const map: Record<string, string[]> = {}
+    const sMap: Record<string, string> = {}
     for (const q of questions) {
       map[q.id] = (q.exam_question_tag ?? [])
         .map((t) => t.concept_tag?.id)
         .filter((id): id is string => !!id)
+      sMap[q.id] = q.question_style
     }
     setTagMap(map)
+    setStyleMap(sMap)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionSnapshot])
 
@@ -71,7 +76,11 @@ export function QuestionTypeEditor({ weekId }: Props) {
 
   const save = useMutation({
     mutationFn: async () => {
-      const updates = Object.entries(tagMap).map(([id, concept_tag_ids]) => ({ id, concept_tag_ids }))
+      const updates = Object.entries(tagMap).map(([id, concept_tag_ids]) => ({
+        id,
+        concept_tag_ids,
+        question_style: styleMap[id],
+      }))
       const res = await fetch(`/api/weeks/${weekId}/questions`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -101,7 +110,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-400">
-        AI가 자동으로 유형을 인식합니다. 한 문항에 유형을 여러 개 태그할 수 있습니다.
+        형식은 채점 방식, 유형 태그는 출제 영역(독해·문법·어휘 등)을 나타냅니다. 한 문항에 태그를 여러 개 달 수 있습니다.
       </p>
 
       <div className="overflow-hidden rounded-lg border">
@@ -110,6 +119,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
             <tr>
               <th className="w-12 px-3 py-2 text-left">번호</th>
               <th className="w-14 px-2 py-2 text-left">정답</th>
+              <th className="w-32 px-2 py-2 text-left">형식</th>
               <th className="px-2 py-2 text-left">선택된 유형</th>
               <th className="w-72 px-2 py-2 text-left">유형 추가</th>
             </tr>
@@ -125,11 +135,27 @@ export function QuestionTypeEditor({ weekId }: Props) {
 
               return (
                 <tr key={q.id} className="hover:bg-gray-50">
-                  <td className="px-3 py-2 font-medium">{q.question_number}번</td>
+                  <td className="px-3 py-2 font-medium">{q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}</td>
                   <td className="px-2 py-2 text-gray-500 text-xs">
-                    {isSubjective
-                      ? <span className="rounded bg-purple-50 px-1.5 py-0.5 text-purple-600">서술형</span>
-                      : q.correct_answer}
+                    {q.question_style === 'objective' ? q.correct_answer : <span className="text-gray-400">—</span>}
+                  </td>
+
+                  {/* 형식 셀렉터 */}
+                  <td className="px-2 py-2">
+                    <Select
+                      value={styleMap[q.id] ?? q.question_style}
+                      onValueChange={(v) => setStyleMap((prev) => ({ ...prev, [q.id]: v }))}
+                    >
+                      <SelectTrigger className="h-7 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="objective">객관식</SelectItem>
+                        <SelectItem value="ox">O/X 교정형</SelectItem>
+                        <SelectItem value="multi_select">복수정답</SelectItem>
+                        <SelectItem value="subjective">서술형 (AI채점)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </td>
 
                   {/* 선택된 태그 pills */}

@@ -7,6 +7,7 @@ export const anthropic = new Anthropic({
 
 export type SubjectiveQuestion = {
   question_number: number
+  sub_label: string | null
   correct_answer_text: string
   grading_criteria: string | null
 }
@@ -15,6 +16,7 @@ export type SubjectiveStudentAnswer = {
   week_score_id: string
   exam_question_id: string
   question_number: number
+  sub_label: string | null
   student_name: string
   student_answer_text: string
 }
@@ -105,7 +107,8 @@ JSON 배열만 출력 (다른 텍스트 없이):
 
 export type ParsedAnswer = {
   question_number: number
-  question_style: 'objective' | 'subjective'
+  sub_label: string | null            // 소문항 레이블 (예: 'a', 'b'), 없으면 null
+  question_style: 'objective' | 'subjective' | 'ox' | 'multi_select'
   question_type: string | null        // 문제 유형명 (예: "빈칸", "순서", "글의 목적 파악")
   correct_answer: number          // 객관식: 1-5, 서술형: 0
   correct_answer_text: string | null  // 서술형 모범답안
@@ -141,7 +144,7 @@ ${PARSE_ANSWER_SHEET_RULES}
 ${tagListSection}
 
 JSON 배열만 출력 (다른 텍스트 없이):
-[{"question_number":1,"question_style":"objective","question_type":"가정법/조동사","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"..."}]`
+[{"question_number":1,"sub_label":null,"question_style":"objective","question_type":"가정법/조동사","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"..."},{"question_number":2,"sub_label":null,"question_style":"multi_select","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"1,3","grading_criteria":null,"explanation":"..."},{"question_number":5,"sub_label":"a","question_style":"ox","question_type":"대명사","correct_answer":0,"correct_answer_text":"X (their)","grading_criteria":null,"explanation":"..."},{"question_number":5,"sub_label":"b","question_style":"ox","question_type":"수의 일치","correct_answer":0,"correct_answer_text":"O","grading_criteria":null,"explanation":"..."}]`
 
   const res = await anthropic.messages.create({
     model: 'claude-opus-4-6',
@@ -153,6 +156,7 @@ JSON 배열만 출력 (다른 텍스트 없이):
   })
 
   const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  console.log('[parseAnswerSheet] raw response:', raw)
   let parsed: ParsedAnswer[]
   try {
     parsed = JSON.parse(raw)
@@ -160,6 +164,7 @@ JSON 배열만 출력 (다른 텍스트 없이):
     const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
     parsed = JSON.parse(cleaned)
   }
+  console.log('[parseAnswerSheet] parsed count:', parsed.length, '| question_numbers:', parsed.map(p => `${p.question_number}${p.sub_label ? p.sub_label : ''}`).join(', '))
   return parsed
 }
 
@@ -171,18 +176,21 @@ export async function gradeSubjectiveAnswers(
 ): Promise<GradingResult[]> {
   if (answers.length === 0) return []
 
+  const qLabel = (q: { question_number: number; sub_label: string | null }) =>
+    `${q.question_number}번${q.sub_label ? ` (${q.sub_label})` : ''}`
+
   const prompt = `${GRADING_SYSTEM}
 
 ## 문제 정보
 ${questions.map((q) => `
-[${q.question_number}번]
+[${qLabel(q)}]
 모범답안: ${q.correct_answer_text}
 채점 기준: ${q.grading_criteria ?? '모범답안과 의미 및 문법이 일치하는지 확인'}
 `).join('')}
 
 ## 학생 답안
 ${answers.map((a) => `
-학생: ${a.student_name} / 문항: ${a.question_number}번
+학생: ${a.student_name} / 문항: ${qLabel(a)}
 답안: ${a.student_answer_text}
 `).join('')}
 
@@ -191,6 +199,7 @@ ${answers.map((a) => `
   {
     "student_name": "학생명",
     "question_number": 문항번호,
+    "sub_label": 소문항레이블또는null,
     "is_correct": true 또는 false,
     "feedback": "틀린 경우 구체적 이유 (20자 이내), 맞으면 빈 문자열"
   }
@@ -206,7 +215,7 @@ ${GRADING_RULES}`
 
   const raw = message.content[0].type === 'text' ? message.content[0].text : ''
 
-  let parsed: { student_name: string; question_number: number; is_correct: boolean; feedback: string }[]
+  let parsed: { student_name: string; question_number: number; sub_label: string | null; is_correct: boolean; feedback: string }[]
   try {
     parsed = JSON.parse(raw)
   } catch {
@@ -217,11 +226,11 @@ ${GRADING_RULES}`
 
   // 결과를 week_score_id + exam_question_id 기준으로 매핑
   const answerMap = new Map(
-    answers.map((a) => [`${a.student_name}__${a.question_number}`, a])
+    answers.map((a) => [`${a.student_name}__${a.question_number}__${a.sub_label ?? ''}`, a])
   )
 
   return parsed.map((r) => {
-    const key = `${r.student_name}__${r.question_number}`
+    const key = `${r.student_name}__${r.question_number}__${r.sub_label ?? ''}`
     const original = answerMap.get(key)
     if (!original) return null
     return {

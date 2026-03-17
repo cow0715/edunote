@@ -64,79 +64,114 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: '문항을 찾을 수 없습니다' }, { status: 422 })
   }
 
-  // ── 2. 파일 Storage 저장 (실패해도 파싱 계속) ─────────────────────────
+  // ── 1-1. 후처리: sub_label 순서 정규화 (a,b,c,... 순서로 재부여) ────────
+  // AI가 b,c,f 등 원본 기호를 그대로 쓰는 경우 a,b,c 순으로 정규화
+  {
+    const grouped = new Map<number, typeof parsedAnswers>()
+    for (const a of parsedAnswers) {
+      const arr = grouped.get(a.question_number) ?? []
+      arr.push(a)
+      grouped.set(a.question_number, arr)
+    }
+
+    const normalized: typeof parsedAnswers = []
+    for (const [, group] of grouped) {
+      if (group.length === 1) {
+        normalized.push(...group)
+      } else {
+        // sub_label 기준 정렬 후 a,b,c,... 순서로 재부여
+        const sorted = [...group].sort((x, y) => (x.sub_label ?? '').localeCompare(y.sub_label ?? ''))
+        const alphabet = 'abcdefghijklmnopqrstuvwxyz'
+        sorted.forEach((item, i) => {
+          normalized.push({ ...item, sub_label: alphabet[i] })
+        })
+      }
+    }
+    parsedAnswers = normalized
+  }
+
+  // ── 2. 파일 Storage 저장 (실패해도 계속) ──────────────────────────────
   try {
-    const safeName = (fileName as string | undefined)?.replace(/[/\\?%*:|"<>]/g, '_') ?? `${weekId}.bin`
-    const filePath = safeName
+    const safeName = (fileName as string | undefined)
+      ?.replace(/[^\x00-\x7F]/g, '_')
+      .replace(/[/\\?%*:|"<>\s]/g, '_')
+      .replace(/_+/g, '_')
+      ?? `${weekId}.bin`
 
     const fileBuffer = Buffer.from(fileData, 'base64')
     const { error: storageErr } = await supabase.storage
       .from('answer-sheets')
-      .upload(filePath, fileBuffer, { contentType: mimeType, upsert: true })
+      .upload(safeName, fileBuffer, { contentType: mimeType, upsert: true })
     if (storageErr) {
       console.error('[parse-answers] storage upload 실패:', storageErr)
     } else {
-      const { error: weekErr } = await supabase.from('week').update({ answer_sheet_path: filePath }).eq('id', weekId)
-      if (weekErr) console.error('[parse-answers] week update 실패:', weekErr)
+      await supabase.from('week').update({ answer_sheet_path: safeName }).eq('id', weekId)
     }
   } catch (e) {
     console.error('[parse-answers] storage 저장 예외:', e)
   }
 
-  // ── 3. UPSERT: question_number 기준으로 업데이트, 신규만 삽입 ──────────
+  // ── 3. UPSERT: 기존 문항은 정답만 업데이트, 신규 삽입 ────────────────
   const { data: existingQuestions } = await supabase
     .from('exam_question')
-    .select('id, question_number')
+    .select('id, question_number, sub_label')
     .eq('week_id', weekId)
     .eq('exam_type', 'reading')
 
-  const existingMap = new Map((existingQuestions ?? []).map((q) => [q.question_number, q]))
-  const parsedNumbers = new Set(parsedAnswers.map((a) => a.question_number))
+  const existingMap = new Map(
+    (existingQuestions ?? []).map((q) => [`${q.question_number}|${q.sub_label ?? ''}`, q])
+  )
+  const parsedKeys = new Set(parsedAnswers.map((a) => `${a.question_number}|${a.sub_label ?? ''}`))
 
-  type QuestionRow = { id: string; question_number: number; question_style: string; correct_answer: number; correct_answer_text: string | null; grading_criteria: string | null }
+  type QuestionRow = { id: string; question_number: number; sub_label: string | null; question_style: string; correct_answer: number; correct_answer_text: string | null; grading_criteria: string | null }
   const questions: QuestionRow[] = []
 
+  const VALID_STYLES = ['objective', 'subjective', 'ox', 'multi_select'] as const
+  type QuestionStyle = typeof VALID_STYLES[number]
+
   for (const a of parsedAnswers) {
-    const style = (['objective', 'subjective'] as const).includes(a.question_style) ? a.question_style : 'objective'
-    const existing = existingMap.get(a.question_number)
+    const style: QuestionStyle = VALID_STYLES.includes(a.question_style as QuestionStyle) ? a.question_style as QuestionStyle : 'objective'
+    const key = `${a.question_number}|${a.sub_label ?? ''}`
+    const existing = existingMap.get(key)
 
     if (existing) {
-      // 기존 문항 UPDATE (정답/스타일만 — 태그는 사용자 설정 유지)
-      const { data } = await supabase
+      // 기존 문항: 정답/스타일만 업데이트, 학생 답안 유지
+      const { data, error } = await supabase
         .from('exam_question')
         .update({ question_style: style, correct_answer: a.correct_answer, correct_answer_text: a.correct_answer_text, grading_criteria: a.grading_criteria })
         .eq('id', existing.id)
-        .select('id, question_number, question_style, correct_answer, correct_answer_text, grading_criteria')
+        .select('id, question_number, sub_label, question_style, correct_answer, correct_answer_text, grading_criteria')
         .single()
+      if (error) console.error(`[parse-answers] UPDATE 실패 Q${a.question_number}${a.sub_label ?? ''}:`, error)
       if (data) questions.push(data)
     } else {
       // 신규 문항 INSERT
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('exam_question')
-        .insert({ week_id: weekId, exam_type: 'reading', question_number: a.question_number, question_style: style, correct_answer: a.correct_answer, correct_answer_text: a.correct_answer_text, grading_criteria: a.grading_criteria })
-        .select('id, question_number, question_style, correct_answer, correct_answer_text, grading_criteria')
+        .insert({ week_id: weekId, exam_type: 'reading', question_number: a.question_number, sub_label: a.sub_label ?? null, question_style: style, correct_answer: a.correct_answer, correct_answer_text: a.correct_answer_text, grading_criteria: a.grading_criteria })
+        .select('id, question_number, sub_label, question_style, correct_answer, correct_answer_text, grading_criteria')
         .single()
+      if (error) console.error(`[parse-answers] INSERT 실패 Q${a.question_number}${a.sub_label ?? ''}:`, error)
       if (data) questions.push(data)
     }
   }
 
-  // 새 해설지에 없는 기존 문항: 학생 답안 없는 것만 삭제
-  for (const existing of existingQuestions ?? []) {
-    if (parsedNumbers.has(existing.question_number)) continue
-    const { count } = await supabase
-      .from('student_answer')
-      .select('*', { count: 'exact', head: true })
-      .eq('exam_question_id', existing.id)
-    if ((count ?? 0) === 0) {
-      await supabase.from('exam_question').delete().eq('id', existing.id)
-    }
+  // ── 4. 새 해설지에 없는 기존 문항 삭제 (학생 답안 포함) ───────────────
+  const removedQuestions = (existingQuestions ?? []).filter(
+    (q) => !parsedKeys.has(`${q.question_number}|${q.sub_label ?? ''}`)
+  )
+  if (removedQuestions.length > 0) {
+    const removedIds = removedQuestions.map((q) => q.id)
+    await supabase.from('student_answer').delete().in('exam_question_id', removedIds)
+    await supabase.from('exam_question_tag').delete().in('exam_question_id', removedIds)
+    await supabase.from('exam_question').delete().in('id', removedIds)
   }
 
-  // 신규 문항에만 AI 태그 연결 (기존 문항 태그는 사용자 설정 유지)
-  const newlyInserted = questions.filter((q) => !existingMap.has(q.question_number))
+  // ── 5. 신규 문항에만 AI 태그 연결 (기존 문항 태그는 사용자 설정 유지) ──
+  const newlyInserted = questions.filter((q) => !existingMap.has(`${q.question_number}|${q.sub_label ?? ''}`))
   const tagInserts: { exam_question_id: string; concept_tag_id: string }[] = []
   for (const q of newlyInserted) {
-    const parsed = parsedAnswers.find((a) => a.question_number === q.question_number)
+    const parsed = parsedAnswers.find((a) => a.question_number === q.question_number && (a.sub_label ?? null) === q.sub_label)
     const tagId = matchTagId(parsed?.question_type ?? null)
     if (tagId) tagInserts.push({ exam_question_id: q.id, concept_tag_id: tagId })
   }
@@ -144,7 +179,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     await supabase.from('exam_question_tag').insert(tagInserts)
   }
 
-  // ── 4. 기존 학생 답안 재채점 ──────────────────────────────────────────
+  // ── 6. reading_total 자동 업데이트 ────────────────────────────────────
+  await supabase.from('week').update({ reading_total: questions.length }).eq('id', weekId)
+
+  // ── 7. 기존 학생 답안 재채점 ──────────────────────────────────────────
   const { data: weekScores } = await supabase
     .from('week_score')
     .select('id, student_id, student_answer(id, exam_question_id, student_answer, student_answer_text, is_correct)')
@@ -161,18 +199,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .in('id', studentIds)
   const studentNameMap = new Map((students ?? []).map((s) => [s.id, s.name]))
 
-  const questionByNumber = new Map(questions.map((q) => [q.question_number, q]))
+  const questionByKey = new Map(questions.map((q) => [`${q.question_number}__${q.sub_label ?? ''}`, q]))
   const questionById = new Map(questions.map((q) => [q.id, q]))
-
-  const OX_PATTERN = /^[OX](\s*\(.+\))?$/i
 
   function gradeOX(correctAnswerText: string, studentAnswerText: string): boolean {
     const correct = correctAnswerText.trim()
-    const student = studentAnswerText.trim()
+    const student = studentAnswerText.trim().toLowerCase()
     if (/^O$/i.test(correct)) return /^o$/i.test(student)
-    const correction = correct.match(/\((.+)\)/)?.[1]?.trim().toLowerCase()
+    let correction = correct.match(/\((.+)\)/)?.[1]?.trim().toLowerCase() ?? ''
+    if (correction.includes('→')) correction = correction.split('→').pop()?.trim() ?? correction
     if (/^o$/i.test(student)) return false
-    return !!correction && student.toLowerCase() === correction
+    // '/' 구분자로 복수 정답 허용 (예: "in which / where")
+    const alternatives = correction.split('/').map((s) => s.trim()).filter(Boolean)
+    return alternatives.some((alt) => student === alt)
+  }
+
+  function gradeMultiSelect(correctAnswerText: string, studentAnswerText: string): boolean {
+    const normalize = (t: string) => t.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean).sort().join(',')
+    return normalize(correctAnswerText) === normalize(studentAnswerText)
   }
 
   const subjectiveForGrading: SubjectiveStudentAnswer[] = []
@@ -190,32 +234,36 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         if (isCorrect !== a.is_correct) {
           await supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
         }
-      } else if (q.question_style === 'subjective' && a.student_answer_text?.trim()) {
-        const isOX = q.correct_answer_text && OX_PATTERN.test(q.correct_answer_text.trim())
-        if (isOX) {
-          const isCorrect = gradeOX(q.correct_answer_text!, a.student_answer_text)
-          if (isCorrect !== a.is_correct) {
-            await supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
-          }
-        } else {
-          subjectiveForGrading.push({
-            week_score_id: score.id,
-            exam_question_id: a.exam_question_id,
-            question_number: q.question_number,
-            student_name: studentNameMap.get(score.student_id) ?? score.student_id,
-            student_answer_text: a.student_answer_text!.trim(),
-          })
+      } else if (q.question_style === 'ox' && a.student_answer_text?.trim()) {
+        const isCorrect = q.correct_answer_text ? gradeOX(q.correct_answer_text, a.student_answer_text) : false
+        if (isCorrect !== a.is_correct) {
+          await supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
         }
+      } else if (q.question_style === 'multi_select' && a.student_answer_text?.trim()) {
+        const isCorrect = q.correct_answer_text ? gradeMultiSelect(q.correct_answer_text, a.student_answer_text) : false
+        if (isCorrect !== a.is_correct) {
+          await supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
+        }
+      } else if (q.question_style === 'subjective' && a.student_answer_text?.trim()) {
+        subjectiveForGrading.push({
+          week_score_id: score.id,
+          exam_question_id: a.exam_question_id,
+          question_number: q.question_number,
+          sub_label: q.sub_label ?? null,
+          student_name: studentNameMap.get(score.student_id) ?? score.student_id,
+          student_answer_text: a.student_answer_text!.trim(),
+        })
       }
     }
   }
 
   if (subjectiveForGrading.length > 0) {
-    const subjectiveQuestions = [...new Set(subjectiveForGrading.map((a) => a.question_number))]
-      .map((qNum) => {
-        const q = questionByNumber.get(qNum)
+    const uniqueKeys = [...new Set(subjectiveForGrading.map((a) => `${a.question_number}__${a.sub_label ?? ''}`))]
+    const subjectiveQuestions = uniqueKeys
+      .map((key) => {
+        const q = questionByKey.get(key)
         return q?.question_style === 'subjective' && q.correct_answer_text
-          ? { question_number: q.question_number, correct_answer_text: q.correct_answer_text, grading_criteria: q.grading_criteria }
+          ? { question_number: q.question_number, sub_label: q.sub_label ?? null, correct_answer_text: q.correct_answer_text, grading_criteria: q.grading_criteria }
           : null
       })
       .filter((q): q is NonNullable<typeof q> => q !== null)

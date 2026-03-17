@@ -49,6 +49,7 @@ function StudentCard({
 }) {
   const [open, setOpen] = useState(true)
   const hasSubjective = questions.some((q) => q.question_style === 'subjective')
+  const hasTextAnswer = questions.some((q) => ['subjective', 'ox', 'multi_select'].includes(q.question_style))
 
   return (
     <div className={`rounded-xl border bg-white transition-opacity ${!row.present ? 'opacity-50' : ''}`}>
@@ -85,7 +86,7 @@ function StudentCard({
                 />
               </div>
             )}
-            {readingTotal > 0 && (
+            {readingTotal > 0 && questions.length === 0 && (
               <div className="space-y-1">
                 <p className="text-xs text-gray-400">진단평가 <span className="text-gray-300">/{readingTotal}</span></p>
                 <Input
@@ -131,58 +132,75 @@ function StudentCard({
             <div className="space-y-2">
               <p className="text-xs font-medium text-gray-500">진단평가</p>
 
-              {/* 객관식 모아서 한 줄 */}
-              {questions.filter((q) => q.question_style !== 'subjective').length > 0 && (
-                <div className="flex flex-wrap gap-x-4 gap-y-2">
-                  {questions
-                    .filter((q) => q.question_style !== 'subjective')
-                    .map((q) => {
-                      const a = row.answers.find((a) => a.exam_question_id === q.id)
-                      return (
-                        <div key={q.id} className="space-y-1">
-                          <p className="text-xs text-gray-400">
-                            {q.exam_question_tag?.map((t) => t.concept_tag?.name).filter(Boolean).join('/') || '문항'} {q.question_number}번
-                          </p>
-                          <AnswerCell
-                            value={a?.student_answer ?? null}
-                            onChange={(n) => onAnswerChange(q.id, n)}
-                          />
-                        </div>
-                      )
-                    })}
-                </div>
-              )}
-
-              {/* 서술형 세로 */}
-              {questions
-                .filter((q) => q.question_style === 'subjective')
-                .map((q) => {
+              {/* 문항 순서대로 */}
+              <div className="flex flex-wrap gap-x-4 gap-y-3">
+                {questions.map((q) => {
                   const a = row.answers.find((a) => a.exam_question_id === q.id)
+                  const styleLabel =
+                    q.question_style === 'ox' ? { text: 'O/X', cls: 'bg-blue-50 text-blue-700' }
+                    : q.question_style === 'multi_select' ? { text: '복수정답', cls: 'bg-orange-50 text-orange-700' }
+                    : q.question_style === 'subjective' ? { text: '서술형', cls: 'bg-amber-50 text-amber-700' }
+                    : null
+                  const placeholder =
+                    q.question_style === 'ox' ? 'O / X (수정어)'
+                    : q.question_style === 'multi_select' ? `예: ${q.correct_answer_text ?? '1,3'}`
+                    : '답안'
+
                   return (
                     <div key={q.id} className="space-y-1">
-                      <p className="text-xs text-gray-400">
-                        <span className="mr-1.5 rounded bg-amber-100 px-1 py-0.5 text-amber-700">서술</span>
-                        {q.exam_question_tag?.map((t) => t.concept_tag?.name).filter(Boolean).join('/') || '문항'} {q.question_number}번
-                        {q.correct_answer_text && (
-                          <span className="ml-2 text-gray-300">모범답안: {q.correct_answer_text}</span>
+                      <p className="text-xs text-gray-400 flex items-center gap-1">
+                        {styleLabel && (
+                          <span className={`rounded px-1 py-0.5 ${styleLabel.cls}`}>{styleLabel.text}</span>
+                        )}
+                        {(() => {
+                          const ans = row.answers.find((a) => a.exam_question_id === q.id)
+                          const hasAnswer = ans?.student_answer !== null || !!ans?.student_answer_text
+                          const wrong = hasAnswer && ans?.is_correct === false
+                          return (
+                            <span className={wrong ? 'text-red-400 line-through' : ''}>
+                              문제 {q.question_number}{q.sub_label ? ` (${q.sub_label})` : ''}
+                            </span>
+                          )
+                        })()}
+                        {q.correct_answer_text && q.question_style !== 'subjective' && (
+                          <span className="text-gray-300">({q.correct_answer_text})</span>
                         )}
                       </p>
-                      <Textarea
-                        value={a?.student_answer_text ?? ''}
-                        onChange={(e) => onAnswerTextChange(q.id, e.target.value)}
-                        disabled={!row.present}
-                        placeholder="학생 답안 입력"
-                        rows={2}
-                        className="text-sm resize-none"
-                      />
+                      {q.question_style === 'objective' ? (
+                        <AnswerCell
+                          value={a?.student_answer ?? null}
+                          onChange={(n) => onAnswerChange(q.id, n)}
+                        />
+                      ) : q.question_style === 'subjective' ? (
+                        <Textarea
+                          value={a?.student_answer_text ?? ''}
+                          onChange={(e) => onAnswerTextChange(q.id, e.target.value)}
+                          disabled={!row.present}
+                          placeholder={placeholder}
+                          rows={2}
+                          className="text-sm resize-none w-64"
+                        />
+                      ) : (
+                        <Input
+                          value={a?.student_answer_text ?? ''}
+                          onChange={(e) => onAnswerTextChange(q.id, e.target.value)}
+                          disabled={!row.present}
+                          placeholder={placeholder}
+                          className="h-8 w-32 text-sm"
+                        />
+                      )}
                     </div>
                   )
                 })}
+              </div>
             </div>
           )}
 
           {hasSubjective && (
-            <p className="text-xs text-amber-600">서술형은 저장 시 AI가 자동 채점합니다</p>
+            <p className="text-xs text-amber-600">서술형(AI채점) 문항은 저장 시 자동 채점됩니다</p>
+          )}
+          {hasTextAnswer && !hasSubjective && (
+            <p className="text-xs text-blue-500">단답형·복수정답은 저장 시 자동 채점됩니다</p>
           )}
         </div>
       )}

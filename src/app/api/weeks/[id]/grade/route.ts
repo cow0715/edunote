@@ -35,6 +35,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     .eq('week_id', weekId)
     .eq('exam_type', 'reading')
     .order('question_number')
+    .order('sub_label', { nullsFirst: true })
 
   return NextResponse.json({ classStudents, weekScores, questions })
 }
@@ -82,22 +83,26 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
   // 이 주차의 모든 문항 정보 한 번에 조회 (style, correct_answer, 모범답안)
   const { data: allQuestions } = await supabase
     .from('exam_question')
-    .select('id, question_number, correct_answer, correct_answer_text, grading_criteria, question_style')
+    .select('id, question_number, sub_label, correct_answer, correct_answer_text, grading_criteria, question_style')
     .eq('week_id', weekId)
 
   const questionMap = new Map(allQuestions?.map((q) => [q.id, q]) ?? [])
 
-  // O/X 패턴 감지: "O", "X (단어)" 형식 → 코드로 직접 채점 (AI 불필요)
-  const OX_PATTERN = /^[OX](\s*\(.+\))?$/i
-
   function gradeOX(correctAnswerText: string, studentAnswerText: string): boolean {
     const correct = correctAnswerText.trim()
-    const student = studentAnswerText.trim()
+    const student = studentAnswerText.trim().toLowerCase()
     if (/^O$/i.test(correct)) return /^o$/i.test(student)
-    // X (단어): 학생이 o → 오답, 수정어 일치 → 정답
-    const correction = correct.match(/\((.+)\)/)?.[1]?.trim().toLowerCase()
+    let correction = correct.match(/\((.+)\)/)?.[1]?.trim().toLowerCase() ?? ''
+    if (correction.includes('→')) correction = correction.split('→').pop()?.trim() ?? correction
     if (/^o$/i.test(student)) return false
-    return !!correction && student.toLowerCase() === correction
+    // '/' 구분자로 복수 정답 허용 (예: "in which / where")
+    const alternatives = correction.split('/').map((s) => s.trim()).filter(Boolean)
+    return alternatives.some((alt) => student === alt)
+  }
+
+  function gradeMultiSelect(correctAnswerText: string, studentAnswerText: string): boolean {
+    const normalize = (t: string) => t.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean).sort().join(',')
+    return normalize(correctAnswerText) === normalize(studentAnswerText)
   }
 
   // 서술형 배치 채점용 수집
@@ -133,18 +138,21 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     if (row.answers.length > 0) {
       const answersToUpsert = row.answers.map((a) => {
         const q = questionMap.get(a.exam_question_id)
-        const isSubjective = q?.question_style === 'subjective'
-        const isOX = isSubjective && q.correct_answer_text && OX_PATTERN.test(q.correct_answer_text.trim())
+        const style = q?.question_style ?? 'objective'
+        const isTextAnswer = style === 'subjective' || style === 'ox' || style === 'multi_select'
+        const is_correct = style === 'objective'
+          ? (a.student_answer !== null && a.student_answer === q?.correct_answer)
+          : style === 'ox'
+            ? (q?.correct_answer_text ? gradeOX(q.correct_answer_text, a.student_answer_text ?? '') : false)
+            : style === 'multi_select'
+              ? (q?.correct_answer_text ? gradeMultiSelect(q.correct_answer_text, a.student_answer_text ?? '') : false)
+              : false // subjective: AI 채점 후 업데이트
         return {
           week_score_id: score.id,
           exam_question_id: a.exam_question_id,
-          student_answer: isSubjective ? null : a.student_answer,
-          student_answer_text: isSubjective ? (a.student_answer_text ?? null) : null,
-          is_correct: isSubjective
-            ? isOX
-              ? gradeOX(q.correct_answer_text!, a.student_answer_text ?? '') // O/X: 코드 채점
-              : false                                                          // 자유서술: AI 채점 후 업데이트
-            : (a.student_answer !== null && a.student_answer === q?.correct_answer),
+          student_answer: isTextAnswer ? null : a.student_answer,
+          student_answer_text: isTextAnswer ? (a.student_answer_text ?? null) : null,
+          is_correct,
         }
       })
 
@@ -157,15 +165,15 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         return NextResponse.json({ error: answerError.message }, { status: 500 })
       }
 
-      // 자유서술 답안만 AI 채점용으로 수집 (O/X 패턴 제외)
+      // subjective만 AI 채점용으로 수집
       for (const a of row.answers) {
         const q = questionMap.get(a.exam_question_id)
-        const isOX = q?.correct_answer_text && OX_PATTERN.test(q.correct_answer_text.trim())
-        if (q?.question_style === 'subjective' && !isOX && a.student_answer_text?.trim()) {
+        if (q?.question_style === 'subjective' && (a.student_answer_text ?? '').trim()) {
           subjectiveForGrading.push({
             week_score_id: score.id,
             exam_question_id: a.exam_question_id,
             question_number: q.question_number,
+            sub_label: q.sub_label ?? null,
             student_name: row.student_name,
             student_answer_text: a.student_answer_text.trim(),
           })
@@ -176,11 +184,16 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
 
   // 서술형 AI 배치 채점
   if (subjectiveForGrading.length > 0) {
-    const subjectiveQuestions = [...new Set(subjectiveForGrading.map((a) => a.question_number))]
-      .map((qNum) => {
-        const q = allQuestions?.find((q) => q.question_number === qNum && q.question_style === 'subjective')
+    const uniqueKeys = [...new Set(subjectiveForGrading.map((a) => `${a.question_number}__${a.sub_label ?? ''}`))]
+    const subjectiveQuestions = uniqueKeys
+      .map((key) => {
+        const [qNumStr, subLabel] = key.split('__')
+        const qNum = Number(qNumStr)
+        const sub = subLabel || null
+        const q = allQuestions?.find((q) => q.question_number === qNum && q.sub_label === sub && q.question_style === 'subjective')
         return q ? {
           question_number: q.question_number,
+          sub_label: q.sub_label ?? null,
           correct_answer_text: q.correct_answer_text ?? '',
           grading_criteria: q.grading_criteria,
         } : null
