@@ -76,20 +76,25 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
 
   const tagsByQuestionId = new Map<string, { concept_tag: { id: string; name: string } | null }[]>()
   for (const t of questionTags ?? []) {
-    const qid = (t as { exam_question_id: string }).exam_question_id
+    const row = t as any
+    const qid = row.exam_question_id
     const list = tagsByQuestionId.get(qid) ?? []
-    list.push({ concept_tag: (t as unknown as { concept_tag: { id: string; name: string } | null }).concept_tag })
+    const tag = Array.isArray(row.concept_tag) ? row.concept_tag[0] : row.concept_tag
+    list.push({ concept_tag: tag ?? null })
     tagsByQuestionId.set(qid, list)
   }
 
   if (answersError) console.error('[share] student_answer 쿼리 에러:', answersError)
 
-  const studentAnswers = (rawAnswers ?? []).map((a: any) => ({
-    ...a,
-    exam_question: a.exam_question
-      ? { ...a.exam_question, exam_question_tag: tagsByQuestionId.get(a.exam_question.id) ?? [] }
-      : null,
-  }))
+  const studentAnswers = (rawAnswers ?? []).map((a: any) => {
+    const eq = Array.isArray(a.exam_question) ? a.exam_question[0] : a.exam_question
+    return {
+      ...a,
+      exam_question: eq
+        ? { ...eq, exam_question_tag: tagsByQuestionId.get(eq.id) ?? [] }
+        : null,
+    }
+  })
 
   // 출결 데이터
   const { data: attendanceRecords } = classIds.length > 0
