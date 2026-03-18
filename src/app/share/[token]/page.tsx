@@ -151,10 +151,16 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   // ── 요약 스탯 ──────────────────────────────────────────────────────
   const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null
 
+  const hasReadingData = (weekId: string, scoreId: string) => {
+    const s = scoreByWeek.get(weekId)!
+    return (answersByScore.get(scoreId)?.some((a) => a.exam_question?.exam_type === 'reading') ?? false) || s.reading_correct > 0
+  }
+
   const readingRates = scoredWeeks
     .map((w) => {
       const s = scoreByWeek.get(w.id)!
-      return w.reading_total > 0 ? Math.round((s.reading_correct / w.reading_total) * 100) : null
+      if (w.reading_total === 0 || !hasReadingData(w.id, s.id)) return null
+      return Math.round((s.reading_correct / w.reading_total) * 100)
     })
     .filter((v): v is number => v !== null)
 
@@ -174,7 +180,8 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   // ── 추이 차트 데이터 ───────────────────────────────────────────────
   const trendData: TrendItem[] = scoredWeeks.map((w) => {
     const s = scoreByWeek.get(w.id)!
-    const readingRate = w.reading_total > 0 ? Math.round((s.reading_correct / w.reading_total) * 100) : null
+    const readingRate = (w.reading_total > 0 && hasReadingData(w.id, s.id))
+      ? Math.round((s.reading_correct / w.reading_total) * 100) : null
     const vocabRate = w.vocab_total > 0 ? Math.round((s.vocab_correct / w.vocab_total) * 100) : null
     return { label: `${w.week_number}주`, readingRate, vocabRate }
   })
