@@ -165,11 +165,19 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     .filter((v): v is number => v !== null)
 
   const vocabRates = scoredWeeks
-    .map((w) => w.vocab_total > 0 ? Math.round((scoreByWeek.get(w.id)!.vocab_correct / w.vocab_total) * 100) : null)
+    .map((w) => {
+      const s = scoreByWeek.get(w.id)!
+      if (w.vocab_total === 0 || s.vocab_correct === null) return null
+      return Math.round((s.vocab_correct / w.vocab_total) * 100)
+    })
     .filter((v): v is number => v !== null)
 
   const homeworkRates = scoredWeeks
-    .map((w) => w.homework_total > 0 ? Math.round((scoreByWeek.get(w.id)!.homework_done / w.homework_total) * 100) : null)
+    .map((w) => {
+      const s = scoreByWeek.get(w.id)!
+      if (w.homework_total === 0 || s.homework_done === null) return null
+      return Math.round((s.homework_done / w.homework_total) * 100)
+    })
     .filter((v): v is number => v !== null)
 
   const totalAttendance = attendance.length
@@ -189,8 +197,8 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   const barData: WeeklyBarItem[] = scoredWeeks.map((w) => {
     const s = scoreByWeek.get(w.id)!
     const item: WeeklyBarItem = { label: `${w.week_number}주` }
-    if (w.vocab_total > 0) item['단어'] = Math.round((s.vocab_correct / w.vocab_total) * 100)
-    if (w.homework_total > 0) item['숙제'] = Math.round((s.homework_done / w.homework_total) * 100)
+    if (w.vocab_total > 0 && s.vocab_correct !== null) item['단어'] = Math.round((s.vocab_correct / w.vocab_total) * 100)
+    if (w.homework_total > 0 && s.homework_done !== null) item['숙제'] = Math.round((s.homework_done / w.homework_total) * 100)
     return item
   })
 
@@ -452,15 +460,15 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                         {score ? (() => {
                           const hasReadingAnswers = (answersByScore.get(score.id)
                             ?.some((a) => a.exam_question?.exam_type === 'reading') ?? false)
-                            || score.reading_correct > 0
+                            || (score.reading_correct !== null && score.reading_correct > 0)
                           return (
                           <>
                             {w.reading_total > 0 && (
-                              hasReadingAnswers ? (
+                              (hasReadingAnswers || score.reading_correct !== null) ? (
                                 <span className="flex items-center gap-1 text-xs text-gray-600">
                                   <BookOpen className="h-3 w-3 text-indigo-400" />
-                                  시험 <strong className={`ml-0.5 ${score.reading_correct / w.reading_total >= 0.8 ? 'text-green-600' : score.reading_correct / w.reading_total >= 0.6 ? 'text-amber-500' : 'text-red-500'}`}>
-                                    {score.reading_correct}/{w.reading_total}
+                                  시험 <strong className={`ml-0.5 ${(score.reading_correct ?? 0) / w.reading_total >= 0.8 ? 'text-green-600' : (score.reading_correct ?? 0) / w.reading_total >= 0.6 ? 'text-amber-500' : 'text-red-500'}`}>
+                                    {score.reading_correct ?? 0}/{w.reading_total}
                                   </strong>
                                 </span>
                               ) : (
@@ -471,7 +479,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                               )
                             )}
                             {w.vocab_total > 0 && (
-                              (hasReadingAnswers || score.vocab_correct > 0) ? (
+                              score.vocab_correct !== null ? (
                                 <span className="flex items-center gap-1 text-xs text-gray-600">
                                   <BookText className="h-3 w-3 text-green-400" />
                                   단어 <strong className="ml-0.5">{score.vocab_correct}/{w.vocab_total}</strong>
@@ -484,10 +492,17 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                               )
                             )}
                             {w.homework_total > 0 && (
-                              <span className="flex items-center gap-1 text-xs text-gray-600">
-                                <ClipboardCheck className="h-3 w-3 text-amber-400" />
-                                숙제 <strong className="ml-0.5">{score.homework_done}/{w.homework_total}</strong>
-                              </span>
+                              score.homework_done !== null ? (
+                                <span className="flex items-center gap-1 text-xs text-gray-600">
+                                  <ClipboardCheck className="h-3 w-3 text-amber-400" />
+                                  숙제 <strong className="ml-0.5">{score.homework_done}/{w.homework_total}</strong>
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-xs text-orange-400">
+                                  <ClipboardCheck className="h-3 w-3" />
+                                  숙제 <strong className="ml-0.5">미제출</strong>
+                                </span>
+                              )
                             )}
                           </>
                           )
