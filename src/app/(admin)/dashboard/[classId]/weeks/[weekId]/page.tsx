@@ -23,6 +23,7 @@ import { generateSessionDates } from '@/lib/schedule'
 interface WeekFormValues {
   start_date: string
   vocab_total: number
+  reading_total: number
   homework_total: number
 }
 
@@ -43,6 +44,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
       reset({
         start_date: week.start_date ?? '',
         vocab_total: week.vocab_total,
+        reading_total: week.reading_total,
         homework_total: week.homework_total,
       })
     }
@@ -52,6 +54,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
     await updateWeek.mutateAsync({
       start_date: values.start_date,
       vocab_total: Number(values.vocab_total),
+      reading_total: Number(values.reading_total),
       homework_total: Number(values.homework_total),
     })
     setSettingsOpen(false)
@@ -61,6 +64,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
     await updateWeek.mutateAsync({
       start_date: values.start_date,
       vocab_total: Number(values.vocab_total),
+      reading_total: Number(values.reading_total),
       homework_total: Number(values.homework_total),
     })
   }
