@@ -84,7 +84,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
 
   if (answersError) console.error('[share] student_answer 쿼리 에러:', answersError)
 
-  const studentAnswers = (rawAnswers ?? []).map((a: { exam_question: { id: string } | null }) => ({
+  const studentAnswers = (rawAnswers ?? []).map((a: any) => ({
     ...a,
     exam_question: a.exam_question
       ? { ...a.exam_question, exam_question_tag: tagsByQuestionId.get(a.exam_question.id) ?? [] }
