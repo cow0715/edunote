@@ -133,9 +133,27 @@ export async function parseAnswerSheet(
   if (!isImage && !isPdf) throw new Error('지원하지 않는 파일 형식입니다 (PDF 또는 이미지만 가능)')
 
   const tagListSection = tagCategories.length > 0
-    ? `\n아래 유형 목록에서 가장 적합한 것을 정확히 그대로 선택하세요:\n${
-        tagCategories.map((c) => `[${c.categoryName}]: ${c.tags.join(', ')}`).join('\n')
-      }\nquestion_type은 반드시 위 목록 중 하나를 정확히 그대로 입력하세요. 해당 없으면 null.\n`
+    ? `
+━━━ question_type 매핑 규칙 (반드시 준수) ━━━
+아래 목록에서 각 문항에 가장 적합한 유형을 정확히 그대로 선택하세요:
+${tagCategories.map((c) => `[${c.categoryName}]: ${c.tags.join(', ')}`).join('\n')}
+
+매핑 판단 기준:
+- 해설지에 적힌 유형명이 아니라, 해당 문항이 실제로 테스트하는 문법/개념이 무엇인지를 기준으로 고를 것
+- 예: 해설지에 "어법" 이라고 적혀 있어도, 실제로 가정법을 묻고 있으면 "가정법" 으로 매핑
+
+우선순위 (반드시 준수):
+1. explanation 또는 grading_criteria에서 특정 문법 개념이 명시된 경우 → 문법 유형 태그를 최우선으로 선택
+   예: 빈칸 형식이어도 "수동태를 쓸 수 없다"는 설명이 있으면 → "수동태"
+   예: 빈칸 형식이어도 "every + 단수명사는 단수 취급"이면 → "수의 일치"
+2. 특정 문법 개념이 식별되지 않는 경우에만 서술형 유형(빈칸, 영작 등) 선택
+   즉, "빈칸", "영작" 등 형식 태그는 문법 개념으로 분류 불가능할 때 최후 수단으로만 사용
+
+- 소문항(a, b, c...)은 부모 문항의 유형을 그대로 쓰지 말고, 각 소문항이 테스트하는 구체적인 문법 포인트를 개별적으로 분석해서 가장 가까운 태그를 선택할 것
+  예: 8번이 "어법" 이어도 → 8(a)는 "관계사", 8(b)는 "가정법", 8(c)는 "도치" 로 각각 다르게 매핑 가능
+- 목록에 딱 맞는 게 없으면 의미상 가장 가까운 것 선택. 그래도 없으면 null.
+- question_type은 반드시 위 목록 중 하나를 정확히 그대로 입력할 것 (목록에 없는 새 유형 생성 금지)
+`
     : '\n- question_type: 해설지에 명시된 문제 유형명 한국어 추출. 없으면 null.\n'
 
   const prompt = `이 답안해설지에서 각 문항의 정답과 해설을 추출하세요.
@@ -148,7 +166,7 @@ JSON 배열만 출력 (다른 텍스트 없이):
 
   const res = await anthropic.messages.create({
     model: 'claude-opus-4-6',
-    max_tokens: 4096,
+    max_tokens: 8192,
     messages: [{
       role: 'user',
       content: [fileContent, { type: 'text', text: prompt }],
@@ -162,7 +180,14 @@ JSON 배열만 출력 (다른 텍스트 없이):
     parsed = JSON.parse(raw)
   } catch {
     const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
-    parsed = JSON.parse(cleaned)
+    try {
+      parsed = JSON.parse(cleaned)
+    } catch {
+      // JSON이 중간에 잘린 경우 마지막 완전한 객체까지만 복구
+      const lastBrace = cleaned.lastIndexOf('},')
+      const recoverable = lastBrace > 0 ? cleaned.slice(0, lastBrace + 1) + ']' : cleaned
+      parsed = JSON.parse(recoverable)
+    }
   }
   console.log('[parseAnswerSheet] parsed count:', parsed.length, '| question_numbers:', parsed.map(p => `${p.question_number}${p.sub_label ? p.sub_label : ''}`).join(', '))
   return parsed
@@ -206,8 +231,9 @@ ${answers.map((a, i) => `
 ${GRADING_RULES}`
 
   const message = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: 'claude-sonnet-4-6',
     max_tokens: 8096,
+    temperature: 0,
     messages: [{ role: 'user', content: prompt }],
   })
 
