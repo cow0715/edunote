@@ -280,10 +280,33 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         }
       } catch (e) {
         console.error('[parse-answers] 서술형 AI 채점 실패', e)
+        // AI 실패해도 reading_correct는 재계산
+        await Promise.all(
+          weekScores.map(async (score) => {
+            const { count } = await supabase
+              .from('student_answer')
+              .select('*', { count: 'exact', head: true })
+              .eq('week_score_id', score.id)
+              .eq('is_correct', true)
+            await supabase.from('week_score').update({ reading_correct: count ?? 0 }).eq('id', score.id)
+          })
+        )
         return NextResponse.json({ ok: true, questions_parsed: questions.length, students_regraded: weekScores.length, subjective_grading_failed: true })
       }
     }
   }
+
+  // ── 8. reading_correct 재계산 ──────────────────────────────────────────
+  await Promise.all(
+    weekScores.map(async (score) => {
+      const { count } = await supabase
+        .from('student_answer')
+        .select('*', { count: 'exact', head: true })
+        .eq('week_score_id', score.id)
+        .eq('is_correct', true)
+      await supabase.from('week_score').update({ reading_correct: count ?? 0 }).eq('id', score.id)
+    })
+  )
 
   return NextResponse.json({ ok: true, questions_parsed: questions.length, students_regraded: weekScores.length })
 }
