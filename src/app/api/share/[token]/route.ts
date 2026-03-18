@@ -78,7 +78,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
   for (const t of questionTags ?? []) {
     const qid = (t as { exam_question_id: string }).exam_question_id
     const list = tagsByQuestionId.get(qid) ?? []
-    list.push({ concept_tag: (t as { concept_tag: { id: string; name: string } | null }).concept_tag })
+    list.push({ concept_tag: (t as unknown as { concept_tag: { id: string; name: string } | null }).concept_tag })
     tagsByQuestionId.set(qid, list)
   }
 
