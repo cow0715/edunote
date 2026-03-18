@@ -12,32 +12,29 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   const { data: week } = await supabase
     .from('week')
-    .select('class_id')
+    .select('class_id, start_date')
     .eq('id', weekId)
     .single()
 
   if (!week) return NextResponse.json({ error: '주차 없음' }, { status: 404 })
 
-  const { data: classStudents } = await supabase
-    .from('class_student')
-    .select('student_id, student(*)')
-    .eq('class_id', week.class_id)
-    .order('created_at')
+  const [{ data: classStudents }, { data: weekScores }, { data: questions }] = await Promise.all([
+    supabase.from('class_student').select('student_id, student(*)').eq('class_id', week.class_id).order('created_at'),
+    supabase.from('week_score').select('*, student_answer(*)').eq('week_id', weekId),
+    supabase.from('exam_question').select('*, exam_question_tag(concept_tag(*, concept_category(*)))').eq('week_id', weekId).eq('exam_type', 'reading').order('question_number').order('sub_label', { nullsFirst: true }),
+  ])
 
-  const { data: weekScores } = await supabase
-    .from('week_score')
-    .select('*, student_answer(*)')
-    .eq('week_id', weekId)
+  let attendance: { student_id: string; status: string }[] = []
+  if (week.start_date) {
+    const { data: att } = await supabase
+      .from('attendance')
+      .select('student_id, status')
+      .eq('class_id', week.class_id)
+      .eq('date', week.start_date)
+    attendance = att ?? []
+  }
 
-  const { data: questions } = await supabase
-    .from('exam_question')
-    .select('*, exam_question_tag(concept_tag(*, concept_category(*)))')
-    .eq('week_id', weekId)
-    .eq('exam_type', 'reading')
-    .order('question_number')
-    .order('sub_label', { nullsFirst: true })
-
-  return NextResponse.json({ classStudents, weekScores, questions })
+  return NextResponse.json({ classStudents, weekScores, questions, attendance })
 }
 
 // 일괄 저장 + 서술형 AI 배치 채점

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,7 +9,7 @@ import { useGradeData, useSaveGrade, GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
 
 // ── 객관식 셀 ─────────────────────────────────────────────────────────────
-function AnswerCell({ value, onChange }: { value: number | null; onChange: (n: number | null) => void }) {
+const AnswerCell = memo(function AnswerCell({ value, onChange }: { value: number | null; onChange: (n: number | null) => void }) {
   return (
     <div className="flex gap-0.5">
       {[1, 2, 3, 4, 5].map((n) => (
@@ -25,27 +25,27 @@ function AnswerCell({ value, onChange }: { value: number | null; onChange: (n: n
       ))}
     </div>
   )
-}
+})
 
 // ── 학생 카드 ──────────────────────────────────────────────────────────────
-function StudentCard({
+const StudentCard = memo(function StudentCard({
   row,
   questions,
   vocabTotal,
   readingTotal,
   homeworkTotal,
-  onChange,
-  onAnswerChange,
-  onAnswerTextChange,
+  updateRow,
+  updateAnswer,
+  updateAnswerText,
 }: {
   row: GradeRow
   questions: ExamQuestion[]
   vocabTotal: number
   readingTotal: number
   homeworkTotal: number
-  onChange: (key: keyof GradeRow, value: unknown) => void
-  onAnswerChange: (questionId: string, value: number | null) => void
-  onAnswerTextChange: (questionId: string, text: string) => void
+  updateRow: (studentId: string, key: keyof GradeRow, value: unknown) => void
+  updateAnswer: (studentId: string, questionId: string, value: number | null) => void
+  updateAnswerText: (studentId: string, questionId: string, text: string) => void
 }) {
   const [open, setOpen] = useState(true)
   const hasSubjective = questions.some((q) => q.question_style === 'subjective')
@@ -58,7 +58,7 @@ function StudentCard({
         <input
           type="checkbox"
           checked={row.present}
-          onChange={(e) => onChange('present', e.target.checked)}
+          onChange={(e) => updateRow(row.student_id, 'present', e.target.checked)}
           className="h-4 w-4 rounded border-gray-300 accent-primary"
           title="채점 포함"
         />
@@ -80,7 +80,7 @@ function StudentCard({
                   min={0}
                   max={vocabTotal}
                   value={row.vocab_correct}
-                  onChange={(e) => onChange('vocab_correct', Number(e.target.value))}
+                  onChange={(e) => updateRow(row.student_id, 'vocab_correct', Number(e.target.value))}
                   disabled={!row.present}
                   className="h-8 w-20 text-center"
                 />
@@ -94,7 +94,7 @@ function StudentCard({
                   min={0}
                   max={readingTotal}
                   value={row.reading_correct}
-                  onChange={(e) => onChange('reading_correct', Number(e.target.value))}
+                  onChange={(e) => updateRow(row.student_id, 'reading_correct', Number(e.target.value))}
                   disabled={!row.present}
                   className="h-8 w-20 text-center"
                 />
@@ -109,7 +109,7 @@ function StudentCard({
                   max={homeworkTotal}
                   step={0.5}
                   value={row.homework_done}
-                  onChange={(e) => onChange('homework_done', Number(e.target.value))}
+                  onChange={(e) => updateRow(row.student_id, 'homework_done', Number(e.target.value))}
                   disabled={!row.present}
                   className="h-8 w-20 text-center"
                 />
@@ -119,7 +119,7 @@ function StudentCard({
               <p className="text-xs text-gray-400">메모</p>
               <Input
                 value={row.memo}
-                onChange={(e) => onChange('memo', e.target.value)}
+                onChange={(e) => updateRow(row.student_id, 'memo', e.target.value)}
                 disabled={!row.present}
                 placeholder="특이사항"
                 className="h-8"
@@ -169,12 +169,12 @@ function StudentCard({
                       {q.question_style === 'objective' ? (
                         <AnswerCell
                           value={a?.student_answer ?? null}
-                          onChange={(n) => onAnswerChange(q.id, n)}
+                          onChange={(n) => updateAnswer(row.student_id, q.id, n)}
                         />
                       ) : q.question_style === 'subjective' ? (
                         <Textarea
                           value={a?.student_answer_text ?? ''}
-                          onChange={(e) => onAnswerTextChange(q.id, e.target.value)}
+                          onChange={(e) => updateAnswerText(row.student_id, q.id, e.target.value)}
                           disabled={!row.present}
                           placeholder={placeholder}
                           rows={2}
@@ -183,7 +183,7 @@ function StudentCard({
                       ) : (
                         <Input
                           value={a?.student_answer_text ?? ''}
-                          onChange={(e) => onAnswerTextChange(q.id, e.target.value)}
+                          onChange={(e) => updateAnswerText(row.student_id, q.id, e.target.value)}
                           disabled={!row.present}
                           placeholder={placeholder}
                           className="h-8 w-32 text-sm"
@@ -206,7 +206,7 @@ function StudentCard({
       )}
     </div>
   )
-}
+})
 
 // ── 메인 컴포넌트 ──────────────────────────────────────────────────────────
 interface Props {
@@ -249,13 +249,20 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal }: P
       weekScores?.map((s: ScoreRecord) => [s.student_id, s])
     )
 
+    const hasAnyScore = (weekScores?.length ?? 0) > 0
+    const attendanceMap = new Map<string, string>(
+      ((data.attendance ?? []) as { student_id: string; status: string }[]).map((a) => [a.student_id, a.status])
+    )
+
     setRows(
       (classStudents ?? []).map((cs: { student_id: string; student: { name: string } }) => {
         const score = scoreMap.get(cs.student_id)
+        const attStatus = attendanceMap.get(cs.student_id)
+        const present = attStatus === 'absent' ? false : (hasAnyScore ? !!score : true)
         return {
           student_id: cs.student_id,
           student_name: cs.student?.name ?? '',
-          present: true,                    // 기본값 true (채점 포함)
+          present,
           vocab_correct: score?.vocab_correct ?? 0,
           reading_correct: score?.reading_correct ?? 0,
           homework_done: score?.homework_done ?? 0,
@@ -275,29 +282,29 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal }: P
     )
   }, [data])
 
-  function updateRow(studentId: string, key: keyof GradeRow, value: unknown) {
+  const updateRow = useCallback((studentId: string, key: keyof GradeRow, value: unknown) => {
     setRows((prev) =>
       prev.map((r) => (r.student_id === studentId ? { ...r, [key]: value } : r))
     )
-  }
+  }, [])
 
-  function updateAnswer(studentId: string, questionId: string, value: number | null) {
+  const updateAnswer = useCallback((studentId: string, questionId: string, value: number | null) => {
     setRows((prev) =>
       prev.map((r) => {
         if (r.student_id !== studentId) return r
         return { ...r, answers: r.answers.map((a) => a.exam_question_id === questionId ? { ...a, student_answer: value } : a) }
       })
     )
-  }
+  }, [])
 
-  function updateAnswerText(studentId: string, questionId: string, text: string) {
+  const updateAnswerText = useCallback((studentId: string, questionId: string, text: string) => {
     setRows((prev) =>
       prev.map((r) => {
         if (r.student_id !== studentId) return r
         return { ...r, answers: r.answers.map((a) => a.exam_question_id === questionId ? { ...a, student_answer_text: text } : a) }
       })
     )
-  }
+  }, [])
 
   if (isLoading) return <div className="h-40 animate-pulse rounded-lg bg-gray-100" />
 
@@ -326,9 +333,9 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal }: P
           vocabTotal={vocabTotal}
           homeworkTotal={homeworkTotal}
           readingTotal={readingTotal}
-          onChange={(key, value) => updateRow(row.student_id, key, value)}
-          onAnswerChange={(qId, value) => updateAnswer(row.student_id, qId, value)}
-          onAnswerTextChange={(qId, text) => updateAnswerText(row.student_id, qId, text)}
+          updateRow={updateRow}
+          updateAnswer={updateAnswer}
+          updateAnswerText={updateAnswerText}
         />
       ))}
 

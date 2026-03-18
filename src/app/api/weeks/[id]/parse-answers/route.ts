@@ -138,7 +138,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       // 기존 문항: 정답/스타일만 업데이트, 학생 답안 유지
       const { data, error } = await supabase
         .from('exam_question')
-        .update({ question_style: style, correct_answer: a.correct_answer, correct_answer_text: a.correct_answer_text, grading_criteria: a.grading_criteria })
+        .update({ question_style: style, correct_answer: a.correct_answer, correct_answer_text: a.correct_answer_text, grading_criteria: a.grading_criteria, explanation: a.explanation ?? null })
         .eq('id', existing.id)
         .select('id, question_number, sub_label, question_style, correct_answer, correct_answer_text, grading_criteria')
         .single()
@@ -148,7 +148,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       // 신규 문항 INSERT
       const { data, error } = await supabase
         .from('exam_question')
-        .insert({ week_id: weekId, exam_type: 'reading', question_number: a.question_number, sub_label: a.sub_label ?? null, question_style: style, correct_answer: a.correct_answer, correct_answer_text: a.correct_answer_text, grading_criteria: a.grading_criteria })
+        .insert({ week_id: weekId, exam_type: 'reading', question_number: a.question_number, sub_label: a.sub_label ?? null, question_style: style, correct_answer: a.correct_answer, correct_answer_text: a.correct_answer_text, grading_criteria: a.grading_criteria, explanation: a.explanation ?? null })
         .select('id, question_number, sub_label, question_style, correct_answer, correct_answer_text, grading_criteria')
         .single()
       if (error) console.error(`[parse-answers] INSERT 실패 Q${a.question_number}${a.sub_label ?? ''}:`, error)
@@ -167,14 +167,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     await supabase.from('exam_question').delete().in('id', removedIds)
   }
 
-  // ── 5. 신규 문항에만 AI 태그 연결 (기존 문항 태그는 사용자 설정 유지) ──
-  const newlyInserted = questions.filter((q) => !existingMap.has(`${q.question_number}|${q.sub_label ?? ''}`))
+  // ── 5. 전체 문항 AI 태그 재연결 (재업로드 시 항상 최신 AI 분석으로 갱신) ──
   const tagInserts: { exam_question_id: string; concept_tag_id: string }[] = []
-  for (const q of newlyInserted) {
+  for (const q of questions) {
     const parsed = parsedAnswers.find((a) => a.question_number === q.question_number && (a.sub_label ?? null) === q.sub_label)
     const tagId = matchTagId(parsed?.question_type ?? null)
     if (tagId) tagInserts.push({ exam_question_id: q.id, concept_tag_id: tagId })
   }
+  // 기존 태그 삭제 후 재삽입
+  await supabase.from('exam_question_tag').delete().in('exam_question_id', questions.map((q) => q.id))
   if (tagInserts.length > 0) {
     await supabase.from('exam_question_tag').insert(tagInserts)
   }

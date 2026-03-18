@@ -41,10 +41,19 @@ type StudentAnswer = {
   id: string
   week_score_id: string
   is_correct: boolean
+  student_answer: number | null
+  student_answer_text: string | null
+  ai_feedback: string | null
   exam_question: {
     id: string
     week_id: string
+    question_number: number
+    sub_label: string | null
     exam_type: 'reading' | 'vocab' | null
+    question_style: string
+    correct_answer: number | null
+    correct_answer_text: string | null
+    explanation?: string | null
     exam_question_tag: { concept_tag: { id: string; name: string } | null }[]
   } | null
 }
@@ -56,6 +65,12 @@ type ShareData = {
   weekScores: WeekScore[]
   studentAnswers: StudentAnswer[]
   attendance: AttendanceRecord[]
+}
+
+const STYLE_LABEL: Record<string, string> = {
+  ox: 'O/X',
+  multi_select: '복수정답',
+  subjective: '서술형',
 }
 
 function useShareData(token: string) {
@@ -190,21 +205,77 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     .filter((d) => d.wrong > 0)
     .sort((a, b) => b.wrong - a.wrong)
 
-  // ── 주차별 틀린 유형 ────────────────────────────────────────────────
-  function getWeekWrongTypes(weekId: string) {
+  // ── 개념별 약점 추적 ────────────────────────────────────────────────
+  const weekNumberByWeekId = new Map(weeks.map((w) => [w.id, w.week_number]))
+
+  // 개념별 → 주차별 정오 집계
+  const conceptWeekMap = new Map<string, Map<number, { name: string; hasWrong: boolean; hasCorrect: boolean }>>()
+  studentAnswers
+    .filter((a) => a.exam_question?.exam_type === 'reading')
+    .forEach((a) => {
+      const q = a.exam_question!
+      const weekNum = weekNumberByWeekId.get(q.week_id)
+      if (weekNum === undefined) return
+      const tags = q.exam_question_tag.map((t) => t.concept_tag).filter(Boolean)
+      for (const tag of tags) {
+        const tagId = tag!.id
+        if (!conceptWeekMap.has(tagId)) conceptWeekMap.set(tagId, new Map())
+        const wm = conceptWeekMap.get(tagId)!
+        const entry = wm.get(weekNum) ?? { name: tag!.name, hasWrong: false, hasCorrect: false }
+        if (a.is_correct) entry.hasCorrect = true
+        else entry.hasWrong = true
+        wm.set(weekNum, entry)
+      }
+    })
+
+  type ConceptStatus = { id: string; name: string; status: 'warning' | 'improving' | 'overcome'; correctStreak: number; timeline: { weekNumber: number; result: 'wrong' | 'correct' | 'mixed' }[] }
+  const conceptStatuses: ConceptStatus[] = []
+
+  for (const [tagId, wm] of conceptWeekMap) {
+    const sorted = [...wm.entries()].sort((a, b) => a[0] - b[0])
+    if (!sorted.some(([, v]) => v.hasWrong)) continue
+    const tagName = sorted[0][1].name
+
+    let lastWrongIdx = -1
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      if (sorted[i][1].hasWrong) { lastWrongIdx = i; break }
+    }
+
+    let correctStreak = 0
+    for (let i = lastWrongIdx + 1; i < sorted.length; i++) {
+      const v = sorted[i][1]
+      if (v.hasCorrect && !v.hasWrong) correctStreak++
+      else if (v.hasWrong) correctStreak = 0
+    }
+
+    const status: ConceptStatus['status'] = correctStreak >= 3 ? 'overcome' : correctStreak >= 1 ? 'improving' : 'warning'
+    const timeline = sorted.map(([weekNumber, v]) => ({
+      weekNumber,
+      result: (v.hasWrong && v.hasCorrect ? 'mixed' : v.hasWrong ? 'wrong' : 'correct') as ConceptStatus['timeline'][number]['result'],
+    }))
+    conceptStatuses.push({ id: tagId, name: tagName, status, correctStreak, timeline })
+  }
+  conceptStatuses.sort((a, b) => {
+    const order = { warning: 0, improving: 1, overcome: 2 }
+    return order[a.status] - order[b.status]
+  })
+
+  // ── 주차별 문항 결과 (정렬: 문항번호 오름차순) ─────────────────────
+  function getWeekAnswers(weekId: string) {
     const score = scoreByWeek.get(weekId)
-    if (!score) return []
-    const answers = answersByScore.get(score.id) ?? []
-    const map = new Map<string, number>()
-    answers
-      .filter((a) => !a.is_correct && a.exam_question?.exam_type === 'reading')
-      .forEach((a) => {
-        const tags = a.exam_question?.exam_question_tag?.map((t) => t.concept_tag).filter(Boolean) ?? []
-        for (const tag of tags) {
-          map.set(tag!.name, (map.get(tag!.name) ?? 0) + 1)
-        }
+    if (!score) return { wrong: [] as StudentAnswer[], correct: [] as StudentAnswer[] }
+    const answers = (answersByScore.get(score.id) ?? [])
+      .filter((a) => a.exam_question?.exam_type === 'reading')
+      .sort((a, b) => {
+        const qa = a.exam_question, qb = b.exam_question
+        if (!qa || !qb) return 0
+        if (qa.question_number !== qb.question_number) return qa.question_number - qb.question_number
+        return (qa.sub_label ?? '').localeCompare(qb.sub_label ?? '')
       })
-    return [...map.entries()].sort((a, b) => b[1] - a[1])
+    return {
+      wrong: answers.filter((a) => !a.is_correct),
+      correct: answers.filter((a) => a.is_correct),
+    }
   }
 
   // ── 출결 맵 (날짜 기준) ────────────────────────────────────────────
@@ -283,6 +354,48 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
           </div>
         )}
 
+        {/* 유형별 약점 현황 */}
+        {conceptStatuses.length > 0 && (
+          <div className="rounded-xl border bg-white p-4">
+            <h2 className="mb-1 text-sm font-semibold text-gray-800">유형별 학습 현황</h2>
+            <p className="mb-3 text-xs text-gray-400">틀린 적 있는 유형 · 점 = 해당 주차 결과</p>
+            <div className="space-y-2.5">
+              {conceptStatuses.map((c) => (
+                <div key={c.id} className="flex items-start gap-3">
+                  {/* 유형명 + 상태 배지 */}
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                    <span className="text-sm font-medium text-gray-800">{c.name}</span>
+                    {c.status === 'overcome' && (
+                      <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">약점 극복</span>
+                    )}
+                    {c.status === 'improving' && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">개선 중</span>
+                    )}
+                    {c.status === 'warning' && (
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">주의</span>
+                    )}
+                  </div>
+                  {/* 타임라인 점 */}
+                  <div className="flex shrink-0 items-center gap-1 pt-0.5">
+                    {c.timeline.map((t) => (
+                      <div key={t.weekNumber} className="flex flex-col items-center gap-0.5">
+                        <div className={`h-3 w-3 rounded-full ${t.result === 'wrong' ? 'bg-red-400' : t.result === 'mixed' ? 'bg-amber-400' : 'bg-green-400'}`} title={`${t.weekNumber}주차`} />
+                        <span className="text-[9px] text-gray-300">{t.weekNumber}</span>
+                      </div>
+                    ))}
+                    {c.status !== 'overcome' && c.correctStreak > 0 && (
+                      <span className="ml-1 text-[10px] text-amber-500">+{c.correctStreak}</span>
+                    )}
+                    {c.status === 'overcome' && (
+                      <span className="ml-1 text-[10px] text-green-600">✓</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* 회차별 박스 */}
         {visibleWeeks.length > 0 && (
           <div className="rounded-xl border bg-white">
@@ -294,7 +407,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                 const score = scoreByWeek.get(w.id)
                 const className = classes.find((c) => c.id === w.class_id)?.name ?? ''
                 const isExpanded = expandedWeekId === w.id
-                const wrongTypes = isExpanded ? getWeekWrongTypes(w.id) : []
+                const weekAnswers = isExpanded ? getWeekAnswers(w.id) : { wrong: [], correct: [] }
 
                 // 해당 주차 날짜에 매칭되는 출결
                 const attRecord = w.start_date ? attByDate.get(w.start_date) : undefined
@@ -330,8 +443,9 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                       {/* 점수 요약 */}
                       <div className="mt-2 flex flex-wrap gap-3">
                         {score ? (() => {
-                          const hasReadingAnswers = answersByScore.get(score.id)
-                            ?.some((a) => a.exam_question?.exam_type === 'reading') ?? false
+                          const hasReadingAnswers = (answersByScore.get(score.id)
+                            ?.some((a) => a.exam_question?.exam_type === 'reading') ?? false)
+                            || score.reading_correct > 0
                           return (
                           <>
                             {w.reading_total > 0 && (
@@ -350,7 +464,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                               )
                             )}
                             {w.vocab_total > 0 && (
-                              hasReadingAnswers ? (
+                              (hasReadingAnswers || score.vocab_correct > 0) ? (
                                 <span className="flex items-center gap-1 text-xs text-gray-600">
                                   <BookText className="h-3 w-3 text-green-400" />
                                   단어 <strong className="ml-0.5">{score.vocab_correct}/{w.vocab_total}</strong>
@@ -376,28 +490,41 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                       </div>
                     </button>
 
-                    {/* 확장: 틀린 유형 */}
+                    {/* 확장: 틀린 유형 뱃지 */}
                     {isExpanded && (
-                      <div className="border-t bg-gray-50 px-5 py-4">
-                        {wrongTypes.length > 0 ? (
-                          <div>
-                            <p className="mb-2 text-xs font-medium text-gray-500">이번 회차 오답 유형</p>
-                            <div className="flex flex-wrap gap-2">
-                              {wrongTypes.map(([name, count]) => (
-                                <span key={name} className="flex items-center gap-1 rounded-full bg-red-50 border border-red-100 px-3 py-1 text-xs text-red-700 font-medium">
-                                  {name}
-                                  <span className="ml-0.5 rounded-full bg-red-100 px-1.5 text-[10px]">{count}</span>
-                                </span>
-                              ))}
+                      <div className="border-t bg-gray-50 px-5 py-4 space-y-3">
+                        {(() => {
+                          const wrongTags = new Map<string, string>()
+                          weekAnswers.wrong.forEach((a) => {
+                            a.exam_question?.exam_question_tag
+                              .map((t) => t.concept_tag)
+                              .filter(Boolean)
+                              .forEach((tag) => wrongTags.set(tag!.id, tag!.name))
+                          })
+                          return wrongTags.size > 0 ? (
+                            <div>
+                              <p className="mb-2 text-xs font-medium text-gray-500">
+                                틀린 유형 ({weekAnswers.wrong.length}문항)
+                              </p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {[...wrongTags.values()].map((name) => (
+                                  <span key={name} className="rounded-full bg-red-50 border border-red-200 px-2.5 py-1 text-xs text-red-600">
+                                    {name}
+                                  </span>
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        ) : (
-                          <p className="text-xs text-gray-400">
-                            {w.reading_total > 0 ? '오답이 없거나 유형이 설정되지 않았습니다' : '시험 데이터가 없습니다'}
-                          </p>
-                        )}
+                          ) : (
+                            <p className="text-xs text-gray-400">
+                              {score && score.reading_correct > 0
+                                ? '문항 데이터가 없습니다'
+                                : '시험 데이터가 없습니다'}
+                            </p>
+                          )
+                        })()}
+                        {/* 선생님 메모 */}
                         {score?.memo && (
-                          <div className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+                          <div className="rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
                             💬 {score.memo}
                           </div>
                         )}

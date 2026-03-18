@@ -85,6 +85,7 @@ export interface ExamQuestion {
   correct_answer: number;
   correct_answer_text: string | null;
   grading_criteria: string | null;
+  explanation: string | null;
   exam_type: 'vocab' | 'reading';
   question_style: 'objective' | 'subjective' | 'ox' | 'multi_select';
   created_at: string;

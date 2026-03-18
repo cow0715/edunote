@@ -45,22 +45,51 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
 
   const scoreIds = (weekScores ?? []).map((s) => s.id)
 
-  // 문항별 학생 답안 (문제 유형 포함)
-  const { data: studentAnswers } = scoreIds.length > 0
+  // 문항별 학생 답안
+  const { data: rawAnswers, error: answersError } = scoreIds.length > 0
     ? await supabase
         .from('student_answer')
-        .select('id, week_score_id, is_correct, student_answer, exam_question(id, week_id, exam_type, exam_question_tag(concept_tag(id, name)))')
+        .select(`
+          id, week_score_id, is_correct,
+          student_answer, student_answer_text, ai_feedback,
+          exam_question(
+            id, week_id, question_number, sub_label,
+            exam_type, question_style,
+            correct_answer, correct_answer_text, explanation
+          )
+        `)
         .in('week_score_id', scoreIds)
     : { data: [] }
 
-  // 시험 문항 (전체 exam_type, 개수 파악용)
-  const { data: questions } = weekIds.length > 0
+  // 문항 태그를 별도 쿼리로 가져와서 병합 (4단계 중첩 embedding 우회)
+  const examQuestionIds = [...new Set(
+    (rawAnswers ?? [])
+      .map((a: { exam_question: { id: string } | null }) => a.exam_question?.id)
+      .filter(Boolean) as string[]
+  )]
+  const { data: questionTags } = examQuestionIds.length > 0
     ? await supabase
-        .from('exam_question')
-        .select('id, week_id')
-        .in('week_id', weekIds)
-        .order('question_number')
+        .from('exam_question_tag')
+        .select('exam_question_id, concept_tag(id, name)')
+        .in('exam_question_id', examQuestionIds)
     : { data: [] }
+
+  const tagsByQuestionId = new Map<string, { concept_tag: { id: string; name: string } | null }[]>()
+  for (const t of questionTags ?? []) {
+    const qid = (t as { exam_question_id: string }).exam_question_id
+    const list = tagsByQuestionId.get(qid) ?? []
+    list.push({ concept_tag: (t as { concept_tag: { id: string; name: string } | null }).concept_tag })
+    tagsByQuestionId.set(qid, list)
+  }
+
+  if (answersError) console.error('[share] student_answer 쿼리 에러:', answersError)
+
+  const studentAnswers = (rawAnswers ?? []).map((a: { exam_question: { id: string } | null }) => ({
+    ...a,
+    exam_question: a.exam_question
+      ? { ...a.exam_question, exam_question_tag: tagsByQuestionId.get(a.exam_question.id) ?? [] }
+      : null,
+  }))
 
   // 출결 데이터
   const { data: attendanceRecords } = classIds.length > 0
@@ -77,8 +106,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
     classes,
     weeks: weeks ?? [],
     weekScores: weekScores ?? [],
-    studentAnswers: studentAnswers ?? [],
-    questions: questions ?? [],
+    studentAnswers,
     attendance: attendanceRecords ?? [],
   })
 }
