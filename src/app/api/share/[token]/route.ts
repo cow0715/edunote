@@ -64,7 +64,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
   // 문항 태그를 별도 쿼리로 가져와서 병합 (4단계 중첩 embedding 우회)
   const examQuestionIds = [...new Set(
     (rawAnswers ?? [])
-      .map((a: { exam_question: { id: string } | null }) => a.exam_question?.id)
+      .map((a: any) => Array.isArray(a.exam_question) ? a.exam_question[0]?.id : a.exam_question?.id)
       .filter(Boolean) as string[]
   )]
   const { data: questionTags } = examQuestionIds.length > 0
