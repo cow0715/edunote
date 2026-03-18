@@ -16,9 +16,9 @@ interface Props {
 
 type ScoreRecord = {
   student_id: string
-  vocab_correct: number
-  reading_correct: number
-  homework_done: number
+  vocab_correct: number | null
+  reading_correct: number | null
+  homework_done: number | null
 }
 
 type AttendanceStatus = 'present' | 'late' | 'absent'
@@ -29,8 +29,9 @@ const ATTENDANCE_BADGE: Record<AttendanceStatus, { label: string; className: str
   absent:  { label: '결석', className: 'bg-red-50 text-red-600 border-red-200' },
 }
 
-function ScoreCell({ correct, total }: { correct: number; total: number }) {
+function ScoreCell({ correct, total }: { correct: number | null; total: number }) {
   if (total === 0) return <span className="text-gray-300">-</span>
+  if (correct === null) return <span className="text-xs text-orange-400 font-medium">미응시</span>
   const pct = Math.round((correct / total) * 100)
   const color = pct < 50 ? 'text-red-500' : pct < 80 ? 'text-amber-500' : pct < 100 ? 'text-blue-500' : 'text-green-600'
   return (

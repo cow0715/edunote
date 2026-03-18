@@ -5,8 +5,48 @@ import { CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
 import { useGradeData, useSaveGrade, GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
+
+// ── 점수 토글 필드 ────────────────────────────────────────────────────────
+function ScoreToggleField({ label, total, value, nullLabel, disabled, step, onChange }: {
+  label: string
+  total: number
+  value: number | null
+  nullLabel: string
+  disabled: boolean
+  step?: number
+  onChange: (v: number | null) => void
+}) {
+  const active = value !== null
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs text-gray-400">{label} <span className="text-gray-300">/{total}</span></p>
+      <div className="flex items-center gap-2">
+        <Switch
+          checked={active}
+          disabled={disabled}
+          onCheckedChange={(checked) => onChange(checked ? 0 : null)}
+        />
+        {active ? (
+          <Input
+            type="number"
+            min={0}
+            max={total}
+            step={step ?? 1}
+            value={value ?? 0}
+            onChange={(e) => onChange(Number(e.target.value))}
+            disabled={disabled}
+            className="h-8 w-20 text-center"
+          />
+        ) : (
+          <span className="text-xs text-gray-400">{nullLabel}</span>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ── 객관식 셀 ─────────────────────────────────────────────────────────────
 const AnswerCell = memo(function AnswerCell({ value, onChange }: { value: number | null; onChange: (n: number | null) => void }) {
@@ -73,47 +113,35 @@ const StudentCard = memo(function StudentCard({
           {/* 단어 + 진단평가 + 숙제 */}
           <div className="flex gap-6">
             {vocabTotal > 0 && (
-              <div className="space-y-1">
-                <p className="text-xs text-gray-400">단어 <span className="text-gray-300">/{vocabTotal}</span></p>
-                <Input
-                  type="number"
-                  min={0}
-                  max={vocabTotal}
-                  value={row.vocab_correct}
-                  onChange={(e) => updateRow(row.student_id, 'vocab_correct', Number(e.target.value))}
-                  disabled={!row.present}
-                  className="h-8 w-20 text-center"
-                />
-              </div>
+              <ScoreToggleField
+                label="단어"
+                total={vocabTotal}
+                value={row.vocab_correct}
+                nullLabel="미응시"
+                disabled={!row.present}
+                onChange={(v) => updateRow(row.student_id, 'vocab_correct', v)}
+              />
             )}
             {readingTotal > 0 && questions.length === 0 && (
-              <div className="space-y-1">
-                <p className="text-xs text-gray-400">진단평가 <span className="text-gray-300">/{readingTotal}</span></p>
-                <Input
-                  type="number"
-                  min={0}
-                  max={readingTotal}
-                  value={row.reading_correct}
-                  onChange={(e) => updateRow(row.student_id, 'reading_correct', Number(e.target.value))}
-                  disabled={!row.present}
-                  className="h-8 w-20 text-center"
-                />
-              </div>
+              <ScoreToggleField
+                label="진단평가"
+                total={readingTotal}
+                value={row.reading_correct}
+                nullLabel="미응시"
+                disabled={!row.present}
+                onChange={(v) => updateRow(row.student_id, 'reading_correct', v)}
+              />
             )}
             {homeworkTotal > 0 && (
-              <div className="space-y-1">
-                <p className="text-xs text-gray-400">숙제 <span className="text-gray-300">/{homeworkTotal}</span></p>
-                <Input
-                  type="number"
-                  min={0}
-                  max={homeworkTotal}
-                  step={0.5}
-                  value={row.homework_done}
-                  onChange={(e) => updateRow(row.student_id, 'homework_done', Number(e.target.value))}
-                  disabled={!row.present}
-                  className="h-8 w-20 text-center"
-                />
-              </div>
+              <ScoreToggleField
+                label="숙제"
+                total={homeworkTotal}
+                step={0.5}
+                value={row.homework_done}
+                nullLabel="미제출"
+                disabled={!row.present}
+                onChange={(v) => updateRow(row.student_id, 'homework_done', v)}
+              />
             )}
             <div className="flex-1 space-y-1">
               <p className="text-xs text-gray-400">메모</p>
@@ -238,9 +266,9 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal }: P
     type ScoreRecord = {
       student_id: string
       id: string
-      vocab_correct: number
-      reading_correct: number
-      homework_done: number
+      vocab_correct: number | null
+      reading_correct: number | null
+      homework_done: number | null
       memo: string | null
       student_answer: SavedAnswer[]
     }
@@ -263,9 +291,9 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal }: P
           student_id: cs.student_id,
           student_name: cs.student?.name ?? '',
           present,
-          vocab_correct: score?.vocab_correct ?? 0,
-          reading_correct: score?.reading_correct ?? 0,
-          homework_done: score?.homework_done ?? 0,
+          vocab_correct: score?.vocab_correct ?? null,
+          reading_correct: score?.reading_correct ?? null,
+          homework_done: score?.homework_done ?? null,
           memo: score?.memo ?? '',
           answers: (questions ?? []).map((q: ExamQuestion) => {
             const saved = score?.student_answer?.find((a) => a.exam_question_id === q.id)

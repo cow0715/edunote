@@ -59,9 +59,9 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     student_id: string
     student_name: string
     present: boolean
-    vocab_correct: number
-    reading_correct: number
-    homework_done: number
+    vocab_correct: number | null
+    reading_correct: number | null
+    homework_done: number | null
     memo: string
     answers: {
       exam_question_id: string
@@ -214,12 +214,14 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         // AI 실패해도 저장은 성공으로 처리 (reading_correct는 객관식만 반영됨)
         await Promise.all(
           processedScoreIds.map(async (scoreId) => {
-            const { count } = await supabase
+            const { data: answers } = await supabase
               .from('student_answer')
-              .select('*', { count: 'exact', head: true })
+              .select('is_correct')
               .eq('week_score_id', scoreId)
-              .eq('is_correct', true)
-            await supabase.from('week_score').update({ reading_correct: count ?? 0 }).eq('id', scoreId)
+            const readingCorrect = answers && answers.length > 0
+              ? answers.filter((a) => a.is_correct).length
+              : null
+            await supabase.from('week_score').update({ reading_correct: readingCorrect }).eq('id', scoreId)
           })
         )
         return NextResponse.json({ ok: true, ai_grading_failed: true, ai_error: errMsg })
@@ -227,18 +229,17 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     }
   }
 
-  // student_answer.is_correct 기준으로 reading_correct 자동 계산
+  // student_answer.is_correct 기준으로 reading_correct 자동 계산 (답안 없으면 null)
   await Promise.all(
     processedScoreIds.map(async (scoreId) => {
-      const { count } = await supabase
+      const { data: answers } = await supabase
         .from('student_answer')
-        .select('*', { count: 'exact', head: true })
+        .select('is_correct')
         .eq('week_score_id', scoreId)
-        .eq('is_correct', true)
-      await supabase
-        .from('week_score')
-        .update({ reading_correct: count ?? 0 })
-        .eq('id', scoreId)
+      const readingCorrect = answers && answers.length > 0
+        ? answers.filter((a) => a.is_correct).length
+        : null
+      await supabase.from('week_score').update({ reading_correct: readingCorrect }).eq('id', scoreId)
     })
   )
 

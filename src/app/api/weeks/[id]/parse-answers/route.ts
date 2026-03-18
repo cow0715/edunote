@@ -281,15 +281,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         }
       } catch (e) {
         console.error('[parse-answers] 서술형 AI 채점 실패', e)
-        // AI 실패해도 reading_correct는 재계산
+        // AI 실패해도 reading_correct는 재계산 (답안 없으면 null)
         await Promise.all(
           weekScores.map(async (score) => {
-            const { count } = await supabase
+            const { data: answers } = await supabase
               .from('student_answer')
-              .select('*', { count: 'exact', head: true })
+              .select('is_correct')
               .eq('week_score_id', score.id)
-              .eq('is_correct', true)
-            await supabase.from('week_score').update({ reading_correct: count ?? 0 }).eq('id', score.id)
+            const readingCorrect = answers && answers.length > 0
+              ? answers.filter((a) => a.is_correct).length
+              : null
+            await supabase.from('week_score').update({ reading_correct: readingCorrect }).eq('id', score.id)
           })
         )
         return NextResponse.json({ ok: true, questions_parsed: questions.length, students_regraded: weekScores.length, subjective_grading_failed: true })
@@ -297,15 +299,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
   }
 
-  // ── 8. reading_correct 재계산 ──────────────────────────────────────────
+  // ── 8. reading_correct 재계산 (답안 없으면 null) ───────────────────────
   await Promise.all(
     weekScores.map(async (score) => {
-      const { count } = await supabase
+      const { data: answers } = await supabase
         .from('student_answer')
-        .select('*', { count: 'exact', head: true })
+        .select('is_correct')
         .eq('week_score_id', score.id)
-        .eq('is_correct', true)
-      await supabase.from('week_score').update({ reading_correct: count ?? 0 }).eq('id', score.id)
+      const readingCorrect = answers && answers.length > 0
+        ? answers.filter((a) => a.is_correct).length
+        : null
+      await supabase.from('week_score').update({ reading_correct: readingCorrect }).eq('id', score.id)
     })
   )
 

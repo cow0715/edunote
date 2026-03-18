@@ -97,9 +97,9 @@ export interface WeekScore {
   id: string;
   week_id: string;
   student_id: string;
-  vocab_correct: number;
-  reading_correct: number;
-  homework_done: number;
+  vocab_correct: number | null;
+  reading_correct: number | null;
+  homework_done: number | null;
   memo: string | null;
   created_at: string;
   student?: Student;
@@ -143,11 +143,11 @@ export interface WeekScoreSummary {
   student_id: string;
   student_name: string;
   week_score_id: string | null;
-  reading_correct: number;
+  reading_correct: number | null;
   reading_total: number;
-  vocab_correct: number;
+  vocab_correct: number | null;
   vocab_total: number;
-  homework_done: number;
+  homework_done: number | null;
   homework_total: number;
   is_scored: boolean;
 }
