@@ -69,7 +69,7 @@ export async function POST(request: Request) {
   const answerSheet = (studentAnswers ?? []).map((a) => {
     const score = scoreMap.get(a.week_score_id)
     const w = score ? weekMap.get(score.week_id) : null
-    const q = a.exam_question as {
+    const q = a.exam_question as unknown as {
       question_number: number; sub_label: string | null
       question_style: string; correct_answer: number | null; correct_answer_text: string | null
     } | null
