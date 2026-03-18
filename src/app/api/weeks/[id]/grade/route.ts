@@ -172,7 +172,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
             question_number: q.question_number,
             sub_label: q.sub_label ?? null,
             student_name: row.student_name,
-            student_answer_text: a.student_answer_text.trim(),
+            student_answer_text: a.student_answer_text?.trim() ?? '',
           })
         }
       }
