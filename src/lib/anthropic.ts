@@ -189,17 +189,15 @@ ${questions.map((q) => `
 `).join('')}
 
 ## 학생 답안
-${answers.map((a) => `
-학생: ${a.student_name} / 문항: ${qLabel(a)}
+${answers.map((a, i) => `
+[${i}] 학생: ${a.student_name} / 문항: ${qLabel(a)}
 답안: ${a.student_answer_text}
 `).join('')}
 
 ## 출력 형식 (JSON 배열만 출력, 다른 텍스트 없이)
 [
   {
-    "student_name": "학생명",
-    "question_number": 문항번호,
-    "sub_label": 소문항레이블또는null,
+    "idx": 위 답안의 [숫자],
     "is_correct": true 또는 false,
     "feedback": "틀린 경우 구체적 이유 (20자 이내), 맞으면 빈 문자열"
   }
@@ -215,29 +213,24 @@ ${GRADING_RULES}`
 
   const raw = message.content[0].type === 'text' ? message.content[0].text : ''
 
-  let parsed: { student_name: string; question_number: number; sub_label: string | null; is_correct: boolean; feedback: string }[]
+  let parsed: { idx: number; is_correct: boolean; feedback: string }[]
   try {
     parsed = JSON.parse(raw)
   } catch {
-    // JSON 파싱 실패 시 코드블록 제거 후 재시도
     const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
     parsed = JSON.parse(cleaned)
   }
 
-  // 결과를 week_score_id + exam_question_id 기준으로 매핑
-  const answerMap = new Map(
-    answers.map((a) => [`${a.student_name}__${a.question_number}__${a.sub_label ?? ''}`, a])
-  )
-
-  return parsed.map((r) => {
-    const key = `${r.student_name}__${r.question_number}__${r.sub_label ?? ''}`
-    const original = answerMap.get(key)
-    if (!original) return null
-    return {
-      week_score_id: original.week_score_id,
-      exam_question_id: original.exam_question_id,
-      is_correct: r.is_correct,
-      ai_feedback: r.feedback ?? '',
-    }
-  }).filter((r): r is GradingResult => r !== null)
+  return parsed
+    .map((r) => {
+      const original = answers[r.idx]
+      if (!original) return null
+      return {
+        week_score_id: original.week_score_id,
+        exam_question_id: original.exam_question_id,
+        is_correct: r.is_correct,
+        ai_feedback: r.feedback ?? '',
+      }
+    })
+    .filter((r): r is GradingResult => r !== null)
 }
