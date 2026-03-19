@@ -11,8 +11,8 @@ export type TrendItem = {
 }
 
 const SERIES = [
-  { key: 'readingRate',      classKey: 'classReadingRate', label: '시험',    color: '#6366f1' },
-  { key: 'vocabRate',        classKey: 'classVocabRate',   label: '단어',    color: '#22c55e' },
+  { key: 'readingRate', classKey: 'classReadingRate', label: '시험', color: '#6366f1', classColor: '#c7d2fe' },
+  { key: 'vocabRate',   classKey: 'classVocabRate',   label: '단어', color: '#22c55e', classColor: '#bbf7d0' },
 ] as const
 
 export function ScoreTrendChart({ data }: { data: TrendItem[] }) {
@@ -34,6 +34,16 @@ export function ScoreTrendChart({ data }: { data: TrendItem[] }) {
           />
           {SERIES.flatMap((s) => [
             <Line
+              key={s.classKey}
+              type="monotone"
+              dataKey={s.classKey}
+              stroke={s.classColor}
+              strokeWidth={1.5}
+              strokeDasharray="5 4"
+              dot={false}
+              connectNulls
+            />,
+            <Line
               key={s.key}
               type="monotone"
               dataKey={s.key}
@@ -42,17 +52,6 @@ export function ScoreTrendChart({ data }: { data: TrendItem[] }) {
               dot={{ r: 4, fill: s.color }}
               activeDot={{ r: 6 }}
               connectNulls
-            />,
-            <Line
-              key={s.classKey}
-              type="monotone"
-              dataKey={s.classKey}
-              stroke={s.color}
-              strokeWidth={1.5}
-              strokeDasharray="5 4"
-              dot={false}
-              connectNulls
-              opacity={0.5}
             />,
           ])}
         </LineChart>
@@ -66,7 +65,7 @@ export function ScoreTrendChart({ data }: { data: TrendItem[] }) {
               <span className="text-xs text-gray-600">{s.label}</span>
             </div>
             <div className="flex items-center gap-1">
-              <svg width="16" height="8"><line x1="0" y1="4" x2="16" y2="4" stroke={s.color} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.5" /></svg>
+              <svg width="16" height="8"><line x1="0" y1="4" x2="16" y2="4" stroke={s.classColor} strokeWidth="1.5" strokeDasharray="4 3" /></svg>
               <span className="text-xs text-gray-400">반평균</span>
             </div>
           </div>

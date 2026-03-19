@@ -198,11 +198,14 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   const attRate    = totalAtt > 0 ? Math.round(presentAtt / totalAtt * 100) : null
 
   // ── 추이 차트 데이터 ────────────────────────────────────────────────────
-  const trendData: TrendItem[] = scoredWeeks
+  // 반 평균은 학생 미제출 주차도 표시 (학생 선은 null로 끊김 없이 연결)
+  const trendData: TrendItem[] = weeks
+    .slice()
+    .sort((a, b) => a.week_number - b.week_number)
     .map((w) => {
-      const s = scoreByWeek.get(w.id)!
-      const readingRate  = weekRate(s, w, 'reading')
-      const vocabRate    = weekRate(s, w, 'vocab')
+      const s = scoreByWeek.get(w.id)
+      const readingRate  = s ? weekRate(s, w, 'reading') : null
+      const vocabRate    = s ? weekRate(s, w, 'vocab')   : null
       const ca = classAverages[w.id]
       return {
         label: `${w.week_number}주`,
@@ -212,7 +215,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
         classVocabRate:   ca?.vocabRate   ?? null,
       }
     })
-    .filter((d) => d.readingRate !== null || d.vocabRate !== null)
+    .filter((d) => d.readingRate !== null || d.vocabRate !== null || d.classReadingRate !== null || d.classVocabRate !== null)
 
   // ── 과제 막대 차트 데이터 ────────────────────────────────────────────────
   const homeworkData: HomeworkItem[] = scoredWeeks
@@ -336,7 +339,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
         )}
 
         {/* ── 점수 추이 ─────────────────────────────────────────── */}
-        {trendData.length >= 2 && (
+        {trendData.length >= 1 && (
           <Card title="점수 추이" subtitle="시험·단어 정답률 (%) · 점선은 반 평균">
             <ScoreTrendChart data={trendData} />
           </Card>
