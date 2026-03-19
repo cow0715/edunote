@@ -138,7 +138,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       // 기존 문항: 정답/스타일만 업데이트, 학생 답안 유지
       const { data, error } = await supabase
         .from('exam_question')
-        .update({ question_style: style, correct_answer: a.correct_answer, correct_answer_text: a.correct_answer_text, grading_criteria: a.grading_criteria, explanation: a.explanation ?? null })
+        .update({ question_style: style, correct_answer: a.correct_answer, correct_answer_text: a.correct_answer_text, grading_criteria: a.grading_criteria, explanation: a.explanation ?? null, question_text: a.question_text ?? null })
         .eq('id', existing.id)
         .select('id, question_number, sub_label, question_style, correct_answer, correct_answer_text, grading_criteria')
         .single()
@@ -148,7 +148,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       // 신규 문항 INSERT
       const { data, error } = await supabase
         .from('exam_question')
-        .insert({ week_id: weekId, exam_type: 'reading', question_number: a.question_number, sub_label: a.sub_label ?? null, question_style: style, correct_answer: a.correct_answer, correct_answer_text: a.correct_answer_text, grading_criteria: a.grading_criteria, explanation: a.explanation ?? null })
+        .insert({ week_id: weekId, exam_type: 'reading', question_number: a.question_number, sub_label: a.sub_label ?? null, question_style: style, correct_answer: a.correct_answer, correct_answer_text: a.correct_answer_text, grading_criteria: a.grading_criteria, explanation: a.explanation ?? null, question_text: a.question_text ?? null })
         .select('id, question_number, sub_label, question_style, correct_answer, correct_answer_text, grading_criteria')
         .single()
       if (error) console.error(`[parse-answers] INSERT 실패 Q${a.question_number}${a.sub_label ?? ''}:`, error)

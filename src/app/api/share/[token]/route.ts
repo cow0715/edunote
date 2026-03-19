@@ -36,6 +36,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
 
   const weekIds = (weeks ?? []).map((w) => w.id)
 
+  // 반 전체 주차별 점수 (반 평균 계산용)
+  const { data: allWeekScores } = weekIds.length > 0
+    ? await supabase.from('week_score').select('week_id, reading_correct, vocab_correct').in('week_id', weekIds)
+    : { data: [] }
+
   // 학생의 채점 결과
   const { data: weekScores } = await supabase
     .from('week_score')
@@ -55,7 +60,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
           exam_question(
             id, week_id, question_number, sub_label,
             exam_type, question_style,
-            correct_answer, correct_answer_text, explanation
+            correct_answer, correct_answer_text, explanation, question_text
           )
         `)
         .in('week_score_id', scoreIds)
@@ -70,17 +75,23 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
   const { data: questionTags } = examQuestionIds.length > 0
     ? await supabase
         .from('exam_question_tag')
-        .select('exam_question_id, concept_tag(id, name)')
+        .select('exam_question_id, concept_tag(id, name, concept_category_id, concept_category(id, name))')
         .in('exam_question_id', examQuestionIds)
     : { data: [] }
 
-  const tagsByQuestionId = new Map<string, { concept_tag: { id: string; name: string } | null }[]>()
+  const tagsByQuestionId = new Map<string, { concept_tag: { id: string; name: string; category_id: string | null; category_name: string | null } | null }[]>()
   for (const t of questionTags ?? []) {
     const row = t as any
     const qid = row.exam_question_id
     const list = tagsByQuestionId.get(qid) ?? []
-    const tag = Array.isArray(row.concept_tag) ? row.concept_tag[0] : row.concept_tag
-    list.push({ concept_tag: tag ?? null })
+    const rawTag = Array.isArray(row.concept_tag) ? row.concept_tag[0] : row.concept_tag
+    const rawCat = rawTag ? (Array.isArray(rawTag.concept_category) ? rawTag.concept_category[0] : rawTag.concept_category) : null
+    list.push({ concept_tag: rawTag ? {
+      id: rawTag.id,
+      name: rawTag.name,
+      category_id: rawTag.concept_category_id ?? null,
+      category_name: rawCat?.name ?? null,
+    } : null })
     tagsByQuestionId.set(qid, list)
   }
 
@@ -106,6 +117,23 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
         .order('date', { ascending: false })
     : { data: [] }
 
+  // 주차별 반 평균 계산
+  const weekById = new Map((weeks ?? []).map((w) => [w.id, w]))
+  const classAverages: Record<string, { readingRate: number | null; vocabRate: number | null }> = {}
+  for (const weekId of weekIds) {
+    const w = weekById.get(weekId)
+    if (!w) continue
+    const wScores = (allWeekScores ?? []).filter((s: any) => s.week_id === weekId)
+    const rRates = wScores.filter((s: any) => s.reading_correct !== null && w.reading_total > 0)
+      .map((s: any) => (s.reading_correct / w.reading_total) * 100)
+    const vRates = wScores.filter((s: any) => s.vocab_correct !== null && w.vocab_total > 0)
+      .map((s: any) => (s.vocab_correct / w.vocab_total) * 100)
+    classAverages[weekId] = {
+      readingRate: rRates.length > 0 ? Math.round(rRates.reduce((a: number, b: number) => a + b, 0) / rRates.length) : null,
+      vocabRate: vRates.length > 0 ? Math.round(vRates.reduce((a: number, b: number) => a + b, 0) / vRates.length) : null,
+    }
+  }
+
   return NextResponse.json({
     student,
     classes,
@@ -113,5 +141,6 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
     weekScores: weekScores ?? [],
     studentAnswers,
     attendance: attendanceRecords ?? [],
+    classAverages,
   })
 }

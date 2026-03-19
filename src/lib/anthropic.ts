@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { jsonrepair } from 'jsonrepair'
 import { GRADING_SYSTEM, GRADING_RULES, PARSE_ANSWER_SHEET_RULES, SMS_RULES } from './prompts'
 
 export const anthropic = new Anthropic({
@@ -114,6 +115,7 @@ export type ParsedAnswer = {
   correct_answer_text: string | null  // 서술형 모범답안
   grading_criteria: string | null     // 서술형 채점 기준
   explanation: string | null          // 오답 해설 (SMS 활용)
+  question_text: string | null        // 문제 지문/문항 내용 (해설지에 있는 경우)
 }
 
 export type TagCategory = { categoryName: string; tags: string[] }
@@ -162,11 +164,11 @@ ${PARSE_ANSWER_SHEET_RULES}
 ${tagListSection}
 
 JSON 배열만 출력 (다른 텍스트 없이):
-[{"question_number":1,"sub_label":null,"question_style":"objective","question_type":"가정법/조동사","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"..."},{"question_number":2,"sub_label":null,"question_style":"multi_select","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"1,3","grading_criteria":null,"explanation":"..."},{"question_number":5,"sub_label":"a","question_style":"ox","question_type":"대명사","correct_answer":0,"correct_answer_text":"X (their)","grading_criteria":null,"explanation":"..."},{"question_number":5,"sub_label":"b","question_style":"ox","question_type":"수의 일치","correct_answer":0,"correct_answer_text":"O","grading_criteria":null,"explanation":"..."}]`
+[{"question_number":1,"sub_label":null,"question_style":"objective","question_type":"가정법/조동사","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"...","question_text":"다음 글의 빈칸에 들어갈 말로 가장 적절한 것은?\\nThe researcher concluded that the results were inconclusive. ________ further investigation was needed before any definitive claims could be made about the phenomenon."},{"question_number":2,"sub_label":null,"question_style":"multi_select","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"1,3","grading_criteria":null,"explanation":"...","question_text":"윗글의 내용과 일치하는 것을 모두 고르시오.\\nJohn was born in London in 1990. He studied engineering at university and later moved to Seoul for work."},{"question_number":5,"sub_label":"a","question_style":"ox","question_type":"대명사","correct_answer":0,"correct_answer_text":"X (their)","grading_criteria":null,"explanation":"...","question_text":"다음 문장에서 어법상 틀린 것을 고르시오.\\nEach of the students raised their hand."},{"question_number":5,"sub_label":"b","question_style":"ox","question_type":"수의 일치","correct_answer":0,"correct_answer_text":"O","grading_criteria":null,"explanation":"...","question_text":"다음 문장의 어법이 올바른지 판단하시오.\\nThe committee has made its decision."}]`
 
   const res = await anthropic.messages.create({
     model: 'claude-opus-4-6',
-    max_tokens: 8192,
+    max_tokens: 16384,
     messages: [{
       role: 'user',
       content: [fileContent, { type: 'text', text: prompt }],
@@ -175,20 +177,16 @@ JSON 배열만 출력 (다른 텍스트 없이):
 
   const raw = res.content[0].type === 'text' ? res.content[0].text : ''
   console.log('[parseAnswerSheet] raw response:', raw)
+
+  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
   let parsed: ParsedAnswer[]
   try {
-    parsed = JSON.parse(raw)
-  } catch {
-    const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
-    try {
-      parsed = JSON.parse(cleaned)
-    } catch {
-      // JSON이 중간에 잘린 경우 마지막 완전한 객체까지만 복구
-      const lastBrace = cleaned.lastIndexOf('},')
-      const recoverable = lastBrace > 0 ? cleaned.slice(0, lastBrace + 1) + ']' : cleaned
-      parsed = JSON.parse(recoverable)
-    }
+    parsed = JSON.parse(jsonrepair(cleaned))
+  } catch (e) {
+    console.error('[parseAnswerSheet] jsonrepair 실패:', e)
+    throw e
   }
+
   console.log('[parseAnswerSheet] parsed count:', parsed.length, '| question_numbers:', parsed.map(p => `${p.question_number}${p.sub_label ? p.sub_label : ''}`).join(', '))
   return parsed
 }
