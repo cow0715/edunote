@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { parseAnswerSheet, gradeSubjectiveAnswers, SubjectiveStudentAnswer, TagCategory } from '@/lib/anthropic'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const supabase = await createClient()
