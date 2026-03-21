@@ -2,6 +2,7 @@
 
 import { use } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { ChevronRight } from 'lucide-react'
 import { GradeGrid } from '@/components/grade/grade-grid'
 import { useWeek } from '@/hooks/use-weeks'
@@ -9,6 +10,7 @@ import { useClass } from '@/hooks/use-classes'
 
 export default function GradePage({ params }: { params: Promise<{ classId: string; weekId: string }> }) {
   const { classId, weekId } = use(params)
+  const router = useRouter()
   const { data: week, isLoading } = useWeek(weekId)
   const { data: cls } = useClass(classId)
 
@@ -48,6 +50,7 @@ export default function GradePage({ params }: { params: Promise<{ classId: strin
         vocabTotal={week.vocab_total}
         readingTotal={week.reading_total}
         homeworkTotal={week.homework_total}
+        onSaved={() => router.push(`/dashboard/${classId}/weeks/${weekId}`)}
       />
     </div>
   )

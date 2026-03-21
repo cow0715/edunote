@@ -8,8 +8,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { useGradeData, useSaveGrade, GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
+import { cn } from '@/lib/utils'
 
-// ── 점수 토글 필드 ────────────────────────────────────────────────────────
+// ── 점수 토글 필드 ─────────────────────────────────────────
 function ScoreToggleField({ label, total, value, nullLabel, disabled, step, onChange }: {
   label: string
   total: number
@@ -21,15 +22,15 @@ function ScoreToggleField({ label, total, value, nullLabel, disabled, step, onCh
 }) {
   const active = value !== null
   return (
-    <div className="space-y-1.5">
-      <p className="text-xs text-gray-400">{label} <span className="text-gray-300">/{total}</span></p>
-      <div className="flex items-center gap-2">
-        <Switch
-          checked={active}
-          disabled={disabled}
-          onCheckedChange={(checked) => onChange(checked ? 0 : null)}
-        />
-        {active ? (
+    <div className="flex items-center gap-2 min-w-0">
+      <Switch
+        checked={active}
+        disabled={disabled}
+        onCheckedChange={(checked) => onChange(checked ? 0 : null)}
+      />
+      <span className="text-xs text-gray-400 shrink-0">{label}</span>
+      {active ? (
+        <div className="flex items-center gap-1">
           <Input
             type="number"
             min={0}
@@ -38,27 +39,35 @@ function ScoreToggleField({ label, total, value, nullLabel, disabled, step, onCh
             value={value ?? 0}
             onChange={(e) => onChange(Number(e.target.value))}
             disabled={disabled}
-            className="h-8 w-20 text-center"
+            className="h-8 w-16 text-center text-sm"
           />
-        ) : (
-          <span className="text-xs text-gray-400">{nullLabel}</span>
-        )}
-      </div>
+          <span className="text-xs text-gray-300">/{total}</span>
+        </div>
+      ) : (
+        <span className="text-xs text-gray-300">{nullLabel}</span>
+      )}
     </div>
   )
 }
 
-// ── 객관식 셀 ─────────────────────────────────────────────────────────────
-const AnswerCell = memo(function AnswerCell({ value, onChange }: { value: number | null; onChange: (n: number | null) => void }) {
+// ── 객관식 버튼 ────────────────────────────────────────────
+const ObjectiveInput = memo(function ObjectiveInput({
+  value, onChange, disabled,
+}: { value: number | null; onChange: (n: number | null) => void; disabled: boolean }) {
   return (
-    <div className="flex gap-0.5">
+    <div className="flex gap-1">
       {[1, 2, 3, 4, 5].map((n) => (
         <button
           key={n}
           type="button"
+          disabled={disabled}
           onClick={() => onChange(value === n ? null : n)}
-          className={`flex h-7 w-7 items-center justify-center rounded text-xs font-semibold transition-colors
-            ${value === n ? 'bg-primary text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+          className={cn(
+            'flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium transition-colors',
+            value === n
+              ? 'bg-indigo-600 text-white'
+              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+          )}
         >
           {n}
         </button>
@@ -67,16 +76,140 @@ const AnswerCell = memo(function AnswerCell({ value, onChange }: { value: number
   )
 })
 
-// ── 학생 카드 ──────────────────────────────────────────────────────────────
+// ── OX 버튼 ────────────────────────────────────────────────
+const OXInput = memo(function OXInput({
+  textValue, onChange, disabled,
+}: { textValue: string; onChange: (t: string) => void; disabled: boolean }) {
+  // OX 파싱: "O" | "X" | "X 수정어" | "수정어"
+  const upper = textValue.trim().toUpperCase()
+  const isO = upper === 'O'
+  const isX = upper.startsWith('X')
+  const correction = isX ? textValue.trim().slice(1).trim() : ''
+
+  function selectO() { onChange('O') }
+  function selectX() { onChange(correction ? `X ${correction}` : 'X') }
+  function onCorrectionChange(v: string) { onChange(v ? `X ${v}` : 'X') }
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={isO ? () => onChange('') : selectO}
+        className={cn(
+          'flex h-8 w-10 items-center justify-center rounded-md text-sm font-bold transition-colors',
+          isO ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+        )}
+      >O</button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={isX ? () => onChange('') : selectX}
+        className={cn(
+          'flex h-8 w-10 items-center justify-center rounded-md text-sm font-bold transition-colors',
+          isX ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+        )}
+      >X</button>
+      {isX && (
+        <Input
+          value={correction}
+          onChange={(e) => onCorrectionChange(e.target.value)}
+          disabled={disabled}
+          placeholder="수정어"
+          className="h-8 w-28 text-sm"
+        />
+      )}
+    </div>
+  )
+})
+
+// ── 문항 유형 배지 ─────────────────────────────────────────
+function StyleBadge({ style }: { style: ExamQuestion['question_style'] }) {
+  const map = {
+    objective:    { label: '객관식', cls: 'bg-gray-100 text-gray-500' },
+    ox:           { label: 'O/X',   cls: 'bg-blue-50 text-blue-600' },
+    subjective:   { label: '서술형', cls: 'bg-amber-50 text-amber-600' },
+    multi_select: { label: '복수',  cls: 'bg-purple-50 text-purple-600' },
+  }
+  const { label, cls } = map[style] ?? { label: style, cls: 'bg-gray-100 text-gray-500' }
+  return <span className={cn('inline-flex h-5 items-center rounded px-1.5 text-[10px] font-medium shrink-0', cls)}>{label}</span>
+}
+
+// ── 문항 행 ────────────────────────────────────────────────
+const QuestionRow = memo(function QuestionRow({
+  q, answer, disabled, onChangeAnswer, onChangeText,
+}: {
+  q: ExamQuestion
+  answer: { student_answer: number | null; student_answer_text?: string; is_correct?: boolean } | undefined
+  disabled: boolean
+  onChangeAnswer: (n: number | null) => void
+  onChangeText: (t: string) => void
+}) {
+  const label = `${q.question_number}${q.sub_label ? ` (${q.sub_label})` : ''}`
+  const isSubjective = q.question_style === 'subjective'
+  const hasAnswer = answer?.student_answer !== null && answer?.student_answer !== undefined
+    || !!answer?.student_answer_text
+  const isWrong = hasAnswer && answer?.is_correct === false
+
+  return (
+    <div className={cn('px-4 py-3', isSubjective ? 'flex flex-col gap-2' : 'flex items-center gap-3')}>
+      {/* 번호 + 배지 */}
+      <div className="flex items-center gap-1.5 shrink-0 w-24">
+        <span className={cn('text-sm font-medium', isWrong ? 'text-red-400 line-through' : 'text-gray-700')}>
+          문제 {label}
+        </span>
+        <StyleBadge style={q.question_style} />
+      </div>
+
+      {/* 입력 */}
+      <div className="flex-1">
+        {q.question_style === 'objective' && (
+          <ObjectiveInput
+            value={answer?.student_answer ?? null}
+            onChange={onChangeAnswer}
+            disabled={disabled}
+          />
+        )}
+        {q.question_style === 'ox' && (
+          <OXInput
+            textValue={answer?.student_answer_text ?? ''}
+            onChange={onChangeText}
+            disabled={disabled}
+          />
+        )}
+        {q.question_style === 'multi_select' && (
+          <Input
+            value={answer?.student_answer_text ?? ''}
+            onChange={(e) => onChangeText(e.target.value)}
+            disabled={disabled}
+            placeholder={`예: ${q.correct_answer_text ?? '1,3'}`}
+            className="h-8 w-36 text-sm"
+          />
+        )}
+        {q.question_style === 'subjective' && (
+          <Textarea
+            value={answer?.student_answer_text ?? ''}
+            onChange={(e) => onChangeText(e.target.value)}
+            disabled={disabled}
+            placeholder="답안 입력"
+            rows={2}
+            className="text-sm resize-none"
+          />
+        )}
+      </div>
+
+      {/* 정답 힌트 (비서술형) */}
+      {!isSubjective && q.correct_answer_text && (
+        <span className="text-xs text-gray-300 shrink-0">정답: {q.correct_answer_text}</span>
+      )}
+    </div>
+  )
+})
+
+// ── 학생 카드 ──────────────────────────────────────────────
 const StudentCard = memo(function StudentCard({
-  row,
-  questions,
-  vocabTotal,
-  readingTotal,
-  homeworkTotal,
-  updateRow,
-  updateAnswer,
-  updateAnswerText,
+  row, questions, vocabTotal, readingTotal, homeworkTotal,
+  updateRow, updateAnswer, updateAnswerText,
 }: {
   row: GradeRow
   questions: ExamQuestion[]
@@ -89,10 +222,9 @@ const StudentCard = memo(function StudentCard({
 }) {
   const [open, setOpen] = useState(true)
   const hasSubjective = questions.some((q) => q.question_style === 'subjective')
-  const hasTextAnswer = questions.some((q) => ['subjective', 'ox', 'multi_select'].includes(q.question_style))
 
   return (
-    <div className={`rounded-xl border bg-white transition-opacity ${!row.present ? 'opacity-50' : ''}`}>
+    <div className={cn('rounded-xl border bg-white transition-opacity', !row.present && 'opacity-50')}>
       {/* 헤더 */}
       <div className="flex items-center gap-3 px-4 py-3">
         <input
@@ -109,9 +241,9 @@ const StudentCard = memo(function StudentCard({
       </div>
 
       {open && (
-        <div className="border-t px-4 py-3 space-y-4">
-          {/* 단어 + 진단평가 + 숙제 */}
-          <div className="flex gap-6">
+        <div className="border-t">
+          {/* 점수 입력 영역 */}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 bg-gray-50/50">
             {vocabTotal > 0 && (
               <ScoreToggleField
                 label="단어"
@@ -143,92 +275,41 @@ const StudentCard = memo(function StudentCard({
                 onChange={(v) => updateRow(row.student_id, 'homework_done', v)}
               />
             )}
-            <div className="flex-1 space-y-1">
-              <p className="text-xs text-gray-400">메모</p>
+            <div className="flex items-center gap-2 flex-1 min-w-[140px]">
+              <span className="text-xs text-gray-400 shrink-0">메모</span>
               <Input
                 value={row.memo}
                 onChange={(e) => updateRow(row.student_id, 'memo', e.target.value)}
                 disabled={!row.present}
                 placeholder="특이사항"
-                className="h-8"
+                className="h-8 text-sm"
               />
             </div>
           </div>
 
-          {/* 진단평가 문항 */}
+          {/* 문항 입력 영역 */}
           {questions.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-gray-500">진단평가</p>
-
-              {/* 문항 순서대로 */}
-              <div className="flex flex-wrap gap-x-4 gap-y-3">
-                {questions.map((q) => {
-                  const a = row.answers.find((a) => a.exam_question_id === q.id)
-                  const styleLabel =
-                    q.question_style === 'ox' ? { text: 'O/X', cls: 'bg-blue-50 text-blue-700' }
-                    : q.question_style === 'multi_select' ? { text: '복수정답', cls: 'bg-orange-50 text-orange-700' }
-                    : q.question_style === 'subjective' ? { text: '서술형', cls: 'bg-amber-50 text-amber-700' }
-                    : null
-                  const placeholder =
-                    q.question_style === 'ox' ? 'O / X (수정어)'
-                    : q.question_style === 'multi_select' ? `예: ${q.correct_answer_text ?? '1,3'}`
-                    : '답안'
-
-                  return (
-                    <div key={q.id} className="space-y-1">
-                      <p className="text-xs text-gray-400 flex items-center gap-1">
-                        {styleLabel && (
-                          <span className={`rounded px-1 py-0.5 ${styleLabel.cls}`}>{styleLabel.text}</span>
-                        )}
-                        {(() => {
-                          const ans = row.answers.find((a) => a.exam_question_id === q.id)
-                          const hasAnswer = ans?.student_answer !== null || !!ans?.student_answer_text
-                          const wrong = hasAnswer && ans?.is_correct === false
-                          return (
-                            <span className={wrong ? 'text-red-400 line-through' : ''}>
-                              문제 {q.question_number}{q.sub_label ? ` (${q.sub_label})` : ''}
-                            </span>
-                          )
-                        })()}
-                        {q.correct_answer_text && q.question_style !== 'subjective' && (
-                          <span className="text-gray-300">({q.correct_answer_text})</span>
-                        )}
-                      </p>
-                      {q.question_style === 'objective' ? (
-                        <AnswerCell
-                          value={a?.student_answer ?? null}
-                          onChange={(n) => updateAnswer(row.student_id, q.id, n)}
-                        />
-                      ) : q.question_style === 'subjective' ? (
-                        <Textarea
-                          value={a?.student_answer_text ?? ''}
-                          onChange={(e) => updateAnswerText(row.student_id, q.id, e.target.value)}
-                          disabled={!row.present}
-                          placeholder={placeholder}
-                          rows={2}
-                          className="text-sm resize-none w-64"
-                        />
-                      ) : (
-                        <Input
-                          value={a?.student_answer_text ?? ''}
-                          onChange={(e) => updateAnswerText(row.student_id, q.id, e.target.value)}
-                          disabled={!row.present}
-                          placeholder={placeholder}
-                          className="h-8 w-32 text-sm"
-                        />
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+            <div className="divide-y border-t">
+              {questions.map((q) => {
+                const answer = row.answers.find((a) => a.exam_question_id === q.id)
+                return (
+                  <QuestionRow
+                    key={q.id}
+                    q={q}
+                    answer={answer}
+                    disabled={!row.present}
+                    onChangeAnswer={(n) => updateAnswer(row.student_id, q.id, n)}
+                    onChangeText={(t) => updateAnswerText(row.student_id, q.id, t)}
+                  />
+                )
+              })}
             </div>
           )}
 
           {hasSubjective && (
-            <p className="text-xs text-amber-600">서술형(AI채점) 문항은 저장 시 자동 채점됩니다</p>
-          )}
-          {hasTextAnswer && !hasSubjective && (
-            <p className="text-xs text-blue-500">단답형·복수정답은 저장 시 자동 채점됩니다</p>
+            <p className="px-4 py-2 text-xs text-amber-600 border-t bg-amber-50/50">
+              서술형(AI 채점) 문항은 저장 시 자동 채점됩니다
+            </p>
           )}
         </div>
       )}
@@ -236,15 +317,16 @@ const StudentCard = memo(function StudentCard({
   )
 })
 
-// ── 메인 컴포넌트 ──────────────────────────────────────────────────────────
+// ── 메인 컴포넌트 ──────────────────────────────────────────
 interface Props {
   weekId: string
   vocabTotal: number
   readingTotal: number
   homeworkTotal: number
+  onSaved?: () => void
 }
 
-export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal }: Props) {
+export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onSaved }: Props) {
   const { data, isLoading } = useGradeData(weekId)
   const saveGrade = useSaveGrade(weekId)
   const [rows, setRows] = useState<GradeRow[]>([])
@@ -382,16 +464,21 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal }: P
               저장됨 ({savedAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })})
             </span>
           )}
+
           <Button
             onClick={() => {
               setAiGradingFailed(false)
               saveGrade.mutate(rows, {
                 onSuccess: (result) => {
-                  if (result?.ai_grading_failed) setAiGradingFailed(true)
-                  const now = new Date()
-                  setSavedAt(now)
-                  if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
-                  savedTimerRef.current = setTimeout(() => setSavedAt(null), 10000)
+                  if (result?.ai_grading_failed) {
+                    setAiGradingFailed(true)
+                    const now = new Date()
+                    setSavedAt(now)
+                    if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+                    savedTimerRef.current = setTimeout(() => setSavedAt(null), 10000)
+                  } else {
+                    onSaved?.()
+                  }
                 },
               })
             }}
