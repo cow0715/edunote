@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
-import { BookOpen, Users, LogOut, GraduationCap, Tag, MessageSquare } from 'lucide-react'
+import { BookOpen, Users, LogOut, GraduationCap, Tag, MessageSquare, TrendingUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 
@@ -12,6 +12,7 @@ const navItems = [
   { href: '/dashboard', label: '수업 목록', icon: BookOpen },
   { href: '/students', label: '학생 관리', icon: Users },
   { href: '/concept-tags', label: '문제 유형', icon: Tag },
+  { href: '/analysis', label: '학생 현황', icon: TrendingUp },
   { href: '/messages', label: '메시지 내역', icon: MessageSquare },
 ]
 
@@ -28,7 +29,7 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="flex h-full w-56 flex-col border-r bg-white">
+    <aside className="hidden md:flex h-full w-56 flex-col border-r bg-white">
       <div className="flex items-center gap-2 border-b px-4 py-5">
         <GraduationCap className="h-6 w-6 text-primary" />
         <span className="font-semibold text-gray-900">학원 관리</span>

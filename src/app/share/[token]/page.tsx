@@ -359,6 +359,46 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
           </Card>
         )}
 
+        {/* ── 출결 요약 ────────────────────────────────────────── */}
+        {attendance.length > 0 && (() => {
+          const presentCount = attendance.filter((a) => a.status === 'present').length
+          const lateCount    = attendance.filter((a) => a.status === 'late').length
+          const absentCount  = attendance.filter((a) => a.status === 'absent').length
+          const total        = attendance.length
+          return (
+            <Card title="출결 현황" subtitle={`총 ${total}회`}>
+              <div className="flex gap-3">
+                <div className="flex-1 rounded-xl bg-green-50 px-3 py-3 text-center">
+                  <p className="text-xl font-bold text-green-600">{presentCount}</p>
+                  <p className="mt-0.5 text-xs text-green-500">출석</p>
+                </div>
+                <div className="flex-1 rounded-xl bg-amber-50 px-3 py-3 text-center">
+                  <p className="text-xl font-bold text-amber-500">{lateCount}</p>
+                  <p className="mt-0.5 text-xs text-amber-400">지각</p>
+                </div>
+                <div className="flex-1 rounded-xl bg-red-50 px-3 py-3 text-center">
+                  <p className="text-xl font-bold text-red-500">{absentCount}</p>
+                  <p className="mt-0.5 text-xs text-red-400">결석</p>
+                </div>
+              </div>
+              {/* 타임라인 */}
+              <div className="mt-4 flex flex-wrap gap-1.5">
+                {[...attendance]
+                  .sort((a, b) => a.date.localeCompare(b.date))
+                  .map((a) => (
+                    <div
+                      key={a.id}
+                      title={`${a.date} · ${ATT_LABEL[a.status]}`}
+                      className={`flex h-8 w-8 items-center justify-center rounded-lg border text-[10px] font-semibold ${ATT_STYLE[a.status]}`}
+                    >
+                      {new Date(a.date).getDate()}
+                    </div>
+                  ))}
+              </div>
+            </Card>
+          )
+        })()}
+
         {/* ── 회차별 성적 ──────────────────────────────────────── */}
         {visibleWeeks.length > 0 && (
           <Card title="회차별 성적" noPad>
@@ -418,34 +458,41 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                           (answersByScore.get(score.id)?.some((a) => a.exam_question?.exam_type === 'reading') ?? false)
                           || (score.reading_correct !== null && score.reading_correct > 0)
                         return (
-                          <div className="mt-2.5 flex flex-wrap gap-2">
-                            {w.reading_total > 0 && (
-                              hasReadingAnswers || score.reading_correct !== null ? (
-                                <span className="flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2 py-1 text-xs">
-                                  <BookOpen className="h-3 w-3 text-indigo-400" />
-                                  시험 <strong className={`ml-0.5 ${scoreColor(score.reading_correct ?? 0, w.reading_total)}`}>
-                                    {score.reading_correct ?? 0}/{w.reading_total}
+                          <>
+                            <div className="mt-2.5 flex flex-wrap gap-2">
+                              {w.reading_total > 0 && (
+                                hasReadingAnswers || score.reading_correct !== null ? (
+                                  <span className="flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2 py-1 text-xs">
+                                    <BookOpen className="h-3 w-3 text-indigo-400" />
+                                    시험 <strong className={`ml-0.5 ${scoreColor(score.reading_correct ?? 0, w.reading_total)}`}>
+                                      {score.reading_correct ?? 0}/{w.reading_total}
+                                    </strong>
+                                  </span>
+                                ) : null
+                              )}
+                              {w.vocab_total > 0 && score.vocab_correct !== null && (
+                                <span className="flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2 py-1 text-xs">
+                                  <BookText className="h-3 w-3 text-emerald-500" />
+                                  단어 <strong className={`ml-0.5 ${scoreColor(score.vocab_correct, w.vocab_total)}`}>
+                                    {score.vocab_correct}/{w.vocab_total}
                                   </strong>
                                 </span>
-                              ) : null
+                              )}
+                              {w.homework_total > 0 && score.homework_done !== null && (
+                                <span className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-2 py-1 text-xs">
+                                  <ClipboardCheck className="h-3 w-3 text-amber-500" />
+                                  과제 <strong className={`ml-0.5 ${scoreColor(score.homework_done, w.homework_total)}`}>
+                                    {score.homework_done}/{w.homework_total}
+                                  </strong>
+                                </span>
+                              )}
+                            </div>
+                            {score.memo && (
+                              <p className="mt-2 truncate text-xs text-indigo-500">
+                                💬 {score.memo}
+                              </p>
                             )}
-                            {w.vocab_total > 0 && score.vocab_correct !== null && (
-                              <span className="flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2 py-1 text-xs">
-                                <BookText className="h-3 w-3 text-emerald-500" />
-                                단어 <strong className={`ml-0.5 ${scoreColor(score.vocab_correct, w.vocab_total)}`}>
-                                  {score.vocab_correct}/{w.vocab_total}
-                                </strong>
-                              </span>
-                            )}
-                            {w.homework_total > 0 && score.homework_done !== null && (
-                              <span className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-2 py-1 text-xs">
-                                <ClipboardCheck className="h-3 w-3 text-amber-500" />
-                                과제 <strong className={`ml-0.5 ${scoreColor(score.homework_done, w.homework_total)}`}>
-                                  {score.homework_done}/{w.homework_total}
-                                </strong>
-                              </span>
-                            )}
-                          </div>
+                          </>
                         )
                       })() : (
                         <p className="mt-2 text-xs text-gray-400">성적 미입력</p>
@@ -485,8 +532,9 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                           </p>
                         )}
                         {score?.memo && (
-                          <div className="rounded-xl bg-indigo-50 px-3 py-2.5 text-xs text-indigo-700">
-                            💬 {score.memo}
+                          <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
+                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-400">강사 코멘트</p>
+                            <p className="text-sm leading-relaxed text-indigo-800">{score.memo}</p>
                           </div>
                         )}
                       </div>
