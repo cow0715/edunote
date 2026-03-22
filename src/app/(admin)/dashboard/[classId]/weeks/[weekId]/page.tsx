@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, ClipboardList, Settings } from 'lucide-react'
+import { ChevronRight, Settings } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { WeekResultTable } from '@/components/grade/week-result-table'
+import { GradeGrid } from '@/components/grade/grade-grid'
 import { SmsSheet } from '@/components/grade/sms-sheet'
 import { AttendanceManager } from '@/components/attendance/attendance-manager'
 import { AnswerSheetUploader } from '@/components/grade/answer-sheet-uploader'
@@ -29,6 +30,7 @@ interface WeekFormValues {
 export default function WeekDetailPage({ params }: { params: Promise<{ classId: string; weekId: string }> }) {
   const { classId, weekId } = use(params)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [pageTab, setPageTab] = useState<'overview' | 'grade'>('overview')
 
   const { data: week, isLoading } = useWeek(weekId)
   const { data: cls } = useClass(classId)
@@ -108,24 +110,37 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
             설정
           </Button>
           <SmsSheet weekId={weekId} weekNumber={week.week_number} />
-          <Button asChild>
-            <Link href={`/dashboard/${classId}/weeks/${weekId}/grade`}>
-              <ClipboardList className="mr-2 h-4 w-4" />
-              채점하기
-            </Link>
-          </Button>
         </div>
       </div>
 
-      {/* 메인: 결과 현황 */}
-      <WeekResultTable
-        weekId={weekId}
-        classId={classId}
-        startDate={week.start_date}
-        vocabTotal={week.vocab_total}
-        readingTotal={week.reading_total}
-        homeworkTotal={week.homework_total}
-      />
+      {/* 페이지 탭: 현황 | 채점 */}
+      <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as 'overview' | 'grade')}>
+        <TabsList className="mb-5">
+          <TabsTrigger value="overview">현황</TabsTrigger>
+          <TabsTrigger value="grade">채점</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview">
+          <WeekResultTable
+            weekId={weekId}
+            classId={classId}
+            startDate={week.start_date}
+            vocabTotal={week.vocab_total}
+            readingTotal={week.reading_total}
+            homeworkTotal={week.homework_total}
+          />
+        </TabsContent>
+
+        <TabsContent value="grade">
+          <GradeGrid
+            weekId={weekId}
+            vocabTotal={week.vocab_total}
+            readingTotal={week.reading_total}
+            homeworkTotal={week.homework_total}
+            onSaved={() => setPageTab('overview')}
+          />
+        </TabsContent>
+      </Tabs>
 
       {/* 설정 모달 */}
       <Dialog open={settingsOpen} onOpenChange={(v) => { setSettingsOpen(v); if (!v) setActiveTab('basic') }}>

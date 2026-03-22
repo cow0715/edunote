@@ -136,7 +136,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   const { token } = use(params)
   const { data, isLoading, error } = useShareData(token)
   const [expandedWeekId, setExpandedWeekId] = useState<string | null>(null)
-  const [drawerTag, setDrawerTag] = useState<{ id: string; name: string } | null>(null)
+  const [drawerTag, setDrawerTag] = useState<{ id: string; name: string; weekId?: string | null } | null>(null)
 
   if (isLoading) return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -232,15 +232,15 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     .filter((d): d is HomeworkItem => d !== null)
 
   // ── 오답 유형 분포 ─────────────────────────────────────────────────────
-  const typeWrongMap = new Map<string, { name: string; wrong: number; total: number }>()
+  const typeWrongMap = new Map<string, { id: string; name: string; wrong: number; total: number }>()
   studentAnswers.filter((a) => a.exam_question?.exam_type === 'reading').forEach((a) => {
     for (const t of a.exam_question?.exam_question_tag ?? []) {
       const tag = t.concept_tag
       if (!tag) continue
-      const entry = typeWrongMap.get(tag.name) ?? { name: tag.name, wrong: 0, total: 0 }
+      const entry = typeWrongMap.get(tag.id) ?? { id: tag.id, name: tag.name, wrong: 0, total: 0 }
       entry.total++
       if (!a.is_correct) entry.wrong++
-      typeWrongMap.set(tag.name, entry)
+      typeWrongMap.set(tag.id, entry)
     }
   })
   const typeData = [...typeWrongMap.values()].filter((d) => d.wrong > 0).sort((a, b) => b.wrong - a.wrong)
@@ -268,7 +268,8 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     ? studentAnswers
         .filter((a) =>
           !a.is_correct &&
-          a.exam_question?.exam_question_tag.some((t) => t.concept_tag?.id === drawerTag.id)
+          a.exam_question?.exam_question_tag.some((t) => t.concept_tag?.id === drawerTag.id) &&
+          (drawerTag.weekId ? a.exam_question?.week_id === drawerTag.weekId : true)
         )
         .sort((a, b) => {
           const wa = weekNumberByWeekId.get(a.exam_question?.week_id ?? '') ?? 0
@@ -355,7 +356,10 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
         {/* ── 오답 유형 분포 ────────────────────────────────────── */}
         {typeData.length > 0 && (
           <Card title="오답 유형 분포" subtitle="전체 누적 · 오답 횟수 기준">
-            <WrongTypePieChart data={typeData} />
+            <WrongTypePieChart
+              data={typeData}
+              onTagClick={(id, name) => setDrawerTag({ id, name, weekId: null })}
+            />
           </Card>
         )}
 
@@ -470,7 +474,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                               {wrongTypesList.map(({ id, name, count }) => (
                                 <button
                                   key={id}
-                                  onClick={() => setDrawerTag({ id, name })}
+                                  onClick={() => setDrawerTag({ id, name, weekId: w.id })}
                                   className="flex w-full items-center justify-between rounded-xl border border-rose-100 bg-white px-3.5 py-2.5 text-left transition-colors hover:bg-rose-50"
                                 >
                                   <span className="text-sm font-medium text-gray-800">{name}</span>
@@ -529,7 +533,9 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
         <div className="flex items-center justify-between border-b px-5 py-3">
           <div>
             <h3 className="font-bold text-gray-900">{drawerTag?.name} 오답노트</h3>
-            <p className="text-xs text-gray-400">총 {drawerAnswers.length}회 틀림 · 최신순</p>
+            <p className="text-xs text-gray-400">
+              {drawerTag?.weekId ? '이번 주차' : '전체 누적'} · 총 {drawerAnswers.length}회 틀림
+            </p>
           </div>
           <button
             onClick={() => setDrawerTag(null)}
