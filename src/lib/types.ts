@@ -138,6 +138,24 @@ export interface MessageLog {
   week?: Week & { class?: Class };
 }
 
+export interface VocabWord {
+  id: string
+  week_id: string
+  number: number
+  english_word: string
+  created_at: string
+}
+
+export interface StudentVocabAnswer {
+  id: string
+  week_score_id: string
+  vocab_word_id: string
+  student_answer: string | null
+  is_correct: boolean
+  created_at: string
+  vocab_word?: VocabWord
+}
+
 // 채점 현황 조회용 집계 타입
 export interface WeekScoreSummary {
   student_id: string;

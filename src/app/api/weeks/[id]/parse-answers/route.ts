@@ -206,13 +206,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const questionByKey = new Map(questions.map((q) => [`${q.question_number}__${q.sub_label ?? ''}`, q]))
   const questionById = new Map(questions.map((q) => [q.id, q]))
 
-  function gradeOX(correctAnswerText: string, studentAnswerText: string): boolean {
+  // oxSelection: 'O' | 'X' | null, correctionText: 수정어만 (X 접두사 없음)
+  function gradeOX(correctAnswerText: string, oxSelection: string | null, correctionText: string): boolean {
     const correct = correctAnswerText.trim()
-    const student = studentAnswerText.trim().toLowerCase()
-    if (/^O$/i.test(correct)) return /^o$/i.test(student)
+    if (/^O$/i.test(correct)) return oxSelection === 'O'
+    if (oxSelection !== 'X') return false
     let correction = correct.match(/\((.+)\)/)?.[1]?.trim().toLowerCase() ?? ''
     if (correction.includes('→')) correction = correction.split('→').pop()?.trim() ?? correction
-    if (/^o$/i.test(student)) return false
+    const student = correctionText.trim().toLowerCase()
     // '/' 구분자로 복수 정답 허용 (예: "in which / where")
     const alternatives = correction.split('/').map((s) => s.trim()).filter(Boolean)
     return alternatives.some((alt) => student === alt)
@@ -227,7 +228,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   await Promise.all(
     weekScores.map(async (score) => {
-      type AnswerRow = { id: string; exam_question_id: string; student_answer: number | null; student_answer_text: string | null; is_correct: boolean }
+      type AnswerRow = { id: string; exam_question_id: string; student_answer: number | null; student_answer_text: string | null; ox_selection: string | null; is_correct: boolean }
       const answers: AnswerRow[] = (score.student_answer as unknown as AnswerRow[]) ?? []
 
       await Promise.all(
@@ -240,8 +241,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             if (isCorrect !== a.is_correct) {
               await supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
             }
-          } else if (q.question_style === 'ox' && a.student_answer_text?.trim()) {
-            const isCorrect = q.correct_answer_text ? gradeOX(q.correct_answer_text, a.student_answer_text) : false
+          } else if (q.question_style === 'ox' && a.ox_selection) {
+            const isCorrect = q.correct_answer_text ? gradeOX(q.correct_answer_text, a.ox_selection, a.student_answer_text ?? '') : false
             if (isCorrect !== a.is_correct) {
               await supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
             }
