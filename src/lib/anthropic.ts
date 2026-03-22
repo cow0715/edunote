@@ -213,7 +213,7 @@ export async function gradeVocabPhoto(
     : { type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: fileData } }
 
   const prompt = `이 영어 단어 시험지를 채점해주세요.
-시험지에는 번호, 영어 단어가 인쇄되어 있고, 학생이 옆에 한글 뜻을 손으로 작성했습니다.
+시험지에는 번호, 영어 단어(구)가 인쇄되어 있고, 학생이 옆에 한글 뜻을 손으로 작성했습니다.
 
 채점 기준:
 - 의미와 품사가 모두 맞으면 is_correct: true
@@ -221,11 +221,15 @@ export async function gradeVocabPhoto(
   · 원칙: 품사가 맞아야 정답 (예: 동사인데 명사로 쓰면 오답)
   · 예외: 해당 영어 단어가 실제로 명사/동사 등 복수 품사로 쓰이는 경우, 그 중 하나로 써도 정답
     예) "run"은 동사(달리다)이자 명사(달리기)이므로 둘 다 허용
-    예) "study"는 동사(공부하다)이자 명사(공부)이므로 둘 다 허용
 - 철자가 약간 틀려도 의도한 단어가 명확하면 허용
 - 동의어·의역도 허용 (의미가 같고 품사 조건 충족 시)
   예) "필수적인" / "반드시 필요한" / "없어서는 안 될" → 모두 정답
-- 완전히 다른 뜻이거나 빈칸(미작성)이면 is_correct: false
+- 다음의 경우는 반드시 오답(is_correct: false):
+  · 의미가 반대이거나 주어/목적어/방향 관계가 뒤바뀐 경우
+    예) "be deprived of their mothers"(어머니를 빼앗기다)에 "어머니에게 빼앗기다"(어머니가 빼앗는 주체) → 오답
+    예) "give"(주다)에 "받다" → 오답
+  · 핵심 의미 요소가 빠진 불완전한 답
+  · 완전히 다른 뜻이거나 빈칸(미작성)
 
 JSON 배열만 출력 (다른 텍스트 없이):
 [{"number":1,"english_word":"necessary","student_answer":"필수적인","is_correct":true},{"number":2,"english_word":"abandon","student_answer":"","is_correct":false}]`
