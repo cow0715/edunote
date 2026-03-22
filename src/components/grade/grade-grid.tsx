@@ -332,8 +332,10 @@ const QuestionRow = memo(function QuestionRow({
 })
 
 // ── 학생 카드 ──────────────────────────────────────────────
+type VocabAnswerRow = { number: number; english_word: string; student_answer: string | null; is_correct: boolean }
+
 const StudentCard = memo(function StudentCard({
-  weekId, row, questions, vocabTotal, readingTotal, homeworkTotal,
+  weekId, row, questions, vocabTotal, readingTotal, homeworkTotal, vocabAnswers,
   updateRow, updateAnswer, updateAnswerText,
 }: {
   weekId: string
@@ -342,11 +344,13 @@ const StudentCard = memo(function StudentCard({
   vocabTotal: number
   readingTotal: number
   homeworkTotal: number
+  vocabAnswers: VocabAnswerRow[]
   updateRow: (studentId: string, key: keyof GradeRow, value: unknown) => void
   updateAnswer: (studentId: string, questionId: string, value: number | null) => void
   updateAnswerText: (studentId: string, questionId: string, text: string) => void
 }) {
   const [open, setOpen] = useState(true)
+  const [vocabOpen, setVocabOpen] = useState(false)
   const [vocabResults, setVocabResults] = useState<VocabResult[] | null>(null)
   const hasSubjective = questions.some((q) => q.question_style === 'subjective')
 
@@ -429,6 +433,43 @@ const StudentCard = memo(function StudentCard({
             <VocabResultsPanel results={vocabResults} onClose={() => setVocabResults(null)} />
           )}
 
+          {/* 단어 답안 */}
+          {vocabAnswers.length > 0 && (
+            <div className="border-t">
+              <button
+                type="button"
+                onClick={() => setVocabOpen((v) => !v)}
+                className="flex w-full items-center justify-between px-4 py-2.5 text-xs text-gray-500 hover:bg-gray-50"
+              >
+                <span>
+                  단어 답안&nbsp;
+                  <span className="text-green-600 font-medium">{vocabAnswers.filter((a) => a.is_correct).length}정</span>
+                  &nbsp;/&nbsp;
+                  <span className="text-red-400 font-medium">{vocabAnswers.filter((a) => !a.is_correct).length}오</span>
+                  &nbsp;/ {vocabAnswers.length}개
+                </span>
+                {vocabOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+              {vocabOpen && (
+                <div className="px-4 pb-3 grid grid-cols-2 gap-x-4 gap-y-1">
+                  {vocabAnswers.map((a) => (
+                    <div key={a.number} className="flex items-center gap-1.5 text-xs min-w-0">
+                      <span className="text-gray-300 w-5 shrink-0 text-right">{a.number}.</span>
+                      <span className="text-gray-500 shrink-0 font-mono">{a.english_word}</span>
+                      <span className="text-gray-300 shrink-0">—</span>
+                      <span className={cn('truncate', a.is_correct ? 'text-gray-700' : 'text-red-400')}>
+                        {a.student_answer || '(빈칸)'}
+                      </span>
+                      <span className={cn('shrink-0', a.is_correct ? 'text-green-500' : 'text-red-400')}>
+                        {a.is_correct ? '✓' : '✗'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 문항 입력 영역 */}
           {questions.length > 0 && (
             <div className="divide-y border-t">
@@ -488,6 +529,12 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       is_correct: boolean
       ai_feedback: string | null
     }
+    type SavedVocabAnswer = {
+      vocab_word_id: string
+      student_answer: string | null
+      is_correct: boolean
+      vocab_word: { number: number; english_word: string } | null
+    }
     type ScoreRecord = {
       student_id: string
       id: string
@@ -496,6 +543,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       homework_done: number | null
       memo: string | null
       student_answer: SavedAnswer[]
+      student_vocab_answer: SavedVocabAnswer[]
     }
 
     const scoreMap = new Map<string, ScoreRecord>(
@@ -542,6 +590,20 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       })
     )
   }, [data])
+
+  // 단어 답안 맵 (student_id → 정렬된 vocab answers)
+  const vocabAnswerMap = (() => {
+    const m = new Map<string, VocabAnswerRow[]>()
+    if (!data?.weekScores) return m
+    for (const score of data.weekScores) {
+      const answers: VocabAnswerRow[] = ((score.student_vocab_answer ?? []) as { student_answer: string | null; is_correct: boolean; vocab_word: { number: number; english_word: string } | null }[])
+        .filter((a) => a.vocab_word)
+        .map((a) => ({ number: a.vocab_word!.number, english_word: a.vocab_word!.english_word, student_answer: a.student_answer, is_correct: a.is_correct }))
+        .sort((a, b) => a.number - b.number)
+      m.set(score.student_id, answers)
+    }
+    return m
+  })()
 
   const updateRow = useCallback((studentId: string, key: keyof GradeRow, value: unknown) => {
     setRows((prev) =>
@@ -595,6 +657,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           vocabTotal={vocabTotal}
           homeworkTotal={homeworkTotal}
           readingTotal={readingTotal}
+          vocabAnswers={vocabAnswerMap.get(row.student_id) ?? []}
           updateRow={updateRow}
           updateAnswer={updateAnswer}
           updateAnswerText={updateAnswerText}
