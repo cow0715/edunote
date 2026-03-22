@@ -451,7 +451,7 @@ const StudentCard = memo(function StudentCard({
                 {vocabOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               </button>
               {vocabOpen && (
-                <div className="px-4 pb-3 grid grid-cols-2 gap-x-4 gap-y-1">
+                <div className="px-4 pb-3 flex flex-col gap-1">
                   {vocabAnswers.map((a) => (
                     <div key={a.number} className="flex items-center gap-1.5 text-xs min-w-0">
                       <span className="text-gray-300 w-5 shrink-0 text-right">{a.number}.</span>
