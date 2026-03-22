@@ -212,42 +212,73 @@ export async function gradeVocabPhoto(
     ? { type: 'image' as const, source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: fileData } }
     : { type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: fileData } }
 
-  const prompt = `이 영어 단어 시험지를 채점해주세요.
-시험지에는 번호, 영어 단어(구)가 인쇄되어 있고, 학생이 옆에 한글 뜻을 손으로 작성했습니다.
+  // ── Step 1: OCR — 읽기만, 절대 판단하지 않음 ──────────────────────────
+  const ocrPrompt = `이 단어 시험지에서 각 문항의 내용을 읽어주세요.
 
-채점 기준:
-- 핵심 의미가 통하면 is_correct: true (엄격한 사전적 정확도보다 의미 이해를 우선)
-  예) "profitable" → "유용한" / "이익이 되는" / "유익한" 모두 정답 (이익·유용함의 개념 전달)
-  예) "necessary" → "필수적인" / "반드시 필요한" / "없어서는 안 될" 모두 정답
-- 품사 규칙:
-  · 원칙: 품사가 맞아야 정답 (예: 동사인데 명사로 쓰면 오답)
-  · 예외1: 해당 영어 단어가 실제로 복수 품사로 쓰이면 그 중 하나로 써도 정답
-  · 예외2: 자동사/타동사 구분은 채점하지 않음 — 의미가 통하면 정답
-    예) 자동사 "rise"(오르다)에 "올리다"처럼 써도 의미가 비슷하면 허용
-- 철자가 약간 틀려도 의도한 단어가 명확하면 허용
-- 동의어·의역·유사 표현 모두 허용 (의미가 대체로 통하면 정답)
-- 다음의 경우만 오답(is_correct: false):
-  · 의미가 반대이거나 주어/목적어/방향 관계가 뒤바뀐 경우
-    예) "be deprived of their mothers"(어머니를 빼앗기다)에 "어머니에게 빼앗기다" → 오답
-    예) "give"(주다)에 "받다" → 오답
-  · 완전히 다른 뜻 (연관성 없음)
-  · 빈칸(미작성)
+규칙:
+- 인쇄된 번호와 영어 단어(구) 또는 문장을 정확히 읽으세요
+- 학생이 손으로 쓴 한글 답은 보이는 그대로만 읽으세요 (판독 불가면 null, 미기재면 "")
+- 두 단어 중 선택하는 문항: 학생이 동그라미 친 단어를 읽으세요 (확인 불가면 null)
+- 절대 내용을 추측하거나 수정하지 마세요. 채점하지 마세요.
 
-JSON 배열만 출력 (다른 텍스트 없이):
-[{"number":1,"english_word":"necessary","student_answer":"필수적인","is_correct":true},{"number":2,"english_word":"abandon","student_answer":"","is_correct":false}]`
+JSON 배열만 출력:
+[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null},{"number":43,"english_word":"immune / condemned","student_answer":"immune"}]`
 
-  const res = await anthropic.messages.create({
+  const ocrRes = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 8192,
-    messages: [{ role: 'user', content: [fileContent, { type: 'text', text: prompt }] }],
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: [fileContent, { type: 'text', text: ocrPrompt }] }],
   })
 
-  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
-  console.log('[gradeVocabPhoto] raw response length:', raw.length)
+  const ocrRaw = ocrRes.content[0].type === 'text' ? ocrRes.content[0].text : ''
+  console.log('[gradeVocabPhoto] OCR raw length:', ocrRaw.length)
 
-  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
+  type OcrItem = { number: number; english_word: string; student_answer: string | null }
+  let ocrItems: OcrItem[]
   try {
-    return JSON.parse(jsonrepair(cleaned))
+    ocrItems = JSON.parse(jsonrepair(ocrRaw.replace(/```json\n?|\n?```/g, '').trim()))
+  } catch (e) {
+    console.error('[gradeVocabPhoto] OCR JSON parse 실패:', e)
+    throw e
+  }
+
+  // ── Step 2: 채점 — 텍스트만, 이미지 없이 ─────────────────────────────
+  const gradingPrompt = `단어 시험 답안을 채점하세요.
+
+━━━ 문제 유형별 처리 ━━━
+
+[유형 A] 영어 단어(구) → 한글 뜻 쓰기
+채점 기준:
+1. 의미가 정확히 일치해야 정답 — 대략적으로 비슷한 건 오답
+2. 피동/능동 구분 엄격 적용 ("-되다" vs "-하다")
+3. 주어/목적어/방향 관계가 뒤바뀌면 오답
+4. 자동사/타동사 구분은 허용 (의미가 같으면 정답)
+5. 철자가 약간 틀려도 의도가 명확하면 정답
+6. 동의어는 의미가 정확히 같을 때만 허용
+7. student_answer가 null이거나 ""이면 무조건 오답
+
+[유형 B] 두 단어 중 선택 (english_word에 "/" 포함, 예: "immune / condemned")
+- 해당 문장/문맥에서 문법·의미상 올바른 단어를 당신이 직접 판단하세요
+- student_answer(학생이 선택한 단어)와 비교해 is_correct 결정
+- student_answer가 null이면 무조건 오답
+
+채점할 답안:
+${JSON.stringify(ocrItems)}
+
+JSON 배열만 출력 (number, english_word, student_answer, is_correct 포함):
+[{"number":1,"english_word":"necessary","student_answer":"필수적인","is_correct":true},{"number":43,"english_word":"immune / condemned","student_answer":"immune","is_correct":true}]`
+
+  const gradingRes = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: gradingPrompt }],
+  })
+
+  const gradingRaw = gradingRes.content[0].type === 'text' ? gradingRes.content[0].text : ''
+  console.log('[gradeVocabPhoto] grading raw length:', gradingRaw.length)
+
+  try {
+    return JSON.parse(jsonrepair(gradingRaw.replace(/```json\n?|\n?```/g, '').trim()))
   } catch (e) {
     console.error('[gradeVocabPhoto] JSON parse 실패:', e)
     throw e

@@ -61,6 +61,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     student_name: string
     present: boolean
     vocab_correct: number | null
+    reading_present: boolean
     reading_correct: number | null
     homework_done: number | null
     memo: string
@@ -118,10 +119,13 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
       continue
     }
 
+    // reading_present=false이면 reading_correct를 null로 강제
+    const readingCorrectForUpsert = row.reading_present === false ? null : row.reading_correct
+
     const { data: score, error: scoreError } = await supabase
       .from('week_score')
       .upsert(
-        { week_id: weekId, student_id: row.student_id, vocab_correct: row.vocab_correct, reading_correct: row.reading_correct, homework_done: row.homework_done, memo: row.memo || null },
+        { week_id: weekId, student_id: row.student_id, vocab_correct: row.vocab_correct, reading_correct: readingCorrectForUpsert, homework_done: row.homework_done, memo: row.memo || null },
         { onConflict: 'week_id,student_id' }
       )
       .select()
@@ -131,6 +135,9 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
       console.error('[POST /api/weeks/[id]/grade] week_score upsert', scoreError)
       return NextResponse.json({ error: scoreError.message }, { status: 500 })
     }
+
+    // reading_present=false이면 answers 처리 스킵 + reading_correct=null 이미 upsert됨
+    if (row.reading_present === false) continue
 
     processedScoreIds.push(score.id)
 
