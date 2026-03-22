@@ -18,10 +18,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   if (!week) return NextResponse.json({ error: '주차 없음' }, { status: 404 })
 
-  const [{ data: classStudents }, { data: weekScores }, { data: questions }] = await Promise.all([
+  const [{ data: classStudents }, { data: weekScores }, { data: questions }, { data: vocabWords }] = await Promise.all([
     supabase.from('class_student').select('student_id, student(*)').eq('class_id', week.class_id).order('created_at'),
-    supabase.from('week_score').select('*, student_answer(*)').eq('week_id', weekId),
+    supabase.from('week_score').select('*, student_answer(*), student_vocab_answer(*, vocab_word(*))').eq('week_id', weekId),
     supabase.from('exam_question').select('*, exam_question_tag(concept_tag(*, concept_category(*)))').eq('week_id', weekId).eq('exam_type', 'reading').order('question_number').order('sub_label', { nullsFirst: true }),
+    supabase.from('vocab_word').select('id, number, english_word').eq('week_id', weekId).order('number'),
   ])
 
   let attendance: { student_id: string; status: string }[] = []
@@ -34,7 +35,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     attendance = att ?? []
   }
 
-  return NextResponse.json({ classStudents, weekScores, questions, attendance })
+  return NextResponse.json({ classStudents, weekScores, questions, attendance, vocabWords })
 }
 
 // 일괄 저장 + 서술형 AI 배치 채점
