@@ -450,23 +450,31 @@ const StudentCard = memo(function StudentCard({
                 </span>
                 {vocabOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               </button>
-              {vocabOpen && (
-                <div className="px-4 pb-3 flex flex-col gap-1">
-                  {vocabAnswers.map((a) => (
-                    <div key={a.number} className="flex items-center gap-1.5 text-xs min-w-0">
-                      <span className="text-gray-300 w-5 shrink-0 text-right">{a.number}.</span>
-                      <span className="text-gray-500 shrink-0 font-mono">{a.english_word}</span>
-                      <span className="text-gray-300 shrink-0">—</span>
-                      <span className={cn('truncate', a.is_correct ? 'text-gray-700' : 'text-red-400')}>
-                        {a.student_answer || '(빈칸)'}
-                      </span>
-                      <span className={cn('shrink-0', a.is_correct ? 'text-green-500' : 'text-red-400')}>
-                        {a.is_correct ? '✓' : '✗'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {vocabOpen && (() => {
+                const half = Math.ceil(vocabAnswers.length / 2)
+                const cols = [vocabAnswers.slice(0, half), vocabAnswers.slice(half)]
+                return (
+                  <div className="px-4 pb-3 flex gap-6">
+                    {cols.map((col, ci) => (
+                      <div key={ci} className="flex-1 space-y-1 min-w-0">
+                        {col.map((a) => (
+                          <div key={a.number} className="flex items-center gap-1.5 text-xs min-w-0">
+                            <span className="text-gray-300 w-5 shrink-0 text-right">{a.number}.</span>
+                            <span className="font-mono text-gray-700 shrink-0">{a.english_word}</span>
+                            <span className="text-gray-300 shrink-0">→</span>
+                            <span className={cn('truncate', a.is_correct ? 'text-gray-700' : 'text-red-400')}>
+                              {a.student_answer || '(빈칸)'}
+                            </span>
+                            <span className={cn('shrink-0', a.is_correct ? 'text-green-500' : 'text-red-400')}>
+                              {a.is_correct ? '✓' : '✗'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
             </div>
           )}
 
