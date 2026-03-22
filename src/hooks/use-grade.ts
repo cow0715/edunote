@@ -6,6 +6,7 @@ export type GradeRow = {
   student_name: string
   present: boolean
   vocab_correct: number | null
+  reading_present: boolean   // false = 시험 미응시 (reading_correct 강제 null)
   reading_correct: number | null
   homework_done: number | null
   memo: string
