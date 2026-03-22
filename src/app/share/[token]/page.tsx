@@ -359,46 +359,6 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
           </Card>
         )}
 
-        {/* ── 출결 요약 ────────────────────────────────────────── */}
-        {attendance.length > 0 && (() => {
-          const presentCount = attendance.filter((a) => a.status === 'present').length
-          const lateCount    = attendance.filter((a) => a.status === 'late').length
-          const absentCount  = attendance.filter((a) => a.status === 'absent').length
-          const total        = attendance.length
-          return (
-            <Card title="출결 현황" subtitle={`총 ${total}회`}>
-              <div className="flex gap-3">
-                <div className="flex-1 rounded-xl bg-green-50 px-3 py-3 text-center">
-                  <p className="text-xl font-bold text-green-600">{presentCount}</p>
-                  <p className="mt-0.5 text-xs text-green-500">출석</p>
-                </div>
-                <div className="flex-1 rounded-xl bg-amber-50 px-3 py-3 text-center">
-                  <p className="text-xl font-bold text-amber-500">{lateCount}</p>
-                  <p className="mt-0.5 text-xs text-amber-400">지각</p>
-                </div>
-                <div className="flex-1 rounded-xl bg-red-50 px-3 py-3 text-center">
-                  <p className="text-xl font-bold text-red-500">{absentCount}</p>
-                  <p className="mt-0.5 text-xs text-red-400">결석</p>
-                </div>
-              </div>
-              {/* 타임라인 */}
-              <div className="mt-4 flex flex-wrap gap-1.5">
-                {[...attendance]
-                  .sort((a, b) => a.date.localeCompare(b.date))
-                  .map((a) => (
-                    <div
-                      key={a.id}
-                      title={`${a.date} · ${ATT_LABEL[a.status]}`}
-                      className={`flex h-8 w-8 items-center justify-center rounded-lg border text-[10px] font-semibold ${ATT_STYLE[a.status]}`}
-                    >
-                      {new Date(a.date).getDate()}
-                    </div>
-                  ))}
-              </div>
-            </Card>
-          )
-        })()}
-
         {/* ── 회차별 성적 ──────────────────────────────────────── */}
         {visibleWeeks.length > 0 && (
           <Card title="회차별 성적" noPad>

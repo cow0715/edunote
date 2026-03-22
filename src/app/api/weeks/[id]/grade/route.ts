@@ -85,13 +85,14 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
 
   const questionMap = new Map(allQuestions?.map((q) => [q.id, q]) ?? [])
 
-  function gradeOX(correctAnswerText: string, studentAnswerText: string): boolean {
+  // oxSelection: 'O' | 'X' | null, correctionText: 수정어만 (X 접두사 없음)
+  function gradeOX(correctAnswerText: string, oxSelection: string | null, correctionText: string): boolean {
     const correct = correctAnswerText.trim()
-    const student = studentAnswerText.trim().toLowerCase()
-    if (/^O$/i.test(correct)) return /^o$/i.test(student)
+    if (/^O$/i.test(correct)) return oxSelection === 'O'
+    if (oxSelection !== 'X') return false
     let correction = correct.match(/\((.+)\)/)?.[1]?.trim().toLowerCase() ?? ''
     if (correction.includes('→')) correction = correction.split('→').pop()?.trim() ?? correction
-    if (/^o$/i.test(student)) return false
+    const student = correctionText.trim().toLowerCase()
     // '/' 구분자로 복수 정답 허용 (예: "in which / where")
     const alternatives = correction.split('/').map((s) => s.trim()).filter(Boolean)
     return alternatives.some((alt) => student === alt)
@@ -136,19 +137,38 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
       const answersToUpsert = row.answers.map((a) => {
         const q = questionMap.get(a.exam_question_id)
         const style = q?.question_style ?? 'objective'
-        const isTextAnswer = style === 'subjective' || style === 'ox' || style === 'multi_select'
+
+        if (style === 'ox') {
+          // UI 포맷("O", "X 수정어") → ox_selection + student_answer_text(수정어만) 분리
+          const raw = (a.student_answer_text ?? '').trim()
+          const upper = raw.toUpperCase()
+          const oxSelection = upper === 'O' ? 'O' : raw !== '' ? 'X' : null
+          const correction = upper.startsWith('X ') ? raw.slice(2).trim() || null
+            : (upper === 'O' || upper === 'X' || raw === '') ? null
+            : raw || null  // 구형 포맷(수정어만 저장된 경우) 그대로
+          const is_correct = q?.correct_answer_text ? gradeOX(q.correct_answer_text, oxSelection, correction ?? '') : false
+          return {
+            week_score_id: score.id,
+            exam_question_id: a.exam_question_id,
+            student_answer: null,
+            student_answer_text: correction,
+            ox_selection: oxSelection,
+            is_correct,
+          }
+        }
+
+        const isTextAnswer = style === 'subjective' || style === 'multi_select'
         const is_correct = style === 'objective'
           ? (a.student_answer !== null && a.student_answer === q?.correct_answer)
-          : style === 'ox'
-            ? (q?.correct_answer_text ? gradeOX(q.correct_answer_text, a.student_answer_text ?? '') : false)
-            : style === 'multi_select'
-              ? (q?.correct_answer_text ? gradeMultiSelect(q.correct_answer_text, a.student_answer_text ?? '') : false)
-              : false // subjective: AI 채점 후 업데이트
+          : style === 'multi_select'
+            ? (q?.correct_answer_text ? gradeMultiSelect(q.correct_answer_text, a.student_answer_text ?? '') : false)
+            : false // subjective: AI 채점 후 업데이트
         return {
           week_score_id: score.id,
           exam_question_id: a.exam_question_id,
           student_answer: isTextAnswer ? null : a.student_answer,
           student_answer_text: isTextAnswer ? (a.student_answer_text ?? null) : null,
+          ox_selection: null,
           is_correct,
         }
       })
