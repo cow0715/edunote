@@ -332,7 +332,7 @@ const QuestionRow = memo(function QuestionRow({
 })
 
 // ── 학생 카드 ──────────────────────────────────────────────
-type VocabAnswerRow = { number: number; english_word: string; student_answer: string | null; is_correct: boolean }
+type VocabAnswerRow = { id: string; number: number; english_word: string; student_answer: string | null; is_correct: boolean }
 
 const StudentCard = memo(function StudentCard({
   weekId, row, questions, vocabTotal, readingTotal, homeworkTotal, vocabAnswers,
@@ -352,7 +352,17 @@ const StudentCard = memo(function StudentCard({
   const [open, setOpen] = useState(true)
   const [vocabOpen, setVocabOpen] = useState(false)
   const [vocabResults, setVocabResults] = useState<VocabResult[] | null>(null)
+  const [editableVocab, setEditableVocab] = useState<VocabAnswerRow[]>(vocabAnswers)
+  useEffect(() => { setEditableVocab(vocabAnswers) }, [vocabAnswers])
   const hasSubjective = questions.some((q) => q.question_style === 'subjective')
+
+  async function saveVocabAnswer(id: string, student_answer: string, is_correct: boolean) {
+    await fetch('/api/vocab-answer', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, student_answer, is_correct }),
+    })
+  }
 
   return (
     <div className={cn('rounded-xl border bg-white transition-opacity', !row.present && 'opacity-50')}>
@@ -434,7 +444,7 @@ const StudentCard = memo(function StudentCard({
           )}
 
           {/* 단어 답안 */}
-          {vocabAnswers.length > 0 && (
+          {editableVocab.length > 0 && (
             <div className="border-t">
               <button
                 type="button"
@@ -443,31 +453,45 @@ const StudentCard = memo(function StudentCard({
               >
                 <span>
                   단어 답안&nbsp;
-                  <span className="text-green-600 font-medium">{vocabAnswers.filter((a) => a.is_correct).length}정</span>
+                  <span className="text-green-600 font-medium">{editableVocab.filter((a) => a.is_correct).length}정</span>
                   &nbsp;/&nbsp;
-                  <span className="text-red-400 font-medium">{vocabAnswers.filter((a) => !a.is_correct).length}오</span>
-                  &nbsp;/ {vocabAnswers.length}개
+                  <span className="text-red-400 font-medium">{editableVocab.filter((a) => !a.is_correct).length}오</span>
+                  &nbsp;/ {editableVocab.length}개
                 </span>
                 {vocabOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               </button>
               {vocabOpen && (() => {
-                const half = Math.ceil(vocabAnswers.length / 2)
-                const cols = [vocabAnswers.slice(0, half), vocabAnswers.slice(half)]
+                const half = Math.ceil(editableVocab.length / 2)
+                const cols = [editableVocab.slice(0, half), editableVocab.slice(half)]
                 return (
-                  <div className="px-4 pb-3 flex gap-6">
+                  <div className="px-4 pb-3 flex gap-4">
                     {cols.map((col, ci) => (
                       <div key={ci} className="flex-1 space-y-1 min-w-0">
                         {col.map((a) => (
-                          <div key={a.number} className="flex items-center gap-1.5 text-xs min-w-0">
+                          <div key={a.number} className="flex items-center gap-1 text-xs min-w-0">
                             <span className="text-gray-300 w-5 shrink-0 text-right">{a.number}.</span>
-                            <span className="font-mono text-gray-700 shrink-0">{a.english_word}</span>
+                            <span className="font-mono text-gray-600 shrink-0 w-20 truncate">{a.english_word}</span>
                             <span className="text-gray-300 shrink-0">→</span>
-                            <span className={cn('truncate', a.is_correct ? 'text-gray-700' : 'text-red-400')}>
-                              {a.student_answer || '(빈칸)'}
-                            </span>
-                            <span className={cn('shrink-0', a.is_correct ? 'text-green-500' : 'text-red-400')}>
+                            <input
+                              className="flex-1 min-w-0 border-b border-gray-200 bg-transparent text-xs outline-none focus:border-indigo-400 px-0.5"
+                              value={a.student_answer ?? ''}
+                              onChange={(e) => {
+                                const val = e.target.value
+                                setEditableVocab((prev) => prev.map((x) => x.id === a.id ? { ...x, student_answer: val } : x))
+                              }}
+                              onBlur={(e) => saveVocabAnswer(a.id, e.target.value, a.is_correct)}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = !a.is_correct
+                                setEditableVocab((prev) => prev.map((x) => x.id === a.id ? { ...x, is_correct: next } : x))
+                                saveVocabAnswer(a.id, a.student_answer ?? '', next)
+                              }}
+                              className={cn('shrink-0 w-5 text-center font-bold', a.is_correct ? 'text-green-500' : 'text-red-400')}
+                            >
                               {a.is_correct ? '✓' : '✗'}
-                            </span>
+                            </button>
                           </div>
                         ))}
                       </div>
@@ -604,9 +628,9 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     const m = new Map<string, VocabAnswerRow[]>()
     if (!data?.weekScores) return m
     for (const score of data.weekScores) {
-      const answers: VocabAnswerRow[] = ((score.student_vocab_answer ?? []) as { student_answer: string | null; is_correct: boolean; vocab_word: { number: number; english_word: string } | null }[])
+      const answers: VocabAnswerRow[] = ((score.student_vocab_answer ?? []) as { id: string; student_answer: string | null; is_correct: boolean; vocab_word: { number: number; english_word: string } | null }[])
         .filter((a) => a.vocab_word)
-        .map((a) => ({ number: a.vocab_word!.number, english_word: a.vocab_word!.english_word, student_answer: a.student_answer, is_correct: a.is_correct }))
+        .map((a) => ({ id: a.id, number: a.vocab_word!.number, english_word: a.vocab_word!.english_word, student_answer: a.student_answer, is_correct: a.is_correct }))
         .sort((a, b) => a.number - b.number)
       m.set(score.student_id, answers)
     }
