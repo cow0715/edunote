@@ -16,6 +16,8 @@ function formatDate(dateStr: string) {
 }
 
 function BackupPanel() {
+  const [restoringFile, setRestoringFile] = useState<string | null>(null)
+
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['backup-files'],
     queryFn: async () => {
@@ -44,6 +46,32 @@ function BackupPanel() {
     window.open(url, '_blank')
   }
 
+  async function restore(fileName: string) {
+    if (!confirm(`"${fileName}" 파일로 복원하시겠습니까?\n현재 데이터에 덮어씁니다.`)) return
+    setRestoringFile(fileName)
+    try {
+      const res = await fetch('/api/backup/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: fileName }),
+      })
+      const data = await res.json()
+      if (res.ok && data.ok) {
+        toast.success('복원 완료')
+      } else {
+        const failed = Object.entries(data.results ?? {})
+          .filter(([, v]) => (v as { error?: string }).error)
+          .map(([k]) => k)
+          .join(', ')
+        toast.error(`일부 테이블 복원 실패: ${failed}`)
+      }
+    } catch {
+      toast.error('복원 중 오류가 발생했습니다')
+    } finally {
+      setRestoringFile(null)
+    }
+  }
+
   return (
     <div className="mt-10 rounded-xl border bg-white p-5">
       <div className="flex items-center justify-between mb-4">
@@ -65,13 +93,23 @@ function BackupPanel() {
           {(data?.files ?? []).slice(0, 10).map((f) => (
             <div key={f.name} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
               <span className="text-xs text-gray-700">{f.name}</span>
-              <button
-                onClick={() => download(f.name)}
-                className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
-              >
-                <Download className="h-3.5 w-3.5" />
-                다운로드
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => restore(f.name)}
+                  disabled={!!restoringFile}
+                  className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 disabled:opacity-40"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${restoringFile === f.name ? 'animate-spin' : ''}`} />
+                  {restoringFile === f.name ? '복원 중...' : '복원'}
+                </button>
+                <button
+                  onClick={() => download(f.name)}
+                  className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  다운로드
+                </button>
+              </div>
             </div>
           ))}
         </div>
