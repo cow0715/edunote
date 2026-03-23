@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils'
 function AttendanceBadge({ status }: { status?: string }) {
   if (!status) return <span className="inline-flex h-6 w-9 items-center justify-center rounded text-[10px] font-medium bg-gray-100 text-gray-400">-</span>
   const map: Record<string, { label: string; cls: string }> = {
-    present: { label: '현장', cls: 'bg-indigo-50 text-indigo-600' },
+    present: { label: '출석', cls: 'bg-indigo-50 text-indigo-600' },
     late:    { label: '지각', cls: 'bg-yellow-50 text-yellow-600' },
     absent:  { label: '결석', cls: 'bg-red-50 text-red-500' },
   }
@@ -148,8 +148,6 @@ function StudentSheet({
   open: boolean
   onClose: () => void
 }) {
-  const [linkCopied, setLinkCopied] = useState(false)
-
   if (!student) return null
 
   const studentScores = scores.filter((s) => s.student_id === student.id)
@@ -164,14 +162,6 @@ function StudentSheet({
       })
       .filter(Boolean) as [string, string][]
   )
-
-  function copyShareLink() {
-    const url = `${window.location.origin}/share/${student!.share_token}`
-    navigator.clipboard.writeText(url)
-    setLinkCopied(true)
-    toast.success('공유 링크 복사됨')
-    setTimeout(() => setLinkCopied(false), 2000)
-  }
 
   const scoreData = weeks.map((w) => {
     const sc = weekScoreMap.get(w.id)
@@ -190,13 +180,15 @@ function StudentSheet({
                 {[student.grade, student.school].filter(Boolean).join(' · ')}
               </p>
             </div>
-            <button
-              onClick={copyShareLink}
+            <a
+              href={`/share/${student.share_token}`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-indigo-600 transition-colors border rounded-md px-2.5 py-1.5"
             >
-              {linkCopied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Link2 className="h-3.5 w-3.5" />}
+              <Link2 className="h-3.5 w-3.5" />
               공유 링크
-            </button>
+            </a>
           </div>
 
           <div className="mt-3 flex flex-col gap-1.5">
@@ -205,8 +197,12 @@ function StudentSheet({
               <CopyPhone phone={student.phone} />
             </div>
             <div className="flex items-center gap-2 text-sm text-gray-600">
-              <span className="w-16 shrink-0 text-gray-400 text-xs">학부모</span>
-              <CopyPhone phone={student.father_phone ?? student.mother_phone} />
+              <span className="w-16 shrink-0 text-gray-400 text-xs">부</span>
+              <CopyPhone phone={student.father_phone} />
+            </div>
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <span className="w-16 shrink-0 text-gray-400 text-xs">모</span>
+              <CopyPhone phone={student.mother_phone} />
             </div>
           </div>
         </SheetHeader>
@@ -411,7 +407,8 @@ export default function AnalysisPage() {
                 <th className="px-4 py-3 text-left w-10">#</th>
                 <th className="px-4 py-3 text-left min-w-[100px]">이름</th>
                 <th className="px-4 py-3 text-left w-24">성적 추이</th>
-                <th className="px-4 py-3 text-left min-w-[130px]">학부모 전화</th>
+                <th className="px-4 py-3 text-left min-w-[130px]">부 전화</th>
+                <th className="px-4 py-3 text-left min-w-[130px]">모 전화</th>
                 <th className="px-4 py-3 text-left min-w-[130px]">학생 전화</th>
                 {weeks.map((w) => (
                   <th key={w.id} className="px-2 py-3 text-center w-14">
@@ -455,7 +452,10 @@ export default function AnalysisPage() {
                       <Sparkline data={sparkData} />
                     </td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <CopyPhone phone={student.father_phone ?? student.mother_phone} />
+                      <CopyPhone phone={student.father_phone} />
+                    </td>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <CopyPhone phone={student.mother_phone} />
                     </td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <CopyPhone phone={student.phone} />
