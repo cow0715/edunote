@@ -50,30 +50,80 @@ export const GRADING_RULES = `━━━ 관대하게 처리 — 오답 처리하
 
 export const PARSE_ANSWER_SHEET_RULES = `추출 규칙:
 
-━━━ question_style 판단 순서 (반드시 이 순서대로) ━━━
+━━━ 해설지 포맷 인식 ━━━
 
-1. "multi_select" 먼저 확인:
-   - 문제에 "모두 고르시오", "옳은 것을 모두", "해당하는 것을 모두", "있는 것을 모두" 등 포함
-   - 정답이 복수의 번호 (①③, 1,3, 2,4,5 등)
-   - ※ multi_select는 서술형이 아님. 정답이 숫자 번호 여러 개면 무조건 multi_select.
+  [문항번호]
+  [정답] : [정답내용]
+  [해설]
+  [해설 내용 ...]
 
-2. "ox": 정답이 "O" 또는 "X (수정어)" 형식인 문법 교정형
+- 문항 번호: 줄 시작의 단독 숫자 (1, 2, 3 …)
+- [정답] : 이후가 correct_answer 또는 correct_answer_text
+- [해설] 이후 전체가 explanation (다음 문항 번호 직전까지)
 
-3. "subjective": 정답이 영어 단어/구/문장인 서술형/영작
+━━━ STEP 1 — question_style 결정 (답안 형식 기준) ━━━
 
-4. "objective": 나머지 일반 객관식 (정답 1개, 1~5번)
+question_style은 문항 유형 이름이 아니라 답안 형식만 보고 결정한다.
+아래 순서대로 판단한다.
 
-━━━ correct_answer / correct_answer_text ━━━
-- objective: correct_answer=정답번호(1~5), correct_answer_text=null
-- ox: correct_answer=0, correct_answer_text="O" 또는 "X (수정어)" (예: "X (has)")
-- multi_select: correct_answer=0, correct_answer_text=정답 선택지를 쉼표 구분으로 나열 (예: "1,3" 또는 "a,b,f"), 동그라미 숫자는 아라비아 숫자로 변환 (①→1)
-- subjective: correct_answer=0, correct_answer_text=모범답안 텍스트
+1. multi_select
+   조건: 정답이 번호·기호 여러 개 (①③, 1,3,5, a,c,f 등)
+   확인: 발문에 "모두 고르시오" / "옳은 것을 모두" / "있는 것을 모두" 포함
 
-━━━ 소문항(sub_label) ━━━
-- 소문항이란: 하나의 문항 번호 안에 각각 별도의 채점 포인트가 있는 경우 (예: 5번 (A) 빈칸, 5번 (B) 빈칸)
-- sub_label: 소문자 알파벳으로 정규화 (A→"a", ①→"a", ②→"b")
-- 소문항 없으면 sub_label: null
-- ※ 주의: multi_select 정답의 선택지 기호(예: 정답이 "b, c, f"인 경우)는 소문항이 아님. 이 경우 sub_label=null, correct_answer_text="b,c,f"로 처리
+2. ox
+   조건: 정답이 정확히 "O" 또는 "X (수정어)" 이진 형식인 단일 어법 판단
+   ※ 어법교정이라도 여러 기호(ⓐ~ⓔ)가 등장하면 ox 절대 사용 금지
+
+3. subjective
+   조건: 정답이 영어 단어·구·문장 텍스트
+   (단답형, 빈칸완성, 영작, 어법교정, 내용유추, 요약완성 등 모두 포함)
+
+4. objective
+   조건: 나머지 — 정답이 ①~⑤ 중 1개
+
+━━━ STEP 2 — 소문항(sub_label) 분리 여부 ━━━
+
+하나의 문항 번호 안에 독립적으로 채점되는 답이 여러 개면 소문항으로 분리한다.
+
+[분리 O]
+① (A)(B)(C)(D) 등 복수 빈칸
+   한 줄 나열이어도 반드시 분리
+   예) "[정답] : (A) enough (B) greenhouse (C) crowdfunding campaign (D) reward"
+   → sub_label a: "enough" / b: "greenhouse" / c: "crowdfunding campaign" / d: "reward"
+
+② "모두 순서대로 쓰시오" 형 어법교정
+   발문: "어색한 것은 고치고, 옳은 것은 그대로 기호에 맞게 순서대로 쓰시오"
+   ⓐ부터 끝까지 전부 답해야 하므로 기호별로 sub_label 분리
+   - 수정 항목: correct_answer_text = "→" 이후 수정어만 저장
+     ✅ 올바른 예: correct_answer_text = "thrilled"
+     ❌ 잘못된 예: correct_answer_text = "thrilling → thrilled"  (원래 표현 포함 금지)
+     ❌ 잘못된 예: correct_answer_text = "X (thrilling → thrilled)"  (X 접두사 금지)
+     이유: 학생은 답안지에 수정어만 쓰기 때문
+   - 옳은 항목: correct_answer_text = 원래 단어 그대로 (예: "figuring") ← "O" 저장 절대 금지
+
+③ "틀린 것을 찾아 고치시오" 형 어법교정
+   발문: "어법에 맞지 않는 표현이 있는 문장의 기호를 모두 찾아 고치시오"
+   틀린 항목만 sub_label로 분리한다 (옳은 항목은 row 생성 X)
+   - correct_answer_text = 수정어만 (기호·원래 표현 포함 금지)
+     ✅ 올바른 예: correct_answer_text = "asked"
+     ❌ 잘못된 예: correct_answer_text = "ⓒ ask → asked"  (기호·화살표 포함 금지)
+   - question_style = "subjective"
+   예) 정답: "ⓒ ask → asked / ⓔ committed to supporting" (ⓓ는 옳음)
+   → sub_label "c": correct_answer_text="asked" / sub_label "e": correct_answer_text="committed to supporting"
+   → ⓓ는 row 생성 안 함
+
+[분리 X]
+④ multi_select 정답의 선택지 기호 (정답이 "b,c,f"인 경우)
+   선택지가 소문항처럼 보여도 sub_label = null, correct_answer_text = "b,c,f"
+
+- sub_label 정규화: A→"a", B→"b", ①→"a", ②→"b" (소문자 알파벳 순)
+
+━━━ STEP 3 — correct_answer / correct_answer_text ━━━
+
+- objective   : correct_answer = 정답 번호 1~5 (①→1, ②→2 … ⑤→5), correct_answer_text = null
+- ox          : correct_answer = 0, correct_answer_text = "O" 또는 "X (수정어)" (예: "X (has)")
+- multi_select: correct_answer = 0, correct_answer_text = 쉼표 구분 (예: "1,3" / "a,c,f"), ①→1 변환
+- subjective  : correct_answer = 0, correct_answer_text = 학생이 실제로 써야 할 텍스트
 
 ━━━ 기타 ━━━
 - explanation: 오답 포인트/해설 (없으면 null)
