@@ -102,6 +102,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
   }
 
   if (answersError) console.error('[share] student_answer 쿼리 에러:', answersError)
+  console.log('[share] rawAnswers.length:', rawAnswers?.length, '| first exam_question:', JSON.stringify((rawAnswers?.[0] as any)?.exam_question)?.slice(0, 200))
+  console.log('[share] examQuestionIds.length:', examQuestionIds.length, '| tagsByQuestionId.size:', tagsByQuestionId.size)
 
   const studentAnswers = (rawAnswers ?? []).map((a: any) => {
     const eq = Array.isArray(a.exam_question) ? a.exam_question[0] : a.exam_question
