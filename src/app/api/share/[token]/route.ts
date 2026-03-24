@@ -15,15 +15,18 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
 
   if (!student) return NextResponse.json({ error: '학생을 찾을 수 없습니다' }, { status: 404 })
 
-  // 해당 학생이 수강 중인 수업 목록
+  // 해당 학생이 수강 중인 수업 목록 (class는 SQL 예약어라 embedding 대신 2단계 조회)
   const { data: classStudents } = await supabase
     .from('class_student')
-    .select('class(*)')
+    .select('class_id')
     .eq('student_id', student.id)
 
-  const classes = (classStudents ?? [])
-    .map((cs: { class: unknown }) => cs.class)
-    .filter((c): c is { id: string; name: string; start_date: string; end_date: string } => c !== null && c !== undefined)
+  const rawClassIds = (classStudents ?? []).map((cs: { class_id: string }) => cs.class_id).filter(Boolean)
+  const { data: classRows } = rawClassIds.length > 0
+    ? await supabase.from('class').select('*').in('id', rawClassIds)
+    : { data: [] }
+
+  const classes = (classRows ?? []) as { id: string; name: string; start_date: string; end_date: string }[]
   const classIds = classes.map((c) => c.id)
 
   if (classIds.length === 0) {
