@@ -84,5 +84,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // ── 5. week.vocab_total 자동 업데이트 ────────────────────────────────
   await supabase.from('week').update({ vocab_total: results.length }).eq('id', weekId)
 
+  // ── 6. 사진 Storage 업로드 (채점과 독립적으로 처리) ───────────────────
+  try {
+    const ext = mimeType.includes('png') ? 'png' : 'jpg'
+    const storagePath = `${weekId}/${studentId}.${ext}`
+    const buffer = Buffer.from(fileData, 'base64')
+    const { error: uploadError } = await supabase.storage
+      .from('vocab-photos')
+      .upload(storagePath, buffer, { contentType: mimeType, upsert: true })
+    if (!uploadError) {
+      await supabase.from('week_score').update({ vocab_photo_path: storagePath }).eq('id', score.id)
+    } else {
+      console.error('[grade-vocab-photo] 사진 업로드 실패', uploadError)
+    }
+  } catch (e) {
+    console.error('[grade-vocab-photo] 사진 업로드 예외', e)
+  }
+
   return NextResponse.json({ ok: true, vocab_correct: vocabCorrect, vocab_total: results.length, results })
 }
