@@ -298,19 +298,30 @@ const QuestionRow = memo(function QuestionRow({
 // ── 단어 Sheet 내용 ────────────────────────────────────
 type VocabAnswerRow = { id: string; number: number; english_word: string; student_answer: string | null; is_correct: boolean }
 
-function VocabSheetContent({ row, weekId, weekScoreId, vocabTotal, vocabAnswers, updateRow }: {
+function VocabSheetContent({ row, weekId, weekScoreId, vocabTotal, vocabAnswers, vocabPhotoPath, updateRow }: {
   row: GradeRow
   weekId: string
   weekScoreId: string
   vocabTotal: number
   vocabAnswers: VocabAnswerRow[]
+  vocabPhotoPath: string | null
   updateRow: (studentId: string, key: keyof GradeRow, value: unknown) => void
 }) {
   const queryClient = useQueryClient()
   const [editableVocab, setEditableVocab] = useState<VocabAnswerRow[]>(vocabAnswers)
   const [regrading, setRegrading] = useState(false)
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(new Set())
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const [photoOpen, setPhotoOpen] = useState(false)
   useEffect(() => { setEditableVocab(vocabAnswers); setDirtyIds(new Set()) }, [vocabAnswers])
+
+  useEffect(() => {
+    if (!vocabPhotoPath) { setPhotoUrl(null); return }
+    fetch(`/api/vocab-photo-url?path=${encodeURIComponent(vocabPhotoPath)}`)
+      .then((r) => r.json())
+      .then((d) => { if (d.url) setPhotoUrl(d.url) })
+      .catch(() => {})
+  }, [vocabPhotoPath])
 
   async function saveVocabAnswer(id: string, student_answer: string, is_correct: boolean) {
     await fetch('/api/vocab-answer', {
@@ -362,7 +373,35 @@ function VocabSheetContent({ row, weekId, weekScoreId, vocabTotal, vocabAnswers,
             queryClient.refetchQueries({ queryKey: ['grade', weekId] })
           }}
         />
+        {photoUrl && (
+          <button
+            type="button"
+            onClick={() => setPhotoOpen(true)}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 transition-colors"
+          >
+            <Camera className="h-3 w-3" />
+            원본 사진
+          </button>
+        )}
       </div>
+
+      {/* 사진 전체보기 오버레이 */}
+      {photoOpen && photoUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          onClick={() => setPhotoOpen(false)}
+        >
+          <div className="relative max-h-[90vh] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
+            <img src={photoUrl} alt="단어 시험지" className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain" />
+            <button
+              onClick={() => setPhotoOpen(false)}
+              className="absolute -top-3 -right-3 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow text-gray-600 hover:bg-gray-100"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 정오표 */}
       {editableVocab.length > 0 ? (
@@ -541,6 +580,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       reading_correct: number | null
       homework_done: number | null
       memo: string | null
+      vocab_photo_path: string | null
       student_answer: SavedAnswer[]
       student_vocab_answer: SavedVocabAnswer[]
     }
@@ -619,6 +659,14 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
   const weekScoreIdMap = (() => {
     const m = new Map<string, string>()
     for (const score of data?.weekScores ?? []) m.set(score.student_id, score.id)
+    return m
+  })()
+
+  const vocabPhotoPathMap = (() => {
+    const m = new Map<string, string>()
+    for (const score of data?.weekScores ?? []) {
+      if (score.vocab_photo_path) m.set(score.student_id, score.vocab_photo_path)
+    }
     return m
   })()
 
@@ -897,6 +945,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                   weekScoreId={weekScoreIdMap.get(sheetRow.student_id) ?? ''}
                   vocabTotal={vocabTotal}
                   vocabAnswers={vocabAnswerMap.get(sheetRow.student_id) ?? []}
+                  vocabPhotoPath={vocabPhotoPathMap.get(sheetRow.student_id) ?? null}
                   updateRow={updateRow}
                 />
               )}
