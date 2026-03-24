@@ -6,8 +6,152 @@ import { useQuery } from '@tanstack/react-query'
 import {
   GraduationCap, BookOpen, BookText, ClipboardCheck, UserCheck,
   ChevronDown, ChevronUp, ChevronRight, X, TrendingUp, TrendingDown, Minus,
-  Moon, Sun, Home, BarChart2, PieChart, MessageSquare,
+  Moon, Sun, Home, BarChart2, PieChart, MessageSquare, BookX, AlertTriangle,
 } from 'lucide-react'
+import { classifyPatterns, PatternItem, PatternType } from '@/hooks/weakness/useAnalysis'
+
+// ── 패턴 메타 ────────────────────────────────────────────────────────────────
+const PATTERN_META: Record<PatternType, {
+  label: string
+  color: string          // tailwind text color
+  bgColor: string        // tailwind bg (light)
+  darkBgColor: string    // tailwind bg (dark)
+  borderColor: string
+  darkBorderColor: string
+  insightFn: (p: PatternItem) => string
+}> = {
+  persistent: {
+    label: '고착형',
+    color: 'text-red-600 dark:text-red-400',
+    bgColor: 'bg-red-50',
+    darkBgColor: 'dark:bg-red-950/20',
+    borderColor: 'border-red-100',
+    darkBorderColor: 'dark:border-red-900/40',
+    insightFn: (p) =>
+      `출제 ${p.weekCount}회 중 ${p.wrongWeekCount}회 오답 — 꾸준히 취약한 유형입니다`,
+  },
+  deteriorating: {
+    label: '악화형',
+    color: 'text-orange-600 dark:text-orange-400',
+    bgColor: 'bg-orange-50',
+    darkBgColor: 'dark:bg-orange-950/20',
+    borderColor: 'border-orange-100',
+    darkBorderColor: 'dark:border-orange-900/40',
+    insightFn: (p) =>
+      `정답률 ${p.firstAccuracy}% → ${p.latestAccuracy}% (${Math.abs(p.diff)}%p 하락)`,
+  },
+  intermittent: {
+    label: '간헐형',
+    color: 'text-amber-600 dark:text-amber-400',
+    bgColor: 'bg-amber-50',
+    darkBgColor: 'dark:bg-amber-950/20',
+    borderColor: 'border-amber-100',
+    darkBorderColor: 'dark:border-amber-900/40',
+    insightFn: (p) =>
+      `출제 ${p.weekCount}회 중 ${p.wrongWeekCount}회 오답 — 들쑥날쑥, 완전 습득 필요`,
+  },
+  improving: {
+    label: '개선형',
+    color: 'text-blue-600 dark:text-blue-400',
+    bgColor: 'bg-blue-50',
+    darkBgColor: 'dark:bg-blue-950/20',
+    borderColor: 'border-blue-100',
+    darkBorderColor: 'dark:border-blue-900/40',
+    insightFn: (p) =>
+      `정답률 ${p.firstAccuracy}% → ${p.latestAccuracy}% (개선 중이나 아직 ${p.latestAccuracy}%)`,
+  },
+}
+
+// ── 스파크라인 ────────────────────────────────────────────────────────────────
+function Sparkline({ weeks, patternType }: {
+  weeks: PatternItem['weeks']
+  patternType: PatternType
+}) {
+  const W = 64, H = 28, PAD = 3
+  const lineColor: Record<PatternType, string> = {
+    persistent:   '#ef4444',
+    deteriorating:'#f97316',
+    intermittent: '#f59e0b',
+    improving:    '#3b82f6',
+  }
+  const color = lineColor[patternType]
+
+  if (weeks.length < 2) return null
+
+  const xs = weeks.map((_, i) => PAD + (i / (weeks.length - 1)) * (W - PAD * 2))
+  const ys = weeks.map((w) => H - PAD - (w.accuracy / 100) * (H - PAD * 2))
+
+  const d = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ')
+
+  return (
+    <svg width={W} height={H} className="shrink-0">
+      {/* 기준선 50% */}
+      <line
+        x1={PAD} y1={(H / 2).toFixed(1)} x2={W - PAD} y2={(H / 2).toFixed(1)}
+        stroke="currentColor" strokeWidth="0.5" strokeDasharray="2 2"
+        className="text-gray-300 dark:text-gray-600"
+      />
+      <path d={d} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      {/* 마지막 점 */}
+      <circle cx={xs[xs.length - 1].toFixed(1)} cy={ys[ys.length - 1].toFixed(1)} r="2.5" fill={color} />
+    </svg>
+  )
+}
+
+// ── 패턴 카드 ─────────────────────────────────────────────────────────────────
+function PatternCard({ pattern: p, onTagClick }: {
+  pattern: PatternItem
+  onTagClick: (id: string, name: string) => void
+}) {
+  const meta = PATTERN_META[p.patternType]
+  return (
+    <button
+      type="button"
+      onClick={() => onTagClick(p.id, p.name)}
+      className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors
+        ${meta.bgColor} ${meta.darkBgColor} ${meta.borderColor} ${meta.darkBorderColor}
+        hover:brightness-95 dark:hover:brightness-110`}
+    >
+      {/* 좌: 패턴 뱃지 + 이름 + 인사이트 */}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${meta.color}
+            bg-white/60 dark:bg-black/20`}>
+            {meta.label}
+          </span>
+          <span className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+            {p.name}
+          </span>
+        </div>
+        <p className={`mt-0.5 text-[11px] ${meta.color} opacity-90`}>
+          {meta.insightFn(p)}
+        </p>
+        {/* 주차 칩 */}
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {p.weeks.map((w) => (
+            <span
+              key={w.weekNumber}
+              className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium
+                ${w.accuracy < 50
+                  ? `${meta.color} border-current bg-white/50 dark:bg-black/20`
+                  : 'text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-black/10'
+                }`}
+            >
+              {w.weekNumber}주 {w.accuracy}%
+            </span>
+          ))}
+        </div>
+      </div>
+      {/* 우: 스파크라인 + 전체 정답률 */}
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        <Sparkline weeks={p.weeks} patternType={p.patternType} />
+        <span className={`text-[11px] font-bold ${meta.color}`}>
+          {p.overallAccuracy}% 정답
+        </span>
+      </div>
+    </button>
+  )
+}
 
 function ThemeToggle({ isDark, onToggle }: { isDark: boolean; onToggle: () => void }) {
   return (
@@ -33,6 +177,7 @@ function ThemeToggle({ isDark, onToggle }: { isDark: boolean; onToggle: () => vo
 }
 import { TrendItem } from '@/components/share/score-trend-chart'
 import { HomeworkItem } from '@/components/share/homework-bar-chart'
+import { RadarItem } from '@/components/share/concept-radar-chart'
 
 const ScoreTrendChart = dynamic(
   () => import('@/components/share/score-trend-chart').then((m) => m.ScoreTrendChart),
@@ -44,6 +189,10 @@ const HomeworkBarChart = dynamic(
 )
 const WrongTypePieChart = dynamic(
   () => import('@/components/share/wrong-type-pie-chart').then((m) => m.WrongTypePieChart),
+  { ssr: false }
+)
+const ConceptRadarChart = dynamic(
+  () => import('@/components/share/concept-radar-chart').then((m) => m.ConceptRadarChart),
   { ssr: false }
 )
 
@@ -77,7 +226,7 @@ type ShareData = {
 }
 
 const CIRCLE_NUM = ['①', '②', '③', '④', '⑤']
-type TabId = 'home' | 'score' | 'analysis'
+type TabId = 'home' | 'score' | 'analysis' | 'wrongnote'
 
 function useShareData(token: string) {
   return useQuery<ShareData>({
@@ -232,6 +381,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const { token } = use(params)
   const { data, isLoading, error } = useShareData(token)
   const [expandedWeekId, setExpandedWeekId] = useState<string | null>(null)
+  const [expandedWrongWeekIds, setExpandedWrongWeekIds] = useState<Set<string>>(new Set())
   const [drawerTag, setDrawerTag] = useState<{ id: string; name: string; weekId?: string | null } | null>(null)
   const [isDark, setIsDark] = useState(false)
   const [themeReady, setThemeReady] = useState(false)
@@ -354,6 +504,46 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   })
   const typeData = [...typeWrongMap.values()].filter((d) => d.wrong > 0).sort((a, b) => b.wrong - a.wrong)
 
+  // ── 카테고리별 정답률 (레이더 차트) ──────────────────────────────────────
+  const categoryAccMap = new Map<string, { name: string; correct: number; total: number }>()
+  studentAnswers
+    .filter((a) => a.exam_question?.exam_type === 'reading')
+    .forEach((a) => {
+      for (const t of a.exam_question?.exam_question_tag ?? []) {
+        const tag = t.concept_tag
+        if (!tag?.category_name) continue
+        const key = tag.category_id ?? tag.category_name
+        const entry = categoryAccMap.get(key) ?? { name: tag.category_name, correct: 0, total: 0 }
+        entry.total++
+        if (a.is_correct) entry.correct++
+        categoryAccMap.set(key, entry)
+      }
+    })
+  const radarData: RadarItem[] = [...categoryAccMap.values()]
+    .filter((d) => d.total >= 2)
+    .map((d) => ({ name: d.name, rate: Math.round(d.correct / d.total * 100), correct: d.correct, total: d.total }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  // ── 반복 오답 패턴 (약점 분류) ──────────────────────────────────────────
+  const repeatPatterns = classifyPatterns(studentAnswers, weekNumberByWeekId)
+
+  // ── 오답노트 탭 데이터 ────────────────────────────────────────────────────
+  const wrongNoteGroups = visibleWeeks
+    .map((w) => {
+      const score = scoreByWeek.get(w.id)
+      if (!score) return null
+      const answers = (answersByScore.get(score.id) ?? [])
+        .filter((a) => !a.is_correct && a.exam_question?.exam_type === 'reading')
+        .sort((a, b) => {
+          const qa = a.exam_question!, qb = b.exam_question!
+          if (qa.question_number !== qb.question_number) return qa.question_number - qb.question_number
+          return (qa.sub_label ?? '').localeCompare(qb.sub_label ?? '')
+        })
+      if (answers.length === 0) return null
+      return { week: w, answers, className: classes.find((c) => c.id === w.class_id)?.name ?? '' }
+    })
+    .filter((g): g is NonNullable<typeof g> => g !== null)
+
   // ── 강사 코멘트 피드 ──────────────────────────────────────────────────────
   const commentFeed = visibleWeeks
     .filter((w) => scoreByWeek.get(w.id)?.memo)
@@ -409,9 +599,10 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const ATT_LABEL: Record<string, string> = { present: '출석', late: '지각', absent: '결석' }
 
   const TABS = [
-    { id: 'home'     as TabId, label: '홈',   Icon: Home     },
-    { id: 'score'    as TabId, label: '성적',  Icon: BarChart2 },
-    { id: 'analysis' as TabId, label: '분석',  Icon: PieChart  },
+    { id: 'home'      as TabId, label: '홈',   Icon: Home     },
+    { id: 'score'     as TabId, label: '성적',  Icon: BarChart2 },
+    { id: 'analysis'  as TabId, label: '분석',  Icon: PieChart  },
+    { id: 'wrongnote' as TabId, label: '오답',  Icon: BookX     },
   ]
 
   return (
@@ -675,6 +866,12 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
           {/* ── 분석 탭 ─────────────────────────────────────────────── */}
           {activeTab === 'analysis' && (
             <>
+              {radarData.length >= 3 && (
+                <Card title="영역별 정답률" subtitle="카테고리별 누적 정답률">
+                  <ConceptRadarChart data={radarData} isDark={isDark} />
+                </Card>
+              )}
+
               {homeworkData.length >= 1 && (
                 <Card title="과제 제출률" subtitle="주차별 (%)">
                   <HomeworkBarChart data={homeworkData} isDark={isDark} />
@@ -691,11 +888,133 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 </Card>
               )}
 
+              {repeatPatterns.length > 0 && (
+                <Card title="약점 패턴 분석" subtitle="출제된 주차 기준 · 클릭하면 문제 확인">
+                  <div className="space-y-2">
+                    {repeatPatterns.map((p) => (
+                      <PatternCard key={p.id} pattern={p} onTagClick={(id, name) => setDrawerTag({ id, name, weekId: null })} />
+                    ))}
+                  </div>
+                </Card>
+              )}
+
               {homeworkData.length === 0 && typeData.length === 0 && (
                 <div className="rounded-2xl bg-white dark:bg-[#16161f] p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08]">
                   분석 데이터가 없습니다
-
                 </div>
+              )}
+            </>
+          )}
+
+          {/* ── 오답노트 탭 ──────────────────────────────────────────── */}
+          {activeTab === 'wrongnote' && (
+            <>
+              {wrongNoteGroups.length === 0 ? (
+                <div className="rounded-2xl bg-white dark:bg-[#16161f] p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
+                  오답 데이터가 없습니다
+                </div>
+              ) : (
+                <Card noPad>
+                  <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
+                    {wrongNoteGroups.map(({ week, answers, className }) => {
+                      const isOpen = expandedWrongWeekIds.has(week.id)
+                      const toggle = () => setExpandedWrongWeekIds((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(week.id)) next.delete(week.id)
+                        else next.add(week.id)
+                        return next
+                      })
+                      return (
+                        <div key={week.id}>
+                          {/* 아코디언 헤더 */}
+                          <button
+                            type="button"
+                            onClick={toggle}
+                            className="w-full px-5 py-4 text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.04]"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                                  {className} {week.week_number}주차
+                                </span>
+                                {week.start_date && (
+                                  <span className="text-xs text-gray-400 dark:text-gray-400">
+                                    {new Date(week.start_date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
+                                  </span>
+                                )}
+                                <span className="rounded-full bg-rose-100 dark:bg-rose-950/60 px-2 py-0.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
+                                  {answers.length}문제
+                                </span>
+                              </div>
+                              {isOpen
+                                ? <ChevronUp className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-400" />
+                                : <ChevronDown className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-400" />}
+                            </div>
+                          </button>
+
+                          {/* 문항 카드 목록 */}
+                          {isOpen && (
+                            <div className="border-t border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-[#0d0d14] px-4 py-4 space-y-3">
+                              {answers.map((a) => {
+                                const q = a.exam_question!
+                                const tags = q.exam_question_tag.map((t) => t.concept_tag).filter(Boolean)
+                                return (
+                                  <div key={a.id} className="rounded-xl bg-white dark:bg-[#16161f] ring-1 ring-gray-100 dark:ring-white/[0.08] p-4">
+                                    {/* 문항번호 + 개념태그 */}
+                                    <div className="flex items-start justify-between gap-2 mb-3">
+                                      <span className="text-sm font-bold text-gray-900 dark:text-white shrink-0">
+                                        {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
+                                      </span>
+                                      <div className="flex flex-wrap gap-1 justify-end">
+                                        {tags.map((tag) => (
+                                          <span key={tag!.id} className="rounded-full bg-indigo-50 dark:bg-indigo-900/40 px-2 py-0.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-300">
+                                            {tag!.name}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+
+                                    {/* 문제 텍스트 */}
+                                    {q.question_text && (
+                                      <div className="mb-3 rounded-lg bg-gray-50 dark:bg-[#0d0d14] border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line">
+                                        {q.question_text}
+                                      </div>
+                                    )}
+
+                                    {/* 내 답 → 정답 */}
+                                    <div className="flex items-center gap-2 mb-3">
+                                      <span className="text-sm font-semibold text-rose-500 dark:text-rose-400 line-through">
+                                        {formatMyAnswer(a)}
+                                      </span>
+                                      <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
+                                      <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                                        {formatCorrectAnswer(q)}
+                                      </span>
+                                    </div>
+
+                                    {/* AI 피드백 */}
+                                    {a.ai_feedback && (
+                                      <p className="mb-2.5 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                                        {a.ai_feedback}
+                                      </p>
+                                    )}
+
+                                    {/* 해설 */}
+                                    {q.explanation && (
+                                      <div className="rounded-xl bg-indigo-50 dark:bg-indigo-950/40 px-3 py-2.5 text-xs leading-relaxed text-indigo-700 dark:text-indigo-300">
+                                        {q.explanation}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </Card>
               )}
             </>
           )}
@@ -732,7 +1051,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
         />
 
         <div
-          className={`fixed inset-x-0 bottom-0 z-50 flex max-h-[82vh] flex-col rounded-t-2xl bg-white dark:bg-[#16161f] transition-transform duration-300 ease-out ${drawerTag ? 'translate-y-0' : 'translate-y-full'}`}
+          className={`fixed bottom-0 left-1/2 z-50 flex max-h-[82vh] w-full max-w-lg -translate-x-1/2 flex-col rounded-t-2xl bg-white dark:bg-[#16161f] transition-transform duration-300 ease-out ${drawerTag ? 'translate-y-0' : 'translate-y-full'}`}
         >
           <div className="flex justify-center pt-3 pb-1">
             <div className="h-1 w-10 rounded-full bg-gray-200 dark:bg-white/20" />

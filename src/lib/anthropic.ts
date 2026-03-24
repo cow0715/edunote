@@ -196,7 +196,7 @@ JSON 배열만 출력 (다른 텍스트 없이):
 export type VocabGradingResult = {
   number: number
   english_word: string
-  student_answer: string
+  student_answer: string | null
   is_correct: boolean
 }
 
@@ -291,7 +291,7 @@ ${clovaText}
 - 판독 불가면 null, 미기재면 ""
 
 JSON 배열만 출력:
-[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null},{"number":43,"english_word":"immune / condemned","student_answer":"immune"}]`
+[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null},{"number":43,"english_word":"immune / condemned","student_answer":"immune"},{"number":50,"english_word":"showing great attention to detail or correct behavior","student_answer":"meticulous"}]`
 
     const parseRes = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
@@ -318,7 +318,7 @@ JSON 배열만 출력:
 - 절대 내용을 추측하거나 수정하지 마세요. 채점하지 마세요.
 
 JSON 배열만 출력:
-[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null},{"number":43,"english_word":"immune / condemned","student_answer":"immune"}]`
+[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null},{"number":43,"english_word":"immune / condemned","student_answer":"immune"},{"number":50,"english_word":"showing great attention to detail or correct behavior","student_answer":"meticulous"}]`
 
     const ocrRes = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
@@ -335,28 +335,52 @@ JSON 배열만 출력:
     }
   }
 
-  // ── Step 2: 채점 — 텍스트만, 이미지 없이 ─────────────────────────────
+  // ── Step 2: 채점 ─────────────────────────────────────────────────────
+  return await gradeVocabItems(ocrItems)
+}
+
+type VocabItem = { number: number; english_word: string; student_answer: string | null }
+
+export async function gradeVocabItems(items: VocabItem[]): Promise<{ number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]> {
   const gradingPrompt = `단어 시험 답안을 채점하세요.
+
+━━━ 공통 규칙 (모든 유형 적용) ━━━
+- student_answer가 null이거나 ""이면 무조건 오답
+- 품사 판단:
+  · 해당 영어 단어가 가질 수 있는 품사 중 하나와 일치하면 정답
+    예) "further"는 부사/형용사/동사 → "추가적인(형용사)" ✅ / "더 나아가(부사)" ✅
+  · 영어 단어가 가질 수 없는 품사이면 오답
+    예) "necessary(형용사 전용)" → "필수(명사)" ❌ / "필수적인(형용사)" ✅
+    예) "justify(동사 전용)" → "정당(명사)" ❌ / "정당화하다(동사)" ✅
+- 애매한 경우 판단 기준: "이 학생이 이 단어의 의미를 알고 있는가?"
+  → 알고 있다고 판단되면 학생에게 유리하게 정답 처리
+  → 의미를 반대로 이해하거나 전혀 다른 뜻이면 오답
+  예) "further" → "멀리" ✅ (거리/방향 의미를 이해한 것으로 판단)
+  예) "barely" → "거의" ❌ (간신히 ↔ 거의: 반대 뉘앙스이므로 오답)
+  예) "barely" → "간신히" ✅
 
 ━━━ 문제 유형별 처리 ━━━
 
 [유형 A] 영어 단어(구) → 한글 뜻 쓰기
-채점 기준:
-1. 의미가 정확히 일치해야 정답 — 대략적으로 비슷한 건 오답
-2. 피동/능동 구분 엄격 적용 ("-되다" vs "-하다")
-3. 주어/목적어/방향 관계가 뒤바뀌면 오답
-4. 자동사/타동사 구분은 허용 (의미가 같으면 정답)
-5. 철자가 약간 틀려도 의도가 명확하면 정답
-6. 동의어는 의미가 정확히 같을 때만 허용
-7. student_answer가 null이거나 ""이면 무조건 오답
+판단 기준:
+1. 학생이 이 단어의 의미를 알고 있는지 기준으로 판단 — 애매하면 정답 처리
+2. 품사가 다르면 오답 (공통 규칙 적용)
+3. 피동/능동 구분 엄격 적용 ("-되다" vs "-하다")
+4. 주어/목적어/방향 관계가 뒤바뀌면 오답
+5. 철자가 약간 틀려도 의도가 명확하면 허용
+6. 동의어는 품사와 핵심 의미가 같으면 허용
 
 [유형 B] 두 단어 중 선택 (english_word에 "/" 포함, 예: "immune / condemned")
-- 해당 문장/문맥에서 문법·의미상 올바른 단어를 당신이 직접 판단하세요
+- 해당 문장/문맥에서 문법·의미상 올바른 단어를 당신이 직접 판단
 - student_answer(학생이 선택한 단어)와 비교해 is_correct 결정
-- student_answer가 null이면 무조건 오답
+
+[유형 C] 영어 설명 → 영어 단어 쓰기 (english_word가 영어 설명문인 경우)
+- student_answer가 영어 단어·구
+- 영어 설명이 의미하는 단어와 품사·의미 모두 일치해야 정답
+- 철자 오류는 의도가 명확하면 허용
 
 채점할 답안:
-${JSON.stringify(ocrItems)}
+${JSON.stringify(items)}
 
 JSON 배열만 출력 (number, english_word, student_answer, is_correct 포함):
 [{"number":1,"english_word":"necessary","student_answer":"필수적인","is_correct":true},{"number":43,"english_word":"immune / condemned","student_answer":"immune","is_correct":true}]`
@@ -368,12 +392,11 @@ JSON 배열만 출력 (number, english_word, student_answer, is_correct 포함):
   })
 
   const gradingRaw = gradingRes.content[0].type === 'text' ? gradingRes.content[0].text : ''
-  console.log('[gradeVocabPhoto] grading raw length:', gradingRaw.length)
 
   try {
     return JSON.parse(jsonrepair(gradingRaw.replace(/```json\n?|\n?```/g, '').trim()))
   } catch (e) {
-    console.error('[gradeVocabPhoto] JSON parse 실패:', e)
+    console.error('[gradeVocabItems] JSON parse 실패:', e)
     throw e
   }
 }
