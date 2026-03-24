@@ -1,8 +1,9 @@
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
 export async function GET(_: Request, { params }: { params: Promise<{ token: string }> }) {
-  const supabase = await createClient()
+  console.log('[share] key present:', !!process.env.SUPABASE_SERVICE_ROLE_KEY, 'url:', !!process.env.NEXT_PUBLIC_SUPABASE_URL)
+  const supabase = createServiceClient()
   const { token } = await params
 
   // 토큰으로 학생 조회 (인증 불필요)
@@ -20,7 +21,9 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
     .select('class(*)')
     .eq('student_id', student.id)
 
-  const classes = (classStudents ?? []).map((cs: { class: unknown }) => cs.class) as { id: string; name: string; start_date: string; end_date: string }[]
+  const classes = (classStudents ?? [])
+    .map((cs: { class: unknown }) => cs.class)
+    .filter((c): c is { id: string; name: string; start_date: string; end_date: string } => c !== null && c !== undefined)
   const classIds = classes.map((c) => c.id)
 
   if (classIds.length === 0) {
