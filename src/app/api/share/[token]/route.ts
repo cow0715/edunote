@@ -2,7 +2,6 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
 export async function GET(_: Request, { params }: { params: Promise<{ token: string }> }) {
-  console.log('[share] key present:', !!process.env.SUPABASE_SERVICE_ROLE_KEY, 'url:', !!process.env.NEXT_PUBLIC_SUPABASE_URL)
   const supabase = createServiceClient()
   const { token } = await params
 
@@ -102,9 +101,6 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
   }
 
   if (answersError) console.error('[share] student_answer 쿼리 에러:', answersError)
-  console.log('[share] rawAnswers.length:', rawAnswers?.length, '| first exam_question:', JSON.stringify((rawAnswers?.[0] as any)?.exam_question)?.slice(0, 200))
-  console.log('[share] examQuestionIds.length:', examQuestionIds.length, '| questionTags[0]:', JSON.stringify((questionTags as any)?.[0])?.slice(0, 300))
-  console.log('[share] tagsByQuestionId.size:', tagsByQuestionId.size, '| first entry:', JSON.stringify([...tagsByQuestionId.values()][0])?.slice(0, 200))
 
   const studentAnswers = (rawAnswers ?? []).map((a: any) => {
     const eq = Array.isArray(a.exam_question) ? a.exam_question[0] : a.exam_question
@@ -115,6 +111,15 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
         : null,
     }
   })
+
+  // 단어 오답 데이터
+  const { data: vocabAnswers } = scoreIds.length > 0
+    ? await supabase
+        .from('student_vocab_answer')
+        .select('id, week_score_id, is_correct, student_answer, vocab_word(id, number, english_word, correct_answer, synonyms, antonyms)')
+        .in('week_score_id', scoreIds)
+        .eq('is_correct', false)
+    : { data: [] }
 
   // 출결 데이터
   const { data: attendanceRecords } = classIds.length > 0
@@ -149,6 +154,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
     weeks: weeks ?? [],
     weekScores: weekScores ?? [],
     studentAnswers,
+    vocabAnswers: vocabAnswers ?? [],
     attendance: attendanceRecords ?? [],
     classAverages,
   })

@@ -15,6 +15,7 @@ import { SmsSheet } from '@/components/grade/sms-sheet'
 import { AttendanceManager } from '@/components/attendance/attendance-manager'
 import { AnswerSheetUploader } from '@/components/grade/answer-sheet-uploader'
 import { QuestionTypeEditor } from '@/components/grade/question-type-editor'
+import { VocabWordSetup } from '@/components/grade/vocab-word-setup'
 import { useWeek, useUpdateWeek } from '@/hooks/use-weeks'
 import { useClass } from '@/hooks/use-classes'
 import { useClassStudents } from '@/hooks/use-students'
@@ -153,6 +154,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
             <TabsList className="w-full">
               <TabsTrigger value="basic" className="flex-1">기본 정보</TabsTrigger>
               <TabsTrigger value="answer-sheet" className="flex-1">해설지</TabsTrigger>
+              <TabsTrigger value="vocab-words" className="flex-1">단어 세팅</TabsTrigger>
               <TabsTrigger value="question-types" className="flex-1">문항 유형</TabsTrigger>
               <TabsTrigger value="attendance" className="flex-1">출결</TabsTrigger>
             </TabsList>
@@ -210,6 +212,10 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
 
             <TabsContent value="answer-sheet" className="pt-4">
               <AnswerSheetUploader weekId={weekId} savedFilePath={week?.answer_sheet_path} />
+            </TabsContent>
+
+            <TabsContent value="vocab-words" className="pt-4">
+              <VocabWordSetup weekId={weekId} />
             </TabsContent>
 
             <TabsContent value="question-types" className="pt-4">
