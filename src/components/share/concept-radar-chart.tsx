@@ -1,7 +1,7 @@
 'use client'
 
 import {
-  RadarChart, Radar, PolarGrid, PolarAngleAxis,
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   ResponsiveContainer, Tooltip,
 } from 'recharts'
 
@@ -26,6 +26,7 @@ export function ConceptRadarChart({ data, isDark }: { data: RadarItem[]; isDark?
       <ResponsiveContainer width="100%" height={240}>
         <RadarChart data={data} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
           <PolarGrid stroke={gridColor} />
+          <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
           <PolarAngleAxis
             dataKey="name"
             tick={{ fontSize: 11, fill: tickColor }}
