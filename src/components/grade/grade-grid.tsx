@@ -341,9 +341,6 @@ function VocabSheetContent({ row, weekId, weekScoreId, vocabTotal, vocabAnswers,
     }
   }
 
-  const half = Math.ceil(editableVocab.length / 2)
-  const cols = [editableVocab.slice(0, half), editableVocab.slice(half)]
-
   return (
     <div className="space-y-4 p-4">
       {/* 점수 + 사진 채점 */}
@@ -388,13 +385,11 @@ function VocabSheetContent({ row, weekId, weekScoreId, vocabTotal, vocabAnswers,
               </button>
             )}
           </div>
-          <div className="flex gap-6">
-            {cols.map((col, ci) => (
-              <div key={ci} className="flex-1 space-y-1.5 min-w-0">
-                {col.map((a) => (
-                  <div key={a.number} className={cn('flex items-center gap-1 text-xs min-w-0', dirtyIds.has(a.id) && 'bg-amber-50 rounded px-0.5')}>
+          <div className="columns-1 sm:columns-2 gap-x-4">
+            {editableVocab.map((a) => (
+              <div key={a.number} className={cn('flex items-center gap-1 text-xs min-w-0 py-0.5 break-inside-avoid', dirtyIds.has(a.id) && 'bg-amber-50 rounded px-0.5')}>
                     <span className="text-gray-300 w-5 shrink-0 text-right">{a.number}.</span>
-                    <span className="font-mono text-gray-600 shrink-0 w-20 truncate">{a.english_word}</span>
+                    <span className="font-mono text-gray-600 shrink-0 w-24 truncate">{a.english_word}</span>
                     <span className="text-gray-300 shrink-0">→</span>
                     <input
                       className="flex-1 min-w-0 border-b border-gray-200 bg-transparent text-xs outline-none focus:border-indigo-400 px-0.5"
@@ -417,8 +412,6 @@ function VocabSheetContent({ row, weekId, weekScoreId, vocabTotal, vocabAnswers,
                     >
                       {a.is_correct ? '✓' : '✗'}
                     </button>
-                  </div>
-                ))}
               </div>
             ))}
           </div>
@@ -854,7 +847,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       <Sheet open={sheetView !== null} onOpenChange={(open) => { if (!open) setSheetView(null) }}>
         <SheetContent
           showCloseButton={false}
-          className="w-[500px] sm:max-w-[500px] p-0 gap-0 overflow-y-auto"
+          className="w-full sm:w-[600px] sm:max-w-[600px] p-0 gap-0 overflow-y-auto"
         >
           {sheetRow && sheetView && (
             <>
