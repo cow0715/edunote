@@ -200,6 +200,63 @@ export type VocabGradingResult = {
   is_correct: boolean
 }
 
+// ── CLOVA OCR ────────────────────────────────────────────────────────────
+// CLOVA OCR API 호출 → 줄 단위 텍스트 반환
+// 환경변수 미설정 시 null 반환 → 호출부에서 Claude Vision fallback
+async function callClovaOCR(fileData: string, mimeType: string): Promise<string | null> {
+  const apiUrl = process.env.CLOVA_OCR_API_URL
+  const secret = process.env.CLOVA_OCR_SECRET
+  if (!apiUrl || !secret) return null
+
+  const format = mimeType.includes('png') ? 'png'
+    : mimeType.includes('gif') ? 'gif'
+    : mimeType.includes('webp') ? 'webp'
+    : mimeType === 'application/pdf' ? 'pdf'
+    : 'jpeg'
+
+  const res = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-OCR-SECRET': secret,
+    },
+    body: JSON.stringify({
+      version: 'V2',
+      requestId: crypto.randomUUID(),
+      timestamp: Date.now(),
+      lang: 'ko',
+      images: [{ format, name: 'vocab', data: fileData }],
+    }),
+  })
+
+  if (!res.ok) {
+    const errText = await res.text()
+    throw new Error(`CLOVA OCR API 오류: ${res.status} ${errText}`)
+  }
+
+  const data = await res.json()
+  const fields: { inferText: string; lineBreak: boolean }[] = data.images?.[0]?.fields ?? []
+
+  if (fields.length === 0) {
+    const inferResult = data.images?.[0]?.inferResult
+    throw new Error(`CLOVA OCR 결과 없음 (inferResult: ${inferResult})`)
+  }
+
+  // lineBreak=true인 필드 이후 줄바꿈으로 라인 복원
+  const lines: string[] = []
+  let currentLine: string[] = []
+  for (const field of fields) {
+    currentLine.push(field.inferText)
+    if (field.lineBreak) {
+      lines.push(currentLine.join(' '))
+      currentLine = []
+    }
+  }
+  if (currentLine.length > 0) lines.push(currentLine.join(' '))
+
+  return lines.join('\n')
+}
+
 export async function gradeVocabPhoto(
   fileData: string,
   mimeType: string,
@@ -212,8 +269,47 @@ export async function gradeVocabPhoto(
     ? { type: 'image' as const, source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: fileData } }
     : { type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: fileData } }
 
-  // ── Step 1: OCR — 읽기만, 절대 판단하지 않음 ──────────────────────────
-  const ocrPrompt = `이 단어 시험지에서 각 문항의 내용을 읽어주세요.
+  // ── Step 1: OCR ───────────────────────────────────────────────────────
+  // CLOVA 설정 있으면 CLOVA, 없으면 Claude Vision fallback
+  const clovaText = await callClovaOCR(fileData, mimeType)
+
+  type OcrItem = { number: number; english_word: string; student_answer: string | null }
+  let ocrItems: OcrItem[]
+
+  if (clovaText !== null) {
+    // CLOVA OCR 성공 → Claude Vision으로 구조 파싱 + 동그라미 감지
+    console.log('[gradeVocabPhoto] CLOVA OCR 사용, 텍스트 길이:', clovaText.length)
+    const parsePrompt = `단어 시험지 OCR 결과와 이미지를 함께 참고해 각 문항을 파악하세요.
+
+CLOVA OCR 텍스트:
+${clovaText}
+
+규칙:
+- 번호, 인쇄된 영어 단어(구), 학생이 손으로 쓴 한글 답을 구분하세요
+- OCR 텍스트를 우선 사용하고, 불명확한 부분은 이미지로 보완하세요
+- 두 단어 중 선택 문항: 이미지에서 동그라미 친 단어를 확인하세요 (예: "immune / condemned")
+- 판독 불가면 null, 미기재면 ""
+
+JSON 배열만 출력:
+[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null},{"number":43,"english_word":"immune / condemned","student_answer":"immune"}]`
+
+    const parseRes = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: [fileContent, { type: 'text', text: parsePrompt }] }],
+    })
+    const parseRaw = parseRes.content[0].type === 'text' ? parseRes.content[0].text : ''
+    console.log('[gradeVocabPhoto] 구조 파싱 raw length:', parseRaw.length)
+    try {
+      ocrItems = JSON.parse(jsonrepair(parseRaw.replace(/```json\n?|\n?```/g, '').trim()))
+    } catch (e) {
+      console.error('[gradeVocabPhoto] 구조 파싱 JSON parse 실패:', e)
+      throw e
+    }
+  } else {
+    // CLOVA 미설정 → Claude Vision으로 직접 OCR
+    console.log('[gradeVocabPhoto] Claude Vision OCR fallback')
+    const ocrPrompt = `이 단어 시험지에서 각 문항의 내용을 읽어주세요.
 
 규칙:
 - 인쇄된 번호와 영어 단어(구) 또는 문장을 정확히 읽으세요
@@ -224,22 +320,19 @@ export async function gradeVocabPhoto(
 JSON 배열만 출력:
 [{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null},{"number":43,"english_word":"immune / condemned","student_answer":"immune"}]`
 
-  const ocrRes = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
-    messages: [{ role: 'user', content: [fileContent, { type: 'text', text: ocrPrompt }] }],
-  })
-
-  const ocrRaw = ocrRes.content[0].type === 'text' ? ocrRes.content[0].text : ''
-  console.log('[gradeVocabPhoto] OCR raw length:', ocrRaw.length)
-
-  type OcrItem = { number: number; english_word: string; student_answer: string | null }
-  let ocrItems: OcrItem[]
-  try {
-    ocrItems = JSON.parse(jsonrepair(ocrRaw.replace(/```json\n?|\n?```/g, '').trim()))
-  } catch (e) {
-    console.error('[gradeVocabPhoto] OCR JSON parse 실패:', e)
-    throw e
+    const ocrRes = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: [fileContent, { type: 'text', text: ocrPrompt }] }],
+    })
+    const ocrRaw = ocrRes.content[0].type === 'text' ? ocrRes.content[0].text : ''
+    console.log('[gradeVocabPhoto] OCR raw length:', ocrRaw.length)
+    try {
+      ocrItems = JSON.parse(jsonrepair(ocrRaw.replace(/```json\n?|\n?```/g, '').trim()))
+    } catch (e) {
+      console.error('[gradeVocabPhoto] OCR JSON parse 실패:', e)
+      throw e
+    }
   }
 
   // ── Step 2: 채점 — 텍스트만, 이미지 없이 ─────────────────────────────
