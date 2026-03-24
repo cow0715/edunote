@@ -15,61 +15,64 @@ const SERIES = [
   { key: 'vocabRate',   classKey: 'classVocabRate',   label: '단어', color: '#22c55e', classColor: '#bbf7d0' },
 ] as const
 
-export function ScoreTrendChart({ data }: { data: TrendItem[] }) {
+// 다크모드 라인 색상 — 배경이 어두우므로 400 계열 (밝게)
+const DARK_COLORS = ['#818cf8', '#4ade80'] as const
+
+export function ScoreTrendChart({ data, isDark }: { data: TrendItem[]; isDark?: boolean }) {
+  const grid     = isDark ? 'rgba(255,255,255,0.1)'  : '#f0f0f0'
+  const tick     = isDark ? '#d1d5db'                : '#9ca3af'   // 다크: gray-300 (라이트 반전)
+  const ttBg     = isDark ? '#1c1c2a'                : '#ffffff'
+  const ttBorder = isDark ? '#374151'                : '#e5e7eb'
+  const ttColor  = isDark ? '#f3f4f6'                : '#111827'
+
   return (
     <div>
       <ResponsiveContainer width="100%" height={200}>
         <LineChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-          <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#9ca3af' }} unit="%" axisLine={false} tickLine={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: tick }} axisLine={false} tickLine={false} />
+          <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: tick }} unit="%" axisLine={false} tickLine={false} />
           <Tooltip
             formatter={(value, name) => {
               const s = SERIES.find((s) => s.key === name || s.classKey === name)
               const isClass = SERIES.some((s) => s.classKey === name)
               return [value !== null ? `${value}%` : '-', isClass ? `반평균 ${s?.label}` : s?.label ?? String(name)]
             }}
-            labelStyle={{ fontSize: 12 }}
-            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+            labelStyle={{ fontSize: 12, color: ttColor }}
+            contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${ttBorder}`, backgroundColor: ttBg, color: ttColor }}
           />
-          {SERIES.flatMap((s) => [
-            <Line
-              key={s.classKey}
-              type="monotone"
-              dataKey={s.classKey}
-              stroke={s.classColor}
-              strokeWidth={1.5}
-              strokeDasharray="5 4"
-              dot={false}
-              connectNulls
-            />,
-            <Line
-              key={s.key}
-              type="monotone"
-              dataKey={s.key}
-              stroke={s.color}
-              strokeWidth={2.5}
-              dot={{ r: 4, fill: s.color }}
-              activeDot={{ r: 6 }}
-              connectNulls
-            />,
-          ])}
+          {SERIES.flatMap((s, i) => {
+            const solidColor = isDark ? DARK_COLORS[i] : s.color
+            const dashColor  = isDark ? `${DARK_COLORS[i]}55` : s.classColor
+            return [
+              <Line key={s.classKey} type="monotone" dataKey={s.classKey}
+                stroke={dashColor} strokeWidth={1.5} strokeDasharray="5 4" dot={false} connectNulls />,
+              <Line key={s.key} type="monotone" dataKey={s.key}
+                stroke={solidColor} strokeWidth={2.5} dot={{ r: 4, fill: solidColor }} activeDot={{ r: 6 }} connectNulls />,
+            ]
+          })}
         </LineChart>
       </ResponsiveContainer>
 
       <div className="mt-2 flex flex-wrap justify-center gap-4">
-        {SERIES.map((s) => (
-          <div key={s.key} className="flex items-center gap-3">
-            <div className="flex items-center gap-1">
-              <div className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color }} />
-              <span className="text-xs text-gray-600">{s.label}</span>
+        {SERIES.map((s, i) => {
+          const solidColor = isDark ? DARK_COLORS[i] : s.color
+          const dashColor  = isDark ? `${DARK_COLORS[i]}55` : s.classColor
+          return (
+            <div key={s.key} className="flex items-center gap-3">
+              <div className="flex items-center gap-1">
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: solidColor }} />
+                <span className="text-xs text-gray-600 dark:text-gray-300">{s.label}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <svg width="16" height="8">
+                  <line x1="0" y1="4" x2="16" y2="4" stroke={dashColor} strokeWidth="1.5" strokeDasharray="4 3" />
+                </svg>
+                <span className="text-xs text-gray-400 dark:text-gray-400">반평균</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1">
-              <svg width="16" height="8"><line x1="0" y1="4" x2="16" y2="4" stroke={s.classColor} strokeWidth="1.5" strokeDasharray="4 3" /></svg>
-              <span className="text-xs text-gray-400">반평균</span>
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
