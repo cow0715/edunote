@@ -222,6 +222,17 @@ const QuestionRow = memo(function QuestionRow({
   const hasAnswer = (answer?.student_answer !== null && answer?.student_answer !== undefined) || !!answer?.student_answer_text
   const isWrong = hasAnswer && answer?.is_correct === false
 
+  // 서술형 로컬 state — 타이핑은 로컬에서만, 부모 sync는 onBlur에만
+  const externalText = answer?.student_answer_text ?? ''
+  const [localText, setLocalText] = useState(externalText)
+  const prevExternalRef = useRef(externalText)
+  useEffect(() => {
+    if (prevExternalRef.current !== externalText) {
+      setLocalText(externalText)
+      prevExternalRef.current = externalText
+    }
+  }, [externalText])
+
   return (
     <div className={cn('px-4 py-3', isSubjective ? 'flex flex-col gap-2' : 'flex items-center gap-3')}>
       <div className="flex items-center gap-1.5 shrink-0 w-24">
@@ -267,8 +278,9 @@ const QuestionRow = memo(function QuestionRow({
         )}
         {q.question_style === 'subjective' && (
           <Textarea
-            value={answer?.student_answer_text ?? ''}
-            onChange={(e) => onChangeText(e.target.value)}
+            value={localText}
+            onChange={(e) => setLocalText(e.target.value)}
+            onBlur={() => onChangeText(localText)}
             disabled={disabled}
             placeholder="답안 입력"
             rows={2}
