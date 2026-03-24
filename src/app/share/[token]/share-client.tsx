@@ -527,6 +527,25 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   // ── 반복 오답 패턴 (약점 분류) ──────────────────────────────────────────
   const repeatPatterns = classifyPatterns(studentAnswers, weekNumberByWeekId)
 
+  // ── 성장 하이라이트 ───────────────────────────────────────────────────────
+  const highlights: { emoji: string; label: string; color: string }[] = []
+  const dReading = delta('reading')
+  const dVocab   = delta('vocab')
+  const dHw      = delta('homework')
+  if (dReading !== null && dReading > 0)
+    highlights.push({ emoji: '📈', label: `시험 ${dReading}%↑`, color: 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-100 dark:border-indigo-800/40' })
+  if (dVocab !== null && dVocab > 0)
+    highlights.push({ emoji: '✏️', label: `단어 ${dVocab}%↑`, color: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-100 dark:border-emerald-800/40' })
+  if (dHw !== null && dHw > 0)
+    highlights.push({ emoji: '📝', label: `과제 ${dHw}%↑`, color: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-100 dark:border-amber-800/40' })
+  if (latestW && latestS && weekRate(latestS, latestW, 'homework') === 100)
+    highlights.push({ emoji: '🎯', label: '과제 완벽 제출', color: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-100 dark:border-amber-800/40' })
+  if (attRate !== null && attRate >= 90)
+    highlights.push({ emoji: '🏃', label: `출석 ${attRate}%`, color: 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-100 dark:border-blue-800/40' })
+  const improvingTags = repeatPatterns.filter((p) => p.patternType === 'improving')
+  if (improvingTags.length > 0)
+    highlights.push({ emoji: '🌱', label: `${improvingTags[0].name} 개선 중`, color: 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border-teal-100 dark:border-teal-800/40' })
+
   // ── 오답노트 탭 데이터 ────────────────────────────────────────────────────
   const wrongNoteGroups = visibleWeeks
     .map((w) => {
@@ -654,6 +673,21 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                     value={avg(homeworkRates) !== null ? `${avg(homeworkRates)}%` : null} delta={delta('homework')} />
                   <StatCard label="출석률" icon={<UserCheck className="h-4 w-4" />} color="blue"
                     value={attRate !== null ? `${attRate}%` : null} delta={null} />
+                </div>
+              )}
+
+              {/* 성장 하이라이트 */}
+              {highlights.length > 0 && (
+                <div className="rounded-2xl bg-white dark:bg-[#16161f] shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-5 py-4">
+                  <p className="mb-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">이번 주 잘한 것</p>
+                  <div className="flex flex-wrap gap-2">
+                    {highlights.map((h, i) => (
+                      <span key={i} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${h.color}`}>
+                        <span>{h.emoji}</span>
+                        {h.label}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
 
