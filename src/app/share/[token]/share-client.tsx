@@ -218,10 +218,19 @@ type StudentAnswer = {
   } | null
 }
 type AttendanceRecord = { id: string; class_id: string; date: string; status: 'present' | 'late' | 'absent' }
+type VocabWord = {
+  id: string; number: number; english_word: string
+  correct_answer: string | null; synonyms: string[] | null; antonyms: string[] | null
+}
+type VocabAnswer = {
+  id: string; week_score_id: string; is_correct: boolean
+  student_answer: string | null; vocab_word: VocabWord | null
+}
 type ShareData = {
   student: { id: string; name: string; school: string | null; grade: string | null }
   classes: { id: string; name: string }[]
-  weeks: Week[]; weekScores: WeekScore[]; studentAnswers: StudentAnswer[]; attendance: AttendanceRecord[]
+  weeks: Week[]; weekScores: WeekScore[]; studentAnswers: StudentAnswer[]
+  vocabAnswers: VocabAnswer[]; attendance: AttendanceRecord[]
   classAverages: Record<string, { readingRate: number | null; vocabRate: number | null }>
 }
 
@@ -386,6 +395,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const [isDark, setIsDark] = useState(false)
   const [themeReady, setThemeReady] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('home')
+  const [wrongNoteTab, setWrongNoteTab] = useState<'reading' | 'vocab'>('reading')
 
   useEffect(() => {
     const saved = localStorage.getItem('share-theme')
@@ -420,7 +430,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     </div>
   )
 
-  const { student, classes, weeks, weekScores = [], studentAnswers = [], attendance = [], classAverages = {} } = data
+  const { student, classes, weeks, weekScores = [], studentAnswers = [], vocabAnswers = [], attendance = [], classAverages = {} } = data
 
   const scoreByWeek = new Map(weekScores.map((s) => [s.week_id, s]))
   const answersByScore = new Map<string, StudentAnswer[]>()
@@ -562,6 +572,25 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
       return { week: w, answers, className: classes.find((c) => c.id === w.class_id)?.name ?? '' }
     })
     .filter((g): g is NonNullable<typeof g> => g !== null)
+
+  // ── 단어 오답 그룹 ────────────────────────────────────────────────────────
+  const scoreIdToWeekId = new Map(weekScores.map((s) => [s.id, s.week_id]))
+  const vocabWrongMap = new Map<string, VocabAnswer[]>()
+  vocabAnswers.forEach((va) => {
+    const weekId = scoreIdToWeekId.get(va.week_score_id)
+    if (!weekId) return
+    const list = vocabWrongMap.get(weekId) ?? []
+    list.push(va)
+    vocabWrongMap.set(weekId, list)
+  })
+  const vocabWrongGroups: { week: Week; answers: VocabAnswer[]; className: string }[] = []
+  for (const [weekId, answers] of vocabWrongMap.entries()) {
+    const week = weeks.find((w) => w.id === weekId)
+    if (!week) continue
+    const className = classes.find((c) => c.id === week.class_id)?.name ?? ''
+    vocabWrongGroups.push({ week, answers, className })
+  }
+  vocabWrongGroups.sort((a, b) => b.week.week_number - a.week.week_number)
 
   // ── 강사 코멘트 피드 ──────────────────────────────────────────────────────
   const commentFeed = visibleWeeks
@@ -737,6 +766,12 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 </Card>
               )}
 
+              {homeworkData.length >= 1 && (
+                <Card title="과제 제출률" subtitle="주차별 (%)">
+                  <HomeworkBarChart data={homeworkData} isDark={isDark} />
+                </Card>
+              )}
+
               {attendance.length > 0 && (
                 <Card title="출석 현황" subtitle="수업일 기준">
                   <AttendanceCalendar attendance={attendance} />
@@ -749,138 +784,68 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                     {visibleWeeks.map((w) => {
                       const score = scoreByWeek.get(w.id)
                       const className = classes.find((c) => c.id === w.class_id)?.name ?? ''
-                      const isExpanded = expandedWeekId === w.id
-                      const weekAnswers = isExpanded ? getWeekAnswers(w.id) : { wrong: [] as StudentAnswer[], correct: [] as StudentAnswer[] }
                       const attRecord = w.start_date ? attByDate.get(w.start_date) : undefined
 
-                      const wrongTypesMap = new Map<string, { id: string; name: string; count: number }>()
-                      if (isExpanded) {
-                        weekAnswers.wrong.forEach((a) => {
-                          a.exam_question?.exam_question_tag.forEach((t) => {
-                            const tag = t.concept_tag
-                            if (!tag) return
-                            const entry = wrongTypesMap.get(tag.id) ?? { id: tag.id, name: tag.name, count: 0 }
-                            entry.count++
-                            wrongTypesMap.set(tag.id, entry)
-                          })
-                        })
-                      }
-                      const wrongTypesList = [...wrongTypesMap.values()].sort((a, b) => b.count - a.count)
-
                       return (
-                        <div key={w.id}>
-                          <button
-                            type="button"
-                            className="w-full px-5 py-4 text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.04]"
-                            onClick={() => setExpandedWeekId(isExpanded ? null : w.id)}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex min-w-0 items-center gap-2">
-                                <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                                  {className} {w.week_number}주차
+                        <div key={w.id} className="px-5 py-4">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                                {className} {w.week_number}주차
+                              </span>
+                              {w.start_date && (
+                                <span className="text-xs text-gray-400 dark:text-gray-400">
+                                  {new Date(w.start_date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
                                 </span>
-                                {w.start_date && (
-                                  <span className="text-xs text-gray-400 dark:text-gray-400">
-                                    {new Date(w.start_date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
+                              )}
+                              {attRecord && (
+                                <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${ATT_STYLE[attRecord.status]}`}>
+                                  {ATT_LABEL[attRecord.status]}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {score ? (
+                            <>
+                              <div className="mt-2.5 flex flex-wrap gap-2">
+                                {w.reading_total > 0 && score.reading_correct !== null && (
+                                  <span className="flex items-center gap-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 px-2 py-1 text-xs">
+                                    <BookOpen className="h-3 w-3 text-indigo-400 dark:text-indigo-500" />
+                                    <span className="text-gray-600 dark:text-gray-300">시험</span>
+                                    <strong className={`ml-0.5 ${scoreColor(score.reading_correct ?? 0, w.reading_total)}`}>
+                                      {score.reading_correct ?? 0}/{w.reading_total}
+                                    </strong>
                                   </span>
                                 )}
-                                {attRecord && (
-                                  <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${ATT_STYLE[attRecord.status]}`}>
-                                    {ATT_LABEL[attRecord.status]}
+                                {w.vocab_total > 0 && score.vocab_correct !== null && (
+                                  <span className="flex items-center gap-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 text-xs">
+                                    <BookText className="h-3 w-3 text-emerald-500 dark:text-emerald-600" />
+                                    <span className="text-gray-600 dark:text-gray-300">단어</span>
+                                    <strong className={`ml-0.5 ${scoreColor(score.vocab_correct, w.vocab_total)}`}>
+                                      {score.vocab_correct}/{w.vocab_total}
+                                    </strong>
+                                  </span>
+                                )}
+                                {w.homework_total > 0 && score.homework_done !== null && (
+                                  <span className="flex items-center gap-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 px-2 py-1 text-xs">
+                                    <ClipboardCheck className="h-3 w-3 text-amber-500 dark:text-amber-600" />
+                                    <span className="text-gray-600 dark:text-gray-300">과제</span>
+                                    <strong className={`ml-0.5 ${scoreColor(score.homework_done, w.homework_total)}`}>
+                                      {score.homework_done}/{w.homework_total}
+                                    </strong>
                                   </span>
                                 )}
                               </div>
-                              {isExpanded
-                                ? <ChevronUp className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-400" />
-                                : <ChevronDown className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-400" />}
-                            </div>
-
-                            {score ? (() => {
-                              const hasReadingAnswers =
-                                (answersByScore.get(score.id)?.some((a) => a.exam_question?.exam_type === 'reading') ?? false)
-                                || (score.reading_correct !== null && score.reading_correct > 0)
-                              return (
-                                <>
-                                  <div className="mt-2.5 flex flex-wrap gap-2">
-                                    {w.reading_total > 0 && (hasReadingAnswers || score.reading_correct !== null) && (
-                                      <span className="flex items-center gap-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 px-2 py-1 text-xs">
-                                        <BookOpen className="h-3 w-3 text-indigo-400 dark:text-indigo-500" />
-                                        <span className="text-gray-600 dark:text-gray-300">시험</span>
-                                        <strong className={`ml-0.5 ${scoreColor(score.reading_correct ?? 0, w.reading_total)}`}>
-                                          {score.reading_correct ?? 0}/{w.reading_total}
-                                        </strong>
-                                      </span>
-                                    )}
-                                    {w.vocab_total > 0 && score.vocab_correct !== null && (
-                                      <span className="flex items-center gap-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 text-xs">
-                                        <BookText className="h-3 w-3 text-emerald-500 dark:text-emerald-600" />
-                                        <span className="text-gray-600 dark:text-gray-300">단어</span>
-                                        <strong className={`ml-0.5 ${scoreColor(score.vocab_correct, w.vocab_total)}`}>
-                                          {score.vocab_correct}/{w.vocab_total}
-                                        </strong>
-                                      </span>
-                                    )}
-                                    {w.homework_total > 0 && score.homework_done !== null && (
-                                      <span className="flex items-center gap-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 px-2 py-1 text-xs">
-                                        <ClipboardCheck className="h-3 w-3 text-amber-500 dark:text-amber-600" />
-                                        <span className="text-gray-600 dark:text-gray-300">과제</span>
-                                        <strong className={`ml-0.5 ${scoreColor(score.homework_done, w.homework_total)}`}>
-                                          {score.homework_done}/{w.homework_total}
-                                        </strong>
-                                      </span>
-                                    )}
-                                  </div>
-                                  {score.memo && (
-                                    <p className="mt-2 truncate text-xs text-indigo-500 dark:text-indigo-400">
-                                      💬 {score.memo}
-                                    </p>
-                                  )}
-                                </>
-                              )
-                            })() : (
-                              <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">성적 미입력</p>
-                            )}
-                          </button>
-
-                          {isExpanded && (
-                            <div className="border-t border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-[#0d0d14] px-5 py-4 space-y-3">
-                              {wrongTypesList.length > 0 ? (
-                                <div>
-                                  <p className="mb-2.5 text-xs font-semibold text-gray-600 dark:text-gray-300">
-                                    오답 유형 <span className="font-normal text-gray-400 dark:text-gray-400">({weekAnswers.wrong.length}문항)</span>
-                                  </p>
-                                  <div className="space-y-1.5">
-                                    {wrongTypesList.map(({ id, name, count }) => (
-                                      <button
-                                        key={id}
-                                        onClick={() => setDrawerTag({ id, name, weekId: w.id })}
-                                        className="flex w-full items-center justify-between rounded-xl border border-rose-100 dark:border-rose-900/40 bg-white dark:bg-[#16161f] px-3.5 py-2.5 text-left transition-colors hover:bg-rose-50 dark:hover:bg-rose-950/20"
-                                      >
-                                        <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{name}</span>
-                                        <div className="flex items-center gap-1.5 shrink-0">
-                                          <span className="rounded-full bg-rose-100 dark:bg-rose-950/60 px-2 py-0.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
-                                            {count}문제
-                                          </span>
-                                          <ChevronRight className="h-3.5 w-3.5 text-gray-300 dark:text-white/20" />
-                                        </div>
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              ) : (
-                                <p className="text-xs text-gray-400 dark:text-gray-400">
-                                  {score && (score.reading_correct > 0 || weekAnswers.correct.length > 0)
-                                    ? '모두 정답입니다'
-                                    : '시험 데이터가 없습니다'}
-                                </p>
-                              )}
-                              {score?.memo && (
-                                <div className="rounded-xl border border-indigo-100 dark:border-indigo-800/40 bg-indigo-50 dark:bg-indigo-950/40 px-4 py-3">
+                              {score.memo && (
+                                <div className="mt-3 rounded-xl border border-indigo-100 dark:border-indigo-800/40 bg-indigo-50 dark:bg-indigo-950/40 px-4 py-3">
                                   <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-400 dark:text-indigo-500">강사 코멘트</p>
                                   <p className="text-sm leading-relaxed text-indigo-800 dark:text-indigo-300">{score.memo}</p>
                                 </div>
                               )}
-                            </div>
+                            </>
+                          ) : (
+                            <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">성적 미입력</p>
                           )}
                         </div>
                       )
@@ -906,12 +871,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 </Card>
               )}
 
-              {homeworkData.length >= 1 && (
-                <Card title="과제 제출률" subtitle="주차별 (%)">
-                  <HomeworkBarChart data={homeworkData} isDark={isDark} />
-                </Card>
-              )}
-
               {typeData.length > 0 && (
                 <Card title="오답 유형 분포" subtitle="전체 누적 · 오답 횟수 기준">
                   <WrongTypePieChart
@@ -932,7 +891,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 </Card>
               )}
 
-              {homeworkData.length === 0 && typeData.length === 0 && (
+              {typeData.length === 0 && repeatPatterns.length === 0 && (
                 <div className="rounded-2xl bg-white dark:bg-[#16161f] p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08]">
                   분석 데이터가 없습니다
                 </div>
@@ -943,112 +902,192 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
           {/* ── 오답노트 탭 ──────────────────────────────────────────── */}
           {activeTab === 'wrongnote' && (
             <>
-              {wrongNoteGroups.length === 0 ? (
-                <div className="rounded-2xl bg-white dark:bg-[#16161f] p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
-                  오답 데이터가 없습니다
-                </div>
-              ) : (
-                <Card noPad>
-                  <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
-                    {wrongNoteGroups.map(({ week, answers, className }) => {
-                      const isOpen = expandedWrongWeekIds.has(week.id)
-                      const toggle = () => setExpandedWrongWeekIds((prev) => {
-                        const next = new Set(prev)
-                        if (next.has(week.id)) next.delete(week.id)
-                        else next.add(week.id)
-                        return next
-                      })
-                      return (
-                        <div key={week.id}>
-                          {/* 아코디언 헤더 */}
-                          <button
-                            type="button"
-                            onClick={toggle}
-                            className="w-full px-5 py-4 text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.04]"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                                  {className} {week.week_number}주차
-                                </span>
-                                {week.start_date && (
-                                  <span className="text-xs text-gray-400 dark:text-gray-400">
-                                    {new Date(week.start_date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
-                                  </span>
-                                )}
-                                <span className="rounded-full bg-rose-100 dark:bg-rose-950/60 px-2 py-0.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
-                                  {answers.length}문제
-                                </span>
-                              </div>
-                              {isOpen
-                                ? <ChevronUp className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-400" />
-                                : <ChevronDown className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-400" />}
-                            </div>
-                          </button>
+              {/* 독해 / 단어 토글 */}
+              <div className="flex rounded-xl bg-gray-100 dark:bg-white/[0.06] p-1">
+                {(['reading', 'vocab'] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setWrongNoteTab(t)}
+                    className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors ${
+                      wrongNoteTab === t
+                        ? 'bg-white dark:bg-[#16161f] text-gray-900 dark:text-white shadow-sm'
+                        : 'text-gray-500 dark:text-gray-400'
+                    }`}
+                  >
+                    {t === 'reading' ? '진단평가' : '단어'}
+                  </button>
+                ))}
+              </div>
 
-                          {/* 문항 카드 목록 */}
-                          {isOpen && (
-                            <div className="border-t border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-[#0d0d14] px-4 py-4 space-y-3">
-                              {answers.map((a) => {
-                                const q = a.exam_question!
-                                const tags = q.exam_question_tag.map((t) => t.concept_tag).filter(Boolean)
-                                return (
-                                  <div key={a.id} className="rounded-xl bg-white dark:bg-[#16161f] ring-1 ring-gray-100 dark:ring-white/[0.08] p-4">
-                                    {/* 문항번호 + 개념태그 */}
-                                    <div className="flex items-start justify-between gap-2 mb-3">
-                                      <span className="text-sm font-bold text-gray-900 dark:text-white shrink-0">
-                                        {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
-                                      </span>
-                                      <div className="flex flex-wrap gap-1 justify-end">
-                                        {tags.map((tag) => (
-                                          <span key={tag!.id} className="rounded-full bg-indigo-50 dark:bg-indigo-900/40 px-2 py-0.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-300">
-                                            {tag!.name}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    </div>
-
-                                    {/* 문제 텍스트 */}
-                                    {q.question_text && (
-                                      <div className="mb-3 rounded-lg bg-gray-50 dark:bg-[#0d0d14] border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line">
-                                        {q.question_text}
-                                      </div>
-                                    )}
-
-                                    {/* 내 답 → 정답 */}
-                                    <div className="flex items-center gap-2 mb-3">
-                                      <span className="text-sm font-semibold text-rose-500 dark:text-rose-400 line-through">
-                                        {formatMyAnswer(a)}
-                                      </span>
-                                      <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
-                                      <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                                        {formatCorrectAnswer(q)}
-                                      </span>
-                                    </div>
-
-                                    {/* AI 피드백 */}
-                                    {a.ai_feedback && (
-                                      <p className="mb-2.5 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
-                                        {a.ai_feedback}
-                                      </p>
-                                    )}
-
-                                    {/* 해설 */}
-                                    {q.explanation && (
-                                      <div className="rounded-xl bg-indigo-50 dark:bg-indigo-950/40 px-3 py-2.5 text-xs leading-relaxed text-indigo-700 dark:text-indigo-300">
-                                        {q.explanation}
-                                      </div>
-                                    )}
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
+              {/* 독해 오답 */}
+              {wrongNoteTab === 'reading' && (
+                wrongNoteGroups.length === 0 ? (
+                  <div className="rounded-2xl bg-white dark:bg-[#16161f] p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
+                    진단평가 오답 데이터가 없습니다
                   </div>
-                </Card>
+                ) : (
+                  <Card noPad>
+                    <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
+                      {wrongNoteGroups.map(({ week, answers, className }) => {
+                        const isOpen = expandedWrongWeekIds.has(week.id)
+                        const toggle = () => setExpandedWrongWeekIds((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(week.id)) next.delete(week.id)
+                          else next.add(week.id)
+                          return next
+                        })
+                        return (
+                          <div key={week.id}>
+                            <button
+                              type="button"
+                              onClick={toggle}
+                              className="w-full px-5 py-4 text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.04]"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                                    {className} {week.week_number}주차
+                                  </span>
+                                  {week.start_date && (
+                                    <span className="text-xs text-gray-400 dark:text-gray-400">
+                                      {new Date(week.start_date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
+                                    </span>
+                                  )}
+                                  <span className="rounded-full bg-rose-100 dark:bg-rose-950/60 px-2 py-0.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
+                                    {answers.length}문제
+                                  </span>
+                                </div>
+                                {isOpen
+                                  ? <ChevronUp className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-400" />
+                                  : <ChevronDown className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-400" />}
+                              </div>
+                            </button>
+
+                            {isOpen && (
+                              <div className="border-t border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-[#0d0d14] px-4 py-4 space-y-3">
+                                {answers.map((a) => {
+                                  const q = a.exam_question!
+                                  const tags = q.exam_question_tag.map((t) => t.concept_tag).filter(Boolean)
+                                  return (
+                                    <div key={a.id} className="rounded-xl bg-white dark:bg-[#16161f] ring-1 ring-gray-100 dark:ring-white/[0.08] p-4">
+                                      <div className="flex items-start justify-between gap-2 mb-3">
+                                        <span className="text-sm font-bold text-gray-900 dark:text-white shrink-0">
+                                          {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
+                                        </span>
+                                        <div className="flex flex-wrap gap-1 justify-end">
+                                          {tags.map((tag) => (
+                                            <span key={tag!.id} className="rounded-full bg-indigo-50 dark:bg-indigo-900/40 px-2 py-0.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-300">
+                                              {tag!.name}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                      {q.question_text && (
+                                        <div className="mb-3 rounded-lg bg-gray-50 dark:bg-[#0d0d14] border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line">
+                                          {q.question_text}
+                                        </div>
+                                      )}
+                                      <div className="flex items-center gap-2 mb-3">
+                                        <span className="text-sm font-semibold text-rose-500 dark:text-rose-400 line-through">
+                                          {formatMyAnswer(a)}
+                                        </span>
+                                        <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
+                                        <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                                          {formatCorrectAnswer(q)}
+                                        </span>
+                                      </div>
+                                      {a.ai_feedback && (
+                                        <p className="mb-2.5 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                                          {a.ai_feedback}
+                                        </p>
+                                      )}
+                                      {q.explanation && (
+                                        <div className="rounded-xl bg-indigo-50 dark:bg-indigo-950/40 px-3 py-2.5 text-xs leading-relaxed text-indigo-700 dark:text-indigo-300">
+                                          {q.explanation}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </Card>
+                )
+              )}
+
+              {/* 단어 오답 */}
+              {wrongNoteTab === 'vocab' && (
+                vocabWrongGroups.length === 0 ? (
+                  <div className="rounded-2xl bg-white dark:bg-[#16161f] p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
+                    단어 오답 데이터가 없습니다
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {vocabWrongGroups.map(({ week, answers, className }) => (
+                      <Card key={week.id} noPad>
+                        <div className="px-5 py-3 border-b border-gray-100 dark:border-white/[0.08]">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                              {className} {week.week_number}주차
+                            </span>
+                            {week.start_date && (
+                              <span className="text-xs text-gray-400 dark:text-gray-400">
+                                {new Date(week.start_date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
+                              </span>
+                            )}
+                            <span className="rounded-full bg-rose-100 dark:bg-rose-950/60 px-2 py-0.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
+                              {answers.length}개
+                            </span>
+                          </div>
+                        </div>
+                        <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
+                          {answers
+                            .slice()
+                            .sort((a, b) => (a.vocab_word?.number ?? 0) - (b.vocab_word?.number ?? 0))
+                            .map((va) => {
+                              const vw = va.vocab_word
+                              if (!vw) return null
+                              return (
+                                <div key={va.id} className="px-5 py-3">
+                                  <div className="flex items-baseline justify-between gap-2">
+                                    <span className="text-sm font-bold text-gray-900 dark:text-white">{vw.english_word}</span>
+                                    <span className="text-xs text-gray-400 dark:text-gray-500">#{vw.number}</span>
+                                  </div>
+                                  <div className="mt-1.5 flex items-center gap-2">
+                                    <span className="text-sm text-rose-500 dark:text-rose-400 line-through">
+                                      {va.student_answer || '미답'}
+                                    </span>
+                                    <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
+                                    <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                                      {vw.correct_answer || '—'}
+                                    </span>
+                                  </div>
+                                  {((vw.synonyms?.length ?? 0) > 0 || (vw.antonyms?.length ?? 0) > 0) && (
+                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                      {(vw.synonyms ?? []).map((s) => (
+                                        <span key={s} className="rounded-full border border-blue-200 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-[11px] text-blue-700 dark:text-blue-300">
+                                          유 {s}
+                                        </span>
+                                      ))}
+                                      {(vw.antonyms ?? []).map((s) => (
+                                        <span key={s} className="rounded-full border border-purple-200 dark:border-purple-800/40 bg-purple-50 dark:bg-purple-950/40 px-2 py-0.5 text-[11px] text-purple-700 dark:text-purple-300">
+                                          반 {s}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                )
               )}
             </>
           )}

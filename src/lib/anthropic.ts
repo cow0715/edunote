@@ -401,6 +401,49 @@ JSON 배열만 출력 (number, english_word, student_answer, is_correct 포함):
   }
 }
 
+// ── 단어 PDF 파싱 ────────────────────────────────────────────────────────
+
+export type VocabWordEnrichment = {
+  number: number
+  english_word: string
+  correct_answer: string | null
+  synonyms: string[]
+  antonyms: string[]
+}
+
+export async function parseVocabPdf(fileData: string, mimeType: string): Promise<VocabWordEnrichment[]> {
+  const fileContent = mimeType === 'application/pdf'
+    ? { type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: fileData } }
+    : { type: 'image' as const, source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: fileData } }
+
+  const prompt = `이 파일은 영어 단어 시험지입니다.
+각 문항의 번호와 영어 단어(구)를 추출하고, 각 단어 정보를 JSON으로 반환하세요.
+
+규칙:
+- number: 문항 번호 (정수)
+- english_word: 인쇄된 영어 단어 또는 구 (원본 그대로)
+- correct_answer: 가장 일반적으로 쓰이는 한국어 뜻 (다의어는 " / " 구분, 최대 2개). 두 단어 선택형(예: "immune / condemned")은 null
+- synonyms: 대표 유의어 영어 단어 2~3개 배열. 두 단어 선택형은 []
+- antonyms: 대표 반의어 영어 단어 1~2개 배열. 없으면 []
+
+JSON 배열만 출력:
+[{"number":1,"english_word":"inhibit","correct_answer":"억제하다","synonyms":["suppress","restrain"],"antonyms":["encourage","promote"]},{"number":2,"english_word":"immune / condemned","correct_answer":null,"synonyms":[],"antonyms":[]}]`
+
+  const res = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: [fileContent, { type: 'text', text: prompt }] }],
+  })
+
+  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  try {
+    return JSON.parse(jsonrepair(raw.replace(/```json\n?|\n?```/g, '').trim()))
+  } catch (e) {
+    console.error('[parseVocabPdf] JSON parse 실패:', e)
+    throw e
+  }
+}
+
 // ── 서술형 채점 ──────────────────────────────────────────────────────────
 
 export async function gradeSubjectiveAnswers(
