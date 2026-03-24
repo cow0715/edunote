@@ -27,6 +27,8 @@ export function HomeworkBarChart({ data, isDark }: { data: HomeworkItem[]; isDar
           formatter={(v: number | string | undefined, _: unknown, props: any) => [
             `${props.payload?.done ?? 0}/${props.payload?.total ?? 0} (${v ?? 0}%)`, '과제',
           ]}
+          labelStyle={{ fontSize: 12, color: ttColor }}
+          itemStyle={{ color: ttColor }}
           contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${ttBorder}`, backgroundColor: ttBg, color: ttColor }}
         />
         <Bar dataKey="rate" radius={[4, 4, 0, 0]} maxBarSize={40}>
