@@ -396,6 +396,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const [themeReady, setThemeReady] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('home')
   const [wrongNoteTab, setWrongNoteTab] = useState<'reading' | 'vocab'>('reading')
+  const [commentExpanded, setCommentExpanded] = useState(false)
 
   useEffect(() => {
     const saved = localStorage.getItem('share-theme')
@@ -406,6 +407,15 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     }
     setThemeReady(true)
   }, [])
+
+  // 데이터 로드 후 오답 탭 최근 주차 기본 열림
+  useEffect(() => {
+    if (!data) return
+    const sorted = [...(data.weeks ?? [])]
+      .filter((w) => data.weekScores.some((s) => s.week_id === w.id))
+      .sort((a, b) => b.week_number - a.week_number)
+    if (sorted[0]) setExpandedWrongWeekIds(new Set([sorted[0].id]))
+  }, [data])
 
   const toggleTheme = () => {
     setIsDark((prev) => {
@@ -724,13 +734,15 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               {commentFeed.length > 0 && (
                 <Card title="강사 코멘트" subtitle="최근 수업 피드백">
                   <div className="space-y-3">
-                    {commentFeed.map(({ week, memo, className }) => (
+                    {(commentExpanded ? commentFeed : commentFeed.slice(0, 1)).map(({ week, memo, className }, idx, arr) => (
                       <div key={week.id} className="flex gap-3">
                         <div className="flex flex-col items-center">
                           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/50">
                             <MessageSquare className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-300" />
                           </div>
-                          <div className="mt-1 flex-1 w-px bg-gray-100 dark:bg-white/[0.12]" />
+                          {(commentExpanded || idx < arr.length - 1) && (
+                            <div className="mt-1 flex-1 w-px bg-gray-100 dark:bg-white/[0.12]" />
+                          )}
                         </div>
                         <div className="pb-3 min-w-0">
                           <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-1">
@@ -745,6 +757,16 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                         </div>
                       </div>
                     ))}
+                    {commentFeed.length > 1 && (
+                      <button
+                        onClick={() => setCommentExpanded((v) => !v)}
+                        className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:underline"
+                      >
+                        {commentExpanded
+                          ? <><ChevronUp className="h-3.5 w-3.5" /> 접기</>
+                          : <><ChevronDown className="h-3.5 w-3.5" /> 이전 코멘트 {commentFeed.length - 1}개 더 보기</>}
+                      </button>
+                    )}
                   </div>
                 </Card>
               )}
@@ -816,6 +838,17 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                     <strong className={`ml-0.5 ${scoreColor(score.reading_correct ?? 0, w.reading_total)}`}>
                                       {score.reading_correct ?? 0}/{w.reading_total}
                                     </strong>
+                                    {(() => {
+                                      const avg = classAverages[w.id]?.readingRate
+                                      const my = weekRate(score, w, 'reading')
+                                      if (avg === null || avg === undefined || my === null) return null
+                                      const diff = my - avg
+                                      return (
+                                        <span className={`ml-1 text-[10px] font-medium ${diff > 0 ? 'text-emerald-500 dark:text-emerald-400' : diff < 0 ? 'text-rose-400 dark:text-rose-400' : 'text-gray-400'}`}>
+                                          반 평균 {diff > 0 ? '+' : ''}{diff}%
+                                        </span>
+                                      )
+                                    })()}
                                   </span>
                                 )}
                                 {w.vocab_total > 0 && score.vocab_correct !== null && (
@@ -825,6 +858,17 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                     <strong className={`ml-0.5 ${scoreColor(score.vocab_correct, w.vocab_total)}`}>
                                       {score.vocab_correct}/{w.vocab_total}
                                     </strong>
+                                    {(() => {
+                                      const avg = classAverages[w.id]?.vocabRate
+                                      const my = weekRate(score, w, 'vocab')
+                                      if (avg === null || avg === undefined || my === null) return null
+                                      const diff = my - avg
+                                      return (
+                                        <span className={`ml-1 text-[10px] font-medium ${diff > 0 ? 'text-emerald-500 dark:text-emerald-400' : diff < 0 ? 'text-rose-400 dark:text-rose-400' : 'text-gray-400'}`}>
+                                          반 평균 {diff > 0 ? '+' : ''}{diff}%
+                                        </span>
+                                      )
+                                    })()}
                                   </span>
                                 )}
                                 {w.homework_total > 0 && score.homework_done !== null && (
