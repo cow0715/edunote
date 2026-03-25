@@ -98,6 +98,53 @@ export function StyleBadge({ style }: { style: ExamQuestion['question_style'] })
   return <span className={cn('inline-flex h-5 items-center rounded px-1.5 text-[10px] font-medium shrink-0', cls)}>{label}</span>
 }
 
+// ── 그룹 문항 행 (sub_label a/b/c 가로 배치) ───────────
+export const GroupedQuestionRow = memo(function GroupedQuestionRow({
+  questions, answers, disabled, onChangeAnswer,
+}: {
+  questions: ExamQuestion[]
+  answers: Array<{ exam_question_id: string; student_answer: number | null; is_correct?: boolean } | undefined>
+  disabled: boolean
+  onChangeAnswer: (questionId: string, n: number | null) => void
+}) {
+  const first = questions[0]
+  const anyWrong = questions.some((q, i) => {
+    const a = answers[i]
+    const hasAnswer = a?.student_answer !== null && a?.student_answer !== undefined
+    return hasAnswer && a?.is_correct === false
+  })
+
+  return (
+    <div className="px-4 py-3 flex flex-col gap-2">
+      <div className="flex items-center gap-1.5">
+        <span className={cn('text-sm font-medium', anyWrong ? 'text-red-400' : 'text-gray-700')}>
+          문제 {first.question_number}
+        </span>
+        <StyleBadge style={first.question_style} />
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-2">
+        {questions.map((q, i) => {
+          const answer = answers[i]
+          const hasAnswer = answer?.student_answer !== null && answer?.student_answer !== undefined
+          const isWrong = hasAnswer && answer?.is_correct === false
+          return (
+            <div key={q.id} className="flex items-center gap-1.5">
+              <span className={cn('text-xs font-medium w-5 shrink-0', isWrong ? 'text-red-400' : 'text-gray-500')}>
+                ({q.sub_label})
+              </span>
+              <ObjectiveInput
+                value={answer?.student_answer ?? null}
+                onChange={(n) => onChangeAnswer(q.id, n)}
+                disabled={disabled}
+              />
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+})
+
 // ── 문항 행 ────────────────────────────────────────────
 export const QuestionRow = memo(function QuestionRow({
   q, answer, disabled, onChangeAnswer, onChangeText,

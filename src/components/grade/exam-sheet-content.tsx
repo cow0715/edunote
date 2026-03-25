@@ -5,7 +5,7 @@ import { GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { ScoreToggleField } from './score-toggle-field'
-import { QuestionRow } from './question-inputs'
+import { GroupedQuestionRow, QuestionRow } from './question-inputs'
 
 export function ExamSheetContent({ row, questions, readingTotal, updateRow, updateAnswer, updateAnswerText }: {
   row: GradeRow
@@ -56,18 +56,36 @@ export function ExamSheetContent({ row, questions, readingTotal, updateRow, upda
 
       {questions.length > 0 && (
         <div className={cn('divide-y', !row.reading_present && 'opacity-40 pointer-events-none')}>
-          {questions.map((q) => {
-            const answer = row.answers.find((a) => a.exam_question_id === q.id)
-            return (
-              <QuestionRow
-                key={q.id}
-                q={q}
-                answer={answer}
-                disabled={disabled}
-                onChangeAnswer={(n) => updateAnswer(row.student_id, q.id, n)}
-                onChangeText={(t) => updateAnswerText(row.student_id, q.id, t)}
-              />
-            )
+          {Object.values(
+            questions.reduce<Record<number, ExamQuestion[]>>((acc, q) => {
+              ;(acc[q.question_number] ??= []).push(q)
+              return acc
+            }, {})
+          ).map((group) => {
+            if (group.length > 1 && group.every((q) => q.question_style === 'objective')) {
+              return (
+                <GroupedQuestionRow
+                  key={group[0].question_number}
+                  questions={group}
+                  answers={group.map((q) => row.answers.find((a) => a.exam_question_id === q.id))}
+                  disabled={disabled}
+                  onChangeAnswer={(qId, n) => updateAnswer(row.student_id, qId, n)}
+                />
+              )
+            }
+            return group.map((q) => {
+              const answer = row.answers.find((a) => a.exam_question_id === q.id)
+              return (
+                <QuestionRow
+                  key={q.id}
+                  q={q}
+                  answer={answer}
+                  disabled={disabled}
+                  onChangeAnswer={(n) => updateAnswer(row.student_id, q.id, n)}
+                  onChangeText={(t) => updateAnswerText(row.student_id, q.id, t)}
+                />
+              )
+            })
           })}
         </div>
       )}

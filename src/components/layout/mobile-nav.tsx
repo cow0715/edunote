@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -21,6 +21,12 @@ const navItems = [
 export function MobileNav() {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
+
+  useEffect(() => {
+    const main = document.querySelector('main')
+    if (main) main.style.overflow = open ? 'hidden' : ''
+    return () => { if (main) main.style.overflow = '' }
+  }, [open])
   const router = useRouter()
 
   async function handleLogout() {
