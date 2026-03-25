@@ -93,6 +93,7 @@ export function StyleBadge({ style }: { style: ExamQuestion['question_style'] })
     ox:           { label: 'O/X',   cls: 'bg-blue-50 text-blue-600' },
     subjective:   { label: '서술형', cls: 'bg-amber-50 text-amber-600' },
     multi_select: { label: '복수',  cls: 'bg-purple-50 text-purple-600' },
+    find_error:   { label: '오류교정', cls: 'bg-rose-50 text-rose-600' },
   }
   const { label, cls } = map[style] ?? { label: style, cls: 'bg-gray-100 text-gray-500' }
   return <span className={cn('inline-flex h-5 items-center rounded px-1.5 text-[10px] font-medium shrink-0', cls)}>{label}</span>
@@ -152,7 +153,7 @@ export const QuestionRow = memo(function QuestionRow({
   onChangeText: (t: string) => void
 }) {
   const label = `${q.question_number}${q.sub_label ? ` (${q.sub_label})` : ''}`
-  const isSubjective = q.question_style === 'subjective'
+  const isSubjective = q.question_style === 'subjective' || q.question_style === 'find_error'
   const hasAnswer = (answer?.student_answer !== null && answer?.student_answer !== undefined) || !!answer?.student_answer_text
   const isWrong = answer?.is_correct === false
 
@@ -222,6 +223,20 @@ export const QuestionRow = memo(function QuestionRow({
               onBlur={() => onChangeText(localText)}
               disabled={disabled}
               placeholder={placeholder}
+              rows={2}
+              className="text-sm resize-none"
+            />
+          )
+        })()}
+        {q.question_style === 'find_error' && (() => {
+          const correction = q.correct_answer_text?.split(':')[1]?.trim() ?? ''
+          return (
+            <Textarea
+              value={localText}
+              onChange={(e) => setLocalText(e.target.value)}
+              onBlur={() => onChangeText(localText)}
+              disabled={disabled}
+              placeholder={correction ? `수정어 입력 (예: ${correction})` : '수정어 입력'}
               rows={2}
               className="text-sm resize-none"
             />
