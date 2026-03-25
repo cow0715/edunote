@@ -1,37 +1,34 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { getAuth, err, ok } from '@/lib/api'
 import { gradeVocabItems } from '@/lib/anthropic'
 
 export const maxDuration = 60
 
 export async function PATCH(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증 필요', 401)
 
   const { id, student_answer, is_correct } = await request.json()
-  if (!id) return NextResponse.json({ error: 'id 필요' }, { status: 400 })
+  if (!id) return err('id 필요')
 
   const { error } = await supabase
     .from('student_vocab_answer')
     .update({ student_answer: student_answer ?? null, is_correct })
     .eq('id', id)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+  if (error) return err(error.message, 500)
+  return ok({ ok: true })
 }
 
 // 수정된 답안 재채점 — items: { id, number, english_word, student_answer }[]
 export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증 필요', 401)
 
   const { weekScoreId, items } = await request.json() as {
     weekScoreId: string
     items: { id: string; number: number; english_word: string; student_answer: string | null }[]
   }
-  if (!items?.length) return NextResponse.json({ error: 'items 필요' }, { status: 400 })
+  if (!items?.length) return err('items 필요')
 
   const graded = await gradeVocabItems(items)
 
@@ -55,5 +52,5 @@ export async function POST(request: Request) {
     await supabase.from('week_score').update({ vocab_correct: vocabCorrect }).eq('id', weekScoreId)
   }
 
-  return NextResponse.json({ ok: true, results: graded })
+  return ok({ ok: true, results: graded })
 }

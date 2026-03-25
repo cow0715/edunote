@@ -1,19 +1,11 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
-
-async function getTeacherId(supabase: Awaited<ReturnType<typeof createClient>>, authId: string) {
-  const { data, error } = await supabase.from('teacher').select('id').eq('auth_id', authId).single()
-  if (error) console.error('[getTeacherId]', error)
-  return data?.id ?? null
-}
+import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증 필요', 401)
 
   const teacherId = await getTeacherId(supabase, user.id)
-  if (!teacherId) return NextResponse.json({ error: '강사 정보 없음' }, { status: 404 })
+  if (!teacherId) return err('강사 정보 없음', 404)
 
   const { data, error } = await supabase
     .from('student')
@@ -23,19 +15,18 @@ export async function GET() {
 
   if (error) {
     console.error('[GET /api/students]', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return err(error.message, 500)
   }
 
-  return NextResponse.json(data)
+  return ok(data)
 }
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증 필요', 401)
 
   const teacherId = await getTeacherId(supabase, user.id)
-  if (!teacherId) return NextResponse.json({ error: '강사 정보 없음' }, { status: 404 })
+  if (!teacherId) return err('강사 정보 없음', 404)
 
   const { name, phone, father_phone, mother_phone, school, grade, memo } = await request.json()
 
@@ -47,8 +38,8 @@ export async function POST(request: Request) {
 
   if (error) {
     console.error('[POST /api/students]', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return err(error.message, 500)
   }
 
-  return NextResponse.json(data, { status: 201 })
+  return ok(data, { status: 201 })
 }

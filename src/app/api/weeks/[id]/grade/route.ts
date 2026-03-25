@@ -1,14 +1,28 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { getAuth, err, ok } from '@/lib/api'
 import { gradeSubjectiveAnswers, SubjectiveStudentAnswer } from '@/lib/anthropic'
+import type { SupabaseServerClient } from '@/lib/api'
+
+// reading_correct 재계산 공통 함수
+async function recalcReadingCorrect(supabase: SupabaseServerClient, scoreIds: string[]) {
+  await Promise.all(
+    scoreIds.map(async (scoreId) => {
+      const { data: answers } = await supabase
+        .from('student_answer')
+        .select('is_correct')
+        .eq('week_score_id', scoreId)
+      const readingCorrect = answers && answers.length > 0
+        ? answers.filter((a) => a.is_correct).length
+        : null
+      await supabase.from('week_score').update({ reading_correct: readingCorrect }).eq('id', scoreId)
+    })
+  )
+}
 
 // 채점 현황 조회
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
   const { id: weekId } = await params
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  if (!user) return err('인증 필요', 401)
 
   const { data: week } = await supabase
     .from('week')
@@ -16,7 +30,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     .eq('id', weekId)
     .single()
 
-  if (!week) return NextResponse.json({ error: '주차 없음' }, { status: 404 })
+  if (!week) return err('주차 없음', 404)
 
   const [{ data: classStudents }, { data: weekScores }, { data: questions }, { data: vocabWords }] = await Promise.all([
     supabase.from('class_student').select('student_id, student(*)').eq('class_id', week.class_id).order('created_at'),
@@ -35,7 +49,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     attendance = att ?? []
   }
 
-  return NextResponse.json({ classStudents, weekScores, questions, attendance, vocabWords })
+  return ok({ classStudents, weekScores, questions, attendance, vocabWords })
 }
 
 // 일괄 저장 + 서술형 AI 배치 채점
@@ -45,16 +59,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error('[POST /api/weeks/[id]/grade] unhandled error', e)
-    return NextResponse.json({ error: msg }, { status: 500 })
+    return err(msg, 500)
   }
 }
 
 async function handlePost(request: Request, params: Promise<{ id: string }>) {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
   const { id: weekId } = await params
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  if (!user) return err('인증 필요', 401)
 
   type GradeRow = {
     student_id: string
@@ -76,7 +88,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
   try {
     rows = await request.json()
   } catch {
-    return NextResponse.json({ error: '요청 데이터 파싱 실패' }, { status: 400 })
+    return err('요청 데이터 파싱 실패')
   }
 
   // 이 주차의 모든 문항 정보 한 번에 조회 (style, correct_answer, 모범답안)
@@ -133,7 +145,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
 
     if (scoreError) {
       console.error('[POST /api/weeks/[id]/grade] week_score upsert', scoreError)
-      return NextResponse.json({ error: scoreError.message }, { status: 500 })
+      return err(scoreError.message, 500)
     }
 
     // reading_present=false이면 answers 처리 스킵 + reading_correct=null 이미 upsert됨
@@ -187,7 +199,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
 
       if (answerError) {
         console.error('[POST /api/weeks/[id]/grade] student_answer upsert', answerError)
-        return NextResponse.json({ error: answerError.message }, { status: 500 })
+        return err(answerError.message, 500)
       }
 
       // subjective만 AI 채점용으로 수집
@@ -240,37 +252,14 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         const errMsg = e instanceof Error ? e.message : String(e)
         console.error('[POST /api/weeks/[id]/grade] AI grading failed', e)
         // AI 실패해도 저장은 성공으로 처리 (reading_correct는 객관식만 반영됨)
-        await Promise.all(
-          processedScoreIds.map(async (scoreId) => {
-            const { data: answers } = await supabase
-              .from('student_answer')
-              .select('is_correct')
-              .eq('week_score_id', scoreId)
-            const readingCorrect = answers && answers.length > 0
-              ? answers.filter((a) => a.is_correct).length
-              : null
-            await supabase.from('week_score').update({ reading_correct: readingCorrect }).eq('id', scoreId)
-          })
-        )
-        return NextResponse.json({ ok: true, ai_grading_failed: true, ai_error: errMsg })
+        await recalcReadingCorrect(supabase, processedScoreIds)
+        return ok({ ok: true, ai_grading_failed: true, ai_error: errMsg })
       }
     }
   }
 
   // student_answer.is_correct 기준으로 reading_correct 자동 계산 (답안 없으면 null)
-  await Promise.all(
-    processedScoreIds.map(async (scoreId) => {
-      const { data: answers } = await supabase
-        .from('student_answer')
-        .select('is_correct')
-        .eq('week_score_id', scoreId)
-      const readingCorrect = answers && answers.length > 0
-        ? answers.filter((a) => a.is_correct).length
-        : null
-      await supabase.from('week_score').update({ reading_correct: readingCorrect }).eq('id', scoreId)
-    })
-  )
+  await recalcReadingCorrect(supabase, processedScoreIds)
 
-  return NextResponse.json({ ok: true })
+  return ok({ ok: true })
 }
-
