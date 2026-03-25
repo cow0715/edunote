@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { Upload, Loader2, CheckCircle2, AlertTriangle, RotateCcw, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useQueryClient } from '@tanstack/react-query'
 
 type VocabEntry = {
   number: number
@@ -15,6 +16,7 @@ type VocabEntry = {
 
 type Status =
   | { type: 'idle' }
+  | { type: 'file-selected'; file: File }
   | { type: 'loading'; step: string }
   | { type: 'preview'; words: VocabEntry[] }
   | { type: 'saving' }
@@ -34,16 +36,20 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [status, setStatus] = useState<Status>({ type: 'idle' })
   const [editWords, setEditWords] = useState<VocabEntry[]>([])
-  const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
+  const qc = useQueryClient()
 
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    setSelectedFileName(file.name)
     e.target.value = ''
+    setStatus({ type: 'file-selected', file })
+  }
+
+  async function handleUpload() {
+    if (status.type !== 'file-selected') return
+    const file = status.file
 
     setStatus({ type: 'loading', step: 'Claude가 단어를 분석 중...' })
-
     try {
       const base64 = await readFileAsBase64(file)
       const res = await fetch(`/api/weeks/${weekId}/parse-vocab-pdf`, {
@@ -70,6 +76,8 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       })
       const data = await res.json()
       if (!res.ok) { setStatus({ type: 'error', message: data.error ?? '저장 실패' }); return }
+      qc.invalidateQueries({ queryKey: ['week', weekId] })
+      qc.invalidateQueries({ queryKey: ['weeks'] })
       setStatus({ type: 'done', saved: data.saved })
     } catch {
       setStatus({ type: 'error', message: '저장 중 오류가 발생했습니다' })
@@ -86,33 +94,17 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     }))
   }
 
-  // ── 유휴 / 로딩 / 에러 상태 ─────────────────────────────────────────────
-  if (status.type === 'idle' || status.type === 'loading' || status.type === 'error') return (
+  // ── 유휴 상태 ─────────────────────────────────────────────────────────────
+  if (status.type === 'idle' || status.type === 'error') return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500">단어 시험지 PDF를 업로드하면 Claude가 단어와 뜻을 자동으로 추출합니다.</p>
-      <input ref={inputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleFile} />
+      <input ref={inputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleFileSelect} />
       <div
-        onClick={() => status.type !== 'loading' && inputRef.current?.click()}
+        onClick={() => inputRef.current?.click()}
         className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-8 transition-colors hover:border-primary/50 hover:bg-gray-50"
       >
-        {status.type === 'loading' ? (
-          <>
-            <Loader2 className="h-8 w-8 text-indigo-400 animate-spin" />
-            <p className="text-sm text-gray-500">{status.step}</p>
-          </>
-        ) : (
-          <>
-            <Upload className="h-8 w-8 text-gray-300" />
-            {selectedFileName && status.type !== 'error' ? (
-              <div className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
-                <FileText className="h-4 w-4 text-primary" />
-                {selectedFileName}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-400">클릭하여 파일 선택 (PDF / 이미지)</p>
-            )}
-          </>
-        )}
+        <Upload className="h-8 w-8 text-gray-300" />
+        <p className="text-sm text-gray-400">클릭하여 파일 선택 (PDF / 이미지)</p>
       </div>
       {status.type === 'error' && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 flex items-start gap-2">
@@ -123,7 +115,37 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     </div>
   )
 
-  // ── 저장 완료 ────────────────────────────────────────────────────────────
+  // ── 파일 선택됨 — 등록 버튼 대기 ─────────────────────────────────────────
+  if (status.type === 'file-selected') return (
+    <div className="space-y-4">
+      <p className="text-sm text-gray-500">단어 시험지 PDF를 업로드하면 Claude가 단어와 뜻을 자동으로 추출합니다.</p>
+      <input ref={inputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleFileSelect} />
+      <div
+        onClick={() => inputRef.current?.click()}
+        className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-8 transition-colors hover:border-primary/50 hover:bg-gray-50"
+      >
+        <FileText className="h-8 w-8 text-primary" />
+        <p className="text-sm font-medium text-gray-700">{status.file.name}</p>
+        <p className="text-xs text-gray-400">다른 파일로 변경하려면 클릭</p>
+      </div>
+      <Button className="w-full" onClick={handleUpload}>
+        <Upload className="mr-2 h-4 w-4" />
+        등록하기
+      </Button>
+    </div>
+  )
+
+  // ── 로딩 상태 ─────────────────────────────────────────────────────────────
+  if (status.type === 'loading') return (
+    <div className="space-y-4">
+      <div className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-8">
+        <Loader2 className="h-8 w-8 text-indigo-400 animate-spin" />
+        <p className="text-sm text-gray-500">{status.step}</p>
+      </div>
+    </div>
+  )
+
+  // ── 저장 완료 ─────────────────────────────────────────────────────────────
   if (status.type === 'done') return (
     <div className="space-y-4">
       <div className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-1">
@@ -131,12 +153,12 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
           <CheckCircle2 className="h-4 w-4" />
           완료
         </div>
-        <p className="text-xs text-green-700">단어 {status.saved}개 저장됨</p>
+        <p className="text-xs text-green-700">단어 {status.saved}개 저장됨 · 단어시험 총 개수 자동 업데이트</p>
         <Button
           size="sm"
           variant="outline"
           className="mt-2 w-full"
-          onClick={() => { setSelectedFileName(null); setStatus({ type: 'idle' }) }}
+          onClick={() => setStatus({ type: 'idle' })}
         >
           다른 파일 업로드
         </Button>
@@ -144,7 +166,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     </div>
   )
 
-  // ── 저장 중 ──────────────────────────────────────────────────────────────
+  // ── 저장 중 ───────────────────────────────────────────────────────────────
   if (status.type === 'saving') return (
     <div className="space-y-4">
       <div className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-8">

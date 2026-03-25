@@ -27,5 +27,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return err(error.message, 500)
   }
 
+  // vocab_total 자동 업데이트
+  await supabase
+    .from('week')
+    .update({ vocab_total: words.length })
+    .eq('id', weekId)
+
   return ok({ ok: true, saved: words.length })
 }
