@@ -114,7 +114,7 @@ JSON 배열만 출력 (다른 텍스트 없이):
 export type ParsedAnswer = {
   question_number: number
   sub_label: string | null            // 소문항 레이블 (예: 'a', 'b'), 없으면 null
-  question_style: 'objective' | 'subjective' | 'ox' | 'multi_select'
+  question_style: 'objective' | 'subjective' | 'ox' | 'multi_select' | 'find_error'
   question_type: string | null        // 문제 유형명 (예: "빈칸", "순서", "글의 목적 파악")
   correct_answer: number          // 객관식: 1-5, 서술형: 0
   correct_answer_text: string | null  // 서술형 모범답안

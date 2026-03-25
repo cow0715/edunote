@@ -201,7 +201,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
           }
         }
 
-        const isTextAnswer = style === 'subjective' || style === 'multi_select'
+        const isTextAnswer = style === 'subjective' || style === 'multi_select' || style === 'find_error'
         const is_correct = style === 'objective'
           ? (a.student_answer !== null && a.student_answer === q?.correct_answer)
           : style === 'multi_select'
@@ -226,12 +226,12 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         return err(answerError.message, 500)
       }
 
-      // subjective 채점용 수집 — 기호:수정어 유형은 코드 레벨, 나머지는 AI
+      // subjective/find_error 채점용 수집 — 기호:수정어 유형은 코드 레벨, 나머지는 AI
       for (const a of row.answers) {
         const q = questionMap.get(a.exam_question_id)
-        if (q?.question_style !== 'subjective') continue
+        if (q?.question_style !== 'subjective' && q?.question_style !== 'find_error') continue
 
-        if (isSymbolCorrection(q.correct_answer_text)) {
+        if (q.question_style === 'find_error' || isSymbolCorrection(q.correct_answer_text)) {
           // 빈칸 포함해서 수집 (집합 매칭에 필요)
           symbolCorrForGrading.push({
             week_score_id: score.id,

@@ -87,7 +87,7 @@ export interface ExamQuestion {
   grading_criteria: string | null;
   explanation: string | null;
   exam_type: 'vocab' | 'reading';
-  question_style: 'objective' | 'subjective' | 'ox' | 'multi_select';
+  question_style: 'objective' | 'subjective' | 'ox' | 'multi_select' | 'find_error';
   created_at: string;
   exam_question_tag?: { concept_tag: ConceptTag | null }[];
   exam_question_choice?: ExamQuestionChoice[];

@@ -6,7 +6,8 @@
     "dev": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:parse": "npx tsx scripts/test-parse.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
