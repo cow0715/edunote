@@ -1,6 +1,5 @@
 'use client'
 
-import { Badge } from '@/components/ui/badge'
 import { useGradeData } from '@/hooks/use-grade'
 import { useAttendance } from '@/hooks/use-attendance'
 import { ExternalLink } from 'lucide-react'
@@ -29,17 +28,12 @@ const ATTENDANCE_BADGE: Record<AttendanceStatus, { label: string; className: str
   absent:  { label: '결석', className: 'bg-red-50 text-red-600 border-red-200' },
 }
 
-function ScoreCell({ correct, total }: { correct: number | null; total: number }) {
+function ScoreCell({ correct, total, nullLabel = '미응시' }: { correct: number | null; total: number; nullLabel?: string }) {
   if (total === 0) return <span className="text-gray-300">-</span>
-  if (correct === null) return <span className="text-xs text-orange-400 font-medium">미응시</span>
+  if (correct === null) return <span className="text-xs text-orange-400 font-medium">{nullLabel}</span>
   const pct = Math.round((correct / total) * 100)
   const color = pct < 50 ? 'text-red-500' : pct < 80 ? 'text-amber-500' : pct < 100 ? 'text-blue-500' : 'text-green-600'
-  return (
-    <span className={`font-medium ${color}`}>
-      {correct}/{total}
-      <span className="ml-1 text-xs font-normal opacity-60">({pct}%)</span>
-    </span>
-  )
+  return <span className={`text-xs font-medium ${color}`}>{correct}/{total}</span>
 }
 
 export function WeekResultTable({ weekId, classId, startDate, vocabTotal, readingTotal, homeworkTotal }: Props) {
@@ -60,14 +54,14 @@ export function WeekResultTable({ weekId, classId, startDate, vocabTotal, readin
 
   return (
     <div className="overflow-x-auto rounded-lg border">
-      <table className="w-full text-sm">
-        <thead className="bg-gray-50 text-xs text-gray-500">
+      <table className="w-full text-xs">
+        <thead className="bg-gray-50 text-gray-500">
           <tr>
-            <th className="px-4 py-2.5 text-left">학생</th>
-            {readingTotal > 0 && <th className="px-3 py-2.5 text-center">진단평가</th>}
-            {vocabTotal > 0  && <th className="px-3 py-2.5 text-center">단어</th>}
-            {homeworkTotal > 0 && <th className="px-3 py-2.5 text-center">숙제</th>}
-            <th className="px-3 py-2.5 text-center">출결</th>
+            <th className="px-3 py-2 text-left">학생</th>
+            {readingTotal > 0  && <th className="px-2 py-2 text-center">독해</th>}
+            {vocabTotal > 0    && <th className="px-2 py-2 text-center">단어</th>}
+            {homeworkTotal > 0 && <th className="px-2 py-2 text-center">숙제</th>}
+            <th className="px-2 py-2 text-center">출결</th>
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -75,43 +69,47 @@ export function WeekResultTable({ weekId, classId, startDate, vocabTotal, readin
             const score = scoreMap.get(cs.student_id)
             const attendance = attendanceMap.get(cs.student_id)
             const attendanceBadge = attendance ? ATTENDANCE_BADGE[attendance] : null
+            const notAbsent = attendance && attendance !== 'absent'
 
             return (
               <tr key={cs.student_id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-900">{cs.student?.name}</td>
+                <td className="px-3 py-2 font-medium text-gray-900 whitespace-nowrap">{cs.student?.name}</td>
 
                 {readingTotal > 0 && (
-                  <td className="px-3 py-3 text-center">
-                    {score ? <ScoreCell correct={score.reading_correct} total={readingTotal} />
-                      : attendance && attendance !== 'absent'
-                        ? <span className="text-xs text-orange-400 font-medium">미응시</span>
+                  <td className="px-2 py-2 text-center">
+                    {score
+                      ? <ScoreCell correct={score.reading_correct} total={readingTotal} />
+                      : notAbsent
+                        ? <span className="text-orange-400 font-medium">미응시</span>
                         : <span className="text-gray-300">-</span>}
                   </td>
                 )}
                 {vocabTotal > 0 && (
-                  <td className="px-3 py-3 text-center">
-                    {score ? <ScoreCell correct={score.vocab_correct} total={vocabTotal} />
-                      : attendance && attendance !== 'absent'
-                        ? <span className="text-xs text-orange-400 font-medium">미응시</span>
+                  <td className="px-2 py-2 text-center">
+                    {score
+                      ? <ScoreCell correct={score.vocab_correct} total={vocabTotal} />
+                      : notAbsent
+                        ? <span className="text-orange-400 font-medium">미응시</span>
                         : <span className="text-gray-300">-</span>}
                   </td>
                 )}
                 {homeworkTotal > 0 && (
-                  <td className="px-3 py-3 text-center">
-                    {score ? <ScoreCell correct={score.homework_done} total={homeworkTotal} />
-                      : attendance && attendance !== 'absent'
-                        ? <span className="text-xs text-orange-400 font-medium">미제출</span>
+                  <td className="px-2 py-2 text-center">
+                    {score
+                      ? <ScoreCell correct={score.homework_done} total={homeworkTotal} nullLabel="미제출" />
+                      : notAbsent
+                        ? <span className="text-orange-400 font-medium">미제출</span>
                         : <span className="text-gray-300">-</span>}
                   </td>
                 )}
-                <td className="px-3 py-3 text-center">
-                  <div className="flex items-center justify-center gap-1.5">
+                <td className="px-2 py-2 text-center">
+                  <div className="flex items-center justify-center gap-1">
                     {attendanceBadge ? (
-                      <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${attendanceBadge.className}`}>
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${attendanceBadge.className}`}>
                         {attendanceBadge.label}
                       </span>
                     ) : (
-                      <span className="text-xs text-gray-300">미입력</span>
+                      <span className="text-gray-300">-</span>
                     )}
                     {cs.student?.share_token && (
                       <button
@@ -119,7 +117,7 @@ export function WeekResultTable({ weekId, classId, startDate, vocabTotal, readin
                         className="text-gray-300 hover:text-blue-500 transition-colors"
                         title="학부모 공유 페이지"
                       >
-                        <ExternalLink className="h-3.5 w-3.5" />
+                        <ExternalLink className="h-3 w-3" />
                       </button>
                     )}
                   </div>
