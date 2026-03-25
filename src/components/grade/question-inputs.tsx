@@ -210,17 +210,23 @@ export const QuestionRow = memo(function QuestionRow({
             className="h-8 w-36 text-sm"
           />
         )}
-        {q.question_style === 'subjective' && (
-          <Textarea
-            value={localText}
-            onChange={(e) => setLocalText(e.target.value)}
-            onBlur={() => onChangeText(localText)}
-            disabled={disabled}
-            placeholder="답안 입력"
-            rows={2}
-            className="text-sm resize-none"
-          />
-        )}
+        {q.question_style === 'subjective' && (() => {
+          const isSymbolCorr = !!q.correct_answer_text && /^[a-z]:.+$/i.test(q.correct_answer_text.trim())
+          const placeholder = isSymbolCorr
+            ? `수정어만 입력 (예: ${q.correct_answer_text!.split(':')[1]?.trim()})`
+            : '답안 입력'
+          return (
+            <Textarea
+              value={localText}
+              onChange={(e) => setLocalText(e.target.value)}
+              onBlur={() => onChangeText(localText)}
+              disabled={disabled}
+              placeholder={placeholder}
+              rows={2}
+              className="text-sm resize-none"
+            />
+          )
+        })()}
       </div>
       {!isSubjective && q.correct_answer_text && (
         <span className="text-xs text-gray-300 shrink-0">정답: {q.correct_answer_text}</span>
