@@ -108,11 +108,7 @@ export const GroupedQuestionRow = memo(function GroupedQuestionRow({
   onChangeAnswer: (questionId: string, n: number | null) => void
 }) {
   const first = questions[0]
-  const anyWrong = questions.some((q, i) => {
-    const a = answers[i]
-    const hasAnswer = a?.student_answer !== null && a?.student_answer !== undefined
-    return hasAnswer && a?.is_correct === false
-  })
+  const anyWrong = questions.some((_, i) => answers[i]?.is_correct === false)
 
   return (
     <div className="px-4 py-3 flex flex-col gap-2">
@@ -158,7 +154,7 @@ export const QuestionRow = memo(function QuestionRow({
   const label = `${q.question_number}${q.sub_label ? ` (${q.sub_label})` : ''}`
   const isSubjective = q.question_style === 'subjective'
   const hasAnswer = (answer?.student_answer !== null && answer?.student_answer !== undefined) || !!answer?.student_answer_text
-  const isWrong = hasAnswer && answer?.is_correct === false
+  const isWrong = answer?.is_correct === false
 
   // 서술형 로컬 state — 타이핑은 로컬에서만, 부모 sync는 onBlur에만
   const externalText = answer?.student_answer_text ?? ''
