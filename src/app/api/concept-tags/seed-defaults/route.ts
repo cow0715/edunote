@@ -1,5 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 
 const DEFAULT_CATEGORIES = [
   {
@@ -61,20 +60,11 @@ const DEFAULT_CATEGORIES = [
 ]
 
 export async function POST() {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증 필요', 401)
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
-
-  const { data: teacher } = await supabase
-    .from('teacher')
-    .select('id')
-    .eq('auth_id', user.id)
-    .single()
-
-  if (!teacher) return NextResponse.json({ error: '강사 정보 없음' }, { status: 404 })
-
-  const teacherId = teacher.id
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
 
   // 기존 태그 → 카테고리 순으로 삭제
   await supabase.from('concept_tag').delete().eq('teacher_id', teacherId)
@@ -91,7 +81,7 @@ export async function POST() {
       .single()
 
     if (catErr || !newCat) {
-      return NextResponse.json({ error: `카테고리 삽입 실패: ${catErr?.message}` }, { status: 500 })
+      return err(`카테고리 삽입 실패: ${catErr?.message}`, 500)
     }
 
     const tagRows = cat.tags.map((name, tagIdx) => ({
@@ -103,9 +93,9 @@ export async function POST() {
 
     const { error: tagErr } = await supabase.from('concept_tag').insert(tagRows)
     if (tagErr) {
-      return NextResponse.json({ error: `태그 삽입 실패: ${tagErr.message}` }, { status: 500 })
+      return err(`태그 삽입 실패: ${tagErr.message}`, 500)
     }
   }
 
-  return NextResponse.json({ ok: true })
+  return ok({ ok: true })
 }

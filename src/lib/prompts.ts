@@ -201,3 +201,96 @@ export const SMS_RULES = `작성 기준:
 이번 주 단어와 독해 모두 꾸준히 잘 따라오고 있습니다. 도치 구문 어순만 조금 더 다듬으면 좋겠습니다.
 아래 링크를 통해 학습현황을 확인하실 수 있습니다.
 https://edunote.kr/share/abc123`
+
+// ── 단어 시험지 OCR (CLOVA + Claude 구조 파싱) ───────────────────────────
+
+export function buildVocabOcrClovaPrompt(clovaText: string): string {
+  return `단어 시험지 OCR 결과와 이미지를 함께 참고해 각 문항을 파악하세요.
+
+CLOVA OCR 텍스트:
+${clovaText}
+
+규칙:
+- 번호, 인쇄된 영어 단어(구), 학생이 손으로 쓴 한글 답을 구분하세요
+- OCR 텍스트를 우선 사용하고, 불명확한 부분은 이미지로 보완하세요
+- 두 단어 중 선택 문항: 이미지에서 동그라미 친 단어를 확인하세요 (예: "immune / condemned")
+- 판독 불가면 null, 미기재면 ""
+
+JSON 배열만 출력:
+[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null},{"number":43,"english_word":"immune / condemned","student_answer":"immune"},{"number":50,"english_word":"showing great attention to detail or correct behavior","student_answer":"meticulous"}]`
+}
+
+// ── 단어 시험지 OCR (Claude Vision) ─────────────────────────────────────
+
+export const VOCAB_OCR_VISION_PROMPT = `이 단어 시험지에서 각 문항의 내용을 읽어주세요.
+
+규칙:
+- 인쇄된 번호와 영어 단어(구) 또는 문장을 정확히 읽으세요
+- 학생이 손으로 쓴 한글 답은 보이는 그대로만 읽으세요 (판독 불가면 null, 미기재면 "")
+- 두 단어 중 선택하는 문항: 학생이 동그라미 친 단어를 읽으세요 (확인 불가면 null)
+- 절대 내용을 추측하거나 수정하지 마세요. 채점하지 마세요.
+
+JSON 배열만 출력:
+[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null},{"number":43,"english_word":"immune / condemned","student_answer":"immune"},{"number":50,"english_word":"showing great attention to detail or correct behavior","student_answer":"meticulous"}]`
+
+// ── 단어 채점 ────────────────────────────────────────────────────────────
+
+export function buildVocabGradingPrompt(items: { number: number; english_word: string; student_answer: string | null }[]): string {
+  return `단어 시험 답안을 채점하세요.
+
+━━━ 공통 규칙 (모든 유형 적용) ━━━
+- student_answer가 null이거나 ""이면 무조건 오답
+- 품사 판단:
+  · 해당 영어 단어가 가질 수 있는 품사 중 하나와 일치하면 정답
+    예) "further"는 부사/형용사/동사 → "추가적인(형용사)" ✅ / "더 나아가(부사)" ✅
+  · 영어 단어가 가질 수 없는 품사이면 오답
+    예) "necessary(형용사 전용)" → "필수(명사)" ❌ / "필수적인(형용사)" ✅
+    예) "justify(동사 전용)" → "정당(명사)" ❌ / "정당화하다(동사)" ✅
+- 애매한 경우 판단 기준: "이 학생이 이 단어의 의미를 알고 있는가?"
+  → 알고 있다고 판단되면 학생에게 유리하게 정답 처리
+  → 의미를 반대로 이해하거나 전혀 다른 뜻이면 오답
+  예) "further" → "멀리" ✅ (거리/방향 의미를 이해한 것으로 판단)
+  예) "barely" → "거의" ❌ (간신히 ↔ 거의: 반대 뉘앙스이므로 오답)
+  예) "barely" → "간신히" ✅
+
+━━━ 문제 유형별 처리 ━━━
+
+[유형 A] 영어 단어(구) → 한글 뜻 쓰기
+판단 기준:
+1. 학생이 이 단어의 의미를 알고 있는지 기준으로 판단 — 애매하면 정답 처리
+2. 품사가 다르면 오답 (공통 규칙 적용)
+3. 피동/능동 구분 엄격 적용 ("-되다" vs "-하다")
+4. 주어/목적어/방향 관계가 뒤바뀌면 오답
+5. 철자가 약간 틀려도 의도가 명확하면 허용
+6. 동의어는 품사와 핵심 의미가 같으면 허용
+
+[유형 B] 두 단어 중 선택 (english_word에 "/" 포함, 예: "immune / condemned")
+- 해당 문장/문맥에서 문법·의미상 올바른 단어를 당신이 직접 판단
+- student_answer(학생이 선택한 단어)와 비교해 is_correct 결정
+
+[유형 C] 영어 설명 → 영어 단어 쓰기 (english_word가 영어 설명문인 경우)
+- student_answer가 영어 단어·구
+- 영어 설명이 의미하는 단어와 품사·의미 모두 일치해야 정답
+- 철자 오류는 의도가 명확하면 허용
+
+채점할 답안:
+${JSON.stringify(items)}
+
+JSON 배열만 출력 (number, english_word, student_answer, is_correct 포함):
+[{"number":1,"english_word":"necessary","student_answer":"필수적인","is_correct":true},{"number":43,"english_word":"immune / condemned","student_answer":"immune","is_correct":true}]`
+}
+
+// ── 단어 PDF 파싱 ────────────────────────────────────────────────────────
+
+export const VOCAB_PDF_PROMPT = `이 파일은 영어 단어 시험지입니다.
+각 문항의 번호와 영어 단어(구)를 추출하고, 각 단어 정보를 JSON으로 반환하세요.
+
+규칙:
+- number: 문항 번호 (정수)
+- english_word: 인쇄된 영어 단어 또는 구 (원본 그대로)
+- correct_answer: 가장 일반적으로 쓰이는 한국어 뜻 (다의어는 " / " 구분, 최대 2개). 두 단어 선택형(예: "immune / condemned")은 null
+- synonyms: 대표 유의어 영어 단어 2~3개 배열. 두 단어 선택형은 []
+- antonyms: 대표 반의어 영어 단어 1~2개 배열. 없으면 []
+
+JSON 배열만 출력:
+[{"number":1,"english_word":"inhibit","correct_answer":"억제하다","synonyms":["suppress","restrain"],"antonyms":["encourage","promote"]},{"number":2,"english_word":"immune / condemned","correct_answer":null,"synonyms":[],"antonyms":[]}]`

@@ -1,12 +1,9 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { getAuth, err, ok } from '@/lib/api'
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
   const { id: weekId } = await params
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  if (!user) return err('인증 필요', 401)
 
   const { data, error } = await supabase
     .from('exam_question')
@@ -17,18 +14,16 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   if (error) {
     console.error('[GET /api/weeks/[id]/questions]', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return err(error.message, 500)
   }
 
-  return NextResponse.json(data)
+  return ok(data)
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
   const { id: weekId } = await params
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  if (!user) return err('인증 필요', 401)
 
   const updates: { id: string; concept_tag_ids: string[]; question_style?: string }[] = await request.json()
 
@@ -56,9 +51,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       const { error } = await supabase.from('exam_question_tag').insert(
         concept_tag_ids.map((tag_id) => ({ exam_question_id: id, concept_tag_id: tag_id }))
       )
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      if (error) return err(error.message, 500)
     }
   }
 
-  return NextResponse.json({ ok: true })
+  return ok({ ok: true })
 }

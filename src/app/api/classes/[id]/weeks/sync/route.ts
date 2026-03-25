@@ -1,15 +1,12 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { getAuth, err, ok } from '@/lib/api'
 import { generateSessionDates } from '@/lib/schedule'
 
 // POST /api/classes/[id]/weeks/sync
 // 스케줄 기반으로 주차 재생성 (데이터 있는 주차 삭제 여부는 force 파라미터로 제어)
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
   const { id: classId } = await params
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  if (!user) return err('인증 필요', 401)
 
   const { force = false } = await request.json().catch(() => ({ force: false }))
 
@@ -19,10 +16,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .eq('id', classId)
     .single()
 
-  if (!cls) return NextResponse.json({ error: '수업 없음' }, { status: 404 })
+  if (!cls) return err('수업 없음', 404)
 
   const scheduleDays: string[] = cls.schedule_days ?? []
-  if (!scheduleDays.length) return NextResponse.json({ error: '요일 설정 없음' }, { status: 400 })
+  if (!scheduleDays.length) return err('요일 설정 없음')
 
   const newDates = generateSessionDates(cls.start_date, cls.end_date, scheduleDays)
 
@@ -52,7 +49,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   if (hasData && !force) {
-    return NextResponse.json({
+    return ok({
       warning: true,
       message: '삭제될 주차에 채점 데이터가 있습니다. 계속하면 해당 데이터가 삭제됩니다.',
       affected_weeks: toDelete.map((w) => w.week_number),
@@ -99,5 +96,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     await supabase.from('week').insert(insertRows)
   }
 
-  return NextResponse.json({ ok: true, total: allDates.length })
+  return ok({ ok: true, total: allDates.length })
 }

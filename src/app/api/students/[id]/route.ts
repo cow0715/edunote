@@ -1,19 +1,12 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
-
-async function getTeacherId(supabase: Awaited<ReturnType<typeof createClient>>, authId: string) {
-  const { data } = await supabase.from('teacher').select('id').eq('auth_id', authId).single()
-  return data?.id ?? null
-}
+import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
   const { id } = await params
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  if (!user) return err('인증 필요', 401)
 
   const teacherId = await getTeacherId(supabase, user.id)
-  if (!teacherId) return NextResponse.json({ error: '강사 정보 없음' }, { status: 404 })
+  if (!teacherId) return err('강사 정보 없음', 404)
 
   const { name, phone, father_phone, mother_phone, school, grade, memo } = await request.json()
 
@@ -27,20 +20,19 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 
   if (error) {
     console.error('[PUT /api/students]', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return err(error.message, 500)
   }
 
-  return NextResponse.json(data)
+  return ok(data)
 }
 
 export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
   const { id } = await params
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  if (!user) return err('인증 필요', 401)
 
   const teacherId = await getTeacherId(supabase, user.id)
-  if (!teacherId) return NextResponse.json({ error: '강사 정보 없음' }, { status: 404 })
+  if (!teacherId) return err('강사 정보 없음', 404)
 
   const { error } = await supabase
     .from('student')
@@ -50,8 +42,8 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
 
   if (error) {
     console.error('[DELETE /api/students]', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return err(error.message, 500)
   }
 
-  return NextResponse.json({ ok: true })
+  return ok({ ok: true })
 }

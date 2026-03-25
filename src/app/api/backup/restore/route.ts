@@ -1,5 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { getAuth, err, ok } from '@/lib/api'
 
 // 복원 순서 (FK 의존성 순서)
 const RESTORE_ORDER = [
@@ -19,12 +18,11 @@ const RESTORE_ORDER = [
 ] as const
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증 필요', 401)
 
   const { file } = await request.json()
-  if (!file) return NextResponse.json({ error: 'file 파라미터 필요' }, { status: 400 })
+  if (!file) return err('file 파라미터 필요')
 
   // ── 1. Storage에서 백업 파일 다운로드 ───────────────────────────────────
   const { data: fileData, error: downloadErr } = await supabase.storage
@@ -32,7 +30,7 @@ export async function POST(request: Request) {
     .download(file)
 
   if (downloadErr || !fileData) {
-    return NextResponse.json({ error: `파일 다운로드 실패: ${downloadErr?.message}` }, { status: 500 })
+    return err(`파일 다운로드 실패: ${downloadErr?.message}`, 500)
   }
 
   // ── 2. JSON 파싱 ────────────────────────────────────────────────────────
@@ -41,11 +39,11 @@ export async function POST(request: Request) {
   try {
     dump = JSON.parse(text)
   } catch {
-    return NextResponse.json({ error: 'JSON 파싱 실패 - 유효하지 않은 백업 파일' }, { status: 400 })
+    return err('JSON 파싱 실패 - 유효하지 않은 백업 파일')
   }
 
   if (!dump.tables) {
-    return NextResponse.json({ error: '유효하지 않은 백업 형식 (tables 없음)' }, { status: 400 })
+    return err('유효하지 않은 백업 형식 (tables 없음)')
   }
 
   // ── 3. 테이블별 upsert (FK 순서대로) ───────────────────────────────────
@@ -61,7 +59,7 @@ export async function POST(request: Request) {
     // 청크 단위로 upsert (한 번에 너무 많으면 오류 가능)
     const CHUNK = 500
     let upserted = 0
-    let err: string | undefined
+    let errMsg: string | undefined
 
     for (let i = 0; i < rows.length; i += CHUNK) {
       const chunk = rows.slice(i, i + CHUNK)
@@ -70,20 +68,20 @@ export async function POST(request: Request) {
         .upsert(chunk as never[], { onConflict: 'id' })
 
       if (error) {
-        err = error.message
+        errMsg = error.message
         console.error(`[restore] ${table} upsert 실패:`, error)
         break
       }
       upserted += chunk.length
     }
 
-    results[table] = { upserted, ...(err ? { error: err } : {}) }
+    results[table] = { upserted, ...(errMsg ? { error: errMsg } : {}) }
   }
 
   const hasError = Object.values(results).some((r) => r.error)
   console.log('[restore] 완료:', results)
 
-  return NextResponse.json({
+  return ok({
     ok: !hasError,
     file,
     backup_created_at: dump.created_at,

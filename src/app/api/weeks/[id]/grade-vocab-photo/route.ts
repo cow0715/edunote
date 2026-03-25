@@ -1,19 +1,16 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { getAuth, err, ok } from '@/lib/api'
 import { gradeVocabPhoto } from '@/lib/anthropic'
 
 export const maxDuration = 60
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
   const { id: weekId } = await params
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  if (!user) return err('인증 필요', 401)
 
   const { studentId, fileData, mimeType } = await request.json()
   if (!fileData || !mimeType || !studentId) {
-    return NextResponse.json({ error: '필수 파라미터 없음' }, { status: 400 })
+    return err('필수 파라미터 없음')
   }
 
   // ── 1. AI 채점 ─────────────────────────────────────────────────────────
@@ -22,11 +19,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     results = await gradeVocabPhoto(fileData, mimeType)
   } catch (e) {
     console.error('[grade-vocab-photo] AI 채점 실패', e)
-    return NextResponse.json({ error: '단어 채점 실패. 사진을 확인해주세요.' }, { status: 422 })
+    return err('단어 채점 실패. 사진을 확인해주세요.', 422)
   }
 
   if (!results.length) {
-    return NextResponse.json({ error: '단어를 찾을 수 없습니다' }, { status: 422 })
+    return err('단어를 찾을 수 없습니다', 422)
   }
 
   // ── 2. vocab_word upsert (같은 주차의 단어는 반 공유) ──────────────────
@@ -40,7 +37,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   if (vocabWordError) {
     console.error('[grade-vocab-photo] vocab_word upsert 실패', vocabWordError)
-    return NextResponse.json({ error: vocabWordError.message }, { status: 500 })
+    return err(vocabWordError.message, 500)
   }
 
   // ── 3. week_score upsert ──────────────────────────────────────────────
@@ -56,7 +53,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   if (scoreError || !score) {
     console.error('[grade-vocab-photo] week_score upsert 실패', scoreError)
-    return NextResponse.json({ error: 'week_score 생성 실패' }, { status: 500 })
+    return err('week_score 생성 실패', 500)
   }
 
   // ── 4. student_vocab_answer upsert ─────────────────────────────────────
@@ -101,5 +98,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     console.error('[grade-vocab-photo] 사진 업로드 예외', e)
   }
 
-  return NextResponse.json({ ok: true, vocab_correct: vocabCorrect, vocab_total: results.length, results })
+  return ok({ ok: true, vocab_correct: vocabCorrect, vocab_total: results.length, results })
 }

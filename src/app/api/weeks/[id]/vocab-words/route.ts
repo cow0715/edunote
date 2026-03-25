@@ -1,15 +1,12 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { getAuth, err, ok } from '@/lib/api'
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
   const { id: weekId } = await params
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  if (!user) return err('인증 필요', 401)
 
   const { words } = await request.json()
-  if (!words?.length) return NextResponse.json({ error: '단어 없음' }, { status: 400 })
+  if (!words?.length) return err('단어 없음')
 
   const { error } = await supabase
     .from('vocab_word')
@@ -27,8 +24,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   if (error) {
     console.error('[vocab-words] upsert 실패', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return err(error.message, 500)
   }
 
-  return NextResponse.json({ ok: true, saved: words.length })
+  return ok({ ok: true, saved: words.length })
 }

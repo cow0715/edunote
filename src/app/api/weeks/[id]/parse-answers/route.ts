@@ -1,18 +1,14 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { parseAnswerSheet, gradeSubjectiveAnswers, SubjectiveStudentAnswer, TagCategory } from '@/lib/anthropic'
 
 export const maxDuration = 300
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
   const { id: weekId } = await params
+  if (!user) return err('인증 필요', 401)
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
-
-  const { data: teacher } = await supabase.from('teacher').select('id').eq('auth_id', user.id).single()
-  const teacherId = teacher?.id ?? null
+  const teacherId = await getTeacherId(supabase, user.id)
 
   // 카테고리 + 태그 조회 (AI 프롬프트용 + 매칭용)
   const tagList: { id: string; name: string }[] = []
@@ -51,7 +47,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const { fileData, mimeType, fileName } = await request.json()
-  if (!fileData || !mimeType) return NextResponse.json({ error: '파일 없음' }, { status: 400 })
+  if (!fileData || !mimeType) return err('파일 없음')
 
   // ── 1. 해설지 파싱 ────────────────────────────────────────────────────
   let parsedAnswers
@@ -59,11 +55,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     parsedAnswers = await parseAnswerSheet(fileData, mimeType, tagCategories)
   } catch (e) {
     console.error('[parse-answers] 파싱 실패', e)
-    return NextResponse.json({ error: '해설지 파싱 실패. 파일을 확인해주세요.' }, { status: 422 })
+    return err('해설지 파싱 실패. 파일을 확인해주세요.', 422)
   }
 
   if (!parsedAnswers.length) {
-    return NextResponse.json({ error: '문항을 찾을 수 없습니다' }, { status: 422 })
+    return err('문항을 찾을 수 없습니다', 422)
   }
 
   // ── 1-1. 후처리: sub_label 순서 정규화 (a,b,c,... 순서로 재부여) ────────
@@ -193,7 +189,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .eq('week_id', weekId)
 
   if (!weekScores?.length) {
-    return NextResponse.json({ ok: true, questions_parsed: questions.length, students_regraded: 0 })
+    return ok({ ok: true, questions_parsed: questions.length, students_regraded: 0 })
   }
 
   const studentIds = weekScores.map((s) => s.student_id)
@@ -302,7 +298,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             await supabase.from('week_score').update({ reading_correct: readingCorrect }).eq('id', score.id)
           })
         )
-        return NextResponse.json({ ok: true, questions_parsed: questions.length, students_regraded: weekScores.length, subjective_grading_failed: true })
+        return ok({ ok: true, questions_parsed: questions.length, students_regraded: weekScores.length, subjective_grading_failed: true })
       }
     }
   }
@@ -321,5 +317,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     })
   )
 
-  return NextResponse.json({ ok: true, questions_parsed: questions.length, students_regraded: weekScores.length })
+  return ok({ ok: true, questions_parsed: questions.length, students_regraded: weekScores.length })
 }

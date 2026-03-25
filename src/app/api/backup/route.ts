@@ -1,19 +1,15 @@
+import { getAuth, err, ok } from '@/lib/api'
 import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
-
-function auth(request: Request, supabase: Awaited<ReturnType<typeof createClient>>) {
-  const authHeader = request.headers.get('authorization')
-  if (authHeader === `Bearer ${process.env.CRON_SECRET}`) return true
-  return false
-}
 
 export async function POST(request: Request) {
   const supabase = await createClient()
 
-  const isCron = auth(request, supabase)
+  // cron 또는 인증된 사용자 허용
+  const authHeader = request.headers.get('authorization')
+  const isCron = authHeader === `Bearer ${process.env.CRON_SECRET}`
   if (!isCron) {
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+    if (!user) return err('인증 필요', 401)
   }
 
   // ── 전체 테이블 덤프 (FK 순서대로) ──────────────────────────────────────
@@ -81,21 +77,20 @@ export async function POST(request: Request) {
 
   if (uploadErr) {
     console.error('[backup] Storage 저장 실패:', uploadErr)
-    return NextResponse.json({ error: uploadErr.message }, { status: 500 })
+    return err(uploadErr.message, 500)
   }
 
   const rowCounts = Object.fromEntries(
     Object.entries(dump.tables).map(([k, v]) => [k, v.length])
   )
   console.log('[backup] 완료:', fileName, rowCounts)
-  return NextResponse.json({ ok: true, file: fileName, rows: rowCounts })
+  return ok({ ok: true, file: fileName, rows: rowCounts })
 }
 
 // 백업 파일 목록 조회 or signed URL 발급
 export async function GET(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증 필요', 401)
 
   const { searchParams } = new URL(request.url)
   const file = searchParams.get('file')
@@ -104,10 +99,10 @@ export async function GET(request: Request) {
     const { data: files } = await supabase.storage
       .from('backup')
       .list('', { sortBy: { column: 'name', order: 'desc' }, limit: 30 })
-    return NextResponse.json({ files: files ?? [] })
+    return ok({ files: files ?? [] })
   }
 
   const { data, error } = await supabase.storage.from('backup').createSignedUrl(file, 3600)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ url: data.signedUrl })
+  if (error) return err(error.message, 500)
+  return ok({ url: data.signedUrl })
 }

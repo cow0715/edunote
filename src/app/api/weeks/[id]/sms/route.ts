@@ -1,13 +1,10 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { getAuth, err, ok } from '@/lib/api'
 import { generateSmsMessages, SmsStudentInput } from '@/lib/anthropic'
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
   const { id: weekId } = await params
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  if (!user) return err('인증 필요', 401)
 
   // 주차 + 수업 정보
   const { data: week } = await supabase
@@ -16,7 +13,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .eq('id', weekId)
     .single()
 
-  if (!week) return NextResponse.json({ error: '주차 없음' }, { status: 404 })
+  if (!week) return err('주차 없음', 404)
 
   const classId = week.class_id
   const className = (week.class as { name: string } | null)?.name ?? '수업'
@@ -36,7 +33,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .eq('class_id', classId)
     .order('created_at')
 
-  if (!classStudents?.length) return NextResponse.json({ messages: [] })
+  if (!classStudents?.length) return ok({ messages: [] })
 
   const studentIds = classStudents.map((cs) => cs.student_id)
 
@@ -180,9 +177,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       }
     })
 
-    return NextResponse.json({ messages })
+    return ok({ messages })
   } catch (e) {
     console.error('[POST /api/weeks/[id]/sms]', e)
-    return NextResponse.json({ error: 'SMS 생성 실패' }, { status: 500 })
+    return err('SMS 생성 실패', 500)
   }
 }

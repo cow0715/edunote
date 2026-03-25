@@ -5,176 +5,14 @@ import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
 import {
   GraduationCap, BookOpen, BookText, ClipboardCheck, UserCheck,
-  ChevronDown, ChevronUp, ChevronRight, X, TrendingUp, TrendingDown, Minus,
-  Moon, Sun, Home, BarChart2, PieChart, MessageSquare, BookX, AlertTriangle,
+  ChevronDown, ChevronUp, X,
+  Home, BarChart2, PieChart, MessageSquare, BookX, AlertTriangle,
 } from 'lucide-react'
-import { classifyPatterns, PatternItem, PatternType } from '@/hooks/weakness/useAnalysis'
+import { classifyPatterns } from '@/hooks/weakness/useAnalysis'
+import { ShareData, StudentAnswer, VocabAnswer, TabId, CIRCLE_NUM } from './share-types'
+import { Card, StatCard, AttendanceCalendar, ThemeToggle } from './share-components'
+import { PatternCard } from './share-pattern'
 
-// ── 패턴 메타 ────────────────────────────────────────────────────────────────
-const PATTERN_META: Record<PatternType, {
-  label: string
-  color: string          // tailwind text color
-  bgColor: string        // tailwind bg (light)
-  darkBgColor: string    // tailwind bg (dark)
-  borderColor: string
-  darkBorderColor: string
-  insightFn: (p: PatternItem) => string
-}> = {
-  persistent: {
-    label: '고착형',
-    color: 'text-red-600 dark:text-red-400',
-    bgColor: 'bg-red-50',
-    darkBgColor: 'dark:bg-red-950/20',
-    borderColor: 'border-red-100',
-    darkBorderColor: 'dark:border-red-900/40',
-    insightFn: (p) =>
-      `출제 ${p.weekCount}회 중 ${p.wrongWeekCount}회 오답 — 꾸준히 취약한 유형입니다`,
-  },
-  deteriorating: {
-    label: '악화형',
-    color: 'text-orange-600 dark:text-orange-400',
-    bgColor: 'bg-orange-50',
-    darkBgColor: 'dark:bg-orange-950/20',
-    borderColor: 'border-orange-100',
-    darkBorderColor: 'dark:border-orange-900/40',
-    insightFn: (p) =>
-      `정답률 ${p.firstAccuracy}% → ${p.latestAccuracy}% (${Math.abs(p.diff)}%p 하락)`,
-  },
-  intermittent: {
-    label: '간헐형',
-    color: 'text-amber-600 dark:text-amber-400',
-    bgColor: 'bg-amber-50',
-    darkBgColor: 'dark:bg-amber-950/20',
-    borderColor: 'border-amber-100',
-    darkBorderColor: 'dark:border-amber-900/40',
-    insightFn: (p) =>
-      `출제 ${p.weekCount}회 중 ${p.wrongWeekCount}회 오답 — 들쑥날쑥, 완전 습득 필요`,
-  },
-  improving: {
-    label: '개선형',
-    color: 'text-blue-600 dark:text-blue-400',
-    bgColor: 'bg-blue-50',
-    darkBgColor: 'dark:bg-blue-950/20',
-    borderColor: 'border-blue-100',
-    darkBorderColor: 'dark:border-blue-900/40',
-    insightFn: (p) =>
-      `정답률 ${p.firstAccuracy}% → ${p.latestAccuracy}% (개선 중이나 아직 ${p.latestAccuracy}%)`,
-  },
-}
-
-// ── 스파크라인 ────────────────────────────────────────────────────────────────
-function Sparkline({ weeks, patternType }: {
-  weeks: PatternItem['weeks']
-  patternType: PatternType
-}) {
-  const W = 64, H = 28, PAD = 3
-  const lineColor: Record<PatternType, string> = {
-    persistent:   '#ef4444',
-    deteriorating:'#f97316',
-    intermittent: '#f59e0b',
-    improving:    '#3b82f6',
-  }
-  const color = lineColor[patternType]
-
-  if (weeks.length < 2) return null
-
-  const xs = weeks.map((_, i) => PAD + (i / (weeks.length - 1)) * (W - PAD * 2))
-  const ys = weeks.map((w) => H - PAD - (w.accuracy / 100) * (H - PAD * 2))
-
-  const d = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ')
-
-  return (
-    <svg width={W} height={H} className="shrink-0">
-      {/* 기준선 50% */}
-      <line
-        x1={PAD} y1={(H / 2).toFixed(1)} x2={W - PAD} y2={(H / 2).toFixed(1)}
-        stroke="currentColor" strokeWidth="0.5" strokeDasharray="2 2"
-        className="text-gray-300 dark:text-gray-600"
-      />
-      <path d={d} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      {/* 마지막 점 */}
-      <circle cx={xs[xs.length - 1].toFixed(1)} cy={ys[ys.length - 1].toFixed(1)} r="2.5" fill={color} />
-    </svg>
-  )
-}
-
-// ── 패턴 카드 ─────────────────────────────────────────────────────────────────
-function PatternCard({ pattern: p, onTagClick }: {
-  pattern: PatternItem
-  onTagClick: (id: string, name: string) => void
-}) {
-  const meta = PATTERN_META[p.patternType]
-  return (
-    <button
-      type="button"
-      onClick={() => onTagClick(p.id, p.name)}
-      className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors
-        ${meta.bgColor} ${meta.darkBgColor} ${meta.borderColor} ${meta.darkBorderColor}
-        hover:brightness-95 dark:hover:brightness-110`}
-    >
-      {/* 좌: 패턴 뱃지 + 이름 + 인사이트 */}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${meta.color}
-            bg-white/60 dark:bg-black/20`}>
-            {meta.label}
-          </span>
-          <span className="truncate text-sm font-semibold text-gray-900 dark:text-white">
-            {p.name}
-          </span>
-        </div>
-        <p className={`mt-0.5 text-[11px] ${meta.color} opacity-90`}>
-          {meta.insightFn(p)}
-        </p>
-        {/* 주차 칩 */}
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {p.weeks.map((w) => (
-            <span
-              key={w.weekNumber}
-              className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium
-                ${w.accuracy < 50
-                  ? `${meta.color} border-current bg-white/50 dark:bg-black/20`
-                  : 'text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-black/10'
-                }`}
-            >
-              {w.weekNumber}주 {w.accuracy}%
-            </span>
-          ))}
-        </div>
-      </div>
-      {/* 우: 스파크라인 + 전체 정답률 */}
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        <Sparkline weeks={p.weeks} patternType={p.patternType} />
-        <span className={`text-[11px] font-bold ${meta.color}`}>
-          {p.overallAccuracy}% 정답
-        </span>
-      </div>
-    </button>
-  )
-}
-
-function ThemeToggle({ isDark, onToggle }: { isDark: boolean; onToggle: () => void }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <Sun className="h-3.5 w-3.5 text-amber-400 dark:text-gray-600 transition-colors" />
-      <button
-        role="switch"
-        aria-checked={isDark}
-        onClick={onToggle}
-        className={`relative h-6 w-11 rounded-full transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-          isDark ? 'bg-indigo-600' : 'bg-gray-200'
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow-md transition-transform duration-300 ${
-            isDark ? 'translate-x-5' : 'translate-x-0'
-          }`}
-        />
-      </button>
-      <Moon className="h-3.5 w-3.5 text-gray-400 dark:text-indigo-400 transition-colors" />
-    </div>
-  )
-}
 import { TrendItem } from '@/components/share/score-trend-chart'
 import { HomeworkItem } from '@/components/share/homework-bar-chart'
 import { RadarItem } from '@/components/share/concept-radar-chart'
@@ -196,47 +34,6 @@ const ConceptRadarChart = dynamic(
   { ssr: false }
 )
 
-// ── 타입 ──────────────────────────────────────────────────────────────────────
-type Week = {
-  id: string; class_id: string; week_number: number; start_date: string | null
-  vocab_total: number; reading_total: number; homework_total: number
-}
-type WeekScore = {
-  id: string; week_id: string
-  reading_correct: number; vocab_correct: number | null; homework_done: number | null; memo: string | null
-}
-type ConceptTag = { id: string; name: string; category_id: string | null; category_name: string | null }
-type StudentAnswer = {
-  id: string; week_score_id: string; is_correct: boolean
-  student_answer: number | null; student_answer_text: string | null; ai_feedback: string | null
-  exam_question: {
-    id: string; week_id: string; question_number: number; sub_label: string | null
-    exam_type: 'reading' | 'vocab' | null; question_style: string
-    correct_answer: number | null; correct_answer_text: string | null
-    explanation?: string | null; question_text?: string | null
-    exam_question_tag: { concept_tag: ConceptTag | null }[]
-  } | null
-}
-type AttendanceRecord = { id: string; class_id: string; date: string; status: 'present' | 'late' | 'absent' }
-type VocabWord = {
-  id: string; number: number; english_word: string
-  correct_answer: string | null; synonyms: string[] | null; antonyms: string[] | null
-}
-type VocabAnswer = {
-  id: string; week_score_id: string; is_correct: boolean
-  student_answer: string | null; vocab_word: VocabWord | null
-}
-type ShareData = {
-  student: { id: string; name: string; school: string | null; grade: string | null }
-  classes: { id: string; name: string }[]
-  weeks: Week[]; weekScores: WeekScore[]; studentAnswers: StudentAnswer[]
-  vocabAnswers: VocabAnswer[]; attendance: AttendanceRecord[]
-  classAverages: Record<string, { readingRate: number | null; vocabRate: number | null }>
-}
-
-const CIRCLE_NUM = ['①', '②', '③', '④', '⑤']
-type TabId = 'home' | 'score' | 'analysis' | 'wrongnote'
-
 function useShareData(token: string) {
   return useQuery<ShareData>({
     queryKey: ['share', token],
@@ -246,126 +43,6 @@ function useShareData(token: string) {
       return res.json()
     },
   })
-}
-
-// ── 공통 카드 ──────────────────────────────────────────────────────────────
-function Card({ title, subtitle, children, noPad }: {
-  title?: string; subtitle?: string; children: React.ReactNode; noPad?: boolean
-}) {
-  return (
-    <div className="rounded-2xl bg-white dark:bg-[#16161f] shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
-      {title && (
-        <div className="px-5 pt-5 pb-3">
-          <h2 className="text-sm font-bold text-gray-900 dark:text-white">{title}</h2>
-          {subtitle && <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-300">{subtitle}</p>}
-        </div>
-      )}
-      <div className={noPad ? '' : 'px-5 pb-5'}>{children}</div>
-    </div>
-  )
-}
-
-// ── 스탯 카드 ──────────────────────────────────────────────────────────────
-function StatCard({ label, value, delta, icon, color }: {
-  label: string; value: string | null; delta: number | null
-  icon: React.ReactNode; color: 'indigo' | 'emerald' | 'amber' | 'blue'
-}) {
-  const c = {
-    indigo:  { bg: 'bg-indigo-50 dark:bg-indigo-900/40',   icon: 'text-indigo-500 dark:text-indigo-300',   val: 'text-indigo-700 dark:text-indigo-200'   },
-    emerald: { bg: 'bg-emerald-50 dark:bg-emerald-900/40', icon: 'text-emerald-500 dark:text-emerald-300', val: 'text-emerald-700 dark:text-emerald-200' },
-    amber:   { bg: 'bg-amber-50 dark:bg-amber-900/40',     icon: 'text-amber-500 dark:text-amber-300',     val: 'text-amber-700 dark:text-amber-200'     },
-    blue:    { bg: 'bg-blue-50 dark:bg-blue-900/40',       icon: 'text-blue-500 dark:text-blue-300',       val: 'text-blue-700 dark:text-blue-200'       },
-  }[color]
-
-  return (
-    <div className="rounded-2xl bg-white dark:bg-[#16161f] shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10 px-4 py-4">
-      <div className={`mb-3 flex h-8 w-8 items-center justify-center rounded-xl ${c.bg}`}>
-        <span className={c.icon}>{icon}</span>
-      </div>
-      <p className={`text-2xl font-bold ${c.val}`}>{value ?? '-'}</p>
-      <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-300">{label}</p>
-      {delta !== null && (
-        <div className={`mt-2 flex items-center gap-0.5 text-xs font-medium ${
-          delta > 0 ? 'text-emerald-500 dark:text-emerald-400' : delta < 0 ? 'text-rose-500 dark:text-rose-400' : 'text-gray-400 dark:text-gray-400'
-        }`}>
-          {delta > 0 ? <TrendingUp className="h-3 w-3" /> : delta < 0 ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
-          <span>{delta > 0 ? '+' : ''}{delta}% 지난주</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── 출석 캘린더 ────────────────────────────────────────────────────────────
-function AttendanceCalendar({ attendance }: { attendance: AttendanceRecord[] }) {
-  if (attendance.length === 0) return (
-    <p className="py-6 text-center text-xs text-gray-400 dark:text-gray-500">출결 기록이 없습니다</p>
-  )
-
-  const attMap = new Map(attendance.map((a) => [a.date, a.status]))
-  const months = [...new Set(attendance.map((a) => a.date.substring(0, 7)))].sort().reverse()
-
-  const DOW = ['일', '월', '화', '수', '목', '금', '토']
-  const STATUS_COLOR: Record<string, string> = {
-    present: 'bg-emerald-500 text-white',
-    late:    'bg-amber-400 text-white',
-    absent:  'bg-rose-400 text-white',
-  }
-
-  return (
-    <div className="space-y-5">
-      {months.map((monthStr) => {
-        const [year, month] = monthStr.split('-').map(Number)
-        const daysInMonth = new Date(year, month, 0).getDate()
-        const startDow = new Date(year, month - 1, 1).getDay()
-
-        const cells: (number | null)[] = []
-        for (let i = 0; i < startDow; i++) cells.push(null)
-        for (let d = 1; d <= daysInMonth; d++) cells.push(d)
-
-        const toDateStr = (d: number) =>
-          `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-
-        return (
-          <div key={monthStr}>
-            <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">
-              {year}년 {month}월
-            </p>
-            <div className="grid grid-cols-7 gap-y-1 text-center">
-              {DOW.map((d) => (
-                <div key={d} className="pb-1 text-[10px] font-medium text-gray-400 dark:text-gray-400">{d}</div>
-              ))}
-              {cells.map((d, i) => {
-                if (!d) return <div key={`e${i}`} />
-                const status = attMap.get(toDateStr(d))
-                if (!status) return (
-                  <div key={d} className="flex items-center justify-center py-0.5">
-                    <span className="text-[11px] text-gray-300 dark:text-gray-500">{d}</span>
-                  </div>
-                )
-                return (
-                  <div key={d} className="flex items-center justify-center py-0.5">
-                    <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold ${STATUS_COLOR[status]}`}>
-                      {d}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )
-      })}
-
-      <div className="flex gap-4 pt-1">
-        {[['bg-emerald-500', '출석'], ['bg-amber-400', '지각'], ['bg-rose-400', '결석']].map(([color, label]) => (
-          <div key={label} className="flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${color}`} />
-            <span className="text-[11px] text-gray-500 dark:text-gray-300">{label}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
 }
 
 // ── 오답 포맷 헬퍼 ──────────────────────────────────────────────────────────
@@ -462,7 +139,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     return (answersByScore.get(scoreId)?.some((a) => a.exam_question?.exam_type === 'reading') ?? false) || s.reading_correct > 0
   }
 
-  function weekRate(score: WeekScore, week: Week, field: 'reading' | 'vocab' | 'homework'): number | null {
+  function weekRate(score: (typeof weekScores)[number], week: (typeof weeks)[number], field: 'reading' | 'vocab' | 'homework'): number | null {
     if (field === 'reading') return week.reading_total > 0 && hasReadingData(week.id, score.id) ? Math.round(score.reading_correct / week.reading_total * 100) : null
     if (field === 'vocab') return week.vocab_total > 0 && score.vocab_correct !== null ? Math.round(score.vocab_correct / week.vocab_total * 100) : null
     if (field === 'homework') return week.homework_total > 0 && score.homework_done !== null ? Math.round(score.homework_done / week.homework_total * 100) : null
@@ -593,7 +270,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     list.push(va)
     vocabWrongMap.set(weekId, list)
   })
-  const vocabWrongGroups: { week: Week; answers: VocabAnswer[]; className: string }[] = []
+  const vocabWrongGroups: { week: (typeof weeks)[number]; answers: VocabAnswer[]; className: string }[] = []
   for (const [weekId, answers] of vocabWrongMap.entries()) {
     const week = weeks.find((w) => w.id === weekId)
     if (!week) continue
@@ -1031,14 +708,15 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                           {q.question_text}
                                         </div>
                                       )}
-                                      <div className="flex items-center gap-2 mb-3">
-                                        <span className="text-sm font-semibold text-rose-500 dark:text-rose-400 line-through">
-                                          {formatMyAnswer(a)}
-                                        </span>
-                                        <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
-                                        <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                                          {formatCorrectAnswer(q)}
-                                        </span>
+                                      <div className="space-y-1.5 mb-3">
+                                        <div className="flex flex-col gap-0.5">
+                                          <span className="text-xs text-gray-400 dark:text-gray-400">내 답</span>
+                                          <span className="text-sm font-semibold text-rose-500 dark:text-rose-400 break-words">{formatMyAnswer(a)}</span>
+                                        </div>
+                                        <div className="flex flex-col gap-0.5">
+                                          <span className="text-xs text-gray-400 dark:text-gray-400">정답</span>
+                                          <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 break-words">{formatCorrectAnswer(q)}</span>
+                                        </div>
                                       </div>
                                       {a.ai_feedback && (
                                         <p className="mb-2.5 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
@@ -1110,13 +788,17 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                       {vw.correct_answer || '—'}
                                     </span>
                                   </div>
-                                  {((vw.synonyms?.length ?? 0) > 0 || (vw.antonyms?.length ?? 0) > 0) && (
+                                  {(vw.synonyms?.length ?? 0) > 0 && (
                                     <div className="mt-2 flex flex-wrap gap-1.5">
                                       {(vw.synonyms ?? []).map((s) => (
                                         <span key={s} className="rounded-full border border-blue-200 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-[11px] text-blue-700 dark:text-blue-300">
                                           유 {s}
                                         </span>
                                       ))}
+                                    </div>
+                                  )}
+                                  {(vw.antonyms?.length ?? 0) > 0 && (
+                                    <div className="mt-1.5 flex flex-wrap gap-1.5">
                                       {(vw.antonyms ?? []).map((s) => (
                                         <span key={s} className="rounded-full border border-purple-200 dark:border-purple-800/40 bg-purple-50 dark:bg-purple-950/40 px-2 py-0.5 text-[11px] text-purple-700 dark:text-purple-300">
                                           반 {s}
@@ -1189,7 +871,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
             </button>
           </div>
 
-          <div className="overflow-y-auto px-5 py-4 space-y-3">
+          <div className="overflow-y-auto overscroll-contain px-5 py-4 space-y-3">
             {drawerAnswers.length === 0 ? (
               <p className="py-10 text-center text-sm text-gray-400 dark:text-gray-400">오답 데이터가 없습니다</p>
             ) : (
@@ -1209,13 +891,13 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                     )}
 
                     <div className="space-y-2">
-                      <div className="flex items-start gap-2">
-                        <span className="w-10 shrink-0 text-xs text-gray-400 dark:text-gray-400">내 답</span>
-                        <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">{formatMyAnswer(a)}</span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs text-gray-400 dark:text-gray-400">내 답</span>
+                        <span className="text-xs font-semibold text-rose-600 dark:text-rose-400 break-words">{formatMyAnswer(a)}</span>
                       </div>
-                      <div className="flex items-start gap-2">
-                        <span className="w-10 shrink-0 text-xs text-gray-400 dark:text-gray-400">정답</span>
-                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">{formatCorrectAnswer(q)}</span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs text-gray-400 dark:text-gray-400">정답</span>
+                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 break-words">{formatCorrectAnswer(q)}</span>
                       </div>
                       {a.ai_feedback && (
                         <div className="flex items-start gap-2">

@@ -1,70 +1,52 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { generateSessionDates } from '@/lib/schedule'
 
 export async function GET() {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증 필요', 401)
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
-
-  const { data: teacher, error: teacherError } = await supabase
-    .from('teacher')
-    .select('id')
-    .eq('auth_id', user.id)
-    .single()
-
-  if (teacherError) console.error('[GET /api/classes] teacher 조회 실패:', teacherError)
-  if (!teacher) return NextResponse.json({ error: '강사 정보 없음' }, { status: 404 })
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
 
   const { data, error } = await supabase
     .from('class')
     .select('*')
-    .eq('teacher_id', teacher.id)
+    .eq('teacher_id', teacherId)
     .order('created_at', { ascending: false })
 
   if (error) {
     console.error('[GET /api/classes] class 조회 실패:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return err(error.message, 500)
   }
 
-  return NextResponse.json(data)
+  return ok(data)
 }
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증 필요', 401)
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
-
-  const { data: teacher, error: teacherError } = await supabase
-    .from('teacher')
-    .select('id')
-    .eq('auth_id', user.id)
-    .single()
-
-  if (teacherError) console.error('[POST /api/classes] teacher 조회 실패:', teacherError)
-  if (!teacher) return NextResponse.json({ error: '강사 정보 없음' }, { status: 404 })
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
 
   const body = await request.json()
   const { name, description, start_date, end_date, schedule_days = [] } = body
 
   const { data, error } = await supabase
     .from('class')
-    .insert({ teacher_id: teacher.id, name, description, start_date, end_date, schedule_days })
+    .insert({ teacher_id: teacherId, name, description, start_date, end_date, schedule_days })
     .select()
     .single()
 
   if (error) {
     console.error('[POST /api/classes] class 생성 실패:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return err(error.message, 500)
   }
 
-  // 요일 설정이 있으면 주차 자동 생성
   if (schedule_days.length > 0 && start_date && end_date) {
     const dates = generateSessionDates(start_date, end_date, schedule_days)
     if (dates.length > 0) {
-      const weekRows = dates.map((date, i) => ({
+      const weekRows = dates.map((date: string, i: number) => ({
         class_id: data.id,
         week_number: i + 1,
         start_date: date,
@@ -75,5 +57,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json(data, { status: 201 })
+  return ok(data, { status: 201 })
 }

@@ -1,11 +1,9 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { getAuth, err, ok } from '@/lib/api'
 
 // 전송 내역 목록 조회
 export async function GET(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증 필요', 401)
 
   const { searchParams } = new URL(request.url)
   const studentId = searchParams.get('student_id')
@@ -18,20 +16,19 @@ export async function GET(request: Request) {
   if (studentId) query = query.eq('student_id', studentId)
 
   const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return err(error.message, 500)
 
-  return NextResponse.json(data)
+  return ok(data)
 }
 
 // 전송 완료 저장
 export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 })
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증 필요', 401)
 
   const { student_id, week_id, message } = await request.json()
   if (!student_id || !week_id || !message) {
-    return NextResponse.json({ error: '필수 항목 누락' }, { status: 400 })
+    return err('필수 항목 누락')
   }
 
   const { data, error } = await supabase
@@ -40,6 +37,6 @@ export async function POST(request: Request) {
     .select()
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  if (error) return err(error.message, 500)
+  return ok(data)
 }
