@@ -117,8 +117,32 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     return normalize(correctAnswerText) === normalize(studentAnswerText)
   }
 
+  // "기호:수정어" 형식 여부 (찾아 고치시오 유형)
+  function isSymbolCorrection(text: string | null): boolean {
+    return !!text && /^[a-z]:.+$/i.test(text.trim())
+  }
+
+  // 학생 답안에서 수정어만 추출 ("e: watching", "watched → watching", "watching" 모두 → "watching")
+  function extractCorrection(text: string): string {
+    let s = text.trim()
+    s = s.replace(/^[a-z]\s*:\s*/i, '')          // "e: watching" → "watching"
+    s = s.replace(/^\([a-z]\)\s*:?\s*/i, '')      // "(e): watching" → "watching"
+    if (s.includes('→')) s = s.split('→').pop()!   // "watched → watching" → "watching"
+    return s.trim().toLowerCase()
+  }
+
   // 서술형 배치 채점용 수집
   const subjectiveForGrading: SubjectiveStudentAnswer[] = []
+
+  // 기호:수정어 유형 — 코드 레벨 집합 채점용 수집 (빈칸 포함)
+  type SymbolCorrEntry = {
+    week_score_id: string
+    exam_question_id: string
+    question_number: number
+    student_answer_text: string
+    correct_answer_text: string
+  }
+  const symbolCorrForGrading: SymbolCorrEntry[] = []
   const processedScoreIds: string[] = []
 
   for (const row of rows) {
@@ -202,10 +226,21 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         return err(answerError.message, 500)
       }
 
-      // subjective만 AI 채점용으로 수집
+      // subjective 채점용 수집 — 기호:수정어 유형은 코드 레벨, 나머지는 AI
       for (const a of row.answers) {
         const q = questionMap.get(a.exam_question_id)
-        if (q?.question_style === 'subjective' && (a.student_answer_text ?? '').trim()) {
+        if (q?.question_style !== 'subjective') continue
+
+        if (isSymbolCorrection(q.correct_answer_text)) {
+          // 빈칸 포함해서 수집 (집합 매칭에 필요)
+          symbolCorrForGrading.push({
+            week_score_id: score.id,
+            exam_question_id: a.exam_question_id,
+            question_number: q.question_number,
+            student_answer_text: (a.student_answer_text ?? '').trim(),
+            correct_answer_text: q.correct_answer_text!,
+          })
+        } else if ((a.student_answer_text ?? '').trim()) {
           subjectiveForGrading.push({
             week_score_id: score.id,
             exam_question_id: a.exam_question_id,
@@ -216,6 +251,43 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
           })
         }
       }
+    }
+  }
+
+  // 기호:수정어 유형 — 코드 레벨 집합 채점 (순서 무관)
+  if (symbolCorrForGrading.length > 0) {
+    // (week_score_id, question_number) 기준으로 그룹핑
+    const scGroups = new Map<string, SymbolCorrEntry[]>()
+    for (const a of symbolCorrForGrading) {
+      const key = `${a.week_score_id}__${a.question_number}`
+      scGroups.set(key, [...(scGroups.get(key) ?? []), a])
+    }
+
+    for (const group of scGroups.values()) {
+      const correctWords = group.map((a) => extractCorrection(a.correct_answer_text))
+      const studentWords = group.map((a) => extractCorrection(a.student_answer_text))
+
+      // 탐욕 집합 매칭
+      const remaining = [...correctWords]
+      const matched = group.map(() => false)
+      for (let i = 0; i < group.length; i++) {
+        if (!studentWords[i]) continue
+        const idx = remaining.indexOf(studentWords[i])
+        if (idx !== -1) {
+          matched[i] = true
+          remaining.splice(idx, 1)
+        }
+      }
+
+      await Promise.all(group.map((a, i) =>
+        supabase.from('student_answer')
+          .update({
+            is_correct: matched[i],
+            ai_feedback: matched[i] ? '' : `정답: ${correctWords[i]}`,
+          })
+          .eq('week_score_id', a.week_score_id)
+          .eq('exam_question_id', a.exam_question_id)
+      ))
     }
   }
 
