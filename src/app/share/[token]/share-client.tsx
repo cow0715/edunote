@@ -515,7 +515,15 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                             <>
                               <div className="mt-2.5 flex flex-wrap gap-2">
                                 {w.reading_total > 0 && score.reading_correct !== null && (
-                                  <span className="flex items-center gap-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 px-2 py-1 text-xs">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveTab('wrongnote')
+                                      setWrongNoteTab('reading')
+                                      setExpandedWrongWeekIds((prev) => new Set([...prev, w.id]))
+                                    }}
+                                    className="flex items-center gap-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 px-2 py-1 text-xs hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                                  >
                                     <BookOpen className="h-3 w-3 text-indigo-400 dark:text-indigo-500" />
                                     <span className="text-gray-600 dark:text-gray-300">시험</span>
                                     <strong className={`ml-0.5 ${scoreColor(score.reading_correct ?? 0, w.reading_total)}`}>
@@ -532,10 +540,18 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                         </span>
                                       )
                                     })()}
-                                  </span>
+                                  </button>
                                 )}
                                 {w.vocab_total > 0 && score.vocab_correct !== null && (
-                                  <span className="flex items-center gap-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 text-xs">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveTab('wrongnote')
+                                      setWrongNoteTab('vocab')
+                                      setExpandedVocabWeekIds((prev) => new Set([...prev, w.id]))
+                                    }}
+                                    className="flex items-center gap-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 text-xs hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+                                  >
                                     <BookText className="h-3 w-3 text-emerald-500 dark:text-emerald-600" />
                                     <span className="text-gray-600 dark:text-gray-300">단어</span>
                                     <strong className={`ml-0.5 ${scoreColor(score.vocab_correct, w.vocab_total)}`}>
@@ -552,7 +568,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                         </span>
                                       )
                                     })()}
-                                  </span>
+                                  </button>
                                 )}
                                 {w.homework_total > 0 && score.homework_done !== null && (
                                   <span className="flex items-center gap-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 px-2 py-1 text-xs">
