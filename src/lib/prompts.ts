@@ -264,43 +264,43 @@ JSON 배열만 출력:
 
 // ── 단어 채점 ────────────────────────────────────────────────────────────
 
-export function buildVocabGradingPrompt(items: { number: number; english_word: string; student_answer: string | null }[]): string {
+export function buildVocabGradingPrompt(items: { number: number; english_word: string; student_answer: string | null; correct_answer?: string | null }[]): string {
+  const hasCorrectAnswer = items.some((i) => i.correct_answer != null)
+
   return `단어 시험 답안을 채점하세요.
 
 ━━━ 공통 규칙 (모든 유형 적용) ━━━
 - student_answer가 null이거나 ""이면 무조건 오답
-- 품사 판단:
-  · 해당 영어 단어가 가질 수 있는 품사 중 하나와 일치하면 정답
-    예) "further"는 부사/형용사/동사 → "추가적인(형용사)" ✅ / "더 나아가(부사)" ✅
-  · 영어 단어가 가질 수 없는 품사이면 오답
-    예) "necessary(형용사 전용)" → "필수(명사)" ❌ / "필수적인(형용사)" ✅
-    예) "justify(동사 전용)" → "정당(명사)" ❌ / "정당화하다(동사)" ✅
-- 애매한 경우 판단 기준: "이 학생이 이 단어의 의미를 알고 있는가?"
-  → 알고 있다고 판단되면 학생에게 유리하게 정답 처리
-  → 의미를 반대로 이해하거나 전혀 다른 뜻이면 오답
-  예) "further" → "멀리" ✅ (거리/방향 의미를 이해한 것으로 판단)
-  예) "barely" → "거의" ❌ (간신히 ↔ 거의: 반대 뉘앙스이므로 오답)
-  예) "barely" → "간신히" ✅
+- 철자가 약간 틀려도 의도가 명확하면 허용
+- 피동/능동 구분 엄격 적용 ("-되다" vs "-하다")
+- 주어/목적어/방향 관계가 뒤바뀌면 오답${hasCorrectAnswer ? `
+
+━━━ correct_answer(기준 답안) 사용 규칙 ━━━
+- correct_answer가 있는 문항은 반드시 이것을 정답 기준으로 삼는다
+- 완전 일치 또는 이와 동등한 표현이면 정답
+  · 동등 표현: 조사 차이("~을" vs "~를"), 어미 변형("~하다" vs "~하는"), 맞춤법 소소한 차이
+  · 허용 동의어: correct_answer와 품사·핵심 의미가 완전히 같은 단어 (단, correct_answer와 뉘앙스가 다르면 불허)
+- 틀린 경우:
+  · correct_answer와 핵심 의미가 다름
+  · 품사가 다름 (예: correct_answer가 동사인데 학생이 명사로 씀)
+  · 의미가 반대이거나 전혀 다름
+- correct_answer가 null인 문항(두 단어 선택형 등)은 아래 [유형 B] 규칙 적용` : `
+
+━━━ correct_answer 없는 문항 채점 기준 ━━━
+- 품사 판단: 해당 영어 단어가 가질 수 있는 품사와 일치하면 정답
+- 애매한 경우: "이 학생이 이 단어의 의미를 알고 있는가?" 기준으로 학생에게 유리하게 정답 처리
+  예) "further" → "멀리" ✅ / "barely" → "거의" ❌ (간신히가 정답)`}
 
 ━━━ 문제 유형별 처리 ━━━
 
 [유형 A] 영어 단어(구) → 한글 뜻 쓰기
-판단 기준:
-1. 학생이 이 단어의 의미를 알고 있는지 기준으로 판단 — 애매하면 정답 처리
-2. 품사가 다르면 오답 (공통 규칙 적용)
-3. 피동/능동 구분 엄격 적용 ("-되다" vs "-하다")
-4. 주어/목적어/방향 관계가 뒤바뀌면 오답
-5. 철자가 약간 틀려도 의도가 명확하면 허용
-6. 동의어는 품사와 핵심 의미가 같으면 허용
+${hasCorrectAnswer ? '- correct_answer 있으면 기준 답안과 비교해 채점 (위 규칙 적용)\n- correct_answer 없으면 AI가 직접 판단 (학생에게 유리하게)' : '- AI가 직접 판단 — 학생이 단어 의미를 알고 있는지 기준, 애매하면 정답 처리'}
 
 [유형 B] 두 단어 중 선택 (english_word에 "/" 포함, 예: "immune / condemned")
-- 해당 문장/문맥에서 문법·의미상 올바른 단어를 당신이 직접 판단
-- student_answer(학생이 선택한 단어)와 비교해 is_correct 결정
+- 해당 문맥에서 올바른 단어를 AI가 직접 판단 후 student_answer와 비교
 
 [유형 C] 영어 설명 → 영어 단어 쓰기 (english_word가 영어 설명문인 경우)
-- student_answer가 영어 단어·구
 - 영어 설명이 의미하는 단어와 품사·의미 모두 일치해야 정답
-- 철자 오류는 의도가 명확하면 허용
 
 채점할 답안:
 ${JSON.stringify(items)}

@@ -266,6 +266,7 @@ async function callClovaOCR(fileData: string, mimeType: string): Promise<string 
 export async function gradeVocabPhoto(
   fileData: string,
   mimeType: string,
+  correctAnswers?: Map<number, string | null>,
 ): Promise<VocabGradingResult[]> {
   const isImage = mimeType.startsWith('image/')
   const isPdf = mimeType === 'application/pdf'
@@ -321,10 +322,13 @@ export async function gradeVocabPhoto(
   }
 
   // ── Step 2: 채점 ─────────────────────────────────────────────────────
-  return await gradeVocabItems(ocrItems)
+  const itemsWithAnswer = correctAnswers
+    ? ocrItems.map((item) => ({ ...item, correct_answer: correctAnswers.get(item.number) ?? null }))
+    : ocrItems
+  return await gradeVocabItems(itemsWithAnswer)
 }
 
-type VocabItem = { number: number; english_word: string; student_answer: string | null }
+type VocabItem = { number: number; english_word: string; student_answer: string | null; correct_answer?: string | null }
 
 export async function gradeVocabItems(items: VocabItem[]): Promise<{ number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]> {
   const gradingPrompt = buildVocabGradingPrompt(items)

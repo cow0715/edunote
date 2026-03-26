@@ -13,10 +13,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return err('필수 파라미터 없음')
   }
 
-  // ── 1. AI 채점 ─────────────────────────────────────────────────────────
+  // ── 1. 기존 vocab_word에서 correct_answer 미리 조회 (채점 기준으로 활용) ──
+  const { data: existingVocabWords } = await supabase
+    .from('vocab_word')
+    .select('number, correct_answer')
+    .eq('week_id', weekId)
+
+  const correctAnswerMap = new Map<number, string | null>(
+    (existingVocabWords ?? []).map((w) => [w.number, w.correct_answer ?? null])
+  )
+
+  // ── 2. AI 채점 (correct_answer를 채점 기준으로 전달) ────────────────────
   let results
   try {
-    results = await gradeVocabPhoto(fileData, mimeType)
+    results = await gradeVocabPhoto(fileData, mimeType, correctAnswerMap.size > 0 ? correctAnswerMap : undefined)
   } catch (e) {
     console.error('[grade-vocab-photo] AI 채점 실패', e)
     return err('단어 채점 실패. 사진을 확인해주세요.', 422)
@@ -26,7 +36,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return err('단어를 찾을 수 없습니다', 422)
   }
 
-  // ── 2. vocab_word upsert (같은 주차의 단어는 반 공유) ──────────────────
+  // ── 3. vocab_word upsert (같은 주차의 단어는 반 공유) ──────────────────
   const { data: vocabWords, error: vocabWordError } = await supabase
     .from('vocab_word')
     .upsert(
@@ -40,7 +50,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return err(vocabWordError.message, 500)
   }
 
-  // ── 3. week_score upsert ──────────────────────────────────────────────
+  // ── 4. week_score upsert ──────────────────────────────────────────────
   const vocabCorrect = results.filter((r) => r.is_correct).length
   const { data: score, error: scoreError } = await supabase
     .from('week_score')
@@ -56,7 +66,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return err('week_score 생성 실패', 500)
   }
 
-  // ── 4. student_vocab_answer upsert ─────────────────────────────────────
+  // ── 5. student_vocab_answer upsert ─────────────────────────────────────
   const vocabWordMap = new Map((vocabWords ?? []).map((w) => [w.number, w.id]))
   const answerInserts = results
     .map((r) => {
@@ -78,10 +88,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (answerError) console.error('[grade-vocab-photo] student_vocab_answer upsert 실패', answerError)
   }
 
-  // ── 5. week.vocab_total 자동 업데이트 ────────────────────────────────
+  // ── 6. week.vocab_total 자동 업데이트 ────────────────────────────────
   await supabase.from('week').update({ vocab_total: results.length }).eq('id', weekId)
 
-  // ── 6. 사진 Storage 업로드 (채점과 독립적으로 처리) ───────────────────
+  // ── 7. 사진 Storage 업로드 (채점과 독립적으로 처리) ───────────────────
   try {
     const ext = mimeType.includes('png') ? 'png' : 'jpg'
     const storagePath = `${weekId}/${studentId}.${ext}`
