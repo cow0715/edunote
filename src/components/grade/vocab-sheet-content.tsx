@@ -5,16 +5,14 @@ import { Camera, X, Lock } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { GradeRow } from '@/hooks/use-grade'
 import { cn } from '@/lib/utils'
-import { ScoreToggleField } from './score-toggle-field'
 import { VocabPhotoButton } from './vocab-photo-button'
 
 export type VocabAnswerRow = { id: string; number: number; english_word: string; student_answer: string | null; is_correct: boolean; teacher_locked: boolean }
 
-export function VocabSheetContent({ row, weekId, weekScoreId, vocabTotal, vocabAnswers, vocabPhotoPath, updateRow }: {
+export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, vocabPhotoPath, updateRow }: {
   row: GradeRow
   weekId: string
   weekScoreId: string
-  vocabTotal: number
   vocabAnswers: VocabAnswerRow[]
   vocabPhotoPath: string | null
   updateRow: (studentId: string, key: keyof GradeRow, value: unknown) => void
@@ -70,16 +68,8 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabTotal, vocabA
 
   return (
     <div className="space-y-4 p-4">
-      {/* 점수 + 사진 채점 */}
+      {/* 사진 채점 */}
       <div className="flex items-center gap-3 flex-wrap">
-        <ScoreToggleField
-          label="단어"
-          total={vocabTotal}
-          value={row.vocab_correct}
-          nullLabel="미응시"
-          disabled={!row.present}
-          onChange={(v) => updateRow(row.student_id, 'vocab_correct', v)}
-        />
         <VocabPhotoButton
           weekId={weekId}
           studentId={row.student_id}

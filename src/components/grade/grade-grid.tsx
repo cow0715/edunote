@@ -465,7 +465,6 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                   row={sheetRow}
                   weekId={weekId}
                   weekScoreId={weekScoreIdMap.get(sheetRow.student_id) ?? ''}
-                  vocabTotal={vocabTotal}
                   vocabAnswers={vocabAnswerMap.get(sheetRow.student_id) ?? []}
                   vocabPhotoPath={vocabPhotoPathMap.get(sheetRow.student_id) ?? null}
                   updateRow={updateRow}
