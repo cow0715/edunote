@@ -389,20 +389,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 </div>
               )}
 
-              {/* 과제 제출률 */}
-              {homeworkData.length >= 1 && (
-                <Card title="과제 제출률" subtitle="주차별 (%)">
-                  <HomeworkBarChart data={homeworkData} isDark={isDark} />
-                </Card>
-              )}
-
-              {/* 출석 현황 */}
-              {attendance.length > 0 && (
-                <Card title="출석 현황" subtitle="수업일 기준">
-                  <AttendanceCalendar attendance={attendance} />
-                </Card>
-              )}
-
               {/* 성장 하이라이트 */}
               {highlights.length > 0 && (
                 <div className="rounded-2xl bg-white dark:bg-[#16161f] shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-5 py-4">
@@ -416,6 +402,20 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                     ))}
                   </div>
                 </div>
+              )}
+
+              {/* 과제 제출률 */}
+              {homeworkData.length >= 1 && (
+                <Card title="과제 제출률" subtitle="주차별 (%)">
+                  <HomeworkBarChart data={homeworkData} isDark={isDark} />
+                </Card>
+              )}
+
+              {/* 출석 현황 */}
+              {attendance.length > 0 && (
+                <Card title="출석 현황" subtitle="수업일 기준">
+                  <AttendanceCalendar attendance={attendance} />
+                </Card>
               )}
 
               {/* 강사 코멘트 */}
