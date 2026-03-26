@@ -2,6 +2,25 @@ import { getAuth, err, ok } from '@/lib/api'
 import { gradeSubjectiveAnswers, SubjectiveStudentAnswer } from '@/lib/anthropic'
 import { recalcReadingCorrect } from '@/lib/grade-utils'
 
+// 과제/메모 단순 저장 (AI 채점 없음)
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase, user } = await getAuth()
+  const { id: weekId } = await params
+  if (!user) return err('인증 필요', 401)
+
+  const { student_id, homework_done, memo } = await request.json()
+  if (!student_id) return err('student_id 필요')
+
+  await supabase
+    .from('week_score')
+    .upsert(
+      { week_id: weekId, student_id, homework_done: homework_done ?? null, memo: memo || null },
+      { onConflict: 'week_id,student_id' }
+    )
+
+  return ok({ ok: true })
+}
+
 // 채점 현황 조회
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
