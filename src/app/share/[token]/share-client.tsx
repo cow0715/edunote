@@ -68,6 +68,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const { data, isLoading, error } = useShareData(token)
   const [expandedWeekId, setExpandedWeekId] = useState<string | null>(null)
   const [expandedWrongWeekIds, setExpandedWrongWeekIds] = useState<Set<string>>(new Set())
+  const [expandedVocabWeekIds, setExpandedVocabWeekIds] = useState<Set<string>>(new Set())
   const [drawerTag, setDrawerTag] = useState<{ id: string; name: string; weekId?: string | null } | null>(null)
   const [isDark, setIsDark] = useState(false)
   const [themeReady, setThemeReady] = useState(false)
@@ -92,6 +93,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
       .filter((w) => data.weekScores.some((s) => s.week_id === w.id))
       .sort((a, b) => b.week_number - a.week_number)
     if (sorted[0]) setExpandedWrongWeekIds(new Set([sorted[0].id]))
+    if (sorted[0]) setExpandedVocabWeekIds(new Set([sorted[0].id]))
   }, [data])
 
   const toggleTheme = () => {
@@ -382,13 +384,17 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               {weekScores.length > 0 && (
                 <div className="grid grid-cols-2 gap-3">
                   <StatCard label="시험 평균" icon={<BookOpen className="h-4 w-4" />} color="indigo"
-                    value={avg(readingRates) !== null ? `${avg(readingRates)}%` : null} delta={delta('reading')} />
+                    value={avg(readingRates) !== null ? `${avg(readingRates)}%` : null} delta={delta('reading')}
+                    onClick={() => setActiveTab('score')} />
                   <StatCard label="단어 평균" icon={<BookText className="h-4 w-4" />} color="emerald"
-                    value={avg(vocabRates) !== null ? `${avg(vocabRates)}%` : null} delta={delta('vocab')} />
+                    value={avg(vocabRates) !== null ? `${avg(vocabRates)}%` : null} delta={delta('vocab')}
+                    onClick={() => { setActiveTab('wrongnote'); setWrongNoteTab('vocab') }} />
                   <StatCard label="과제 평균" icon={<ClipboardCheck className="h-4 w-4" />} color="amber"
-                    value={avg(homeworkRates) !== null ? `${avg(homeworkRates)}%` : null} delta={delta('homework')} />
+                    value={avg(homeworkRates) !== null ? `${avg(homeworkRates)}%` : null} delta={delta('homework')}
+                    onClick={() => setActiveTab('score')} />
                   <StatCard label="출석률" icon={<UserCheck className="h-4 w-4" />} color="blue"
-                    value={attRate !== null ? `${attRate}%` : null} delta={null} />
+                    value={attRate !== null ? `${attRate}%` : null} delta={null}
+                    onClick={() => setActiveTab('score')} />
                 </div>
               )}
 
@@ -748,71 +754,94 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                     단어 오답 데이터가 없습니다
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {vocabWrongGroups.map(({ week, answers, className }) => (
-                      <Card key={week.id} noPad>
-                        <div className="px-5 py-3 border-b border-gray-100 dark:border-white/[0.08]">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                              {className} {week.week_number}주차
-                            </span>
-                            {week.start_date && (
-                              <span className="text-xs text-gray-400 dark:text-gray-400">
-                                {new Date(week.start_date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
-                              </span>
-                            )}
-                            <span className="rounded-full bg-rose-100 dark:bg-rose-950/60 px-2 py-0.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
-                              {answers.length}개
-                            </span>
-                          </div>
-                        </div>
-                        <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
-                          {answers
-                            .slice()
-                            .sort((a, b) => (a.vocab_word?.number ?? 0) - (b.vocab_word?.number ?? 0))
-                            .map((va) => {
-                              const vw = va.vocab_word
-                              if (!vw) return null
-                              return (
-                                <div key={va.id} className="px-5 py-3">
-                                  <div className="flex items-baseline justify-between gap-2">
-                                    <span className="text-sm font-bold text-gray-900 dark:text-white">{vw.english_word}</span>
-                                    <span className="text-xs text-gray-400 dark:text-gray-500">#{vw.number}</span>
-                                  </div>
-                                  <div className="mt-1.5 flex items-center gap-2">
-                                    <span className="text-sm text-rose-500 dark:text-rose-400 line-through">
-                                      {va.student_answer || '미답'}
+                  <Card noPad>
+                    <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
+                      {vocabWrongGroups.map(({ week, answers, className }) => {
+                        const isOpen = expandedVocabWeekIds.has(week.id)
+                        const toggle = () => setExpandedVocabWeekIds((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(week.id)) next.delete(week.id)
+                          else next.add(week.id)
+                          return next
+                        })
+                        return (
+                          <div key={week.id}>
+                            <button
+                              type="button"
+                              onClick={toggle}
+                              className="w-full px-5 py-4 text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.04]"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                                    {className} {week.week_number}주차
+                                  </span>
+                                  {week.start_date && (
+                                    <span className="text-xs text-gray-400 dark:text-gray-400">
+                                      {new Date(week.start_date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
                                     </span>
-                                    <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
-                                    <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                                      {vw.correct_answer || '—'}
-                                    </span>
-                                  </div>
-                                  {(vw.synonyms?.length ?? 0) > 0 && (
-                                    <div className="mt-2 flex flex-wrap gap-1.5">
-                                      {(vw.synonyms ?? []).map((s) => (
-                                        <span key={s} className="rounded-full border border-blue-200 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-[11px] text-blue-700 dark:text-blue-300">
-                                          유 {s}
-                                        </span>
-                                      ))}
-                                    </div>
                                   )}
-                                  {(vw.antonyms?.length ?? 0) > 0 && (
-                                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                      {(vw.antonyms ?? []).map((s) => (
-                                        <span key={s} className="rounded-full border border-purple-200 dark:border-purple-800/40 bg-purple-50 dark:bg-purple-950/40 px-2 py-0.5 text-[11px] text-purple-700 dark:text-purple-300">
-                                          반 {s}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
+                                  <span className="rounded-full bg-rose-100 dark:bg-rose-950/60 px-2 py-0.5 text-xs font-semibold text-rose-600 dark:text-rose-400">
+                                    {answers.length}개
+                                  </span>
                                 </div>
-                              )
-                            })}
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
+                                {isOpen
+                                  ? <ChevronUp className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-400" />
+                                  : <ChevronDown className="h-4 w-4 shrink-0 text-gray-400 dark:text-gray-400" />}
+                              </div>
+                            </button>
+
+                            {isOpen && (
+                              <div className="border-t border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-[#0d0d14] divide-y divide-gray-100 dark:divide-white/[0.08]">
+                                {answers
+                                  .slice()
+                                  .sort((a, b) => (a.vocab_word?.number ?? 0) - (b.vocab_word?.number ?? 0))
+                                  .map((va) => {
+                                    const vw = va.vocab_word
+                                    if (!vw) return null
+                                    return (
+                                      <div key={va.id} className="px-5 py-3">
+                                        <div className="flex items-baseline justify-between gap-2">
+                                          <span className="text-sm font-bold text-gray-900 dark:text-white">{vw.english_word}</span>
+                                          <span className="text-xs text-gray-400 dark:text-gray-500">#{vw.number}</span>
+                                        </div>
+                                        <div className="mt-1.5 flex items-center gap-2">
+                                          <span className="text-sm text-rose-500 dark:text-rose-400 line-through">
+                                            {va.student_answer || '미답'}
+                                          </span>
+                                          <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
+                                          <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                                            {vw.correct_answer || '—'}
+                                          </span>
+                                        </div>
+                                        {(vw.synonyms?.length ?? 0) > 0 && (
+                                          <div className="mt-2 flex flex-wrap gap-1.5">
+                                            {(vw.synonyms ?? []).map((s) => (
+                                              <span key={s} className="rounded-full border border-blue-200 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-[11px] text-blue-700 dark:text-blue-300">
+                                                유 {s}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
+                                        {(vw.antonyms?.length ?? 0) > 0 && (
+                                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                            {(vw.antonyms ?? []).map((s) => (
+                                              <span key={s} className="rounded-full border border-purple-200 dark:border-purple-800/40 bg-purple-50 dark:bg-purple-950/40 px-2 py-0.5 text-[11px] text-purple-700 dark:text-purple-300">
+                                                반 {s}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </Card>
                 )
               )}
             </>

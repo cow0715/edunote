@@ -112,6 +112,8 @@ export interface StudentAnswer {
   student_answer: number | null;
   student_answer_text: string | null;
   is_correct: boolean;
+  needs_review: boolean;
+  teacher_confirmed: boolean;
   ai_feedback: string | null;
   created_at: string;
   exam_question?: ExamQuestion;
