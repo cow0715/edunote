@@ -88,15 +88,14 @@ export const OXInput = memo(function OXInput({
 
 // ── 문항 유형 배지 ─────────────────────────────────────
 export function StyleBadge({ style }: { style: ExamQuestion['question_style'] }) {
-  const map = {
-    objective:    { label: '객관식', cls: 'bg-gray-100 text-gray-500' },
-    ox:           { label: 'O/X',   cls: 'bg-blue-50 text-blue-600' },
-    subjective:   { label: '서술형', cls: 'bg-amber-50 text-amber-600' },
-    multi_select: { label: '복수',  cls: 'bg-purple-50 text-purple-600' },
-    find_error:   { label: '오류교정', cls: 'bg-rose-50 text-rose-600' },
-  }
-  const { label, cls } = map[style] ?? { label: style, cls: 'bg-gray-100 text-gray-500' }
-  return <span className={cn('inline-flex h-5 items-center rounded px-1.5 text-[10px] font-medium shrink-0', cls)}>{label}</span>
+  const label = {
+    objective:    '객관식',
+    ox:           'O/X',
+    subjective:   '서술형',
+    multi_select: '복수',
+    find_error:   '오류교정',
+  }[style] ?? style
+  return <span className="inline-flex h-5 items-center rounded px-1.5 text-[10px] font-medium shrink-0 bg-gray-100 text-gray-500">{label}</span>
 }
 
 // ── 그룹 문항 행 (sub_label a/b/c 가로 배치) ───────────
@@ -115,7 +114,7 @@ export const GroupedQuestionRow = memo(function GroupedQuestionRow({
     <div className="px-4 py-3 flex flex-col gap-2">
       <div className="flex items-center gap-1.5">
         <span className={cn('text-sm font-medium', anyWrong ? 'text-red-400' : 'text-gray-700')}>
-          문제 {first.question_number}
+          {first.question_number}번
         </span>
         <StyleBadge style={first.question_style} />
       </div>
@@ -152,7 +151,7 @@ export const QuestionRow = memo(function QuestionRow({
   onChangeAnswer: (n: number | null) => void
   onChangeText: (t: string) => void
 }) {
-  const label = `${q.question_number}${q.sub_label ? ` (${q.sub_label})` : ''}`
+  const label = `${q.question_number}번${q.sub_label ? ` (${q.sub_label})` : ''}`
   const isSubjective = q.question_style === 'subjective' || q.question_style === 'find_error'
   const hasAnswer = (answer?.student_answer !== null && answer?.student_answer !== undefined) || !!answer?.student_answer_text
   const isWrong = answer?.is_correct === false
@@ -171,9 +170,9 @@ export const QuestionRow = memo(function QuestionRow({
 
   return (
     <div className={cn('px-4 py-3', isSubjective ? 'flex flex-col gap-2' : 'flex items-center gap-3')}>
-      <div className="flex items-center gap-1.5 shrink-0 w-24">
+      <div className="flex items-center gap-1.5 shrink-0">
         <span className={cn('text-sm font-medium', isWrong ? 'text-red-400 line-through' : 'text-gray-700')}>
-          문제 {label}
+          {label}
         </span>
         <StyleBadge style={q.question_style} />
       </div>
