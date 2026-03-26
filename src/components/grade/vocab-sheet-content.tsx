@@ -172,8 +172,10 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabTotal, vocabA
                   onClick={() => {
                     const next = !a.is_correct
                     const locked = !a.teacher_locked  // 첫 클릭: 잠금, 잠긴 상태 재클릭: 해제 + 토글
-                    setEditableVocab((prev) => prev.map((x) => x.id === a.id ? { ...x, is_correct: next, teacher_locked: locked } : x))
+                    const updated = editableVocab.map((x) => x.id === a.id ? { ...x, is_correct: next, teacher_locked: locked } : x)
+                    setEditableVocab(updated)
                     saveVocabAnswer(a.id, a.student_answer ?? '', next, locked)
+                    updateRow(row.student_id, 'vocab_correct', updated.filter((x) => x.is_correct).length)
                   }}
                   className={cn('shrink-0 w-5 text-center font-bold', a.is_correct ? 'text-green-500' : 'text-red-400')}
                 >
