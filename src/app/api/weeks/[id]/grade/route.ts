@@ -182,6 +182,21 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         const q = questionMap.get(a.exam_question_id)
         const style = q?.question_style ?? 'objective'
 
+        // 선생님이 확정한 답안 → AI 재채점 없이 그대로 보존
+        if (a.teacher_confirmed) {
+          const isTextAnswer = style === 'subjective' || style === 'multi_select' || style === 'find_error'
+          return {
+            week_score_id: score.id,
+            exam_question_id: a.exam_question_id,
+            student_answer: isTextAnswer ? null : a.student_answer,
+            student_answer_text: isTextAnswer ? (a.student_answer_text ?? null) : null,
+            ox_selection: style === 'ox' ? (a.ox_selection ?? null) : null,
+            is_correct: a.is_correct ?? false,
+            needs_review: false,
+            teacher_confirmed: true,
+          }
+        }
+
         if (style === 'ox') {
           // UI 포맷("O", "X 수정어") → ox_selection + student_answer_text(수정어만) 분리
           const raw = (a.student_answer_text ?? '').trim()
@@ -228,6 +243,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
 
       // subjective/find_error 채점용 수집 — 기호:수정어 유형은 코드 레벨, 나머지는 AI
       for (const a of row.answers) {
+        if (a.teacher_confirmed) continue  // 선생님 확정 답안은 재채점 스킵
         const q = questionMap.get(a.exam_question_id)
         if (q?.question_style !== 'subjective' && q?.question_style !== 'find_error') continue
 
@@ -283,6 +299,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         supabase.from('student_answer')
           .update({
             is_correct: matched[i],
+            needs_review: false,
             ai_feedback: matched[i] ? '' : `정답: ${correctWords[i]}`,
           })
           .eq('week_score_id', a.week_score_id)
@@ -316,7 +333,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         for (const result of gradingResults) {
           await supabase
             .from('student_answer')
-            .update({ is_correct: result.is_correct, ai_feedback: result.ai_feedback })
+            .update({ is_correct: result.is_correct, needs_review: result.needs_review, ai_feedback: result.ai_feedback })
             .eq('week_score_id', result.week_score_id)
             .eq('exam_question_id', result.exam_question_id)
         }

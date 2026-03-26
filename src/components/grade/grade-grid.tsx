@@ -9,6 +9,7 @@ import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { VocabSheetContent, VocabAnswerRow } from './vocab-sheet-content'
 import { ExamSheetContent } from './exam-sheet-content'
+import { SubjectiveReviewPanel } from './subjective-review-panel'
 
 // ── 메인 컴포넌트 ──────────────────────────────────────
 interface Props {
@@ -27,6 +28,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
   const [aiGradingFailed, setAiGradingFailed] = useState(false)
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [sheetView, setSheetView] = useState<{ type: 'vocab' | 'exam'; studentIndex: number } | null>(null)
+  const [showReviewPanel, setShowReviewPanel] = useState(false)
 
   useEffect(() => {
     if (!data) return
@@ -38,6 +40,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       student_answer_text: string | null
       ox_selection: string | null
       is_correct: boolean
+      needs_review: boolean
+      teacher_confirmed: boolean
       ai_feedback: string | null
     }
     type SavedVocabAnswer = {
@@ -94,6 +98,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
               student_answer: saved?.student_answer ?? null,
               student_answer_text: answerText,
               is_correct: saved?.is_correct,
+              needs_review: saved?.needs_review,
+              teacher_confirmed: saved?.teacher_confirmed,
               ai_feedback: saved?.ai_feedback ?? '',
             }
           }),
@@ -331,6 +337,30 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           {hasSubjective && ' · 서술형 포함'}
         </p>
         <div className="flex items-center gap-3">
+          {hasSubjective && (() => {
+            const needsReviewCount = rows.reduce(
+              (n, r) => n + r.answers.filter((a) => a.needs_review).length, 0
+            )
+            return (
+              <button
+                type="button"
+                onClick={() => setShowReviewPanel((v) => !v)}
+                className={cn(
+                  'flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors',
+                  showReviewPanel
+                    ? 'bg-amber-50 border-amber-200 text-amber-700'
+                    : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                )}
+              >
+                서술형 검토
+                {needsReviewCount > 0 && (
+                  <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {needsReviewCount}
+                  </span>
+                )}
+              </button>
+            )
+          })()}
           {aiGradingFailed && (
             <span className="text-xs text-amber-600">AI 채점 실패 — 데이터는 저장됨</span>
           )}
@@ -363,6 +393,17 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           </Button>
         </div>
       </div>
+
+      {/* 서술형 검토 패널 */}
+      {showReviewPanel && hasSubjective && (
+        <div className="rounded-xl border bg-white p-4">
+          <SubjectiveReviewPanel
+            weekId={weekId}
+            questions={questions}
+            rows={rows}
+          />
+        </div>
+      )}
 
       {/* 슬라이드 Sheet */}
       <Sheet open={sheetView !== null} onOpenChange={(open) => { if (!open) setSheetView(null) }}>

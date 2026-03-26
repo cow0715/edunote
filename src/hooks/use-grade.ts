@@ -10,7 +10,7 @@ export type GradeRow = {
   reading_correct: number | null
   homework_done: number | null
   memo: string
-  answers: { exam_question_id: string; student_answer: number | null; student_answer_text?: string; ox_selection?: string | null; is_correct?: boolean; ai_feedback?: string }[]
+  answers: { exam_question_id: string; student_answer: number | null; student_answer_text?: string; ox_selection?: string | null; is_correct?: boolean; needs_review?: boolean; teacher_confirmed?: boolean; ai_feedback?: string }[]
 }
 
 export function useGradeData(weekId: string) {

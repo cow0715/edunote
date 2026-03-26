@@ -154,6 +154,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
                         <SelectItem value="ox">O/X 교정형</SelectItem>
                         <SelectItem value="multi_select">복수정답</SelectItem>
                         <SelectItem value="subjective">서술형 (AI채점)</SelectItem>
+                        <SelectItem value="find_error">오류교정</SelectItem>
                       </SelectContent>
                     </Select>
                   </td>

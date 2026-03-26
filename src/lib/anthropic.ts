@@ -31,6 +31,7 @@ export type GradingResult = {
   week_score_id: string
   exam_question_id: string
   is_correct: boolean
+  needs_review: boolean
   ai_feedback: string
 }
 
@@ -407,6 +408,7 @@ ${answers.map((a, i) => `
   {
     "idx": 위 답안의 [숫자],
     "is_correct": true 또는 false,
+    "confidence": "high" 또는 "low",
     "feedback": "틀린 경우 구체적 이유 (20자 이내), 맞으면 빈 문자열"
   }
 ]
@@ -422,7 +424,7 @@ ${GRADING_RULES}`
 
   const raw = message.content[0].type === 'text' ? message.content[0].text : ''
 
-  let parsed: { idx: number; is_correct: boolean; feedback: string }[]
+  let parsed: { idx: number; is_correct: boolean; confidence?: string; feedback: string }[]
   try {
     parsed = JSON.parse(raw)
   } catch {
@@ -438,6 +440,7 @@ ${GRADING_RULES}`
         week_score_id: original.week_score_id,
         exam_question_id: original.exam_question_id,
         is_correct: r.is_correct,
+        needs_review: r.confidence === 'low',
         ai_feedback: r.feedback ?? '',
       }
     })

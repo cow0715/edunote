@@ -21,9 +21,10 @@ export function Card({ title, subtitle, children, noPad }: {
 }
 
 // ── 스탯 카드 ──────────────────────────────────────────────────────────────
-export function StatCard({ label, value, delta, icon, color }: {
+export function StatCard({ label, value, delta, icon, color, onClick }: {
   label: string; value: string | null; delta: number | null
   icon: React.ReactNode; color: 'indigo' | 'emerald' | 'amber' | 'blue'
+  onClick?: () => void
 }) {
   const c = {
     indigo:  { bg: 'bg-indigo-50 dark:bg-indigo-900/40',   icon: 'text-indigo-500 dark:text-indigo-300',   val: 'text-indigo-700 dark:text-indigo-200'   },
@@ -33,7 +34,10 @@ export function StatCard({ label, value, delta, icon, color }: {
   }[color]
 
   return (
-    <div className="rounded-2xl bg-white dark:bg-[#16161f] shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10 px-4 py-4">
+    <div
+      className={`rounded-2xl bg-white dark:bg-[#16161f] shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10 px-4 py-4 ${onClick ? 'cursor-pointer active:scale-[0.97] transition-transform' : ''}`}
+      onClick={onClick}
+    >
       <div className={`mb-3 flex h-8 w-8 items-center justify-center rounded-xl ${c.bg}`}>
         <span className={c.icon}>{icon}</span>
       </div>

@@ -147,7 +147,7 @@ export const QuestionRow = memo(function QuestionRow({
   q, answer, disabled, onChangeAnswer, onChangeText,
 }: {
   q: ExamQuestion
-  answer: { student_answer: number | null; student_answer_text?: string; is_correct?: boolean } | undefined
+  answer: { student_answer: number | null; student_answer_text?: string; is_correct?: boolean; needs_review?: boolean; ai_feedback?: string } | undefined
   disabled: boolean
   onChangeAnswer: (n: number | null) => void
   onChangeText: (t: string) => void
@@ -156,6 +156,7 @@ export const QuestionRow = memo(function QuestionRow({
   const isSubjective = q.question_style === 'subjective' || q.question_style === 'find_error'
   const hasAnswer = (answer?.student_answer !== null && answer?.student_answer !== undefined) || !!answer?.student_answer_text
   const isWrong = answer?.is_correct === false
+  const needsReview = answer?.needs_review === true
 
   // 서술형 로컬 state — 타이핑은 로컬에서만, 부모 sync는 onBlur에만
   const externalText = answer?.student_answer_text ?? ''
@@ -243,6 +244,25 @@ export const QuestionRow = memo(function QuestionRow({
           )
         })()}
       </div>
+      {isSubjective && hasAnswer && answer?.is_correct !== undefined && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {needsReview ? (
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 shrink-0">
+              ⚠️ 검토 필요
+            </span>
+          ) : (
+            <span className={cn(
+              'text-xs font-medium px-2 py-0.5 rounded-full shrink-0',
+              answer.is_correct ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-500'
+            )}>
+              {answer.is_correct ? '✓ 정답' : '✗ 오답'}
+            </span>
+          )}
+          {answer.ai_feedback && (
+            <span className="text-xs text-gray-400">{answer.ai_feedback}</span>
+          )}
+        </div>
+      )}
       {!isSubjective && q.correct_answer_text && (
         <span className="text-xs text-gray-300 shrink-0">정답: {q.correct_answer_text}</span>
       )}
