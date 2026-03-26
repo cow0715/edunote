@@ -10,15 +10,15 @@ export type TrendItem = {
   classVocabRate: number | null
 }
 
-const SERIES = [
-  { key: 'readingRate', classKey: 'classReadingRate', label: '시험', color: '#6366f1', classColor: '#c7d2fe' },
-  { key: 'vocabRate',   classKey: 'classVocabRate',   label: '단어', color: '#22c55e', classColor: '#bbf7d0' },
+const ALL_SERIES = [
+  { key: 'readingRate', classKey: 'classReadingRate', label: '시험', color: '#6366f1', classColor: '#c7d2fe', darkColor: '#818cf8' },
+  { key: 'vocabRate',   classKey: 'classVocabRate',   label: '단어', color: '#22c55e', classColor: '#bbf7d0', darkColor: '#4ade80' },
 ] as const
 
-// 다크모드 라인 색상 — 배경이 어두우므로 400 계열 (밝게)
-const DARK_COLORS = ['#818cf8', '#4ade80'] as const
-
-export function ScoreTrendChart({ data, isDark }: { data: TrendItem[]; isDark?: boolean }) {
+export function ScoreTrendChart({ data, isDark, series }: { data: TrendItem[]; isDark?: boolean; series?: 'reading' | 'vocab' }) {
+  const SERIES = series === 'reading' ? [ALL_SERIES[0]]
+    : series === 'vocab' ? [ALL_SERIES[1]]
+    : ALL_SERIES
   const grid     = isDark ? 'rgba(255,255,255,0.1)'  : '#f0f0f0'
   const tick     = isDark ? '#d1d5db'                : '#9ca3af'   // 다크: gray-300 (라이트 반전)
   const ttBg     = isDark ? '#1c1c2a'                : '#ffffff'
@@ -41,9 +41,9 @@ export function ScoreTrendChart({ data, isDark }: { data: TrendItem[]; isDark?: 
             labelStyle={{ fontSize: 12, color: ttColor }}
             contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${ttBorder}`, backgroundColor: ttBg, color: ttColor }}
           />
-          {SERIES.flatMap((s, i) => {
-            const solidColor = isDark ? DARK_COLORS[i] : s.color
-            const dashColor  = isDark ? `${DARK_COLORS[i]}55` : s.classColor
+          {SERIES.flatMap((s) => {
+            const solidColor = isDark ? s.darkColor : s.color
+            const dashColor  = isDark ? `${s.darkColor}55` : s.classColor
             return [
               <Line key={s.classKey} type="monotone" dataKey={s.classKey}
                 stroke={dashColor} strokeWidth={1.5} strokeDasharray="5 4" dot={false} connectNulls />,
@@ -55,9 +55,9 @@ export function ScoreTrendChart({ data, isDark }: { data: TrendItem[]; isDark?: 
       </ResponsiveContainer>
 
       <div className="mt-2 flex flex-wrap justify-center gap-4">
-        {SERIES.map((s, i) => {
-          const solidColor = isDark ? DARK_COLORS[i] : s.color
-          const dashColor  = isDark ? `${DARK_COLORS[i]}55` : s.classColor
+        {SERIES.map((s) => {
+          const solidColor = isDark ? s.darkColor : s.color
+          const dashColor  = isDark ? `${s.darkColor}55` : s.classColor
           return (
             <div key={s.key} className="flex items-center gap-3">
               <div className="flex items-center gap-1">
