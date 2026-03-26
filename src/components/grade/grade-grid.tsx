@@ -118,6 +118,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           id: string
           student_answer: string | null
           is_correct: boolean
+          teacher_locked: boolean
           vocab_word: { number: number; english_word: string } | null
         }[]
       )
@@ -128,6 +129,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           english_word: a.vocab_word!.english_word,
           student_answer: a.student_answer,
           is_correct: a.is_correct,
+          teacher_locked: a.teacher_locked ?? false,
         }))
         .sort((a, b) => a.number - b.number)
       m.set(score.student_id, answers)
