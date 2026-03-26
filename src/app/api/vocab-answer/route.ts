@@ -7,15 +7,30 @@ export async function PATCH(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
 
-  const { id, student_answer, is_correct } = await request.json()
+  const { id, week_score_id, student_answer, is_correct, teacher_locked } = await request.json()
   if (!id) return err('id 필요')
 
   const { error } = await supabase
     .from('student_vocab_answer')
-    .update({ student_answer: student_answer ?? null, is_correct })
+    .update({
+      student_answer: student_answer ?? null,
+      is_correct,
+      ...(teacher_locked !== undefined && { teacher_locked }),
+    })
     .eq('id', id)
 
   if (error) return err(error.message, 500)
+
+  // vocab_correct 재계산
+  if (week_score_id) {
+    const { data: all } = await supabase
+      .from('student_vocab_answer')
+      .select('is_correct')
+      .eq('week_score_id', week_score_id)
+    const vocabCorrect = (all ?? []).filter((a) => a.is_correct).length
+    await supabase.from('week_score').update({ vocab_correct: vocabCorrect }).eq('id', week_score_id)
+  }
+
   return ok({ ok: true })
 }
 
