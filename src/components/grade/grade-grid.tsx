@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { useGradeData, useSaveGrade, GradeRow } from '@/hooks/use-grade'
+import { useGradeData, useSaveGrade, useSaveWeekScore, GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { VocabSheetContent, VocabAnswerRow } from './vocab-sheet-content'
@@ -23,6 +23,7 @@ interface Props {
 export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onSaved }: Props) {
   const { data, isLoading } = useGradeData(weekId)
   const saveGrade = useSaveGrade(weekId)
+  const saveWeekScore = useSaveWeekScore(weekId)
   const [rows, setRows] = useState<GradeRow[]>([])
   const [savedAt, setSavedAt] = useState<Date | null>(null)
   const [aiGradingFailed, setAiGradingFailed] = useState(false)
@@ -295,6 +296,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                             step={0.5}
                             value={row.homework_done}
                             onChange={(e) => updateRow(row.student_id, 'homework_done', Number(e.target.value))}
+                            onBlur={(e) => saveWeekScore.mutate({ student_id: row.student_id, homework_done: Number(e.target.value), memo: row.memo })}
                             disabled={!row.present}
                             className="w-12 h-7 text-center text-xs border border-gray-200 rounded-md bg-white disabled:bg-gray-50 disabled:text-gray-300 outline-none focus:border-indigo-400"
                           />
@@ -327,6 +329,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                   <input
                     value={row.memo}
                     onChange={(e) => updateRow(row.student_id, 'memo', e.target.value)}
+                    onBlur={(e) => saveWeekScore.mutate({ student_id: row.student_id, homework_done: row.homework_done, memo: e.target.value })}
                     disabled={!row.present}
                     placeholder="메모"
                     className="w-full text-xs h-7 bg-transparent outline-none placeholder:text-gray-300 text-gray-700 disabled:cursor-not-allowed"

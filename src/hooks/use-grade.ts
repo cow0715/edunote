@@ -24,6 +24,19 @@ export function useGradeData(weekId: string) {
   })
 }
 
+export function useSaveWeekScore(weekId: string) {
+  return useMutation({
+    mutationFn: async ({ student_id, homework_done, memo }: { student_id: string; homework_done?: number | null; memo?: string }) => {
+      const res = await fetch(`/api/weeks/${weekId}/grade`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id, homework_done, memo }),
+      })
+      if (!res.ok) throw new Error('저장 실패')
+    },
+  })
+}
+
 export function useSaveGrade(weekId: string) {
   const qc = useQueryClient()
   return useMutation({
