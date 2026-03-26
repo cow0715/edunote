@@ -1,22 +1,6 @@
 import { getAuth, err, ok } from '@/lib/api'
 import { gradeSubjectiveAnswers, SubjectiveStudentAnswer } from '@/lib/anthropic'
-import type { SupabaseServerClient } from '@/lib/api'
-
-// reading_correct 재계산 공통 함수
-async function recalcReadingCorrect(supabase: SupabaseServerClient, scoreIds: string[]) {
-  await Promise.all(
-    scoreIds.map(async (scoreId) => {
-      const { data: answers } = await supabase
-        .from('student_answer')
-        .select('is_correct')
-        .eq('week_score_id', scoreId)
-      const readingCorrect = answers && answers.length > 0
-        ? answers.filter((a) => a.is_correct).length
-        : null
-      await supabase.from('week_score').update({ reading_correct: readingCorrect }).eq('id', scoreId)
-    })
-  )
-}
+import { recalcReadingCorrect } from '@/lib/grade-utils'
 
 // 채점 현황 조회
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
