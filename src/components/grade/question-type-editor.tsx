@@ -32,25 +32,37 @@ export function QuestionTypeEditor({ weekId }: Props) {
   const [tagMap, setTagMap] = useState<Record<string, string[]>>({})
   // questionId → question_style
   const [styleMap, setStyleMap] = useState<Record<string, string>>({})
+  // questionId → { primary: 주정답, extra: 추가인정 }
+  const [answerMap, setAnswerMap] = useState<Record<string, { primary: number | null; extra: number[] }>>({})
   // questionId → 현재 "추가" 드롭다운 상태 { catId, tagId }
   const [addState, setAddState] = useState<Record<string, { catId: string; tagId: string }>>({})
 
   const questionSnapshot = questions
-    .map((q) => `${q.id}:${(q.exam_question_tag ?? []).map((t) => t.concept_tag?.id).sort().join(',')}`)
+    .map((q) => `${q.id}:${q.correct_answer}:${q.correct_answer_text}:${(q.exam_question_tag ?? []).map((t) => t.concept_tag?.id).sort().join(',')}`)
     .join('|')
 
   useEffect(() => {
     if (!questions.length) return
     const map: Record<string, string[]> = {}
     const sMap: Record<string, string> = {}
+    const aMap: Record<string, { primary: number | null; extra: number[] }> = {}
     for (const q of questions) {
       map[q.id] = (q.exam_question_tag ?? [])
         .map((t) => t.concept_tag?.id)
         .filter((id): id is string => !!id)
       sMap[q.id] = q.question_style
+      if (q.question_style === 'objective') {
+        const extra = q.correct_answer_text
+          ? q.correct_answer_text.split(',').map(Number).filter((n) => !isNaN(n) && n !== q.correct_answer)
+          : []
+        aMap[q.id] = { primary: q.correct_answer ?? null, extra }
+      } else {
+        aMap[q.id] = { primary: null, extra: [] }
+      }
     }
     setTagMap(map)
     setStyleMap(sMap)
+    setAnswerMap(aMap)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionSnapshot])
 
@@ -74,12 +86,37 @@ export function QuestionTypeEditor({ weekId }: Props) {
     }))
   }
 
+  function toggleAnswer(questionId: string, n: number) {
+    setAnswerMap((prev) => {
+      const cur = prev[questionId] ?? { primary: null, extra: [] }
+      if (cur.primary === n) {
+        // 주정답 해제 → 첫 번째 extra가 주정답으로 승격
+        const [next, ...rest] = cur.extra
+        return { ...prev, [questionId]: { primary: next ?? null, extra: rest } }
+      }
+      if (cur.extra.includes(n)) {
+        // 추가인정 해제
+        return { ...prev, [questionId]: { ...cur, extra: cur.extra.filter((x) => x !== n) } }
+      }
+      if (cur.primary === null) {
+        // 주정답 설정
+        return { ...prev, [questionId]: { primary: n, extra: cur.extra } }
+      }
+      // 추가인정 추가
+      return { ...prev, [questionId]: { ...cur, extra: [...cur.extra, n] } }
+    })
+  }
+
   const save = useMutation({
     mutationFn: async () => {
       const updates = Object.entries(tagMap).map(([id, concept_tag_ids]) => ({
         id,
         concept_tag_ids,
         question_style: styleMap[id],
+        ...(styleMap[id] === 'objective' && answerMap[id] ? {
+          correct_answer: answerMap[id].primary,
+          extra_correct_answers: answerMap[id].extra,
+        } : {}),
       }))
       const res = await fetch(`/api/weeks/${weekId}/questions`, {
         method: 'PATCH',
@@ -118,7 +155,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
           <thead className="bg-gray-50 text-xs text-gray-500">
             <tr>
               <th className="w-12 px-3 py-2 text-left">번호</th>
-              <th className="w-14 px-2 py-2 text-left">정답</th>
+              <th className="w-36 px-2 py-2 text-left">정답</th>
               <th className="w-32 px-2 py-2 text-left">형식</th>
               <th className="px-2 py-2 text-left">선택된 유형</th>
               <th className="w-72 px-2 py-2 text-left">유형 추가</th>
@@ -133,11 +170,39 @@ export function QuestionTypeEditor({ weekId }: Props) {
                 ? allTags.filter((t) => t.concept_category_id === catId && !selectedTagIds.includes(t.id))
                 : []
 
+              const ans = answerMap[q.id] ?? { primary: null, extra: [] }
+              const effectiveStyle = styleMap[q.id] ?? q.question_style
+
               return (
                 <tr key={q.id} className="hover:bg-gray-50">
                   <td className="px-3 py-2 font-medium">{q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}</td>
-                  <td className="px-2 py-2 text-gray-500 text-xs">
-                    {q.question_style === 'objective' ? q.correct_answer : <span className="text-gray-400">—</span>}
+                  <td className="px-2 py-2">
+                    {effectiveStyle === 'objective' ? (
+                      <div className="flex gap-0.5">
+                        {[1, 2, 3, 4, 5].map((n) => {
+                          const isPrimary = ans.primary === n
+                          const isExtra = ans.extra.includes(n)
+                          return (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => toggleAnswer(q.id, n)}
+                              className={[
+                                'flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium transition-colors',
+                                isPrimary ? 'bg-indigo-600 text-white' :
+                                isExtra   ? 'bg-amber-400 text-white' :
+                                            'bg-gray-100 text-gray-400 hover:bg-gray-200',
+                              ].join(' ')}
+                              title={isPrimary ? '주정답 (클릭 시 해제)' : isExtra ? '추가인정 (클릭 시 해제)' : '클릭해서 선택'}
+                            >
+                              {n}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400">—</span>
+                    )}
                   </td>
 
                   {/* 형식 셀렉터 */}
