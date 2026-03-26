@@ -81,6 +81,9 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
       exam_question_id: string
       student_answer: number | null
       student_answer_text?: string
+      ox_selection?: string | null
+      is_correct?: boolean
+      teacher_confirmed?: boolean
     }[]
   }
 
