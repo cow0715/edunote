@@ -34,6 +34,7 @@ export function useSaveWeekScore(weekId: string) {
       })
       if (!res.ok) throw new Error('저장 실패')
     },
+    onError: () => toast.error('과제/메모 저장 실패'),
   })
 }
 
