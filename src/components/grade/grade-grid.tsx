@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -108,8 +108,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     )
   }, [data])
 
-  // 단어 답안 맵
-  const vocabAnswerMap = (() => {
+  // 단어 답안 맵 (data 변경 시에만 재계산)
+  const vocabAnswerMap = useMemo(() => {
     const m = new Map<string, VocabAnswerRow[]>()
     if (!data?.weekScores) return m
     for (const score of data.weekScores) {
@@ -135,7 +135,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       m.set(score.student_id, answers)
     }
     return m
-  })()
+  }, [data?.weekScores])
 
   const weekScoreIdMap = (() => {
     const m = new Map<string, string>()
