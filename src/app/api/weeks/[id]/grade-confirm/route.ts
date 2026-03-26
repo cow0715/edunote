@@ -1,4 +1,5 @@
 import { getAuth, err, ok } from '@/lib/api'
+import { recalcReadingCorrect } from '@/lib/grade-utils'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
@@ -18,6 +19,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const scoreMap = new Map(scores?.map((s) => [s.student_id, s.id]) ?? [])
 
+  // week_score가 없는 학생 경고
+  const missing = studentIds.filter((id) => !scoreMap.has(id))
+  if (missing.length > 0) {
+    console.warn('[PATCH /grade-confirm] week_score 없는 student_id:', missing)
+  }
+
   await Promise.all(
     body.map(({ student_id, exam_question_id, is_correct }) => {
       const week_score_id = scoreMap.get(student_id)
@@ -30,19 +37,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     })
   )
 
-  // reading_correct 재계산
   const scoreIds = [...new Set([...scoreMap.values()])]
-  await Promise.all(
-    scoreIds.map(async (scoreId) => {
-      const { data: answers } = await supabase
-        .from('student_answer')
-        .select('is_correct')
-        .eq('week_score_id', scoreId)
-      const readingCorrect =
-        answers && answers.length > 0 ? answers.filter((a) => a.is_correct).length : null
-      await supabase.from('week_score').update({ reading_correct: readingCorrect }).eq('id', scoreId)
-    })
-  )
+  await recalcReadingCorrect(supabase, scoreIds)
 
-  return ok({ ok: true })
+  return ok({ ok: true, skipped: missing.length > 0 ? missing : undefined })
 }

@@ -166,7 +166,13 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     setRows((prev) =>
       prev.map((r) => {
         if (r.student_id !== studentId) return r
-        return { ...r, answers: r.answers.map((a) => a.exam_question_id === questionId ? { ...a, student_answer_text: text } : a) }
+        return {
+          ...r, answers: r.answers.map((a) =>
+            a.exam_question_id === questionId
+              ? { ...a, student_answer_text: text, teacher_confirmed: false }
+              : a
+          ),
+        }
       })
     )
   }, [])
