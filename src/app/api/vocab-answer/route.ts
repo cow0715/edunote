@@ -45,7 +45,25 @@ export async function POST(request: Request) {
   }
   if (!items?.length) return err('items 필요')
 
-  const graded = await gradeVocabItems(items)
+  // correct_answer 조회 (student_vocab_answer → vocab_word)
+  const { data: answerDetails } = await supabase
+    .from('student_vocab_answer')
+    .select('id, vocab_word(correct_answer)')
+    .in('id', items.map((i) => i.id))
+
+  const correctAnswerById = new Map(
+    (answerDetails ?? []).map((a) => {
+      const vw = a.vocab_word as unknown as { correct_answer: string | null } | null
+      return [a.id, vw?.correct_answer ?? null]
+    })
+  )
+
+  const itemsWithAnswer = items.map((i) => ({
+    ...i,
+    correct_answer: correctAnswerById.get(i.id) ?? null,
+  }))
+
+  const graded = await gradeVocabItems(itemsWithAnswer)
 
   // DB 업데이트
   await Promise.all(graded.map((g) => {
