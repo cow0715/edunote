@@ -86,15 +86,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     setThemeReady(true)
   }, [])
 
-  // 데이터 로드 후 오답 탭 최근 주차 기본 열림
-  useEffect(() => {
-    if (!data) return
-    const sorted = [...(data.weeks ?? [])]
-      .filter((w) => data.weekScores.some((s) => s.week_id === w.id))
-      .sort((a, b) => b.week_number - a.week_number)
-    if (sorted[0]) setExpandedWrongWeekIds(new Set([sorted[0].id]))
-    if (sorted[0]) setExpandedVocabWeekIds(new Set([sorted[0].id]))
-  }, [data])
 
   const toggleTheme = () => {
     setIsDark((prev) => {
@@ -398,6 +389,20 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 </div>
               )}
 
+              {/* 과제 제출률 */}
+              {homeworkData.length >= 1 && (
+                <Card title="과제 제출률" subtitle="주차별 (%)">
+                  <HomeworkBarChart data={homeworkData} isDark={isDark} />
+                </Card>
+              )}
+
+              {/* 출석 현황 */}
+              {attendance.length > 0 && (
+                <Card title="출석 현황" subtitle="수업일 기준">
+                  <AttendanceCalendar attendance={attendance} />
+                </Card>
+              )}
+
               {/* 성장 하이라이트 */}
               {highlights.length > 0 && (
                 <div className="rounded-2xl bg-white dark:bg-[#16161f] shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-5 py-4">
@@ -465,21 +470,15 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
           {/* ── 성적 탭 ─────────────────────────────────────────────── */}
           {activeTab === 'score' && (
             <>
-              {trendData.length >= 1 && (
-                <Card title="점수 추이" subtitle="시험·단어 정답률 (%) · 점선은 반 평균">
-                  <ScoreTrendChart data={trendData} isDark={isDark} />
+              {trendData.filter((d) => d.readingRate !== null || d.classReadingRate !== null).length >= 1 && (
+                <Card title="시험 점수 추이" subtitle="진단평가 정답률 (%) · 점선은 반 평균">
+                  <ScoreTrendChart data={trendData} isDark={isDark} series="reading" />
                 </Card>
               )}
 
-              {homeworkData.length >= 1 && (
-                <Card title="과제 제출률" subtitle="주차별 (%)">
-                  <HomeworkBarChart data={homeworkData} isDark={isDark} />
-                </Card>
-              )}
-
-              {attendance.length > 0 && (
-                <Card title="출석 현황" subtitle="수업일 기준">
-                  <AttendanceCalendar attendance={attendance} />
+              {trendData.filter((d) => d.vocabRate !== null || d.classVocabRate !== null).length >= 1 && (
+                <Card title="단어 점수 추이" subtitle="단어시험 정답률 (%) · 점선은 반 평균">
+                  <ScoreTrendChart data={trendData} isDark={isDark} series="vocab" />
                 </Card>
               )}
 
