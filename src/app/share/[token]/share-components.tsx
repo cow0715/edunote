@@ -1,18 +1,39 @@
 'use client'
 
-import { Moon, Sun, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { useState } from 'react'
+import { Moon, Sun, TrendingUp, TrendingDown, Minus, Info, ChevronRight } from 'lucide-react'
 import { AttendanceRecord } from './share-types'
 
 // ── 공통 카드 ──────────────────────────────────────────────────────────────
-export function Card({ title, subtitle, children, noPad }: {
-  title?: string; subtitle?: string; children: React.ReactNode; noPad?: boolean
+export function Card({ title, subtitle, info, infoNode, children, noPad, id }: {
+  title?: string; subtitle?: string; info?: string; infoNode?: React.ReactNode
+  children: React.ReactNode; noPad?: boolean; id?: string
 }) {
+  const [infoOpen, setInfoOpen] = useState(false)
+  const hasInfo = !!(info || infoNode)
+
   return (
-    <div className="rounded-2xl bg-white dark:bg-[#16161f] shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
+    <div id={id} className="rounded-2xl bg-white dark:bg-card shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
       {title && (
         <div className="px-5 pt-5 pb-3">
-          <h2 className="text-sm font-bold text-gray-900 dark:text-white">{title}</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-sm font-bold text-gray-900 dark:text-white">{title}</h2>
+            {hasInfo && (
+              <button
+                type="button"
+                onClick={() => setInfoOpen((v) => !v)}
+                className={`rounded-full p-0.5 transition-colors ${infoOpen ? 'text-indigo-500 dark:text-indigo-400' : 'text-gray-300 dark:text-gray-600 hover:text-gray-400 dark:hover:text-gray-400'}`}
+              >
+                <Info className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
           {subtitle && <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-300">{subtitle}</p>}
+          {infoOpen && (
+            info
+              ? <p className="mt-2 text-xs leading-relaxed text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg px-3 py-2">{info}</p>
+              : <div className="mt-2">{infoNode}</div>
+          )}
         </div>
       )}
       <div className={noPad ? '' : 'px-5 pb-5'}>{children}</div>
@@ -35,21 +56,24 @@ export function StatCard({ label, value, delta, icon, color, onClick }: {
 
   return (
     <div
-      className={`rounded-2xl bg-white dark:bg-[#16161f] shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10 px-4 py-4 ${onClick ? 'cursor-pointer active:scale-[0.97] transition-transform' : ''}`}
+      className={`relative rounded-2xl bg-white dark:bg-card shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10 px-3 py-3 ${onClick ? 'cursor-pointer active:scale-[0.97] transition-all hover:ring-2 hover:ring-indigo-300 dark:hover:ring-indigo-500/60 hover:shadow-md' : ''}`}
       onClick={onClick}
     >
-      <div className={`mb-3 flex h-8 w-8 items-center justify-center rounded-xl ${c.bg}`}>
-        <span className={c.icon}>{icon}</span>
+      <div className={`mb-2 flex h-7 w-7 items-center justify-center rounded-lg ${c.bg}`}>
+        <span className={`${c.icon} [&>svg]:h-3.5 [&>svg]:w-3.5`}>{icon}</span>
       </div>
-      <p className={`text-2xl font-bold ${c.val}`}>{value ?? '-'}</p>
-      <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-300">{label}</p>
+      <p className={`text-lg font-bold leading-tight ${c.val}`}>{value ?? '-'}</p>
+      <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400 leading-tight">{label}</p>
       {delta !== null && (
-        <div className={`mt-2 flex items-center gap-0.5 text-xs font-medium ${
+        <div className={`mt-1.5 flex items-center gap-0.5 text-[10px] font-medium ${
           delta > 0 ? 'text-emerald-500 dark:text-emerald-400' : delta < 0 ? 'text-rose-500 dark:text-rose-400' : 'text-gray-400 dark:text-gray-400'
         }`}>
-          {delta > 0 ? <TrendingUp className="h-3 w-3" /> : delta < 0 ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
-          <span>{delta > 0 ? '+' : ''}{delta}% 지난주</span>
+          {delta > 0 ? <TrendingUp className="h-2.5 w-2.5" /> : delta < 0 ? <TrendingDown className="h-2.5 w-2.5" /> : <Minus className="h-2.5 w-2.5" />}
+          <span>{delta > 0 ? '+' : ''}{delta}%</span>
         </div>
+      )}
+      {onClick && (
+        <ChevronRight className="absolute right-1.5 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-300 dark:text-gray-600" />
       )}
     </div>
   )

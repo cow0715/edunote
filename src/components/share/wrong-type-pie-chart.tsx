@@ -1,18 +1,46 @@
 'use client'
 
 import { useState } from 'react'
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
+import { PieChart, Pie, Cell } from 'recharts'
+import { ChartContainer, ChartTooltip, type ChartConfig } from '@/components/ui/chart'
+import { statusColor } from '@/lib/chart-colors'
 
 type TypeItem = { id: string; name: string; wrong: number; total: number }
 
 const COLORS = [
-  '#f87171', '#fb923c', '#fbbf24', '#4ade80',
-  '#34d399', '#38bdf8', '#818cf8', '#e879f9',
-  '#f472b6', '#a78bfa',
-  '#c084fc', '#f9a8d4', '#86efac', '#7dd3fc', '#fde68a',
+  '#6366f1', '#10b981', '#f59e0b', '#f87171',
+  '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16',
+  '#f97316', '#14b8a6', '#a78bfa', '#fb923c',
 ]
 
 const MAX_SLICES = 7
+
+// ChartConfig는 키가 정해져야 해서 동적으로 생성
+function buildConfig(names: string[]): ChartConfig {
+  return Object.fromEntries(
+    names.map((name, i) => [name, { label: name, color: COLORS[i % COLORS.length] }])
+  ) as ChartConfig
+}
+
+function CustomTooltip({ active, payload, isDark }: {
+  active?: boolean
+  payload?: { name: string; value: number; payload: { id: string; name: string; value: number } }[]
+  isDark?: boolean
+}) {
+  if (!active || !payload?.length) return null
+  const d = payload[0]
+  const bg     = isDark ? '#1e1e2e' : '#ffffff'
+  const border = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'
+  const text   = isDark ? '#f1f5f9' : '#0f172a'
+  const sub    = isDark ? '#94a3b8' : '#64748b'
+
+  return (
+    <div style={{ background: bg, border: `1px solid ${border}`, borderRadius: 10, padding: '8px 12px', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
+      <p style={{ fontSize: 11, fontWeight: 600, color: text, marginBottom: 2 }}>{d.payload.name}</p>
+      <p style={{ fontSize: 11, color: sub }}>오답 <span style={{ fontWeight: 700, color: text }}>{d.value}개</span></p>
+    </div>
+  )
+}
 
 export function WrongTypePieChart({ data, onTagClick, isDark }: {
   data: TypeItem[]
@@ -20,10 +48,6 @@ export function WrongTypePieChart({ data, onTagClick, isDark }: {
   isDark?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
-
-  const ttBg     = isDark ? '#1c1c2a' : '#ffffff'
-  const ttBorder = isDark ? '#374151' : '#e5e7eb'
-  const ttColor  = isDark ? '#f3f4f6' : '#111827'
 
   const sorted = data.filter((d) => d.wrong > 0).sort((a, b) => b.wrong - a.wrong)
   if (sorted.length === 0) return (
@@ -39,34 +63,40 @@ export function WrongTypePieChart({ data, onTagClick, isDark }: {
         ...(hasRest ? [{ id: '__rest__', name: '기타', value: sorted.slice(MAX_SLICES).reduce((s, d) => s + d.wrong, 0) }] : []),
       ]
 
+  const chartConfig = buildConfig(pieData.map((d) => d.name))
+
   return (
     <div>
-      <ResponsiveContainer width="100%" height={180}>
+      <ChartContainer config={chartConfig} className="h-[180px] w-full">
         <PieChart>
+          <defs>
+            {pieData.map((_, i) => (
+              <radialGradient key={i} id={`pie-grad-${i}`} cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor={COLORS[i % COLORS.length]} stopOpacity={1} />
+                <stop offset="100%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0.75} />
+              </radialGradient>
+            ))}
+          </defs>
           <Pie
             data={pieData}
             cx="50%" cy="50%"
-            innerRadius={46} outerRadius={72}
-            paddingAngle={2} dataKey="value"
+            innerRadius={50} outerRadius={76}
+            paddingAngle={2.5} dataKey="value"
+            strokeWidth={0}
             style={{ cursor: 'pointer' }}
-            onClick={(d) => {
+            onClick={(d: { id?: string; name?: string } | null) => {
               if (!d) return
               if (d.id === '__rest__') { setExpanded(true); return }
-              if (d.id && onTagClick) onTagClick(d.id, d.name)
+              if (d.id && d.name && onTagClick) onTagClick(d.id, d.name)
             }}
           >
             {pieData.map((_, i) => (
-              <Cell key={i} fill={COLORS[i % COLORS.length]} />
+              <Cell key={i} fill={`url(#pie-grad-${i})`} />
             ))}
           </Pie>
-          <Tooltip
-            formatter={(value, name) => [`${value}개`, name]}
-            labelStyle={{ fontSize: 12, color: ttColor }}
-            itemStyle={{ color: ttColor }}
-            contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${ttBorder}`, backgroundColor: ttBg, color: ttColor }}
-          />
+          <ChartTooltip content={<CustomTooltip isDark={isDark} />} />
         </PieChart>
-      </ResponsiveContainer>
+      </ChartContainer>
 
       <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1.5">
         {pieData.map((d, i) => (
@@ -93,11 +123,7 @@ export function WrongTypePieChart({ data, onTagClick, isDark }: {
           </button>
         ))}
         {expanded && hasRest && (
-          <button
-            type="button"
-            onClick={() => setExpanded(false)}
-            className="flex items-center gap-1"
-          >
+          <button type="button" onClick={() => setExpanded(false)} className="flex items-center gap-1">
             <span className="text-[11px] text-blue-500 dark:text-blue-400 hover:underline">접기</span>
           </button>
         )}

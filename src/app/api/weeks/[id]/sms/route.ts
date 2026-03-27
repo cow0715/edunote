@@ -6,6 +6,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
 
+  const body = await request.json().catch(() => ({}))
+  const customPrompt: string | undefined = body?.customPrompt || undefined
+
   // 주차 + 수업 정보
   const { data: week } = await supabase
     .from('week')
@@ -154,7 +157,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     const generated = await generateSmsMessages(
       { week_number: week.week_number, class_name: className, start_date: week.start_date },
-      studentInputs
+      studentInputs,
+      customPrompt
     )
 
     // 학생 정보와 합치기

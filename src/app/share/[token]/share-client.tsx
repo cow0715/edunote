@@ -49,9 +49,9 @@ function useShareData(token: string) {
 function formatMyAnswer(a: StudentAnswer): string {
   const q = a.exam_question!
   if (q.question_style === 'objective') {
-    return a.student_answer !== null ? (CIRCLE_NUM[a.student_answer - 1] ?? String(a.student_answer)) : '미답'
+    return a.student_answer !== null ? (CIRCLE_NUM[a.student_answer - 1] ?? String(a.student_answer)) : '미작성'
   }
-  return a.student_answer_text?.trim() || '미답'
+  return a.student_answer_text?.trim() || '미작성'
 }
 
 function formatCorrectAnswer(q: StudentAnswer['exam_question']): string {
@@ -75,6 +75,16 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const [activeTab, setActiveTab] = useState<TabId>('home')
   const [wrongNoteTab, setWrongNoteTab] = useState<'reading' | 'vocab'>('reading')
   const [commentExpanded, setCommentExpanded] = useState(false)
+  const scrollTo = (id: string, delay = 0) => {
+    const go = () => {
+      const el = document.getElementById(id)
+      if (!el) return
+      const headerHeight = 57 // sticky 헤더 높이
+      const top = el.getBoundingClientRect().top + window.scrollY - headerHeight - 12
+      window.scrollTo({ top, behavior: 'smooth' })
+    }
+    delay > 0 ? setTimeout(go, delay) : go()
+  }
 
   useEffect(() => {
     const saved = localStorage.getItem('share-theme')
@@ -97,14 +107,14 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
   if (isLoading) return (
     <div className={themeReady && isDark ? 'dark' : ''}>
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-[#0f1117]">
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-background">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
       </div>
     </div>
   )
   if (error || !data) return (
     <div className={themeReady && isDark ? 'dark' : ''}>
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-[#0f1117] text-sm text-gray-400 dark:text-gray-500">
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-background text-sm text-gray-400 dark:text-gray-500">
         학생 정보를 찾을 수 없습니다
       </div>
     </div>
@@ -335,10 +345,10 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
   return (
     <div className={themeReady && isDark ? 'dark' : ''}>
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0f1117]">
+      <div className="min-h-screen bg-gray-50 dark:bg-background">
 
         {/* ── 헤더 ──────────────────────────────────────────────────── */}
-        <header className="sticky top-0 z-20 border-b border-gray-200 dark:border-white/[0.08] bg-white/90 dark:bg-[#16161f]/90 backdrop-blur-sm px-4 py-3">
+        <header className="sticky top-0 z-20 border-b border-gray-200 dark:border-white/[0.08] bg-white/90 dark:bg-card/90 backdrop-blur-sm px-4 py-3">
           <div className="mx-auto flex max-w-lg items-center justify-between">
             <div className="flex items-center gap-2">
               <GraduationCap className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
@@ -355,7 +365,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
           {activeTab === 'home' && (
             <>
               {/* 프로필 */}
-              <div className="rounded-2xl bg-white dark:bg-[#16161f] shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-5 py-4">
+              <div className="rounded-2xl bg-white dark:bg-card shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-5 py-4">
                 <div className="flex items-center gap-3">
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-xl font-bold text-indigo-700 dark:text-indigo-200">
                     {student.name[0]}
@@ -373,25 +383,25 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
               {/* 스탯 카드 */}
               {weekScores.length > 0 && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-4 gap-2">
                   <StatCard label="시험 평균" icon={<BookOpen className="h-4 w-4" />} color="indigo"
                     value={avg(readingRates) !== null ? `${avg(readingRates)}%` : null} delta={delta('reading')}
-                    onClick={() => setActiveTab('score')} />
+                    onClick={() => { setActiveTab('score'); scrollTo('section-reading-chart', 120) }} />
                   <StatCard label="단어 평균" icon={<BookText className="h-4 w-4" />} color="emerald"
                     value={avg(vocabRates) !== null ? `${avg(vocabRates)}%` : null} delta={delta('vocab')}
-                    onClick={() => { setActiveTab('wrongnote'); setWrongNoteTab('vocab') }} />
+                    onClick={() => { setActiveTab('score'); scrollTo('section-vocab-chart', 120) }} />
                   <StatCard label="과제 평균" icon={<ClipboardCheck className="h-4 w-4" />} color="amber"
                     value={avg(homeworkRates) !== null ? `${avg(homeworkRates)}%` : null} delta={delta('homework')}
-                    onClick={() => setActiveTab('score')} />
+                    onClick={() => scrollTo('section-homework')} />
                   <StatCard label="출석률" icon={<UserCheck className="h-4 w-4" />} color="blue"
                     value={attRate !== null ? `${attRate}%` : null} delta={null}
-                    onClick={() => setActiveTab('score')} />
+                    onClick={() => scrollTo('section-attendance')} />
                 </div>
               )}
 
               {/* 성장 하이라이트 */}
               {highlights.length > 0 && (
-                <div className="rounded-2xl bg-white dark:bg-[#16161f] shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-5 py-4">
+                <div className="rounded-2xl bg-white dark:bg-card shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-5 py-4">
                   <p className="mb-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">이번 주 잘한 것</p>
                   <div className="flex flex-wrap gap-2">
                     {highlights.map((h, i) => (
@@ -406,21 +416,21 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
               {/* 과제 제출률 */}
               {homeworkData.length >= 1 && (
-                <Card title="과제 제출률" subtitle="주차별 (%)">
+                <Card id="section-homework" title="과제 제출률" subtitle="주차별 (%)">
                   <HomeworkBarChart data={homeworkData} isDark={isDark} />
                 </Card>
               )}
 
               {/* 출석 현황 */}
               {attendance.length > 0 && (
-                <Card title="출석 현황" subtitle="수업일 기준">
+                <Card id="section-attendance" title="출석 현황" subtitle="수업일 기준">
                   <AttendanceCalendar attendance={attendance} />
                 </Card>
               )}
 
               {/* 강사 코멘트 */}
               {commentFeed.length > 0 && (
-                <Card title="강사 코멘트" subtitle="최근 수업 피드백">
+                <Card title="강사 코멘트" subtitle="최근 수업 피드백" info="선생님이 수업 후 직접 작성한 피드백입니다. 최근 수업부터 순서대로 표시됩니다.">
                   <div className="space-y-3">
                     {(commentExpanded ? commentFeed : commentFeed.slice(0, 1)).map(({ week, memo, className }, idx, arr) => (
                       <div key={week.id} className="flex gap-3">
@@ -460,7 +470,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               )}
 
               {weekScores.length === 0 && (
-                <div className="rounded-2xl bg-white dark:bg-[#16161f] p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
+                <div className="rounded-2xl bg-white dark:bg-card p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
                   아직 시험 결과가 없습니다
                 </div>
               )}
@@ -471,19 +481,19 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
           {activeTab === 'score' && (
             <>
               {trendData.filter((d) => d.readingRate !== null || d.classReadingRate !== null).length >= 1 && (
-                <Card title="시험 점수 추이" subtitle="진단평가 정답률 (%) · 점선은 반 평균">
+                <Card id="section-reading-chart" title="시험 점수 추이" subtitle="진단평가 정답률 (%) · 점선은 반 평균">
                   <ScoreTrendChart data={trendData} isDark={isDark} series="reading" />
                 </Card>
               )}
 
               {trendData.filter((d) => d.vocabRate !== null || d.classVocabRate !== null).length >= 1 && (
-                <Card title="단어 점수 추이" subtitle="단어시험 정답률 (%) · 점선은 반 평균">
+                <Card id="section-vocab-chart" title="단어 점수 추이" subtitle="단어시험 정답률 (%) · 점선은 반 평균">
                   <ScoreTrendChart data={trendData} isDark={isDark} series="vocab" />
                 </Card>
               )}
 
               {visibleWeeks.length > 0 && (
-                <Card title="회차별 성적" noPad>
+                <Card title="회차별 성적" noPad info="주차별 시험·단어·과제 점수입니다. 시험/단어 칩을 클릭하면 해당 주차 오답노트로 바로 이동해요. 반 평균 대비 차이도 함께 표시됩니다.">
                   <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
                     {visibleWeeks.map((w) => {
                       const score = scoreByWeek.get(w.id)
@@ -520,6 +530,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                       setActiveTab('wrongnote')
                                       setWrongNoteTab('reading')
                                       setExpandedWrongWeekIds((prev) => new Set([...prev, w.id]))
+                                      scrollTo(`wrongnote-reading-${w.id}`, 150)
                                     }}
                                     className="flex items-center gap-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 px-2 py-1 text-xs hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
                                   >
@@ -548,6 +559,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                       setActiveTab('wrongnote')
                                       setWrongNoteTab('vocab')
                                       setExpandedVocabWeekIds((prev) => new Set([...prev, w.id]))
+                                      scrollTo(`wrongnote-vocab-${w.id}`, 150)
                                     }}
                                     className="flex items-center gap-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 text-xs hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
                                   >
@@ -597,7 +609,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               )}
 
               {weekScores.length === 0 && (
-                <div className="rounded-2xl bg-white dark:bg-[#16161f] p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
+                <div className="rounded-2xl bg-white dark:bg-card p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
                   아직 시험 결과가 없습니다
                 </div>
               )}
@@ -624,7 +636,29 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               )}
 
               {repeatPatterns.length > 0 && (
-                <Card title="약점 패턴 분석" subtitle="출제된 주차 기준 · 클릭하면 문제 확인">
+                <Card
+                  title="약점 패턴 분석"
+                  subtitle="2회 이상 출제된 유형 분석 · 탭하면 문제 확인"
+                  infoNode={
+                    <div className="rounded-lg border border-gray-100 dark:border-white/[0.07] overflow-hidden">
+                      {[
+                        { label: '고착', accent: '#f43f5e', color: 'text-rose-500 dark:text-rose-400', desc: '반복 출제에도 오답이 지속 — 개념 보완 필요' },
+                        { label: '악화', accent: '#f97316', color: 'text-orange-500 dark:text-orange-400', desc: '최근 회차로 갈수록 정답률 하락 추세' },
+                        { label: '기복', accent: '#8b5cf6', color: 'text-violet-500 dark:text-violet-400', desc: '회차별 정답률 편차가 크고 불안정한 유형' },
+                        { label: '개선', accent: '#10b981', color: 'text-emerald-500 dark:text-emerald-400', desc: '최근 회차에서 정답률 상승세 확인' },
+                      ].map(({ label, accent, color, desc }, i, arr) => (
+                        <div
+                          key={label}
+                          className={`flex items-center gap-3 bg-white dark:bg-card px-3 py-2 ${i < arr.length - 1 ? 'border-b border-gray-100 dark:border-white/[0.06]' : ''}`}
+                        >
+                          <span className="h-4 w-[3px] shrink-0 rounded-full" style={{ backgroundColor: accent }} />
+                          <span className={`w-7 shrink-0 text-[11px] font-bold ${color}`}>{label}</span>
+                          <span className="text-[11px] text-gray-500 dark:text-gray-400">{desc}</span>
+                        </div>
+                      ))}
+                    </div>
+                  }
+                >
                   <div className="space-y-2">
                     {repeatPatterns.map((p) => (
                       <PatternCard key={p.id} pattern={p} onTagClick={(id, name) => setDrawerTag({ id, name, weekId: null })} />
@@ -634,7 +668,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               )}
 
               {typeData.length === 0 && repeatPatterns.length === 0 && (
-                <div className="rounded-2xl bg-white dark:bg-[#16161f] p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08]">
+                <div className="rounded-2xl bg-white dark:bg-card p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08]">
                   분석 데이터가 없습니다
                 </div>
               )}
@@ -652,7 +686,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                     onClick={() => setWrongNoteTab(t)}
                     className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors ${
                       wrongNoteTab === t
-                        ? 'bg-white dark:bg-[#16161f] text-gray-900 dark:text-white shadow-sm'
+                        ? 'bg-white dark:bg-card text-gray-900 dark:text-white shadow-sm'
                         : 'text-gray-500 dark:text-gray-400'
                     }`}
                   >
@@ -664,7 +698,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               {/* 독해 오답 */}
               {wrongNoteTab === 'reading' && (
                 wrongNoteGroups.length === 0 ? (
-                  <div className="rounded-2xl bg-white dark:bg-[#16161f] p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
+                  <div className="rounded-2xl bg-white dark:bg-card p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
                     진단평가 오답 데이터가 없습니다
                   </div>
                 ) : (
@@ -679,7 +713,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                           return next
                         })
                         return (
-                          <div key={week.id}>
+                          <div key={week.id} id={`wrongnote-reading-${week.id}`}>
                             <button
                               type="button"
                               onClick={toggle}
@@ -706,12 +740,12 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                             </button>
 
                             {isOpen && (
-                              <div className="border-t border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-[#0d0d14] px-4 py-4 space-y-3">
+                              <div className="border-t border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-background px-4 py-4 space-y-3">
                                 {answers.map((a) => {
                                   const q = a.exam_question!
                                   const tags = q.exam_question_tag.map((t) => t.concept_tag).filter(Boolean)
                                   return (
-                                    <div key={a.id} className="rounded-xl bg-white dark:bg-[#16161f] ring-1 ring-gray-100 dark:ring-white/[0.08] p-4">
+                                    <div key={a.id} className="rounded-xl bg-white dark:bg-card ring-1 ring-gray-100 dark:ring-white/[0.08] p-4">
                                       <div className="flex items-start justify-between gap-2 mb-3">
                                         <span className="text-sm font-bold text-gray-900 dark:text-white shrink-0">
                                           {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
@@ -725,7 +759,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                         </div>
                                       </div>
                                       {q.question_text && (
-                                        <div className="mb-3 rounded-lg bg-gray-50 dark:bg-[#0d0d14] border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line">
+                                        <div className="mb-3 rounded-lg bg-gray-50 dark:bg-background border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line">
                                           {q.question_text}
                                         </div>
                                       )}
@@ -765,7 +799,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               {/* 단어 오답 */}
               {wrongNoteTab === 'vocab' && (
                 vocabWrongGroups.length === 0 ? (
-                  <div className="rounded-2xl bg-white dark:bg-[#16161f] p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
+                  <div className="rounded-2xl bg-white dark:bg-card p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
                     단어 오답 데이터가 없습니다
                   </div>
                 ) : (
@@ -780,7 +814,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                           return next
                         })
                         return (
-                          <div key={week.id}>
+                          <div key={week.id} id={`wrongnote-vocab-${week.id}`}>
                             <button
                               type="button"
                               onClick={toggle}
@@ -807,7 +841,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                             </button>
 
                             {isOpen && (
-                              <div className="border-t border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-[#0d0d14] divide-y divide-gray-100 dark:divide-white/[0.08]">
+                              <div className="border-t border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-background divide-y divide-gray-100 dark:divide-white/[0.08]">
                                 {answers
                                   .slice()
                                   .sort((a, b) => (a.vocab_word?.number ?? 0) - (b.vocab_word?.number ?? 0))
@@ -822,7 +856,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                         </div>
                                         <div className="mt-1.5 flex items-center gap-2">
                                           <span className="text-sm text-rose-500 dark:text-rose-400 line-through">
-                                            {va.student_answer || '미답'}
+                                            {va.student_answer || '미작성'}
                                           </span>
                                           <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
                                           <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
@@ -865,7 +899,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
         </main>
 
         {/* ── 하단 탭바 ─────────────────────────────────────────────── */}
-        <nav className="fixed bottom-0 inset-x-0 z-30 bg-white/90 dark:bg-[#16161f]/95 backdrop-blur-sm border-t border-gray-100 dark:border-white/10">
+        <nav className="fixed bottom-0 inset-x-0 z-30 bg-white/90 dark:bg-card/95 backdrop-blur-sm border-t border-gray-100 dark:border-white/10">
           <div className="mx-auto flex max-w-lg pb-safe">
             {TABS.map(({ id, label, Icon }) => {
               const active = activeTab === id
@@ -873,14 +907,17 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 <button
                   key={id}
                   onClick={() => setActiveTab(id)}
-                  className={`flex flex-1 flex-col items-center gap-1 py-3 transition-colors ${
+                  className={`relative flex flex-1 flex-col items-center gap-1 pt-3 pb-2.5 transition-colors ${
                     active
                       ? 'text-indigo-600 dark:text-indigo-300'
                       : 'text-gray-400 dark:text-gray-500'
                   }`}
                 >
+                  {active && (
+                    <span className="absolute top-0 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full bg-indigo-500 dark:bg-indigo-400" />
+                  )}
                   <Icon className={`h-5 w-5 transition-transform ${active ? 'scale-110' : ''}`} />
-                  <span className={`text-[10px] font-medium ${active ? 'font-semibold' : ''}`}>{label}</span>
+                  <span className={`text-[10px] ${active ? 'font-semibold' : 'font-medium'}`}>{label}</span>
                 </button>
               )
             })}
@@ -894,7 +931,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
         />
 
         <div
-          className={`fixed bottom-0 left-1/2 z-50 flex max-h-[82vh] w-full max-w-lg -translate-x-1/2 flex-col rounded-t-2xl bg-white dark:bg-[#16161f] transition-transform duration-300 ease-out ${drawerTag ? 'translate-y-0' : 'translate-y-full'}`}
+          className={`fixed bottom-0 left-1/2 z-50 flex max-h-[82vh] w-full max-w-lg -translate-x-1/2 flex-col rounded-t-2xl bg-white dark:bg-card transition-transform duration-300 ease-out ${drawerTag ? 'translate-y-0' : 'translate-y-full'}`}
         >
           <div className="flex justify-center pt-3 pb-1">
             <div className="h-1 w-10 rounded-full bg-gray-200 dark:bg-white/20" />
@@ -923,13 +960,13 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 const q = a.exam_question!
                 const weekNum = weekNumberByWeekId.get(q.week_id) ?? '?'
                 return (
-                  <div key={a.id} className="rounded-xl border border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-[#0d0d14] p-4">
+                  <div key={a.id} className="rounded-xl border border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-background p-4">
                     <p className="mb-3 text-xs font-semibold text-gray-500 dark:text-gray-300">
                       {weekNum}주차 · {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
                     </p>
 
                     {q.question_text && (
-                      <div className="mb-3 rounded-lg bg-white dark:bg-[#16161f] border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line">
+                      <div className="mb-3 rounded-lg bg-white dark:bg-card border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line">
                         {q.question_text}
                       </div>
                     )}
