@@ -27,8 +27,12 @@ export const PATTERN_META: Record<PatternType, {
     label: '기복',
     color: 'text-violet-500 dark:text-violet-400',
     accent: '#8b5cf6',
-    insightFn: (p) =>
-      `출제 ${p.weekCount}회 중 ${p.wrongWeekCount}회 오답 · 평균 정답률 ${p.overallAccuracy}%`,
+    insightFn: (p) => {
+      const accs = p.weeks.map((w) => w.accuracy)
+      const min = Math.min(...accs)
+      const max = Math.max(...accs)
+      return `정답률 ${min}% ~ ${max}% 변동 · 평균 ${p.overallAccuracy}%`
+    },
   },
   improving: {
     label: '개선',
