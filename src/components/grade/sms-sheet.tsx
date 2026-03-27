@@ -1,12 +1,16 @@
 'use client'
 
-import { useState } from 'react'
-import { MessageSquare, Copy, Check, RefreshCw, Phone, SendHorizonal } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { MessageSquare, Copy, Check, RefreshCw, Phone, SendHorizonal, ChevronDown, ChevronUp, RotateCcw, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { toast } from 'sonner'
 import { useSaveMessageLog } from '@/hooks/use-message-logs'
+import { usePrompt, useSavePrompt } from '@/hooks/use-prompts'
+import { SMS_RULES } from '@/lib/prompts'
+
+const PROMPT_KEY = 'sms_rules'
 
 type SmsMessage = {
   student_id: string
@@ -28,12 +32,29 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
   const [messages, setMessages] = useState<SmsMessage[]>([])
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [sentIds, setSentIds] = useState<Set<string>>(new Set())
+  const [promptText, setPromptText] = useState(SMS_RULES)
+  const [promptOpen, setPromptOpen] = useState(false)
   const saveMessageLog = useSaveMessageLog()
+  const { data: savedPrompt } = usePrompt(PROMPT_KEY)
+  const savePrompt = useSavePrompt(PROMPT_KEY)
+
+  // DB에 저장된 프롬프트가 있으면 로드
+  useEffect(() => {
+    if (savedPrompt) setPromptText(savedPrompt)
+  }, [savedPrompt])
+
+  const activePrompt = savedPrompt ?? SMS_RULES
+  const isPromptModified = promptText !== activePrompt
 
   async function generate() {
     setLoading(true)
     try {
-      const res = await fetch(`/api/weeks/${weekId}/sms`, { method: 'POST' })
+      const body = JSON.stringify({ customPrompt: promptText })
+      const res = await fetch(`/api/weeks/${weekId}/sms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      })
       if (!res.ok) throw new Error((await res.json()).error)
       const data = await res.json()
       setMessages(data.messages)
@@ -89,7 +110,7 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
       </SheetTrigger>
 
       <SheetContent className="w-full sm:max-w-lg flex flex-col gap-0 p-0">
-        <SheetHeader className="px-5 py-4 border-b">
+        <SheetHeader className="px-5 py-4 border-b overflow-y-auto max-h-[60vh] shrink-0">
           <div className="flex items-center justify-between">
             <SheetTitle>{weekNumber}주차 문자 발송</SheetTitle>
             <div className="flex gap-2">
@@ -111,6 +132,53 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
               )}
             </div>
           </div>
+
+          {/* 프롬프트 편집 */}
+          <button
+            type="button"
+            onClick={() => setPromptOpen((v) => !v)}
+            className="flex w-full items-center justify-between rounded-md px-3 py-2 text-xs text-gray-500 hover:bg-gray-100 transition-colors mt-1"
+          >
+            <span className="flex items-center gap-1.5">
+              프롬프트 수정
+              {isPromptModified && (
+                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">미저장</span>
+              )}
+            </span>
+            {promptOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+
+          {promptOpen && (
+            <div className="space-y-1.5 pt-1">
+              <Textarea
+                value={promptText}
+                onChange={(e) => setPromptText(e.target.value)}
+                rows={10}
+                className="font-mono text-xs resize-none"
+                spellCheck={false}
+              />
+              <div className="flex justify-between">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setPromptText(SMS_RULES)}
+                  className="h-7 text-xs text-gray-400 hover:text-gray-600"
+                >
+                  <RotateCcw className="mr-1 h-3 w-3" />
+                  기본값으로 되돌리기
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => savePrompt.mutate(promptText)}
+                  disabled={savePrompt.isPending || !isPromptModified}
+                  className="h-7 text-xs"
+                >
+                  <Save className="mr-1 h-3 w-3" />
+                  저장
+                </Button>
+              </div>
+            </div>
+          )}
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto">

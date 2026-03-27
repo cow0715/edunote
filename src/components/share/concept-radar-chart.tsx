@@ -4,64 +4,84 @@ import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   ResponsiveContainer, Tooltip,
 } from 'recharts'
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
+import { statusColor } from '@/lib/chart-colors'
 
 export type RadarItem = { name: string; rate: number; correct: number; total: number }
 
-export function ConceptRadarChart({ data, isDark }: { data: RadarItem[]; isDark?: boolean }) {
-  const gridColor   = isDark ? 'rgba(255,255,255,0.1)' : '#e5e7eb'
-  const tickColor   = isDark ? '#d1d5db' : '#6b7280'
-  const radarColor  = isDark ? '#818cf8' : '#6366f1'
-  const ttBg        = isDark ? '#1c1c2a' : '#ffffff'
-  const ttBorder    = isDark ? '#374151' : '#e5e7eb'
-  const ttColor     = isDark ? '#f3f4f6' : '#111827'
+const chartConfig = {
+  rate: {
+    label: '정답률',
+    color: 'hsl(var(--chart-1))',
+  },
+} satisfies ChartConfig
 
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payload: RadarItem }[] }) {
+  if (!active || !payload?.length) return null
+  const d = payload[0].payload
+  return (
+    <div className="rounded-xl border border-border/40 bg-background/95 px-3 py-2 shadow-xl backdrop-blur-sm">
+      <p className="mb-1 text-xs font-semibold text-foreground">{d.name}</p>
+      <p className="text-xs text-muted-foreground">
+        정답률 <span className="font-bold text-foreground">{d.rate}%</span>
+      </p>
+      <p className="text-xs text-muted-foreground">
+        {d.correct} / {d.total} 문항
+      </p>
+    </div>
+  )
+}
+
+
+export function ConceptRadarChart({ data, isDark }: { data: RadarItem[]; isDark?: boolean }) {
   if (data.length < 3) return (
     <p className="py-8 text-center text-xs text-gray-400 dark:text-gray-500">
       카테고리가 3개 이상이어야 표시됩니다
     </p>
   )
 
+  const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'
+  const tickColor = isDark ? '#94a3b8' : '#64748b'
+  const fillColor = isDark ? '#818cf8' : '#6366f1'
+
   return (
     <div>
-      <ResponsiveContainer width="100%" height={240}>
-        <RadarChart data={data} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
-          <PolarGrid stroke={gridColor} />
+      <ChartContainer config={chartConfig} className="h-[240px] w-full">
+        <RadarChart data={data} margin={{ top: 10, right: 24, bottom: 10, left: 24 }}>
+          <defs>
+            <radialGradient id="radarGradient" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor={fillColor} stopOpacity={0.45} />
+              <stop offset="100%" stopColor={fillColor} stopOpacity={0.05} />
+            </radialGradient>
+          </defs>
+          <PolarGrid
+            stroke={gridColor}
+            strokeWidth={1}
+          />
           <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
           <PolarAngleAxis
             dataKey="name"
-            tick={{ fontSize: 11, fill: tickColor }}
+            tick={{ fontSize: 11, fill: tickColor, fontWeight: 500 }}
           />
-          <Tooltip
-            formatter={(value, _, props) => [
-              `${value}% (${props.payload?.correct}/${props.payload?.total})`,
-              '정답률',
-            ]}
-            labelStyle={{ fontSize: 12, color: ttColor }}
-            itemStyle={{ color: ttColor }}
-            contentStyle={{
-              fontSize: 12, borderRadius: 8,
-              border: `1px solid ${ttBorder}`,
-              backgroundColor: ttBg, color: ttColor,
-            }}
-          />
+          <ChartTooltip content={<CustomTooltip />} />
           <Radar
             name="정답률"
             dataKey="rate"
-            stroke={radarColor}
-            fill={radarColor}
-            fillOpacity={0.25}
-            dot={{ r: 3, fill: radarColor }}
+            stroke={fillColor}
+            strokeWidth={2}
+            fill="url(#radarGradient)"
+            dot={{ r: 4, fill: fillColor, strokeWidth: 2, stroke: isDark ? '#1e1e2e' : '#ffffff' }}
+            activeDot={{ r: 6, fill: fillColor, strokeWidth: 2, stroke: isDark ? '#1e1e2e' : '#ffffff' }}
           />
         </RadarChart>
-      </ResponsiveContainer>
+      </ChartContainer>
 
-      {/* 범례 */}
-      <div className="mt-1 flex flex-wrap justify-center gap-x-4 gap-y-1.5">
+      <div className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1.5">
         {data.map((d) => (
           <div key={d.name} className="flex items-center gap-1.5">
             <span
               className="inline-block h-2 w-2 rounded-full"
-              style={{ backgroundColor: d.rate >= 80 ? '#22c55e' : d.rate >= 60 ? '#f59e0b' : '#f87171' }}
+              style={{ backgroundColor: statusColor(d.rate, isDark) }}
             />
             <span className="text-[11px] text-gray-600 dark:text-gray-300">
               {d.name} <span className="font-semibold">{d.rate}%</span>

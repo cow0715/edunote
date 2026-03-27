@@ -58,7 +58,8 @@ export type SmsResult = {
 
 export async function generateSmsMessages(
   weekInfo: { week_number: number; class_name: string; start_date?: string | null },
-  students: SmsStudentInput[]
+  students: SmsStudentInput[],
+  customPrompt?: string
 ): Promise<SmsResult[]> {
   if (students.length === 0) return []
 
@@ -88,7 +89,7 @@ ${students.map((s) => {
 링크: ${s.share_url}`
 }).join('\n')}
 
-${SMS_RULES}
+${customPrompt ?? SMS_RULES}
 
 JSON 배열만 출력 (다른 텍스트 없이):
 [{"student_name": "이름", "message": "문자내용"}]`

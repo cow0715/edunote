@@ -5,52 +5,37 @@ import { PatternItem, PatternType } from '@/hooks/weakness/useAnalysis'
 // ── 패턴 메타 ────────────────────────────────────────────────────────────────
 export const PATTERN_META: Record<PatternType, {
   label: string
-  color: string
-  bgColor: string
-  darkBgColor: string
-  borderColor: string
-  darkBorderColor: string
+  color: string    // Tailwind 텍스트 색상
+  accent: string   // hex — 스트라이프·스파크라인용
   insightFn: (p: PatternItem) => string
 }> = {
   persistent: {
-    label: '고착형',
-    color: 'text-rose-500 dark:text-rose-300',
-    bgColor: 'bg-rose-50/60',
-    darkBgColor: 'dark:bg-rose-950/40',
-    borderColor: 'border-rose-200',
-    darkBorderColor: 'dark:border-rose-800/50',
+    label: '고착',
+    color: 'text-rose-500 dark:text-rose-400',
+    accent: '#f43f5e',
     insightFn: (p) =>
-      `출제 ${p.weekCount}회 중 ${p.wrongWeekCount}회 오답 — 꾸준히 취약한 유형입니다`,
+      `출제 ${p.weekCount}회 중 ${p.wrongWeekCount}회 오답 · 평균 정답률 ${p.overallAccuracy}%`,
   },
   deteriorating: {
-    label: '악화형',
-    color: 'text-orange-500 dark:text-orange-300',
-    bgColor: 'bg-orange-50/60',
-    darkBgColor: 'dark:bg-orange-950/40',
-    borderColor: 'border-orange-200',
-    darkBorderColor: 'dark:border-orange-800/50',
+    label: '악화',
+    color: 'text-orange-500 dark:text-orange-400',
+    accent: '#f97316',
     insightFn: (p) =>
       `정답률 ${p.firstAccuracy}% → ${p.latestAccuracy}% (${Math.abs(p.diff)}%p 하락)`,
   },
   intermittent: {
-    label: '간헐형',
-    color: 'text-violet-500 dark:text-violet-300',
-    bgColor: 'bg-violet-50/60',
-    darkBgColor: 'dark:bg-violet-950/40',
-    borderColor: 'border-violet-200',
-    darkBorderColor: 'dark:border-violet-800/50',
+    label: '기복',
+    color: 'text-violet-500 dark:text-violet-400',
+    accent: '#8b5cf6',
     insightFn: (p) =>
-      `출제 ${p.weekCount}회 중 ${p.wrongWeekCount}회 오답 — 들쑥날쑥, 완전 습득 필요`,
+      `출제 ${p.weekCount}회 중 ${p.wrongWeekCount}회 오답 · 평균 정답률 ${p.overallAccuracy}%`,
   },
   improving: {
-    label: '개선형',
-    color: 'text-emerald-500 dark:text-emerald-300',
-    bgColor: 'bg-emerald-50/60',
-    darkBgColor: 'dark:bg-emerald-950/40',
-    borderColor: 'border-emerald-200',
-    darkBorderColor: 'dark:border-emerald-800/50',
+    label: '개선',
+    color: 'text-emerald-500 dark:text-emerald-400',
+    accent: '#10b981',
     insightFn: (p) =>
-      `정답률 ${p.firstAccuracy}% → ${p.latestAccuracy}% (개선 중이나 아직 ${p.latestAccuracy}%)`,
+      `정답률 ${p.firstAccuracy}% → ${p.latestAccuracy}% (+${p.diff}%p)`,
   },
 }
 
@@ -60,13 +45,7 @@ export function Sparkline({ weeks, patternType }: {
   patternType: PatternType
 }) {
   const W = 64, H = 28, PAD = 3
-  const lineColor: Record<PatternType, string> = {
-    persistent:   '#f43f5e',
-    deteriorating:'#f97316',
-    intermittent: '#8b5cf6',
-    improving:    '#10b981',
-  }
-  const color = lineColor[patternType]
+  const color = PATTERN_META[patternType].accent
 
   if (weeks.length < 2) return null
 
@@ -81,10 +60,9 @@ export function Sparkline({ weeks, patternType }: {
       <line
         x1={PAD} y1={(H / 2).toFixed(1)} x2={W - PAD} y2={(H / 2).toFixed(1)}
         stroke="currentColor" strokeWidth="0.5" strokeDasharray="2 2"
-        className="text-gray-300 dark:text-gray-600"
+        className="text-gray-200 dark:text-gray-700"
       />
       <path d={d} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      {/* 마지막 점 */}
       <circle cx={xs[xs.length - 1].toFixed(1)} cy={ys[ys.length - 1].toFixed(1)} r="2.5" fill={color} />
     </svg>
   )
@@ -100,46 +78,44 @@ export function PatternCard({ pattern: p, onTagClick }: {
     <button
       type="button"
       onClick={() => onTagClick(p.id, p.name)}
-      className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors
-        ${meta.bgColor} ${meta.darkBgColor} ${meta.borderColor} ${meta.darkBorderColor}
-        hover:brightness-95 dark:hover:brightness-110`}
+      className="flex w-full items-stretch overflow-hidden rounded-xl border border-gray-100 dark:border-white/[0.08] bg-white dark:bg-card text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.04] active:scale-[0.99]"
     >
-      {/* 좌: 패턴 뱃지 + 이름 + 인사이트 */}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${meta.color}
-            bg-white/80 dark:bg-white/[0.1]`}>
-            {meta.label}
-          </span>
-          <span className="truncate text-sm font-semibold text-gray-900 dark:text-white">
-            {p.name}
-          </span>
-        </div>
-        <p className={`mt-0.5 text-[11px] ${meta.color} opacity-90`}>
-          {meta.insightFn(p)}
-        </p>
-        {/* 주차 칩 */}
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {p.weeks.map((w) => (
-            <span
-              key={w.weekNumber}
-              className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium
-                ${w.accuracy < 50
-                  ? `${meta.color} border-current bg-white/60 dark:bg-white/[0.08]`
-                  : 'text-gray-400 dark:text-gray-400 border-gray-200 dark:border-gray-600 bg-white/50 dark:bg-white/[0.05]'
+      {/* 좌측 컬러 스트라이프 */}
+      <span className="w-[3px] shrink-0 self-stretch" style={{ backgroundColor: meta.accent }} />
+
+      <div className="flex flex-1 items-center gap-3 px-4 py-3">
+        {/* 좌: 유형 + 이름 + 인사이트 + 주차 칩 */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className={`shrink-0 text-[10px] font-bold ${meta.color}`}>{meta.label}</span>
+            <span className="truncate text-sm font-semibold text-gray-900 dark:text-white">{p.name}</span>
+          </div>
+          <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+            {meta.insightFn(p)}
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {p.weeks.map((w) => (
+              <span
+                key={w.weekNumber}
+                className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                  w.accuracy < 50
+                    ? 'bg-gray-100 dark:bg-white/[0.08] text-gray-600 dark:text-gray-300'
+                    : 'bg-gray-50 dark:bg-white/[0.04] text-gray-400 dark:text-gray-500'
                 }`}
-            >
-              {w.weekNumber}주 {w.accuracy}%
-            </span>
-          ))}
+              >
+                {w.weekNumber}주 {w.accuracy}%
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
-      {/* 우: 스파크라인 + 전체 정답률 */}
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        <Sparkline weeks={p.weeks} patternType={p.patternType} />
-        <span className={`text-[11px] font-bold ${meta.color}`}>
-          {p.overallAccuracy}% 정답
-        </span>
+
+        {/* 우: 스파크라인 + 정답률 */}
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <Sparkline weeks={p.weeks} patternType={p.patternType} />
+          <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">
+            {p.overallAccuracy}%
+          </span>
+        </div>
       </div>
     </button>
   )
