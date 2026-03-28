@@ -211,7 +211,15 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       )}
 
       {/* 테이블 */}
-      <div className="rounded-xl border bg-white overflow-hidden">
+      <div className="relative rounded-xl border bg-white overflow-hidden">
+        {saveGrade.isPending && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/75">
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-indigo-500" />
+              {hasSubjective ? 'AI 채점 중...' : '저장 중...'}
+            </div>
+          </div>
+        )}
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-gray-50/80">

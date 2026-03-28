@@ -1,5 +1,20 @@
 import { getAuth, err, ok } from '@/lib/api'
 
+export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase, user } = await getAuth()
+  const { id: weekId } = await params
+  if (!user) return err('인증 필요', 401)
+
+  const { data, error } = await supabase
+    .from('vocab_word')
+    .select('number, english_word, correct_answer, synonyms, antonyms')
+    .eq('week_id', weekId)
+    .order('number')
+
+  if (error) return err(error.message, 500)
+  return ok(data)
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params

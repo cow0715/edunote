@@ -12,14 +12,14 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
-function TagRow({ tag, onEdit, onDelete }: { tag: ConceptTag; onEdit: (t: ConceptTag) => void; onDelete: (id: string) => void }) {
+function TagRow({ tag, onEdit, onDelete, deleteDisabled }: { tag: ConceptTag; onEdit: (t: ConceptTag) => void; onDelete: (id: string) => void; deleteDisabled?: boolean }) {
   return (
     <div className="flex items-center gap-2 py-1.5 pl-8 pr-2 hover:bg-gray-50 rounded">
       <span className="flex-1 text-sm text-gray-700">{tag.name}</span>
       <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => onEdit(tag)}>
         <Pencil className="h-3 w-3 text-gray-400" />
       </Button>
-      <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => onDelete(tag.id)}>
+      <Button size="icon" variant="ghost" className="h-6 w-6" disabled={deleteDisabled} onClick={() => onDelete(tag.id)}>
         <Trash2 className="h-3 w-3 text-red-400" />
       </Button>
     </div>
@@ -141,7 +141,7 @@ export function ConceptTagManager() {
                   <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setEditCatId(cat.id); setEditCatName(cat.name) }}>
                     <Pencil className="h-3.5 w-3.5 text-gray-400" />
                   </Button>
-                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { if (confirm('대분류를 삭제하면 소속 태그도 삭제됩니다. 삭제할까요?')) deleteCategory.mutate(cat.id) }}>
+                  <Button size="icon" variant="ghost" className="h-7 w-7" disabled={deleteCategory.isPending} onClick={() => { if (confirm('대분류를 삭제하면 소속 태그도 삭제됩니다. 삭제할까요?')) deleteCategory.mutate(cat.id) }}>
                     <Trash2 className="h-3.5 w-3.5 text-red-400" />
                   </Button>
                 </>
@@ -174,6 +174,7 @@ export function ConceptTagManager() {
                       tag={tag}
                       onEdit={(t) => { setEditTagId(t.id); setEditTagName(t.name) }}
                       onDelete={(id) => { if (confirm('태그를 삭제할까요?')) deleteTag.mutate(id) }}
+                      deleteDisabled={deleteTag.isPending}
                     />
                   )
                 ))}

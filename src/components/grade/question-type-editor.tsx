@@ -316,9 +316,9 @@ export function QuestionTypeEditor({ weekId }: Props) {
       </div>
 
       {/* ── 데스크탑 테이블 ── */}
-      <div className="hidden md:block overflow-x-auto rounded-lg border">
+      <div className="hidden md:block overflow-x-auto rounded-lg border max-h-[55vh] overflow-y-auto">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-xs text-gray-500">
+          <thead className="sticky top-0 bg-gray-50 text-xs text-gray-500">
             <tr>
               <th className="w-16 px-3 py-2 text-left">번호</th>
               <th className="w-36 px-2 py-2 text-left">정답</th>

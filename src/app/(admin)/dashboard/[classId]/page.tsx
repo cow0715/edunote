@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Class, ClassStudent, Student } from '@/lib/types'
 import { toast } from 'sonner'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useClassStudents, useStudents, useAddClassStudent, useRemoveClassStudent } from '@/hooks/use-students'
 import { useWeeks } from '@/hooks/use-weeks'
 import { useSyncWeeks } from '@/hooks/use-classes'
@@ -27,6 +29,8 @@ async function fetchClass(id: string): Promise<Class> {
 export default function ClassDetailPage({ params }: { params: Promise<{ classId: string }> }) {
   const { classId } = use(params)
   const [addOpen, setAddOpen] = useState(false)
+  const [addStep, setAddStep] = useState<{ studentId: string; name: string; joinedAt: string } | null>(null)
+  const [removeTarget, setRemoveTarget] = useState<{ studentId: string; name: string; leftAt: string } | null>(null)
   const [syncWarning, setSyncWarning] = useState<{ message: string; affected_weeks: number[] } | null>(null)
 
   const { data: cls, isLoading: classLoading } = useQuery({
@@ -43,8 +47,21 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   const enrolledIds = new Set((classStudents as ClassStudent[]).map((cs) => cs.student_id))
   const unenrolled = (allStudents as Student[]).filter((s) => !enrolledIds.has(s.id))
 
-  function handleRemove(studentId: string) {
-    if (confirm('수업에서 학생을 제거하시겠습니까?')) removeStudent.mutate(studentId)
+  function handleRemoveClick(studentId: string, name: string) {
+    setRemoveTarget({ studentId, name, leftAt: new Date().toISOString().slice(0, 10) })
+  }
+
+  function confirmRemove() {
+    if (!removeTarget) return
+    removeStudent.mutate({ studentId: removeTarget.studentId, left_at: removeTarget.leftAt })
+    setRemoveTarget(null)
+  }
+
+  function confirmAdd() {
+    if (!addStep) return
+    addStudent.mutate({ student_id: addStep.studentId, joined_at: addStep.joinedAt })
+    setAddStep(null)
+    setAddOpen(false)
   }
 
 async function handleSync(force = false) {
@@ -140,7 +157,7 @@ async function handleSync(force = false) {
                         size="sm"
                         variant="ghost"
                         className="h-7 px-2 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-600"
-                        onClick={() => handleRemove(cs.student_id)}
+                        onClick={() => handleRemoveClick(cs.student_id, cs.student?.name ?? '')}
                       >
                         <UserMinus className="h-3.5 w-3.5" />
                       </Button>
@@ -235,12 +252,28 @@ async function handleSync(force = false) {
       </Tabs>
 
       {/* 학생 추가 다이얼로그 */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+      <Dialog open={addOpen} onOpenChange={(v) => { setAddOpen(v); if (!v) setAddStep(null) }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>학생 추가</DialogTitle>
+            <DialogTitle>{addStep ? `${addStep.name} 입원 날짜` : '학생 추가'}</DialogTitle>
           </DialogHeader>
-          {unenrolled.length === 0 ? (
+          {addStep ? (
+            <div className="space-y-4 pt-1">
+              <div className="space-y-2">
+                <Label>입원일</Label>
+                <Input
+                  type="date"
+                  value={addStep.joinedAt}
+                  onChange={(e) => setAddStep({ ...addStep, joinedAt: e.target.value })}
+                  className="w-full"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setAddStep(null)}>이전</Button>
+                <Button onClick={confirmAdd} disabled={!addStep.joinedAt || addStudent.isPending}>추가</Button>
+              </div>
+            </div>
+          ) : unenrolled.length === 0 ? (
             <p className="py-4 text-center text-sm text-gray-500">
               추가할 수 있는 학생이 없어요.
               <br />먼저 학생 관리에서 학생을 등록해주세요.
@@ -251,7 +284,7 @@ async function handleSync(force = false) {
                 <button
                   key={s.id}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-gray-50 transition-colors"
-                  onClick={() => { addStudent.mutate(s.id); setAddOpen(false) }}
+                  onClick={() => setAddStep({ studentId: s.id, name: s.name, joinedAt: new Date().toISOString().slice(0, 10) })}
                 >
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
                     {s.name[0]}
@@ -264,6 +297,32 @@ async function handleSync(force = false) {
               ))}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* 퇴원 확인 다이얼로그 */}
+      <Dialog open={!!removeTarget} onOpenChange={(v) => { if (!v) setRemoveTarget(null) }}>
+        <DialogContent className="sm:max-w-xs">
+          <DialogHeader>
+            <DialogTitle>{removeTarget?.name} 퇴원 처리</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div className="space-y-2">
+              <Label>퇴원일</Label>
+              <Input
+                type="date"
+                value={removeTarget?.leftAt ?? ''}
+                onChange={(e) => setRemoveTarget((t) => t ? { ...t, leftAt: e.target.value } : null)}
+                className="w-full"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setRemoveTarget(null)}>취소</Button>
+              <Button variant="destructive" onClick={confirmRemove} disabled={!removeTarget?.leftAt || removeStudent.isPending}>
+                퇴원
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
