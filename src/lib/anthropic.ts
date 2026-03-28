@@ -39,6 +39,7 @@ export type GradingResult = {
 
 export type SmsStudentInput = {
   student_name: string
+  is_absent?: boolean
   vocab: { correct: number; total: number; prev_correct: number | null }
   reading: {
     correct: number
@@ -81,7 +82,7 @@ ${students.map((s) => {
     ...s.reading.wrong_subjective.map((w) => `${w.question_number}번 ${w.ai_feedback || w.concept_category}`),
   ]
   return `---
-학생: ${s.student_name}
+학생: ${s.student_name}${s.is_absent ? '\n결석: 예' : ''}
 단어: ${s.vocab.correct}/${s.vocab.total}${vocabChange}
 독해/진단: ${s.reading.correct}/${s.reading.total}${wrongItems.length > 0 ? ` | 틀린문항: ${wrongItems.slice(0, 3).join(', ')}` : ''}
 과제: ${s.homework.total > 0 ? `${s.homework.done}/${s.homework.total}` : '완료'}

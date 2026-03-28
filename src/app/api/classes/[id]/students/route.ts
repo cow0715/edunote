@@ -4,7 +4,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
   const { id: classId } = await params
-  const { data, error } = await supabase.from('class_student').select('*, student(*)').eq('class_id', classId).order('created_at')
+  const { data, error } = await supabase.from('class_student').select('*, student(*)').eq('class_id', classId).is('left_at', null).order('joined_at')
   if (error) { console.error('[GET /api/classes/[id]/students]', error); return err(error.message, 500) }
   return ok(data)
 }

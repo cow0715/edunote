@@ -35,8 +35,16 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   if (!week) return err('주차 없음', 404)
 
+  // 해당 주차 수업일 기준으로 재원 중이었던 학생만 조회
+  let csQuery = supabase.from('class_student').select('student_id, student(*)').eq('class_id', week.class_id).order('joined_at')
+  if (week.start_date) {
+    csQuery = csQuery.lte('joined_at', week.start_date).or(`left_at.is.null,left_at.gt.${week.start_date}`)
+  } else {
+    csQuery = csQuery.is('left_at', null)
+  }
+
   const [{ data: classStudents }, { data: weekScores }, { data: questions }, { data: vocabWords }] = await Promise.all([
-    supabase.from('class_student').select('student_id, student(*)').eq('class_id', week.class_id).order('created_at'),
+    csQuery,
     supabase.from('week_score').select('*, student_answer(*), student_vocab_answer(*, vocab_word(*))').eq('week_id', weekId),
     supabase.from('exam_question').select('*, exam_question_tag(concept_tag(*, concept_category(*)))').eq('week_id', weekId).eq('exam_type', 'reading').order('question_number').order('sub_label', { nullsFirst: true }),
     supabase.from('vocab_word').select('id, number, english_word').eq('week_id', weekId).order('number'),

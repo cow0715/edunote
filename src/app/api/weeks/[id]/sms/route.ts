@@ -29,12 +29,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .eq('week_number', week.week_number - 1)
     .single()
 
-  // 수강 학생 (전화번호 포함)
-  const { data: classStudents } = await supabase
+  // 해당 주차 수업일 기준으로 재원 중이었던 학생만 조회
+  let csQuery = supabase
     .from('class_student')
     .select('student_id, student(id, name, phone, father_phone, mother_phone, share_token)')
     .eq('class_id', classId)
-    .order('created_at')
+    .order('joined_at')
+  if (week.start_date) {
+    csQuery = csQuery.lte('joined_at', week.start_date).or(`left_at.is.null,left_at.gt.${week.start_date}`)
+  } else {
+    csQuery = csQuery.is('left_at', null)
+  }
+  const { data: classStudents } = await csQuery
 
   if (!classStudents?.length) return ok({ messages: [] })
 
@@ -67,6 +73,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const readingTotal = questions?.length ?? 0
 
+  // 결석 학생 파악 (수업일 기준)
+  const absentSet = new Set<string>()
+  if (week.start_date) {
+    const { data: attendances } = await supabase
+      .from('attendance')
+      .select('student_id, status')
+      .in('student_id', studentIds)
+      .eq('date', week.start_date)
+    attendances?.filter((a) => a.status === 'absent').forEach((a) => absentSet.add(a.student_id))
+  }
+
   // base URL (share 링크용) — NEXT_PUBLIC_APP_URL 환경변수 우선
   const host = process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin
 
@@ -85,7 +102,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!student) continue
 
     const score = scoreMap.get(cs.student_id)
-    if (!score) continue // 채점 안 된 학생 제외
+
+    // 채점 없는 학생 — 결석이면 별도 SMS 생성
+    if (!score) {
+      if (absentSet.has(cs.student_id)) {
+        studentInputs.push({
+          student_name: student.name,
+          is_absent: true,
+          vocab: { correct: 0, total: week.vocab_total, prev_correct: null },
+          reading: { correct: 0, total: readingTotal, wrong_objective: [], wrong_subjective: [] },
+          homework: { done: 0, total: week.homework_total },
+          teacher_memo: null,
+          share_url: `${host}/share/${student.share_token}`,
+        })
+      }
+      continue
+    }
 
     type AnswerRecord = {
       is_correct: boolean
