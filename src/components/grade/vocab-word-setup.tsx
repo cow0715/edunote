@@ -1,27 +1,11 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { Upload, Loader2, CheckCircle2, AlertTriangle, RotateCcw, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useQueryClient } from '@tanstack/react-query'
-
-type VocabEntry = {
-  number: number
-  english_word: string
-  correct_answer: string | null
-  synonyms: string[]
-  antonyms: string[]
-}
-
-type Status =
-  | { type: 'idle' }
-  | { type: 'file-selected'; file: File }
-  | { type: 'loading'; step: string }
-  | { type: 'preview'; words: VocabEntry[] }
-  | { type: 'saving' }
-  | { type: 'done'; saved: number }
-  | { type: 'error'; message: string }
+import { useUploadStore, VocabEntry } from '@/store/upload-store'
 
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -34,22 +18,53 @@ function readFileAsBase64(file: File): Promise<string> {
 
 export function VocabWordSetup({ weekId }: { weekId: string }) {
   const inputRef = useRef<HTMLInputElement>(null)
-  const [status, setStatus] = useState<Status>({ type: 'idle' })
-  const [editWords, setEditWords] = useState<VocabEntry[]>([])
+  const [file, setFile] = useState<File | null>(null)
   const qc = useQueryClient()
 
+  // 스토어: status + savedWords (로딩 지속 + 재마운트 시 초기화용)
+  const vocabState = useUploadStore((s) => s.vocab[weekId])
+  const status = vocabState?.status ?? { type: 'idle' }
+  const savedWords = vocabState?.savedWords ?? []
+  const setVocabStatus = useUploadStore((s) => s.setVocabStatus)
+  const setVocabSaved = useUploadStore((s) => s.setVocabSaved)
+
+  // editWords: 로컬 state (키입력 성능용)
+  const [editWords, setEditWords] = useState<VocabEntry[]>([])
+
+  // 마운트 시: 스토어에 데이터 있으면 사용, 없으면 DB에서 로드
+  useEffect(() => {
+    if (savedWords.length > 0) {
+      setEditWords(savedWords)
+      return
+    }
+    if (status.type !== 'idle') return
+
+    fetch(`/api/weeks/${weekId}/vocab-words`)
+      .then((r) => r.json())
+      .then((data: VocabEntry[]) => {
+        if (data?.length > 0) {
+          setEditWords(data)
+          setVocabSaved(weekId, data, { type: 'ready', savedCount: data.length })
+        }
+      })
+      .catch(() => {/* 조회 실패는 무시 */})
+  // weekId가 바뀔 때만 재실행
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekId])
+
+  const isDirty = JSON.stringify(editWords) !== JSON.stringify(savedWords)
+
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const f = e.target.files?.[0]
+    if (!f) return
     e.target.value = ''
-    setStatus({ type: 'file-selected', file })
+    setFile(f)
+    setVocabStatus(weekId, { type: 'file-selected', fileName: f.name })
   }
 
   async function handleUpload() {
-    if (status.type !== 'file-selected') return
-    const file = status.file
-
-    setStatus({ type: 'loading', step: 'Claude가 단어를 분석 중...' })
+    if (!file) return
+    setVocabStatus(weekId, { type: 'loading', step: 'Claude가 단어를 분석 중...' })
     try {
       const base64 = await readFileAsBase64(file)
       const res = await fetch(`/api/weeks/${weekId}/parse-vocab-pdf`, {
@@ -58,29 +73,30 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         body: JSON.stringify({ fileData: base64, mimeType: file.type }),
       })
       const data = await res.json()
-      if (!res.ok) { setStatus({ type: 'error', message: data.error ?? '파싱 실패' }); return }
+      if (!res.ok) { setVocabStatus(weekId, { type: 'error', message: data.error ?? '파싱 실패' }); return }
+
       setEditWords(data.words)
-      setStatus({ type: 'preview', words: data.words })
+      await saveWords(data.words)
     } catch {
-      setStatus({ type: 'error', message: '파일 처리 중 오류가 발생했습니다' })
+      setVocabStatus(weekId, { type: 'error', message: '파일 처리 중 오류가 발생했습니다' })
     }
   }
 
-  async function handleSave() {
-    setStatus({ type: 'saving' })
+  async function saveWords(words: VocabEntry[]) {
+    setVocabStatus(weekId, { type: 'saving' })
     try {
       const res = await fetch(`/api/weeks/${weekId}/vocab-words`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ words: editWords }),
+        body: JSON.stringify({ words }),
       })
       const data = await res.json()
-      if (!res.ok) { setStatus({ type: 'error', message: data.error ?? '저장 실패' }); return }
+      if (!res.ok) { setVocabStatus(weekId, { type: 'error', message: data.error ?? '저장 실패' }); return }
       qc.invalidateQueries({ queryKey: ['week', weekId] })
       qc.invalidateQueries({ queryKey: ['weeks'] })
-      setStatus({ type: 'done', saved: data.saved })
+      setVocabSaved(weekId, words, { type: 'ready', savedCount: data.saved })
     } catch {
-      setStatus({ type: 'error', message: '저장 중 오류가 발생했습니다' })
+      setVocabStatus(weekId, { type: 'error', message: '저장 중 오류가 발생했습니다' })
     }
   }
 
@@ -94,7 +110,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     }))
   }
 
-  // ── 유휴 상태 ─────────────────────────────────────────────────────────────
+  // ── 유휴 / 에러 ───────────────────────────────────────────────────────────
   if (status.type === 'idle' || status.type === 'error') return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500">단어 시험지 PDF를 업로드하면 Claude가 단어와 뜻을 자동으로 추출합니다.</p>
@@ -115,7 +131,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     </div>
   )
 
-  // ── 파일 선택됨 — 등록 버튼 대기 ─────────────────────────────────────────
+  // ── 파일 선택됨 ───────────────────────────────────────────────────────────
   if (status.type === 'file-selected') return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500">단어 시험지 PDF를 업로드하면 Claude가 단어와 뜻을 자동으로 추출합니다.</p>
@@ -125,7 +141,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-8 transition-colors hover:border-primary/50 hover:bg-gray-50"
       >
         <FileText className="h-8 w-8 text-primary" />
-        <p className="text-sm font-medium text-gray-700">{status.file.name}</p>
+        <p className="text-sm font-medium text-gray-700">{status.fileName}</p>
         <p className="text-xs text-gray-400">다른 파일로 변경하려면 클릭</p>
       </div>
       <Button className="w-full" onClick={handleUpload}>
@@ -135,55 +151,36 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     </div>
   )
 
-  // ── 로딩 상태 ─────────────────────────────────────────────────────────────
-  if (status.type === 'loading') return (
+  // ── 로딩 / 저장 중 ────────────────────────────────────────────────────────
+  if (status.type === 'loading' || status.type === 'saving') return (
     <div className="space-y-4">
-      <div className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-8">
+      <div className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50/40 py-8">
         <Loader2 className="h-8 w-8 text-indigo-400 animate-spin" />
-        <p className="text-sm text-gray-500">{status.step}</p>
+        <p className="text-sm text-gray-500">
+          {status.type === 'loading' ? status.step : '저장 중...'}
+        </p>
       </div>
     </div>
   )
 
-  // ── 저장 완료 ─────────────────────────────────────────────────────────────
-  if (status.type === 'done') return (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-1">
-        <div className="flex items-center gap-2 text-sm font-medium text-green-800">
-          <CheckCircle2 className="h-4 w-4" />
-          완료
-        </div>
-        <p className="text-xs text-green-700">단어 {status.saved}개 저장됨 · 단어시험 총 개수 자동 업데이트</p>
-        <Button
-          size="sm"
-          variant="outline"
-          className="mt-2 w-full"
-          onClick={() => setStatus({ type: 'idle' })}
-        >
-          다른 파일 업로드
-        </Button>
-      </div>
-    </div>
-  )
-
-  // ── 저장 중 ───────────────────────────────────────────────────────────────
-  if (status.type === 'saving') return (
-    <div className="space-y-4">
-      <div className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-8">
-        <Loader2 className="h-8 w-8 text-indigo-400 animate-spin" />
-        <p className="text-sm text-gray-500">저장 중...</p>
-      </div>
-    </div>
-  )
-
-  // ── 미리보기 (편집 가능) ──────────────────────────────────────────────────
+  // ── 저장됨 + 편집 가능 ────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-600">
-          <span className="font-semibold text-gray-900">{editWords.length}개</span> 단어 추출됨 · 뜻이 틀렸다면 수정 후 저장하세요
-        </p>
-        <Button variant="outline" size="sm" onClick={() => setStatus({ type: 'idle' })}>
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-gray-600">
+            <span className="font-semibold text-gray-900">{editWords.length}개</span> 단어
+          </p>
+          {isDirty ? (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">미저장</span>
+          ) : (
+            <span className="flex items-center gap-1 text-xs text-green-600">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              저장됨
+            </span>
+          )}
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setVocabStatus(weekId, { type: 'idle' })}>
           <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
           다시 올리기
         </Button>
@@ -227,7 +224,9 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       </div>
 
       <div className="flex justify-end">
-        <Button onClick={handleSave}>저장</Button>
+        <Button onClick={() => saveWords(editWords)} disabled={!isDirty}>
+          변경사항 저장
+        </Button>
       </div>
     </div>
   )

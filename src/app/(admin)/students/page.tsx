@@ -175,7 +175,7 @@ export default function StudentsPage() {
                       <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => handleEdit(s)}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button size="sm" variant="outline" className="h-7 px-2 text-red-500 hover:text-red-600" onClick={() => handleDelete(s.id)}>
+                      <Button size="sm" variant="outline" className="h-7 px-2 text-red-500 hover:text-red-600" disabled={deleteStudent.isPending} onClick={() => handleDelete(s.id)}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>

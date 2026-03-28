@@ -15,8 +15,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id: classId } = await params
   const teacherId = await getTeacherId(supabase, user.id)
   if (!teacherId) return err('강사 정보 없음', 404)
-  const { student_id } = await request.json()
-  const { data, error } = await supabase.from('class_student').insert({ class_id: classId, student_id }).select('*, student(*)').single()
+  const { student_id, joined_at } = await request.json()
+  const { data, error } = await supabase
+    .from('class_student')
+    .upsert(
+      { class_id: classId, student_id, left_at: null, ...(joined_at ? { joined_at } : {}) },
+      { onConflict: 'class_id,student_id' }
+    )
+    .select('*, student(*)')
+    .single()
   if (error) { console.error('[POST /api/classes/[id]/students]', error); return err(error.message, 500) }
   return ok(data, { status: 201 })
 }

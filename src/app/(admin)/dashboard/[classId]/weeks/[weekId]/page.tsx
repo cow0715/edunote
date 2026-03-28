@@ -121,7 +121,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
           <TabsTrigger value="grade">채점</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview">
+        <TabsContent value="overview" forceMount className="data-[state=inactive]:hidden">
           <WeekResultTable
             weekId={weekId}
             classId={classId}
@@ -132,7 +132,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
           />
         </TabsContent>
 
-        <TabsContent value="grade">
+        <TabsContent value="grade" forceMount className="data-[state=inactive]:hidden">
           <GradeGrid
             weekId={weekId}
             vocabTotal={week.vocab_total}
@@ -159,7 +159,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
               <TabsTrigger value="attendance" className="flex-1">출결</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="basic" className="space-y-4 pt-4">
+            <TabsContent value="basic" forceMount className="data-[state=inactive]:hidden space-y-4 pt-4">
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="start_date">수업일</Label>
@@ -210,19 +210,19 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
               </form>
             </TabsContent>
 
-            <TabsContent value="answer-sheet" className="pt-4">
+            <TabsContent value="answer-sheet" forceMount className="data-[state=inactive]:hidden pt-4">
               <AnswerSheetUploader weekId={weekId} savedFilePath={week?.answer_sheet_path} />
             </TabsContent>
 
-            <TabsContent value="vocab-words" className="pt-4">
+            <TabsContent value="vocab-words" forceMount className="data-[state=inactive]:hidden pt-4">
               <VocabWordSetup weekId={weekId} />
             </TabsContent>
 
-            <TabsContent value="question-types" className="pt-4">
+            <TabsContent value="question-types" forceMount className="data-[state=inactive]:hidden pt-4">
               <QuestionTypeEditor weekId={weekId} />
             </TabsContent>
 
-            <TabsContent value="attendance" className="pt-4">
+            <TabsContent value="attendance" forceMount className="data-[state=inactive]:hidden pt-4">
               <AttendanceManager
                 classId={classId}
                 classStudents={classStudents as ClassStudent[]}

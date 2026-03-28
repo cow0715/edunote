@@ -198,6 +198,7 @@ export default function DashboardPage() {
                       size="sm"
                       variant="outline"
                       className="h-7 px-2 text-red-500 hover:text-red-600"
+                      disabled={deleteClass.isPending}
                       onClick={(e) => { e.preventDefault(); handleDelete(cls.id) }}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
