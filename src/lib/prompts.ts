@@ -264,16 +264,19 @@ JSON 배열만 출력:
 
 // ── 단어 채점 ────────────────────────────────────────────────────────────
 
-export function buildVocabGradingPrompt(items: { number: number; english_word: string; student_answer: string | null; correct_answer?: string | null }[]): string {
+export const VOCAB_GRADING_RULES = `- student_answer가 null이거나 ""이면 무조건 오답
+- 철자가 약간 틀려도 의도가 명확하면 허용
+- 피동/능동 구분 엄격 적용 ("-되다" vs "-하다")
+- 주어/목적어/방향 관계가 뒤바뀌면 오답`
+
+export function buildVocabGradingPrompt(items: { number: number; english_word: string; student_answer: string | null; correct_answer?: string | null }[], customRules?: string): string {
   const hasCorrectAnswer = items.some((i) => i.correct_answer != null)
+  const rules = customRules ?? VOCAB_GRADING_RULES
 
   return `단어 시험 답안을 채점하세요.
 
 ━━━ 공통 규칙 (모든 유형 적용) ━━━
-- student_answer가 null이거나 ""이면 무조건 오답
-- 철자가 약간 틀려도 의도가 명확하면 허용
-- 피동/능동 구분 엄격 적용 ("-되다" vs "-하다")
-- 주어/목적어/방향 관계가 뒤바뀌면 오답${hasCorrectAnswer ? `
+${rules}${hasCorrectAnswer ? `
 
 ━━━ correct_answer(기준 답안) 사용 규칙 ━━━
 - correct_answer가 있는 문항은 반드시 이것을 정답 기준으로 삼는다

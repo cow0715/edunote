@@ -63,7 +63,10 @@ export async function POST(request: Request) {
     correct_answer: correctAnswerById.get(i.id) ?? null,
   }))
 
-  const graded = await gradeVocabItems(itemsWithAnswer)
+  const { data: promptRow } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
+  const customRules = promptRow?.content ?? undefined
+
+  const graded = await gradeVocabItems(itemsWithAnswer, customRules)
 
   // DB 업데이트
   await Promise.all(graded.map((g) => {

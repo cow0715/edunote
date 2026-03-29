@@ -94,6 +94,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   // ── 5. 백업된 답안 재채점 후 재삽입 ──────────────────────────────────
+  const { data: promptRow } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
+  const customRules = promptRow?.content ?? undefined
+
   if (backup.length > 0 && newWords) {
     const newWordByNumber = new Map(newWords.map((w) => [w.number, w]))
 
@@ -126,7 +129,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       let regradedMap = new Map<number, boolean>()
       if (itemsToGrade.length > 0) {
         try {
-          const regraded = await gradeVocabItems(itemsToGrade)
+          const regraded = await gradeVocabItems(itemsToGrade, customRules)
           regradedMap = new Map(regraded.map((r) => [r.number, r.is_correct]))
         } catch (e) {
           console.error('[vocab-words] 재채점 실패', e)

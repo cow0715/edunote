@@ -275,6 +275,7 @@ export async function gradeVocabPhoto(
   fileData: string,
   mimeType: string,
   correctAnswers?: Map<number, string | null>,
+  customRules?: string,
 ): Promise<VocabGradingResult[]> {
   const isImage = mimeType.startsWith('image/')
   const isPdf = mimeType === 'application/pdf'
@@ -333,13 +334,13 @@ export async function gradeVocabPhoto(
   const itemsWithAnswer = correctAnswers
     ? ocrItems.map((item) => ({ ...item, correct_answer: correctAnswers.get(item.number) ?? null }))
     : ocrItems
-  return await gradeVocabItems(itemsWithAnswer)
+  return await gradeVocabItems(itemsWithAnswer, customRules)
 }
 
 type VocabItem = { number: number; english_word: string; student_answer: string | null; correct_answer?: string | null }
 
-export async function gradeVocabItems(items: VocabItem[]): Promise<{ number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]> {
-  const gradingPrompt = buildVocabGradingPrompt(items)
+export async function gradeVocabItems(items: VocabItem[], customRules?: string): Promise<{ number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]> {
+  const gradingPrompt = buildVocabGradingPrompt(items, customRules)
 
   const gradingRes = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
