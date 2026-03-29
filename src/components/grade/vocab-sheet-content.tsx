@@ -39,6 +39,7 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, week_score_id: weekScoreId, student_answer, is_correct, teacher_locked }),
     })
+    queryClient.invalidateQueries({ queryKey: ['grade', weekId] })
   }
 
   async function regrade() {
