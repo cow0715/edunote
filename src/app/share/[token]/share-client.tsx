@@ -168,13 +168,19 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const attRate    = totalAtt > 0 ? Math.round(presentAtt / totalAtt * 100) : null
 
   // ── 차트 데이터 ────────────────────────────────────────────────────────────
+  const fmtWeekLabel = (w: { start_date: string | null; week_number: number }) => {
+    if (!w.start_date) return `${w.week_number}주`
+    const [, m, d] = w.start_date.split('-')
+    return `${parseInt(m)}/${parseInt(d)}`
+  }
+
   const trendData: TrendItem[] = weeks
     .slice().sort((a, b) => a.week_number - b.week_number)
     .map((w) => {
       const s = scoreByWeek.get(w.id)
       const ca = classAverages[w.id]
       return {
-        label: `${w.week_number}주`,
+        label: fmtWeekLabel(w),
         readingRate:      s ? weekRate(s, w, 'reading') : null,
         vocabRate:        s ? weekRate(s, w, 'vocab')   : null,
         classReadingRate: ca?.readingRate ?? null,
@@ -187,7 +193,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     .map((w) => {
       const s = scoreByWeek.get(w.id)!
       if (w.homework_total === 0 || s.homework_done === null) return null
-      return { label: `${w.week_number}주`, rate: Math.round(s.homework_done / w.homework_total * 100), done: s.homework_done, total: w.homework_total }
+      return { label: fmtWeekLabel(w), rate: Math.round(s.homework_done / w.homework_total * 100), done: s.homework_done, total: w.homework_total }
     })
     .filter((d): d is HomeworkItem => d !== null)
 
@@ -220,7 +226,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
       }
     })
   const radarData: RadarItem[] = [...categoryAccMap.values()]
-    .filter((d) => d.total >= 2)
+    .filter((d) => d.total >= 1)
     .map((d) => ({ name: d.name, rate: Math.round(d.correct / d.total * 100), correct: d.correct, total: d.total }))
     .sort((a, b) => a.name.localeCompare(b.name))
 
