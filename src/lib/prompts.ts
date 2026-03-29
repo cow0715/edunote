@@ -264,19 +264,11 @@ JSON 배열만 출력:
 
 // ── 단어 채점 ────────────────────────────────────────────────────────────
 
-export const VOCAB_GRADING_RULES = `- student_answer가 null이거나 ""이면 무조건 오답
+export const VOCAB_GRADING_RULES = `━━━ 공통 규칙 ━━━
+- student_answer가 null이거나 ""이면 무조건 오답
 - 철자가 약간 틀려도 의도가 명확하면 허용
 - 피동/능동 구분 엄격 적용 ("-되다" vs "-하다")
-- 주어/목적어/방향 관계가 뒤바뀌면 오답`
-
-export function buildVocabGradingPrompt(items: { number: number; english_word: string; student_answer: string | null; correct_answer?: string | null }[], customRules?: string): string {
-  const hasCorrectAnswer = items.some((i) => i.correct_answer != null)
-  const rules = customRules ?? VOCAB_GRADING_RULES
-
-  return `단어 시험 답안을 채점하세요.
-
-━━━ 공통 규칙 (모든 유형 적용) ━━━
-${rules}${hasCorrectAnswer ? `
+- 주어/목적어/방향 관계가 뒤바뀌면 오답
 
 ━━━ correct_answer(기준 답안) 사용 규칙 ━━━
 - correct_answer가 있는 문항은 반드시 이것을 정답 기준으로 삼는다
@@ -286,30 +278,20 @@ ${rules}${hasCorrectAnswer ? `
 - 틀린 경우:
   · correct_answer와 핵심 의미가 다름
   · 품사가 다름 (예: correct_answer가 동사인데 학생이 명사로 씀)
-  · 의미가 반대이거나 전혀 다름
-- correct_answer가 null인 문항(두 단어 선택형 등)은 아래 [유형 B] 규칙 적용` : `
+  · 의미가 반대이거나 전혀 다름`
 
-━━━ correct_answer 없는 문항 채점 기준 ━━━
-- 품사 판단: 해당 영어 단어가 가질 수 있는 품사와 일치하면 정답
-- 애매한 경우: "이 학생이 이 단어의 의미를 알고 있는가?" 기준으로 학생에게 유리하게 정답 처리
-  예) "further" → "멀리" ✅ / "barely" → "거의" ❌ (간신히가 정답)`}
+export function buildVocabGradingPrompt(items: { number: number; english_word: string; student_answer: string | null; correct_answer?: string | null }[], customRules?: string): string {
+  const rules = customRules ?? VOCAB_GRADING_RULES
 
-━━━ 문제 유형별 처리 ━━━
+  return `영어 단어 → 한글 뜻 쓰기 시험 답안을 채점하세요.
 
-[유형 A] 영어 단어(구) → 한글 뜻 쓰기
-${hasCorrectAnswer ? '- correct_answer 있으면 기준 답안과 비교해 채점 (위 규칙 적용)\n- correct_answer 없으면 AI가 직접 판단 (학생에게 유리하게)' : '- AI가 직접 판단 — 학생이 단어 의미를 알고 있는지 기준, 애매하면 정답 처리'}
-
-[유형 B] 두 단어 중 선택 (english_word에 "/" 포함, 예: "immune / condemned")
-- 해당 문맥에서 올바른 단어를 AI가 직접 판단 후 student_answer와 비교
-
-[유형 C] 영어 설명 → 영어 단어 쓰기 (english_word가 영어 설명문인 경우)
-- 영어 설명이 의미하는 단어와 품사·의미 모두 일치해야 정답
+${rules}
 
 채점할 답안:
 ${JSON.stringify(items)}
 
 JSON 배열만 출력 (number, english_word, student_answer, is_correct 포함):
-[{"number":1,"english_word":"necessary","student_answer":"필수적인","is_correct":true},{"number":43,"english_word":"immune / condemned","student_answer":"immune","is_correct":true}]`
+[{"number":1,"english_word":"necessary","student_answer":"필수적인","is_correct":true}]`
 }
 
 // ── 단어 PDF 파싱 ────────────────────────────────────────────────────────
