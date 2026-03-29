@@ -24,9 +24,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   )
 
   // ── 2. AI 채점 (correct_answer를 채점 기준으로 전달) ────────────────────
+  const { data: promptRow } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
+  const customRules = promptRow?.content ?? undefined
+
   let results
   try {
-    results = await gradeVocabPhoto(fileData, mimeType, correctAnswerMap.size > 0 ? correctAnswerMap : undefined)
+    results = await gradeVocabPhoto(fileData, mimeType, correctAnswerMap.size > 0 ? correctAnswerMap : undefined, customRules)
   } catch (e) {
     console.error('[grade-vocab-photo] AI 채점 실패', e)
     return err('단어 채점 실패. 사진을 확인해주세요.', 422)

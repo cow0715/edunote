@@ -1,11 +1,16 @@
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
-import { Upload, Loader2, CheckCircle2, AlertTriangle, RotateCcw, FileText } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertTriangle, RotateCcw, FileText, ChevronDown, ChevronUp, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { useQueryClient } from '@tanstack/react-query'
 import { useUploadStore, VocabEntry } from '@/store/upload-store'
+import { usePrompt, useSavePrompt } from '@/hooks/use-prompts'
+import { VOCAB_GRADING_RULES } from '@/lib/prompts'
+
+const PROMPT_KEY = 'vocab_grading_rules'
 
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -53,6 +58,16 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   }, [weekId])
 
   const isDirty = JSON.stringify(editWords) !== JSON.stringify(savedWords)
+
+  const [promptText, setPromptText] = useState(VOCAB_GRADING_RULES)
+  const [promptOpen, setPromptOpen] = useState(false)
+  const { data: savedPrompt } = usePrompt(PROMPT_KEY)
+  const savePrompt = useSavePrompt(PROMPT_KEY)
+
+  useEffect(() => { if (savedPrompt) setPromptText(savedPrompt) }, [savedPrompt])
+
+  const activePrompt = savedPrompt ?? VOCAB_GRADING_RULES
+  const isPromptModified = promptText !== activePrompt
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -227,6 +242,56 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         <Button onClick={() => saveWords(editWords)} disabled={!isDirty}>
           변경사항 저장
         </Button>
+      </div>
+
+      {/* 채점 규칙 편집 */}
+      <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setPromptOpen((v) => !v)}
+          className="flex w-full items-center justify-between px-3 py-2 text-xs text-gray-500 hover:bg-gray-50 transition-colors"
+        >
+          <span className="flex items-center gap-1.5">
+            채점 규칙 수정
+            {isPromptModified && (
+              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">미저장</span>
+            )}
+          </span>
+          {promptOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        </button>
+
+        {promptOpen && (
+          <div className="border-t border-gray-200 p-3 space-y-2">
+            <p className="text-[11px] text-gray-400">다음 채점부터 적용됩니다. 저장하지 않으면 기본값이 사용됩니다.</p>
+            <Textarea
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              rows={6}
+              className="font-mono text-xs resize-none"
+              spellCheck={false}
+            />
+            <div className="flex justify-between">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setPromptText(VOCAB_GRADING_RULES)}
+                className="h-7 text-xs text-gray-400 hover:text-gray-600"
+              >
+                <RotateCcw className="mr-1 h-3 w-3" />
+                기본값으로 되돌리기
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => savePrompt.mutate(promptText)}
+                disabled={savePrompt.isPending || !isPromptModified}
+                className="h-7 text-xs"
+              >
+                <Save className="mr-1 h-3 w-3" />
+                저장
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
