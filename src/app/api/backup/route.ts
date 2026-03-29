@@ -1,16 +1,18 @@
 import { getAuth, err, ok } from '@/lib/api'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
-
   // cron 또는 인증된 사용자 허용
   const authHeader = request.headers.get('authorization')
   const isCron = authHeader === `Bearer ${process.env.CRON_SECRET}`
   if (!isCron) {
-    const { data: { user } } = await supabase.auth.getUser()
+    const supabaseUser = await createClient()
+    const { data: { user } } = await supabaseUser.auth.getUser()
     if (!user) return err('인증 필요', 401)
   }
+
+  // RLS 우회를 위해 service role 클라이언트 사용
+  const supabase = createServiceClient()
 
   // ── 전체 테이블 덤프 (FK 순서대로) ──────────────────────────────────────
   const [
