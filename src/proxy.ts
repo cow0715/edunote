@@ -37,7 +37,8 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/signup') ||
     pathname.startsWith('/share') ||
     pathname.startsWith('/api/auth') ||
-    pathname.startsWith('/api/share')
+    pathname.startsWith('/api/share') ||
+    pathname.startsWith('/api/cron')
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
