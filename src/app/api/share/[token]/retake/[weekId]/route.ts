@@ -40,7 +40,7 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
   // 틀린 단어 조회 (retake 결과 포함)
   const { data: wrongAnswers } = await supabase
     .from('student_vocab_answer')
-    .select('id, retake_answer, retake_is_correct, vocab_word(id, number, english_word, correct_answer)')
+    .select('id, retake_answer, retake_is_correct, vocab_word(id, number, english_word, correct_answer, synonyms, antonyms)')
     .eq('week_score_id', score.id)
     .eq('is_correct', false)
     .order('id')
@@ -54,6 +54,8 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
         number: vw.number,
         english_word: vw.english_word,
         correct_answer: vw.correct_answer,
+        synonyms: vw.synonyms ?? null,
+        antonyms: vw.antonyms ?? null,
         retake_answer: a.retake_answer ?? null,
         retake_is_correct: a.retake_is_correct ?? null,
       }
