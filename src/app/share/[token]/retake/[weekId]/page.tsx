@@ -2,7 +2,7 @@
 
 import { use, useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowRight, CheckCircle2, ChevronDown, Sparkles, Timer, XCircle } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, Sparkles, Timer, XCircle } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -173,14 +173,26 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
   function goNext() {
     if (!data) return
+    if (currentIndex >= data.words.length - 1) {
+      // 마지막 단어일 때 확인 다이얼로그
+      if (confirm('제출할까요?')) {
+        handleSubmit()
+      }
+      return
+    }
     setCardVisible(false)
     setTimeout(() => {
-      if (currentIndex >= data.words.length - 1) {
-        handleSubmit()
-      } else {
-        setCurrentIndex(i => i + 1)
-        setCardVisible(true)
-      }
+      setCurrentIndex(i => i + 1)
+      setCardVisible(true)
+    }, 160)
+  }
+
+  function goPrev() {
+    if (currentIndex <= 0) return
+    setCardVisible(false)
+    setTimeout(() => {
+      setCurrentIndex(i => i - 1)
+      setCardVisible(true)
     }, 160)
   }
 
@@ -202,7 +214,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
   if (phase === 'loading') return (
     <div className={dark}>
-      <div className="min-h-screen bg-slate-50 dark:bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617] flex items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
       </div>
     </div>
@@ -210,7 +222,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
   if (phase === 'error' || !data) return (
     <div className={dark}>
-      <div className="min-h-screen bg-slate-50 dark:bg-background flex flex-col items-center justify-center gap-3 px-6 text-center">
+      <div className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617] flex flex-col items-center justify-center gap-3 px-6 text-center">
         <XCircle className="h-12 w-12 text-rose-300" />
         <p className="text-sm text-gray-500 dark:text-gray-400">{error ?? '알 수 없는 오류'}</p>
         <button onClick={() => router.back()} className="mt-2 text-sm text-violet-500 underline">돌아가기</button>
@@ -220,7 +232,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
   if (phase === 'grading') return (
     <div className={dark}>
-      <div className="min-h-screen bg-slate-50 dark:bg-background flex flex-col items-center justify-center gap-5">
+      <div className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617] flex flex-col items-center justify-center gap-5">
         <div className="relative h-14 w-14">
           <div className="absolute inset-0 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
           <div className="absolute inset-2 animate-spin rounded-full border-2 border-violet-300 border-b-transparent"
@@ -238,19 +250,28 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
     return (
       <div className={dark}>
-        <div className="min-h-[100dvh] bg-slate-50 dark:bg-background flex flex-col select-none">
+        <div className="min-h-[100dvh] bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617] flex flex-col select-none">
 
           {/* 상단 상태바 */}
-          <div className="shrink-0 bg-white dark:bg-card border-b border-gray-100 dark:border-white/[0.07] px-5 pt-4 pb-3">
+          <div className="shrink-0 bg-white dark:bg-[#1E293B] border-b border-gray-100 dark:border-white/[0.07] px-5 pt-4 pb-3">
             <div className="flex items-center justify-between mb-2.5">
-              <div className="flex items-center gap-2">
-                <Timer className={`h-4 w-4 shrink-0 ${timerText}`} />
-                <span className={`text-2xl font-black tabular-nums leading-none ${timerText}`}>
-                  {formatTime(timeLeft)}
-                </span>
-                <span className="text-xs text-gray-300 dark:text-gray-600 font-medium">
-                  / {formatTime(totalTime)}
-                </span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => router.back()}
+                  className="flex items-center justify-center h-8 w-8 rounded-full bg-gray-100 dark:bg-white/[0.08] text-gray-500 dark:text-gray-400 active:scale-95 transition-transform"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+                <div className="flex items-center gap-2">
+                  <Timer className={`h-4 w-4 shrink-0 ${timerText}`} />
+                  <span className={`text-2xl font-black tabular-nums leading-none ${timerText}`}>
+                    {formatTime(timeLeft)}
+                  </span>
+                  <span className="text-xs text-gray-300 dark:text-gray-600 font-medium">
+                    / {formatTime(totalTime)}
+                  </span>
+                </div>
               </div>
               <span className="text-sm font-medium text-gray-400 dark:text-gray-500 tabular-nums">
                 <strong className="text-gray-900 dark:text-white">{currentIndex + 1}</strong>
@@ -283,18 +304,41 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
               ))}
             </div>
 
-            {/* 단어 카드 */}
-            <div className={`w-full max-w-sm transition-all duration-150 ${
-              cardVisible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95'
-            }`}>
-              <div className="bg-white dark:bg-card rounded-3xl shadow-md dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-8 py-10 text-center">
-                <p className="text-[11px] font-bold text-gray-300 dark:text-gray-600 uppercase tracking-widest mb-4">
-                  No. {currentWord?.number}
-                </p>
-                <p className="text-3xl font-black text-gray-900 dark:text-white tracking-wide break-words leading-snug">
-                  {currentWord?.english_word}
-                </p>
+            {/* 단어 카드 + 네비게이션 */}
+            <div className="flex items-center justify-center gap-4 w-full px-3">
+              {/* 이전 버튼 */}
+              <button
+                type="button"
+                onClick={goPrev}
+                disabled={currentIndex === 0}
+                className="flex items-center justify-center h-10 w-10 rounded-full bg-gray-100 dark:bg-white/[0.08] disabled:opacity-30 active:scale-95 transition-all text-gray-700 dark:text-gray-300 shrink-0"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+
+              {/* 단어 카드 */}
+              <div className={`flex-1 max-w-xs transition-all duration-150 ${
+                cardVisible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95'
+              }`}>
+                <div className="bg-white dark:bg-[#1E293B] rounded-3xl shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-8 py-10 text-center">
+                  <p className="text-[11px] font-bold text-gray-300 dark:text-gray-600 uppercase tracking-widest mb-4">
+                    No. {currentWord?.number}
+                  </p>
+                  <p className="text-3xl font-black text-gray-900 dark:text-white tracking-wide break-words leading-snug">
+                    {currentWord?.english_word}
+                  </p>
+                </div>
               </div>
+
+              {/* 다음 버튼 (마지막일 때는 제출 확인) */}
+              <button
+                type="button"
+                onClick={goNext}
+                className="flex items-center justify-center h-10 w-10 rounded-full bg-[#2463EB] dark:bg-[#3B82F6] active:scale-95 transition-all text-white shrink-0"
+                title={currentIndex >= words.length - 1 ? '제출' : '다음'}
+              >
+                <ArrowRight className="h-5 w-5" />
+              </button>
             </div>
 
             {/* 입력 */}
@@ -312,26 +356,11 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                 value={answers[currentWord?.answer_id ?? ''] ?? ''}
                 onChange={e => setAnswers(p => ({ ...p, [currentWord.answer_id]: e.target.value }))}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); goNext() } }}
-                className="w-full rounded-2xl border-2 border-gray-200 dark:border-white/[0.1] bg-white dark:bg-card px-5 py-4 text-xl text-gray-900 dark:text-white placeholder:text-gray-300 dark:placeholder:text-gray-600 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-all text-center font-semibold"
+                className="w-full rounded-2xl border-2 border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1E293B] px-5 py-4 text-xl text-gray-900 dark:text-white placeholder:text-gray-300 dark:placeholder:text-gray-600 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-all text-center font-semibold"
               />
             </div>
           </div>
 
-          {/* 하단 버튼 */}
-          <div className="shrink-0 px-5 pb-8 pt-2">
-            <button
-              type="button"
-              onClick={goNext}
-              className="w-full max-w-sm mx-auto flex items-center justify-center gap-2 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] transition-all text-white font-bold py-4 text-base shadow-lg shadow-indigo-500/25"
-            >
-              {currentIndex < words.length - 1
-                ? <>다음 <ArrowRight className="h-4 w-4" /></>
-                : <>제출하기 <ArrowRight className="h-4 w-4" /></>}
-            </button>
-            <p className="text-center text-xs text-gray-300 dark:text-gray-700 mt-2.5">
-              Enter 키로도 넘어갈 수 있어요
-            </p>
-          </div>
 
         </div>
       </div>
@@ -345,7 +374,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
     if (phase === 'done' && !results) {
       return (
         <div className={dark}>
-          <div className="min-h-screen bg-slate-50 dark:bg-background flex flex-col items-center justify-center px-5 gap-6">
+          <div className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617] flex flex-col items-center justify-center px-5 gap-6">
             <div className="text-5xl">🎉</div>
             <div className="text-center">
               <p className="text-xl font-black text-gray-900 dark:text-white mb-1">모든 단어 완료!</p>
@@ -376,7 +405,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
     return (
       <div className={dark}>
-        <div className="min-h-screen bg-slate-50 dark:bg-background pb-40">
+        <div className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617] pb-40">
           <div className="max-w-lg mx-auto px-4 pt-5 space-y-3.5">
 
             {/* 점수 카드 */}
@@ -408,7 +437,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                 const hasDetail = !r.is_correct && (word?.synonyms?.length || word?.antonyms?.length || word?.example_sentence)
 
                 return (
-                  <div key={r.answer_id} className={`rounded-2xl overflow-hidden ring-1 bg-white dark:bg-card ${
+                  <div key={r.answer_id} className={`rounded-2xl overflow-hidden ring-1 bg-white dark:bg-[#1E293B] ${
                     r.is_correct
                       ? 'ring-gray-100 dark:ring-white/[0.07]'
                       : 'ring-rose-100 dark:ring-rose-500/15'
@@ -509,7 +538,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                   <button
                     type="button"
                     onClick={() => router.back()}
-                    className="w-full max-w-lg mx-auto flex items-center justify-center rounded-2xl bg-white dark:bg-card ring-1 ring-gray-200 dark:ring-white/10 text-gray-600 dark:text-gray-400 font-semibold py-3.5 text-sm active:scale-[0.98] transition-all"
+                    className="w-full max-w-lg mx-auto flex items-center justify-center rounded-2xl bg-white dark:bg-[#1E293B] ring-1 ring-gray-200 dark:ring-white/10 text-gray-600 dark:text-gray-400 font-semibold py-3.5 text-sm active:scale-[0.98] transition-all"
                   >
                     대시보드로 돌아가기
                   </button>

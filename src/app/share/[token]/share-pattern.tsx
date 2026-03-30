@@ -82,7 +82,7 @@ export function PatternCard({ pattern: p, onTagClick }: {
     <button
       type="button"
       onClick={() => onTagClick(p.id, p.name)}
-      className="flex w-full items-stretch overflow-hidden rounded-xl border border-gray-100 dark:border-white/[0.08] bg-white dark:bg-card text-left transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.04] active:scale-[0.99]"
+      className="flex w-full items-stretch overflow-hidden rounded-2xl border border-gray-100/80 dark:border-white/[0.06] bg-white dark:bg-[#1C1C1E] text-left shadow-[0_10px_40px_rgba(0,75,198,0.03)] transition-all hover:shadow-[0_10px_40px_rgba(0,75,198,0.06)] active:scale-95"
     >
       {/* 좌측 컬러 스트라이프 */}
       <span className="w-[3px] shrink-0 self-stretch" style={{ backgroundColor: meta.accent }} />

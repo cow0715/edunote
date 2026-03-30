@@ -41,8 +41,8 @@ export function ConceptRadarChart({ data, isDark }: { data: RadarItem[]; isDark?
   )
 
   const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'
-  const tickColor = isDark ? '#94a3b8' : '#64748b'
-  const fillColor = isDark ? '#818cf8' : '#6366f1'
+  const tickColor = isDark ? '#94A3B8' : '#8B95A1'
+  const fillColor = isDark ? '#3B82F6' : '#2463EB'
 
   return (
     <div>
@@ -70,8 +70,8 @@ export function ConceptRadarChart({ data, isDark }: { data: RadarItem[]; isDark?
             stroke={fillColor}
             strokeWidth={2}
             fill="url(#radarGradient)"
-            dot={{ r: 4, fill: fillColor, strokeWidth: 2, stroke: isDark ? '#1e1e2e' : '#ffffff' }}
-            activeDot={{ r: 6, fill: fillColor, strokeWidth: 2, stroke: isDark ? '#1e1e2e' : '#ffffff' }}
+            dot={{ r: 4, fill: fillColor, strokeWidth: 2, stroke: isDark ? '#1E293B' : '#FFFFFF' }}
+            activeDot={{ r: 6, fill: fillColor, strokeWidth: 2, stroke: isDark ? '#1E293B' : '#FFFFFF' }}
           />
         </RadarChart>
       </ChartContainer>

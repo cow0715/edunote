@@ -110,14 +110,14 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
   if (isLoading) return (
     <div className={themeReady && isDark ? 'dark' : ''}>
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-background">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+      <div className="flex min-h-screen items-center justify-center bg-[#F8F9FB] dark:bg-[#0F0F0F]">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2463EB] border-t-transparent" />
       </div>
     </div>
   )
   if (error || !data) return (
     <div className={themeReady && isDark ? 'dark' : ''}>
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-background text-sm text-gray-400 dark:text-gray-500">
+      <div className="flex min-h-screen items-center justify-center bg-[#F8F9FB] dark:bg-[#0F0F0F] text-sm text-[#8B95A1] dark:text-gray-500">
         학생 정보를 찾을 수 없습니다
       </div>
     </div>
@@ -152,23 +152,23 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     return null
   }
 
-  const readingRates  = scoredWeeks.map((w) => weekRate(scoreByWeek.get(w.id)!, w, 'reading')).filter((v): v is number => v !== null)
-  const vocabRates    = scoredWeeks.map((w) => weekRate(scoreByWeek.get(w.id)!, w, 'vocab')).filter((v): v is number => v !== null)
+  const readingRates = scoredWeeks.map((w) => weekRate(scoreByWeek.get(w.id)!, w, 'reading')).filter((v): v is number => v !== null)
+  const vocabRates = scoredWeeks.map((w) => weekRate(scoreByWeek.get(w.id)!, w, 'vocab')).filter((v): v is number => v !== null)
   const homeworkRates = scoredWeeks.map((w) => weekRate(scoreByWeek.get(w.id)!, w, 'homework')).filter((v): v is number => v !== null)
 
   const sorted2 = [...scoredWeeks].reverse()
   const [latestW, prevW] = [sorted2[0], sorted2[1]]
   const latestS = latestW ? scoreByWeek.get(latestW.id) : undefined
-  const prevS   = prevW   ? scoreByWeek.get(prevW.id)   : undefined
+  const prevS = prevW ? scoreByWeek.get(prevW.id) : undefined
   const delta = (field: 'reading' | 'vocab' | 'homework') => {
     const l = latestW && latestS ? weekRate(latestS, latestW, field) : null
-    const p = prevW   && prevS   ? weekRate(prevS,   prevW,   field) : null
+    const p = prevW && prevS ? weekRate(prevS, prevW, field) : null
     return l !== null && p !== null ? l - p : null
   }
 
-  const totalAtt   = attendance.length
+  const totalAtt = attendance.length
   const presentAtt = attendance.filter((a) => a.status !== 'absent').length
-  const attRate    = totalAtt > 0 ? Math.round(presentAtt / totalAtt * 100) : null
+  const attRate = totalAtt > 0 ? Math.round(presentAtt / totalAtt * 100) : null
 
   // ── 차트 데이터 ────────────────────────────────────────────────────────────
   const fmtWeekLabel = (w: { start_date: string | null; week_number: number }) => {
@@ -184,10 +184,10 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
       const ca = classAverages[w.id]
       return {
         label: fmtWeekLabel(w),
-        readingRate:      s ? weekRate(s, w, 'reading') : null,
-        vocabRate:        s ? weekRate(s, w, 'vocab')   : null,
+        readingRate: s ? weekRate(s, w, 'reading') : null,
+        vocabRate: s ? weekRate(s, w, 'vocab') : null,
         classReadingRate: ca?.readingRate ?? null,
-        classVocabRate:   ca?.vocabRate   ?? null,
+        classVocabRate: ca?.vocabRate ?? null,
       }
     })
     .filter((d) => d.readingRate !== null || d.vocabRate !== null || d.classReadingRate !== null || d.classVocabRate !== null)
@@ -239,10 +239,10 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   // ── 성장 하이라이트 ───────────────────────────────────────────────────────
   const highlights: { emoji: string; label: string; color: string }[] = []
   const dReading = delta('reading')
-  const dVocab   = delta('vocab')
-  const dHw      = delta('homework')
+  const dVocab = delta('vocab')
+  const dHw = delta('homework')
   if (dReading !== null && dReading > 0)
-    highlights.push({ emoji: '📈', label: `시험 ${dReading}%↑`, color: 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-100 dark:border-indigo-800/40' })
+    highlights.push({ emoji: '📈', label: `시험 ${dReading}%↑`, color: 'bg-blue-50 dark:bg-blue-950/40 text-[#2463EB] dark:text-blue-300 border-blue-100 dark:border-blue-800/40' })
   if (dVocab !== null && dVocab > 0)
     highlights.push({ emoji: '✏️', label: `단어 ${dVocab}%↑`, color: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-100 dark:border-emerald-800/40' })
   if (dHw !== null && dHw > 0)
@@ -319,90 +319,111 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     total === 0 ? '' : correct / total >= 0.8
       ? 'text-emerald-600 dark:text-emerald-400'
       : correct / total >= 0.6
-      ? 'text-amber-500 dark:text-amber-400'
-      : 'text-rose-500 dark:text-rose-400'
+        ? 'text-amber-500 dark:text-amber-400'
+        : 'text-rose-500 dark:text-rose-400'
 
   // ── 오답노트 드로어 ──────────────────────────────────────────────────────
   const drawerAnswers = drawerTag
     ? studentAnswers
-        .filter((a) =>
-          !a.is_correct &&
-          a.exam_question?.exam_question_tag.some((t) => t.concept_tag?.id === drawerTag.id) &&
-          (drawerTag.weekId ? a.exam_question?.week_id === drawerTag.weekId : true)
-        )
-        .sort((a, b) => {
-          const wa = weekNumberByWeekId.get(a.exam_question?.week_id ?? '') ?? 0
-          const wb = weekNumberByWeekId.get(b.exam_question?.week_id ?? '') ?? 0
-          return wb - wa
-        })
+      .filter((a) =>
+        !a.is_correct &&
+        a.exam_question?.exam_question_tag.some((t) => t.concept_tag?.id === drawerTag.id) &&
+        (drawerTag.weekId ? a.exam_question?.week_id === drawerTag.weekId : true)
+      )
+      .sort((a, b) => {
+        const wa = weekNumberByWeekId.get(a.exam_question?.week_id ?? '') ?? 0
+        const wb = weekNumberByWeekId.get(b.exam_question?.week_id ?? '') ?? 0
+        return wb - wa
+      })
     : []
 
   const attByDate = new Map(attendance.map((a) => [a.date, a]))
   const ATT_STYLE: Record<string, string> = {
     present: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/50 dark:text-green-400 dark:border-green-800/50',
-    late:    'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-400 dark:border-amber-800/50',
-    absent:  'bg-red-50 text-red-600 border-red-200 dark:bg-red-950/50 dark:text-red-400 dark:border-red-800/50',
+    late: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-400 dark:border-amber-800/50',
+    absent: 'bg-red-50 text-red-600 border-red-200 dark:bg-red-950/50 dark:text-red-400 dark:border-red-800/50',
   }
   const ATT_LABEL: Record<string, string> = { present: '출석', late: '지각', absent: '결석' }
 
   const TABS = [
-    { id: 'home'      as TabId, label: '홈',   Icon: Home     },
-    { id: 'score'     as TabId, label: '성적',  Icon: BarChart2 },
-    { id: 'analysis'  as TabId, label: '분석',  Icon: PieChart  },
-    { id: 'wrongnote' as TabId, label: '오답',  Icon: BookX     },
+    { id: 'home' as TabId, label: '홈', Icon: Home },
+    { id: 'score' as TabId, label: '성적', Icon: BarChart2 },
+    { id: 'analysis' as TabId, label: '분석', Icon: PieChart },
+    { id: 'wrongnote' as TabId, label: '오답', Icon: BookX },
   ]
 
   return (
     <div className={themeReady && isDark ? 'dark' : ''}>
-      <div className="min-h-screen bg-gray-50 dark:bg-background">
+      <div className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617]">
 
         {/* ── 헤더 ──────────────────────────────────────────────────── */}
-        <header className="sticky top-0 z-20 border-b border-gray-200 dark:border-white/[0.08] bg-white/90 dark:bg-card/90 backdrop-blur-sm px-4 py-3">
+        <header className="sticky top-0 z-20 bg-white/80 dark:bg-[#0F172A]/90 backdrop-blur-md px-4 py-3.5">
           <div className="mx-auto flex max-w-lg items-center justify-between">
             <div className="flex items-center gap-2">
-              <GraduationCap className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
-              <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">학습 현황</span>
+              <GraduationCap className="h-4 w-4 text-[#2463EB] dark:text-[#3B82F6]" />
+              <span className="text-sm font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">학습 현황</span>
             </div>
             <ThemeToggle isDark={isDark} onToggle={toggleTheme} />
           </div>
         </header>
 
         {/* ── 탭 콘텐츠 ─────────────────────────────────────────────── */}
-        <main className="mx-auto max-w-lg px-4 pt-5 pb-28 space-y-4">
+        <main className="mx-auto max-w-lg px-4 pt-6 pb-28 space-y-4">
 
           {/* ── 홈 탭 ───────────────────────────────────────────────── */}
           {activeTab === 'home' && (
             <>
-              {/* 프로필 */}
-              <div className="rounded-2xl bg-white dark:bg-card shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-5 py-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-xl font-bold text-indigo-700 dark:text-indigo-200">
-                    {student.name[0]}
-                  </div>
+              {/* 히어로 카드 */}
+              <div className="rounded-3xl bg-white dark:bg-[#1E293B] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none dark:ring-1 dark:ring-white/[0.06] px-8 py-8">
+                <div className="mb-8">
+                  <p className="text-sm text-[#8B95A1] dark:text-[#94A3B8] mb-2">
+                    {[student.grade, student.school].filter(Boolean).join(' · ') || '학습 현황'}
+                  </p>
+                  <h1 className="text-2xl font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">{student.name}님</h1>
+                </div>
+
+                {weekScores.length > 0 ? (
                   <div>
-                    <h1 className="text-lg font-bold text-gray-900 dark:text-white">{student.name}</h1>
-                    {(student.school || student.grade) && (
-                      <p className="text-xs text-gray-500 dark:text-gray-300">
-                        {[student.grade, student.school].filter(Boolean).join(' · ')}
+                    <p className="text-sm text-[#8B95A1] dark:text-[#94A3B8] mb-3">시험 평균 정답률</p>
+                    <div className="flex items-baseline gap-3">
+                      <span className="text-[56px] font-black leading-none text-[#2463EB] dark:text-blue-300">
+                        {avg(readingRates) ?? '-'}
+                      </span>
+                      {avg(readingRates) !== null && (
+                        <span className="text-3xl font-bold text-[#8B95A1] dark:text-[#94A3B8]">%</span>
+                      )}
+                    </div>
+                    {delta('reading') !== null && (
+                      <p className={`mt-3 text-base font-semibold ${delta('reading')! > 0 ? 'text-[#2463EB] dark:text-blue-400' : delta('reading')! < 0 ? 'text-[#FF4D4D]' : 'text-[#8B95A1]'}`}>
+                        지난주 대비 {delta('reading')! > 0 ? '+' : ''}{delta('reading')}%p
                       </p>
                     )}
+                    <p className="mt-4 text-sm text-[#8B95A1] dark:text-gray-500">
+                      총 {scoredWeeks.length}회차 누적 데이터
+                    </p>
                   </div>
-                </div>
+                ) : (
+                  <div>
+                    <p className="text-sm text-[#8B95A1] dark:text-[#94A3B8] mb-3">시험 평균 정답률</p>
+                    <span className="text-[56px] font-black leading-none text-[#8B95A1] dark:text-gray-600">-</span>
+                    <p className="mt-4 text-sm text-[#8B95A1] dark:text-gray-500">아직 시험 결과가 없습니다</p>
+                  </div>
+                )}
               </div>
 
               {/* 스탯 카드 */}
               {weekScores.length > 0 && (
                 <div className="grid grid-cols-4 gap-2">
-                  <StatCard label="시험 평균" icon={<BookOpen className="h-4 w-4" />} color="indigo"
+                  <StatCard label="시험 평균" color="indigo"
                     value={avg(readingRates) !== null ? `${avg(readingRates)}%` : null} delta={delta('reading')}
                     onClick={() => { setActiveTab('score'); scrollTo('section-reading-chart', 120) }} />
-                  <StatCard label="단어 평균" icon={<BookText className="h-4 w-4" />} color="emerald"
+                  <StatCard label="단어 평균" color="emerald"
                     value={avg(vocabRates) !== null ? `${avg(vocabRates)}%` : null} delta={delta('vocab')}
                     onClick={() => { setActiveTab('score'); scrollTo('section-vocab-chart', 120) }} />
-                  <StatCard label="과제 평균" icon={<ClipboardCheck className="h-4 w-4" />} color="amber"
+                  <StatCard label="과제 평균" color="amber"
                     value={avg(homeworkRates) !== null ? `${avg(homeworkRates)}%` : null} delta={delta('homework')}
                     onClick={() => scrollTo('section-homework')} />
-                  <StatCard label="출석률" icon={<UserCheck className="h-4 w-4" />} color="blue"
+                  <StatCard label="출석률" color="blue"
                     value={attRate !== null ? `${attRate}%` : null} delta={null}
                     onClick={() => scrollTo('section-attendance')} />
                 </div>
@@ -410,11 +431,11 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
               {/* 성장 하이라이트 */}
               {highlights.length > 0 && (
-                <div className="rounded-2xl bg-white dark:bg-card shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-5 py-4">
-                  <p className="mb-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">이번 주 잘한 것</p>
+                <div className="rounded-3xl bg-white dark:bg-[#1E293B] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none dark:ring-1 dark:ring-white/[0.06] px-5 py-4">
+                  <p className="mb-3 text-[11px] font-bold text-[#8B95A1] dark:text-[#94A3B8] uppercase tracking-wider">이번 주 잘한 것</p>
                   <div className="flex flex-wrap gap-2">
                     {highlights.map((h, i) => (
-                      <span key={i} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${h.color}`}>
+                      <span key={i} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold ${h.color}`}>
                         <span>{h.emoji}</span>
                         {h.label}
                       </span>
@@ -444,8 +465,8 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                     {(commentExpanded ? commentFeed : commentFeed.slice(0, 1)).map(({ week, memo, className }, idx, arr) => (
                       <div key={week.id} className="flex gap-3">
                         <div className="flex flex-col items-center">
-                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/50">
-                            <MessageSquare className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-300" />
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-900/30">
+                            <MessageSquare className="h-3.5 w-3.5 text-[#2463EB] dark:text-blue-300" />
                           </div>
                           {(commentExpanded || idx < arr.length - 1) && (
                             <div className="mt-1 flex-1 w-px bg-gray-100 dark:bg-white/[0.12]" />
@@ -467,7 +488,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                     {commentFeed.length > 1 && (
                       <button
                         onClick={() => setCommentExpanded((v) => !v)}
-                        className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:underline"
+                        className="flex items-center gap-1 text-xs text-[#2463EB] dark:text-blue-400 hover:underline"
                       >
                         {commentExpanded
                           ? <><ChevronUp className="h-3.5 w-3.5" /> 접기</>
@@ -478,11 +499,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 </Card>
               )}
 
-              {weekScores.length === 0 && (
-                <div className="rounded-2xl bg-white dark:bg-card p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
-                  아직 시험 결과가 없습니다
-                </div>
-              )}
             </>
           )}
 
@@ -541,9 +557,9 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                       setExpandedWrongWeekIds((prev) => new Set([...prev, w.id]))
                                       scrollTo(`wrongnote-reading-${w.id}`, 150)
                                     }}
-                                    className="flex items-center gap-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 px-2 py-1 text-xs hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                                    className="flex items-center gap-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 px-2 py-1 text-xs hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
                                   >
-                                    <BookOpen className="h-3 w-3 text-indigo-400 dark:text-indigo-500" />
+                                    <BookOpen className="h-3 w-3 text-[#2463EB] dark:text-blue-500" />
                                     <span className="text-gray-600 dark:text-gray-300">시험</span>
                                     <strong className={`ml-0.5 ${scoreColor(score.reading_correct ?? 0, w.reading_total)}`}>
                                       {score.reading_correct ?? 0}/{w.reading_total}
@@ -591,8 +607,8 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                       })()}
                                     </button>
                                     {score.vocab_correct < w.vocab_total && score.vocab_retake_correct !== null && (
-                                      <span className="flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 px-2 py-1 text-xs">
-                                        <RotateCcw className="h-3 w-3 text-indigo-400 dark:text-indigo-500" />
+                                      <span className="flex items-center gap-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 px-2 py-1 text-xs">
+                                        <RotateCcw className="h-3 w-3 text-[#2463EB] dark:text-blue-500" />
                                         <span className="text-gray-500 dark:text-gray-400">재시험</span>
                                         <strong className={`ml-0.5 ${scoreColor(score.vocab_retake_correct, w.vocab_total - score.vocab_correct)}`}>
                                           {score.vocab_retake_correct}/{w.vocab_total - score.vocab_correct}
@@ -612,9 +628,9 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                 )}
                               </div>
                               {score.memo && (
-                                <div className="mt-3 rounded-xl border border-indigo-100 dark:border-indigo-800/40 bg-indigo-50 dark:bg-indigo-950/40 px-4 py-3">
-                                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-400 dark:text-indigo-500">강사 코멘트</p>
-                                  <p className="text-sm leading-relaxed text-indigo-800 dark:text-indigo-300">{score.memo}</p>
+                                <div className="mt-3 rounded-xl border border-blue-100 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/40 px-4 py-3">
+                                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#2463EB] dark:text-blue-500">강사 코멘트</p>
+                                  <p className="text-sm leading-relaxed text-[#1A1C1E] dark:text-blue-300">{score.memo}</p>
                                 </div>
                               )}
                             </>
@@ -629,7 +645,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               )}
 
               {weekScores.length === 0 && (
-                <div className="rounded-2xl bg-white dark:bg-card p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
+                <div className="rounded-3xl bg-white dark:bg-[#1E293B] p-10 text-center text-sm text-[#8B95A1] dark:text-[#94A3B8] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none">
                   아직 시험 결과가 없습니다
                 </div>
               )}
@@ -688,7 +704,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               )}
 
               {typeData.length === 0 && repeatPatterns.length === 0 && (
-                <div className="rounded-2xl bg-white dark:bg-card p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/[0.08]">
+                <div className="rounded-3xl bg-white dark:bg-[#1E293B] p-10 text-center text-sm text-[#8B95A1] dark:text-[#94A3B8] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none">
                   분석 데이터가 없습니다
                 </div>
               )}
@@ -699,16 +715,15 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
           {activeTab === 'wrongnote' && (
             <>
               {/* 독해 / 단어 토글 */}
-              <div className="flex rounded-xl bg-gray-100 dark:bg-white/[0.06] p-1">
+              <div className="flex rounded-2xl bg-white dark:bg-[#1E293B] shadow-[0_2px_12px_rgba(0,0,0,0.05)] dark:shadow-none p-1">
                 {(['reading', 'vocab'] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => setWrongNoteTab(t)}
-                    className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition-colors ${
-                      wrongNoteTab === t
-                        ? 'bg-white dark:bg-card text-gray-900 dark:text-white shadow-sm'
-                        : 'text-gray-500 dark:text-gray-400'
-                    }`}
+                    className={`flex-1 rounded-xl py-2 text-sm font-semibold transition-all ${wrongNoteTab === t
+                        ? 'bg-[#2463EB] text-white shadow-sm'
+                        : 'text-[#8B95A1] dark:text-[#94A3B8] hover:text-[#1A1C1E] dark:hover:text-white'
+                      }`}
                   >
                     {t === 'reading' ? '진단평가' : '단어'}
                   </button>
@@ -718,7 +733,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               {/* 독해 오답 */}
               {wrongNoteTab === 'reading' && (
                 wrongNoteGroups.length === 0 ? (
-                  <div className="rounded-2xl bg-white dark:bg-card p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
+                  <div className="rounded-3xl bg-white dark:bg-[#1E293B] p-10 text-center text-sm text-[#8B95A1] dark:text-[#94A3B8] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none">
                     진단평가 오답 데이터가 없습니다
                   </div>
                 ) : (
@@ -772,7 +787,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                         </span>
                                         <div className="flex flex-wrap gap-1 justify-end">
                                           {tags.map((tag) => (
-                                            <span key={tag!.id} className="rounded-full bg-indigo-50 dark:bg-indigo-900/40 px-2 py-0.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-300">
+                                            <span key={tag!.id} className="rounded-full bg-blue-50 dark:bg-blue-900/40 px-2 py-0.5 text-[11px] font-medium text-[#2463EB] dark:text-blue-300">
                                               {tag!.name}
                                             </span>
                                           ))}
@@ -799,7 +814,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                         </p>
                                       )}
                                       {q.explanation && (
-                                        <div className="rounded-xl bg-indigo-50 dark:bg-indigo-950/40 px-3 py-2.5 text-xs leading-relaxed text-indigo-700 dark:text-indigo-300">
+                                        <div className="rounded-xl bg-blue-50 dark:bg-blue-950/40 px-3 py-2.5 text-xs leading-relaxed text-[#2463EB] dark:text-blue-300">
                                           {q.explanation}
                                         </div>
                                       )}
@@ -819,7 +834,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               {/* 단어 오답 */}
               {wrongNoteTab === 'vocab' && (
                 vocabWrongGroups.length === 0 ? (
-                  <div className="rounded-2xl bg-white dark:bg-card p-10 text-center text-sm text-gray-400 dark:text-gray-400 shadow-sm dark:shadow-none dark:ring-1 dark:ring-white/10">
+                  <div className="rounded-3xl bg-white dark:bg-[#1E293B] p-10 text-center text-sm text-[#8B95A1] dark:text-[#94A3B8] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none">
                     단어 오답 데이터가 없습니다
                   </div>
                 ) : (
@@ -867,24 +882,34 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                   {/* 재시험 액션 행 */}
                                   {wScore && wScore.vocab_correct != null && wScore.vocab_correct < week.vocab_total && (
                                     <div className="px-5 py-2.5 flex items-center gap-3 border-b border-gray-100 dark:border-white/[0.06]">
-                                      {wScore.vocab_retake_correct !== null ? (
-                                        <span className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-                                          <RotateCcw className="h-3 w-3 text-indigo-400 dark:text-indigo-500" />
-                                          재시험 완료
-                                          <strong className={`${scoreColor(wScore.vocab_retake_correct!, week.vocab_total - wScore.vocab_correct!)}`}>
-                                            {wScore.vocab_retake_correct}/{week.vocab_total - wScore.vocab_correct!}
-                                          </strong>
-                                        </span>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() => router.push(`/share/${token}/retake/${week.id}`)}
-                                          className="flex items-center gap-1.5 rounded-full border border-emerald-200 dark:border-emerald-800/40 bg-white dark:bg-transparent px-3 py-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors"
-                                        >
-                                          <RotateCcw className="h-3 w-3" />
-                                          재시험 보기
-                                        </button>
-                                      )}
+                                      {(() => {
+                                        const originalWrong = week.vocab_total - (wScore.vocab_correct ?? 0)
+                                        const mastered = wScore.vocab_retake_correct ?? 0
+                                        const remaining = originalWrong - mastered
+                                        if (remaining <= 0) {
+                                          return (
+                                            <span className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                                              <RotateCcw className="h-3 w-3 text-[#2463EB] dark:text-blue-500" />
+                                              재시험 완료
+                                              <strong className={scoreColor(mastered, originalWrong)}>
+                                                {mastered}/{originalWrong}
+                                              </strong>
+                                            </span>
+                                          )
+                                        }
+                                        return (
+                                          <button
+                                            type="button"
+                                            onClick={() => router.push(`/share/${token}/retake/${week.id}`)}
+                                            className="flex items-center gap-1.5 rounded-full border border-emerald-200 dark:border-emerald-800/40 bg-white dark:bg-transparent px-4 py-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors"
+                                          >
+                                            <RotateCcw className="h-3 w-3" />
+                                            {wScore.vocab_retake_correct !== null
+                                              ? `재시험 보기 (${remaining}개 남음)`
+                                              : '재시험 보기'}
+                                          </button>
+                                        )
+                                      })()}
                                     </div>
                                   )}
                                   {/* 단어 목록 */}
@@ -978,7 +1003,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
         </main>
 
         {/* ── 하단 탭바 ─────────────────────────────────────────────── */}
-        <nav className="fixed bottom-0 inset-x-0 z-30 bg-white/90 dark:bg-card/95 backdrop-blur-sm border-t border-gray-100 dark:border-white/10">
+        <nav className="fixed bottom-0 inset-x-0 z-30 bg-white/95 dark:bg-[#1E293B]/95 backdrop-blur-md border-t border-gray-100/60 dark:border-white/[0.06]">
           <div className="mx-auto flex max-w-lg pb-safe">
             {TABS.map(({ id, label, Icon }) => {
               const active = activeTab === id
@@ -986,17 +1011,16 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 <button
                   key={id}
                   onClick={() => setActiveTab(id)}
-                  className={`relative flex flex-1 flex-col items-center gap-1 pt-3 pb-2.5 transition-colors ${
-                    active
-                      ? 'text-indigo-600 dark:text-indigo-300'
-                      : 'text-gray-400 dark:text-gray-500'
-                  }`}
+                  className={`relative flex flex-1 flex-col items-center gap-1 pt-3 pb-2.5 transition-colors ${active
+                      ? 'text-[#2463EB] dark:text-blue-400'
+                      : 'text-[#8B95A1] dark:text-gray-500'
+                    }`}
                 >
                   {active && (
-                    <span className="absolute top-0 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full bg-indigo-500 dark:bg-indigo-400" />
+                    <span className="absolute top-0 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full bg-[#2463EB] dark:bg-blue-400" />
                   )}
                   <Icon className={`h-5 w-5 transition-transform ${active ? 'scale-110' : ''}`} />
-                  <span className={`text-[10px] ${active ? 'font-semibold' : 'font-medium'}`}>{label}</span>
+                  <span className={`text-[10px] ${active ? 'font-bold' : 'font-medium'}`}>{label}</span>
                 </button>
               )
             })}
