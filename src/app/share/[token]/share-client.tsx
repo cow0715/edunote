@@ -1,12 +1,14 @@
 'use client'
 
 import { use, useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
 import {
   GraduationCap, BookOpen, BookText, ClipboardCheck, UserCheck,
   ChevronDown, ChevronUp, X,
   Home, BarChart2, PieChart, MessageSquare, BookX, AlertTriangle,
+  RotateCcw,
 } from 'lucide-react'
 import { classifyPatterns } from '@/hooks/weakness/useAnalysis'
 import { ShareData, StudentAnswer, VocabAnswer, TabId, CIRCLE_NUM } from './share-types'
@@ -65,6 +67,7 @@ function formatCorrectAnswer(q: StudentAnswer['exam_question']): string {
 // ── 메인 ──────────────────────────────────────────────────────────────────────
 export default function ShareClient({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
+  const router = useRouter()
   const { data, isLoading, error } = useShareData(token)
   const [expandedWeekId, setExpandedWeekId] = useState<string | null>(null)
   const [expandedWrongWeekIds, setExpandedWrongWeekIds] = useState<Set<string>>(new Set())
@@ -559,33 +562,55 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                   </button>
                                 )}
                                 {w.vocab_total > 0 && score.vocab_correct !== null && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveTab('wrongnote')
-                                      setWrongNoteTab('vocab')
-                                      setExpandedVocabWeekIds((prev) => new Set([...prev, w.id]))
-                                      scrollTo(`wrongnote-vocab-${w.id}`, 150)
-                                    }}
-                                    className="flex items-center gap-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 text-xs hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
-                                  >
-                                    <BookText className="h-3 w-3 text-emerald-500 dark:text-emerald-600" />
-                                    <span className="text-gray-600 dark:text-gray-300">단어</span>
-                                    <strong className={`ml-0.5 ${scoreColor(score.vocab_correct, w.vocab_total)}`}>
-                                      {score.vocab_correct}/{w.vocab_total}
-                                    </strong>
-                                    {(() => {
-                                      const avg = classAverages[w.id]?.vocabRate
-                                      const my = weekRate(score, w, 'vocab')
-                                      if (avg === null || avg === undefined || my === null) return null
-                                      const diff = my - avg
-                                      return (
-                                        <span className={`ml-1 text-[10px] font-medium ${diff > 0 ? 'text-emerald-500 dark:text-emerald-400' : diff < 0 ? 'text-rose-400 dark:text-rose-400' : 'text-gray-400'}`}>
-                                          반 평균 {diff > 0 ? '+' : ''}{diff}%
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveTab('wrongnote')
+                                        setWrongNoteTab('vocab')
+                                        setExpandedVocabWeekIds((prev) => new Set([...prev, w.id]))
+                                        scrollTo(`wrongnote-vocab-${w.id}`, 150)
+                                      }}
+                                      className="flex items-center gap-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 text-xs hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+                                    >
+                                      <BookText className="h-3 w-3 text-emerald-500 dark:text-emerald-600" />
+                                      <span className="text-gray-600 dark:text-gray-300">단어</span>
+                                      <strong className={`ml-0.5 ${scoreColor(score.vocab_correct, w.vocab_total)}`}>
+                                        {score.vocab_correct}/{w.vocab_total}
+                                      </strong>
+                                      {(() => {
+                                        const avg = classAverages[w.id]?.vocabRate
+                                        const my = weekRate(score, w, 'vocab')
+                                        if (avg === null || avg === undefined || my === null) return null
+                                        const diff = my - avg
+                                        return (
+                                          <span className={`ml-1 text-[10px] font-medium ${diff > 0 ? 'text-emerald-500 dark:text-emerald-400' : diff < 0 ? 'text-rose-400 dark:text-rose-400' : 'text-gray-400'}`}>
+                                            반 평균 {diff > 0 ? '+' : ''}{diff}%
+                                          </span>
+                                        )
+                                      })()}
+                                    </button>
+                                    {score.vocab_correct < w.vocab_total && (
+                                      score.vocab_retake_correct !== null ? (
+                                        <span className="flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 px-2 py-1 text-xs">
+                                          <RotateCcw className="h-3 w-3 text-indigo-400 dark:text-indigo-500" />
+                                          <span className="text-gray-500 dark:text-gray-400">재시험</span>
+                                          <strong className={`ml-0.5 ${scoreColor(score.vocab_retake_correct, w.vocab_total - score.vocab_correct)}`}>
+                                            {score.vocab_retake_correct}/{w.vocab_total - score.vocab_correct}
+                                          </strong>
                                         </span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => router.push(`/share/${token}/retake/${w.id}`)}
+                                          className="flex items-center gap-1 rounded-lg border border-emerald-200 dark:border-emerald-800/60 bg-white dark:bg-transparent px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors font-medium"
+                                        >
+                                          <RotateCcw className="h-3 w-3" />
+                                          재시험
+                                        </button>
                                       )
-                                    })()}
-                                  </button>
+                                    )}
+                                  </div>
                                 )}
                                 {w.homework_total > 0 && score.homework_done !== null && (
                                   <span className="flex items-center gap-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 px-2 py-1 text-xs">
