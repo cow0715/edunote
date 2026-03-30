@@ -40,13 +40,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     student_answer: string | null
     is_correct: boolean
     teacher_locked: boolean
+    retake_answer: string | null
+    retake_is_correct: boolean | null
   }
   let backup: AnswerBackup[] = []
 
   if (oldWordIds.length > 0) {
     const { data: answerRows } = await supabase
       .from('student_vocab_answer')
-      .select('week_score_id, vocab_word_id, student_answer, is_correct, teacher_locked')
+      .select('week_score_id, vocab_word_id, student_answer, is_correct, teacher_locked, retake_answer, retake_is_correct')
       .in('vocab_word_id', oldWordIds)
 
     if (answerRows && answerRows.length > 0) {
@@ -62,6 +64,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             student_answer: a.student_answer,
             is_correct: a.is_correct,
             teacher_locked: a.teacher_locked ?? false,
+            retake_answer: a.retake_answer ?? null,
+            retake_is_correct: a.retake_is_correct ?? null,
           }
         })
         .filter((x): x is AnswerBackup => x !== null)
@@ -152,6 +156,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             student_answer: a.student_answer,
             is_correct: isCorrect,
             teacher_locked: a.teacher_locked,
+            retake_answer: a.retake_answer,
+            retake_is_correct: a.retake_is_correct,
           }
         })
         .filter((x): x is NonNullable<typeof x> => x !== null)
@@ -160,9 +166,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         await supabase.from('student_vocab_answer').insert(toInsert)
       }
 
-      // week_score.vocab_correct 재집계
+      // week_score 재집계 (vocab_correct + vocab_retake_correct)
       const vocabCorrect = toInsert.filter((a) => a.is_correct).length
-      await supabase.from('week_score').update({ vocab_correct: vocabCorrect }).eq('id', weekScoreId)
+      const vocabRetakeCorrect = toInsert.filter((a) => !a.is_correct && a.retake_is_correct === true).length
+      await supabase.from('week_score')
+        .update({ vocab_correct: vocabCorrect, vocab_retake_correct: vocabRetakeCorrect })
+        .eq('id', weekScoreId)
     }
   }
 
