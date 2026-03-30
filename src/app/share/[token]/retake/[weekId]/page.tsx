@@ -435,6 +435,9 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-gray-900 dark:text-white leading-tight">{r.english_word}</p>
+                        {!r.is_correct && word?.correct_answer && (
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 leading-tight">{word.correct_answer}</p>
+                        )}
                         <p className={`text-sm mt-0.5 ${r.is_correct ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
                           {r.retake_answer || '(미작성)'}
                         </p>
@@ -449,12 +452,6 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                       <div className={`grid transition-all duration-300 ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
                         <div className="overflow-hidden">
                           <div className="px-4 pt-1 pb-4 space-y-3 border-t border-rose-50 dark:border-rose-500/10">
-                            {word?.correct_answer && (
-                              <div>
-                                <p className="text-[10px] font-bold text-rose-400 uppercase tracking-widest mb-1">정답</p>
-                                <p className="text-sm font-semibold text-gray-800 dark:text-white">{word.correct_answer}</p>
-                              </div>
-                            )}
                             {(word?.synonyms?.length ?? 0) > 0 && (
                               <div>
                                 <p className="text-[10px] font-bold text-violet-400 uppercase tracking-widest mb-1.5">유의어</p>
