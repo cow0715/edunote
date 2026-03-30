@@ -222,13 +222,13 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                 onChange={(e) => updateWord(i, 'correct_answer', e.target.value)}
               />
               <Input
-                value={w.synonyms.join(', ')}
+                value={(w.synonyms ?? []).join(', ')}
                 placeholder="유의어 (쉼표 구분)"
                 className="h-7 text-xs px-2"
                 onChange={(e) => updateWord(i, 'synonyms', e.target.value)}
               />
               <Input
-                value={w.antonyms.join(', ')}
+                value={(w.antonyms ?? []).join(', ')}
                 placeholder="반의어 (쉼표 구분)"
                 className="h-7 text-xs px-2"
                 onChange={(e) => updateWord(i, 'antonyms', e.target.value)}
