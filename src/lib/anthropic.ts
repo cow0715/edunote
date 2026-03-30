@@ -5,7 +5,18 @@ import {
   PARSE_ANSWER_SHEET_RULES, SMS_RULES,
   buildVocabOcrClovaPrompt, VOCAB_OCR_VISION_PROMPT,
   buildVocabGradingPrompt, VOCAB_PDF_PROMPT,
+  buildExamOcrClovaPrompt, buildExamOcrVisionPrompt,
+  ExamOcrQuestion,
 } from './prompts'
+
+export type { ExamOcrQuestion }
+
+export type ExamOcrResult = {
+  question_number: number
+  sub_label: string | null
+  student_answer?: number
+  student_answer_text?: string
+}
 
 export const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -458,4 +469,51 @@ ${GRADING_RULES}`
       }
     })
     .filter((r): r is GradingResult => r !== null)
+}
+
+// ── 시험 답안지 OCR ───────────────────────────────────────────────────────
+
+export async function ocrExamAnswers(
+  fileData: string,
+  mimeType: string,
+  questions: ExamOcrQuestion[],
+): Promise<ExamOcrResult[]> {
+  const isImage = mimeType.startsWith('image/')
+  const isPdf = mimeType === 'application/pdf'
+  if (!isImage && !isPdf) throw new Error('지원하지 않는 파일 형식 (이미지만 가능)')
+
+  const fileContent = isImage
+    ? { type: 'image' as const, source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: fileData } }
+    : { type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: fileData } }
+
+  const clovaText = await callClovaOCR(fileData, mimeType)
+
+  let raw: string
+
+  if (clovaText !== null) {
+    console.log('[ocrExamAnswers] CLOVA OCR 사용, 텍스트 길이:', clovaText.length)
+    const prompt = buildExamOcrClovaPrompt(questions, clovaText)
+    const res = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: [fileContent, { type: 'text', text: prompt }] }],
+    })
+    raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  } else {
+    console.log('[ocrExamAnswers] Claude Vision OCR fallback')
+    const prompt = buildExamOcrVisionPrompt(questions)
+    const res = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: [fileContent, { type: 'text', text: prompt }] }],
+    })
+    raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  }
+
+  try {
+    return JSON.parse(jsonrepair(raw.replace(/```json\n?|\n?```/g, '').trim()))
+  } catch (e) {
+    console.error('[ocrExamAnswers] JSON parse 실패:', e)
+    throw e
+  }
 }

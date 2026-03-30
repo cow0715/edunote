@@ -6,8 +6,10 @@ import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { ScoreToggleField } from './score-toggle-field'
 import { GroupedQuestionRow, QuestionRow } from './question-inputs'
+import { ExamPhotoButton, ExamOcrResult } from './exam-photo-button'
 
-export function ExamSheetContent({ row, questions, readingTotal, updateRow, updateAnswer, updateAnswerText }: {
+export function ExamSheetContent({ weekId, row, questions, readingTotal, updateRow, updateAnswer, updateAnswerText }: {
+  weekId: string
   row: GradeRow
   questions: ExamQuestion[]
   readingTotal: number
@@ -18,8 +20,41 @@ export function ExamSheetContent({ row, questions, readingTotal, updateRow, upda
   const hasSubjective = questions.some((q) => q.question_style === 'subjective')
   const disabled = !row.present || !row.reading_present
 
+  function applyOcrResults(results: ExamOcrResult[]) {
+    for (const r of results) {
+      const q = questions.find(
+        (q) => q.question_number === r.question_number && (q.sub_label ?? null) === (r.sub_label ?? null)
+      )
+      if (!q) continue
+      if (r.student_answer !== undefined) {
+        updateAnswer(row.student_id, q.id, r.student_answer)
+      } else if (r.student_answer_text !== undefined) {
+        updateAnswerText(row.student_id, q.id, r.student_answer_text)
+      }
+    }
+  }
+
   return (
     <div>
+      {/* OCR 촬영 버튼 */}
+      {questions.length > 0 && (
+        <div className="flex items-center gap-1 px-4 py-2 border-b bg-gray-50/30">
+          <span className="text-xs text-gray-400 mr-1">답안 OCR</span>
+          <ExamPhotoButton
+            weekId={weekId}
+            side="front"
+            disabled={!row.present}
+            onResult={applyOcrResults}
+          />
+          <ExamPhotoButton
+            weekId={weekId}
+            side="back"
+            disabled={!row.present}
+            onResult={applyOcrResults}
+          />
+        </div>
+      )}
+
       {/* 미응시 토글 */}
       {(questions.length > 0 || readingTotal > 0) && (
         <div className="flex items-center gap-2 px-4 py-3 border-b bg-gray-50/50">
