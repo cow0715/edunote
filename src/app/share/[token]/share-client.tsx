@@ -914,19 +914,24 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                               </div>
                                               <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">#{vw.number}</span>
                                             </div>
+                                            {vw.correct_answer && (
+                                              <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                                <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500 mr-1">뜻</span>
+                                                {vw.correct_answer}
+                                              </div>
+                                            )}
                                             <div className="mt-1.5 flex items-center flex-wrap gap-x-2 gap-y-1">
+                                              <span className="text-xs text-gray-400 dark:text-gray-500">내 답:</span>
                                               <span className="text-sm text-rose-400 dark:text-rose-500 line-through">
                                                 {va.student_answer || '미작성'}
                                               </span>
-                                              <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
-                                              {retaken ? (
-                                                <span className={`text-sm font-semibold ${va.retake_is_correct ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-                                                  {va.retake_answer || '미작성'}
-                                                </span>
-                                              ) : (
-                                                <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                                                  {vw.correct_answer || '—'}
-                                                </span>
+                                              {retaken && (
+                                                <>
+                                                  <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
+                                                  <span className={`text-sm font-semibold ${va.retake_is_correct ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                                                    {va.retake_answer || '미작성'}
+                                                  </span>
+                                                </>
                                               )}
                                               {va.retake_is_correct === false && vw.correct_answer && (
                                                 <>
