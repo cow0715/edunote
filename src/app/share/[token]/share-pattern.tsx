@@ -23,17 +23,6 @@ export const PATTERN_META: Record<PatternType, {
     insightFn: (p) =>
       `정답률 ${p.firstAccuracy}% → ${p.latestAccuracy}% (${Math.abs(p.diff)}%p 하락)`,
   },
-  intermittent: {
-    label: '기복',
-    color: 'text-violet-500 dark:text-violet-400',
-    accent: '#8b5cf6',
-    insightFn: (p) => {
-      const accs = p.weeks.map((w) => w.accuracy)
-      const min = Math.min(...accs)
-      const max = Math.max(...accs)
-      return `정답률 ${min}% ~ ${max}% 변동 · 평균 ${p.overallAccuracy}%`
-    },
-  },
   improving: {
     label: '개선',
     color: 'text-emerald-500 dark:text-emerald-400',

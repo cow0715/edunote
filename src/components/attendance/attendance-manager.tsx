@@ -61,14 +61,20 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
   const { data: records, isLoading } = useAttendance(classId, date)
   const saveAttendance = useSaveAttendance(classId)
 
+  // 해당 날짜 이전에 등록된 학생만 표시
+  const activeStudents = classStudents.filter(
+    (cs) => cs.created_at.slice(0, 10) <= date
+  )
+
   useEffect(() => {
     if (records) {
       const map: Record<string, AttendanceStatus> = {}
-      classStudents.forEach((cs) => { map[cs.student_id] = 'present' })
+      activeStudents.forEach((cs) => { map[cs.student_id] = 'present' })
       records.forEach((r) => { map[r.student_id] = r.status })
       setStatusMap(map)
     }
-  }, [records, classStudents])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records, date])
 
   // 스케줄 기반 prev/next
   function prevDate() {
@@ -111,7 +117,7 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
     try {
       await saveAttendance.mutateAsync({
         date,
-        records: classStudents.map((cs) => ({
+        records: activeStudents.map((cs) => ({
           student_id: cs.student_id,
           status: statusMap[cs.student_id] ?? 'present',
         })),
@@ -123,7 +129,7 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
   }
 
   const counts = { present: 0, late: 0, absent: 0 }
-  classStudents.forEach((cs) => { counts[statusMap[cs.student_id] ?? 'present']++ })
+  activeStudents.forEach((cs) => { counts[statusMap[cs.student_id] ?? 'present']++ })
 
   return (
     <div className="space-y-4">
@@ -172,11 +178,11 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
             <div key={i} className="h-12 animate-pulse rounded-lg bg-gray-100" />
           ))}
         </div>
-      ) : classStudents.length === 0 ? (
+      ) : activeStudents.length === 0 ? (
         <p className="py-10 text-center text-sm text-gray-400">수강 학생이 없어요</p>
       ) : (
         <div className="space-y-1.5">
-          {classStudents.map((cs) => {
+          {activeStudents.map((cs) => {
             const status = statusMap[cs.student_id] ?? 'present'
             return (
               <div key={cs.student_id} className="flex items-center gap-3 rounded-lg border bg-white px-4 py-2.5">
@@ -208,7 +214,7 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
         </div>
       )}
 
-      {classStudents.length > 0 && (
+      {activeStudents.length > 0 && (
         <div className="flex justify-end pt-1">
           <Button onClick={handleSave} disabled={saveAttendance.isPending} size="sm">
             <Save className="mr-1.5 h-3.5 w-3.5" />
