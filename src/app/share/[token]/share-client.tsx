@@ -590,25 +590,14 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                         )
                                       })()}
                                     </button>
-                                    {score.vocab_correct < w.vocab_total && (
-                                      score.vocab_retake_correct !== null ? (
-                                        <span className="flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 px-2 py-1 text-xs">
-                                          <RotateCcw className="h-3 w-3 text-indigo-400 dark:text-indigo-500" />
-                                          <span className="text-gray-500 dark:text-gray-400">재시험</span>
-                                          <strong className={`ml-0.5 ${scoreColor(score.vocab_retake_correct, w.vocab_total - score.vocab_correct)}`}>
-                                            {score.vocab_retake_correct}/{w.vocab_total - score.vocab_correct}
-                                          </strong>
-                                        </span>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() => router.push(`/share/${token}/retake/${w.id}`)}
-                                          className="flex items-center gap-1 rounded-lg border border-emerald-200 dark:border-emerald-800/60 bg-white dark:bg-transparent px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors font-medium"
-                                        >
-                                          <RotateCcw className="h-3 w-3" />
-                                          재시험
-                                        </button>
-                                      )
+                                    {score.vocab_correct < w.vocab_total && score.vocab_retake_correct !== null && (
+                                      <span className="flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 px-2 py-1 text-xs">
+                                        <RotateCcw className="h-3 w-3 text-indigo-400 dark:text-indigo-500" />
+                                        <span className="text-gray-500 dark:text-gray-400">재시험</span>
+                                        <strong className={`ml-0.5 ${scoreColor(score.vocab_retake_correct, w.vocab_total - score.vocab_correct)}`}>
+                                          {score.vocab_retake_correct}/{w.vocab_total - score.vocab_correct}
+                                        </strong>
+                                      </span>
                                     )}
                                   </div>
                                 )}
@@ -871,52 +860,106 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                               </div>
                             </button>
 
-                            {isOpen && (
-                              <div className="border-t border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-background divide-y divide-gray-100 dark:divide-white/[0.08]">
-                                {answers
-                                  .slice()
-                                  .sort((a, b) => (a.vocab_word?.number ?? 0) - (b.vocab_word?.number ?? 0))
-                                  .map((va) => {
-                                    const vw = va.vocab_word
-                                    if (!vw) return null
-                                    return (
-                                      <div key={va.id} className="px-5 py-3">
-                                        <div className="flex items-baseline justify-between gap-2">
-                                          <span className="text-sm font-bold text-gray-900 dark:text-white">{vw.english_word}</span>
-                                          <span className="text-xs text-gray-400 dark:text-gray-500">#{vw.number}</span>
-                                        </div>
-                                        <div className="mt-1.5 flex items-center gap-2">
-                                          <span className="text-sm text-rose-500 dark:text-rose-400 line-through">
-                                            {va.student_answer || '미작성'}
-                                          </span>
-                                          <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
-                                          <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                                            {vw.correct_answer || '—'}
-                                          </span>
-                                        </div>
-                                        {(vw.synonyms?.length ?? 0) > 0 && (
-                                          <div className="mt-2 flex flex-wrap gap-1.5">
-                                            {(vw.synonyms ?? []).map((s) => (
-                                              <span key={s} className="rounded-full border border-blue-200 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-[11px] text-blue-700 dark:text-blue-300">
-                                                유 {s}
+                            {isOpen && (() => {
+                              const wScore = scoreByWeek.get(week.id)
+                              return (
+                                <div className="border-t border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-background">
+                                  {/* 재시험 액션 행 */}
+                                  {wScore && wScore.vocab_correct != null && wScore.vocab_correct < week.vocab_total && (
+                                    <div className="px-5 py-2.5 flex items-center gap-3 border-b border-gray-100 dark:border-white/[0.06]">
+                                      {wScore.vocab_retake_correct !== null ? (
+                                        <span className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                                          <RotateCcw className="h-3 w-3 text-indigo-400 dark:text-indigo-500" />
+                                          재시험 완료
+                                          <strong className={`${scoreColor(wScore.vocab_retake_correct!, week.vocab_total - wScore.vocab_correct!)}`}>
+                                            {wScore.vocab_retake_correct}/{week.vocab_total - wScore.vocab_correct!}
+                                          </strong>
+                                        </span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => router.push(`/share/${token}/retake/${week.id}`)}
+                                          className="flex items-center gap-1.5 rounded-full border border-emerald-200 dark:border-emerald-800/40 bg-white dark:bg-transparent px-3 py-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors"
+                                        >
+                                          <RotateCcw className="h-3 w-3" />
+                                          재시험 보기
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                  {/* 단어 목록 */}
+                                  <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
+                                    {answers
+                                      .slice()
+                                      .sort((a, b) => (a.vocab_word?.number ?? 0) - (b.vocab_word?.number ?? 0))
+                                      .map((va) => {
+                                        const vw = va.vocab_word
+                                        if (!vw) return null
+                                        const retaken = va.retake_is_correct !== null
+                                        return (
+                                          <div key={va.id} className={`px-5 py-3 ${va.retake_is_correct === true ? 'opacity-60' : ''}`}>
+                                            <div className="flex items-center justify-between gap-2">
+                                              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                                <span className="text-sm font-bold text-gray-900 dark:text-white">{vw.english_word}</span>
+                                                {va.retake_is_correct === true && (
+                                                  <span className="shrink-0 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded-full">
+                                                    재시험 ✓
+                                                  </span>
+                                                )}
+                                                {va.retake_is_correct === false && (
+                                                  <span className="shrink-0 text-[10px] font-bold text-rose-500 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 px-1.5 py-0.5 rounded-full">
+                                                    재시험 ✗
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">#{vw.number}</span>
+                                            </div>
+                                            <div className="mt-1.5 flex items-center flex-wrap gap-x-2 gap-y-1">
+                                              <span className="text-sm text-rose-400 dark:text-rose-500 line-through">
+                                                {va.student_answer || '미작성'}
                                               </span>
-                                            ))}
+                                              <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
+                                              {retaken ? (
+                                                <span className={`text-sm font-semibold ${va.retake_is_correct ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                                                  {va.retake_answer || '미작성'}
+                                                </span>
+                                              ) : (
+                                                <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                                                  {vw.correct_answer || '—'}
+                                                </span>
+                                              )}
+                                              {va.retake_is_correct === false && vw.correct_answer && (
+                                                <>
+                                                  <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
+                                                  <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">{vw.correct_answer}</span>
+                                                </>
+                                              )}
+                                            </div>
+                                            {(vw.synonyms?.length ?? 0) > 0 && (
+                                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                                {(vw.synonyms ?? []).map((s) => (
+                                                  <span key={s} className="rounded-full border border-blue-200 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-[11px] text-blue-700 dark:text-blue-300">
+                                                    유 {s}
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            )}
+                                            {(vw.antonyms?.length ?? 0) > 0 && (
+                                              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                                {(vw.antonyms ?? []).map((s) => (
+                                                  <span key={s} className="rounded-full border border-purple-200 dark:border-purple-800/40 bg-purple-50 dark:bg-purple-950/40 px-2 py-0.5 text-[11px] text-purple-700 dark:text-purple-300">
+                                                    반 {s}
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            )}
                                           </div>
-                                        )}
-                                        {(vw.antonyms?.length ?? 0) > 0 && (
-                                          <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                            {(vw.antonyms ?? []).map((s) => (
-                                              <span key={s} className="rounded-full border border-purple-200 dark:border-purple-800/40 bg-purple-50 dark:bg-purple-950/40 px-2 py-0.5 text-[11px] text-purple-700 dark:text-purple-300">
-                                                반 {s}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        )}
-                                      </div>
-                                    )
-                                  })}
-                              </div>
-                            )}
+                                        )
+                                      })}
+                                  </div>
+                                </div>
+                              )
+                            })()}
                           </div>
                         )
                       })}

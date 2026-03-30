@@ -116,7 +116,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
   const { data: vocabAnswers } = scoreIds.length > 0
     ? await supabase
         .from('student_vocab_answer')
-        .select('id, week_score_id, is_correct, student_answer, vocab_word(id, number, english_word, correct_answer, synonyms, antonyms)')
+        .select('id, week_score_id, is_correct, student_answer, retake_answer, retake_is_correct, vocab_word(id, number, english_word, correct_answer, synonyms, antonyms)')
         .in('week_score_id', scoreIds)
         .eq('is_correct', false)
     : { data: [] }

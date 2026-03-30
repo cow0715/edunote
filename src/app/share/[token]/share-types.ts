@@ -26,7 +26,9 @@ export type VocabWord = {
 }
 export type VocabAnswer = {
   id: string; week_score_id: string; is_correct: boolean
-  student_answer: string | null; vocab_word: VocabWord | null
+  student_answer: string | null
+  retake_answer: string | null; retake_is_correct: boolean | null
+  vocab_word: VocabWord | null
 }
 export type ShareData = {
   student: { id: string; name: string; school: string | null; grade: string | null }
