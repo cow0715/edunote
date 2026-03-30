@@ -58,8 +58,8 @@ export function ScoreTrendChart({ data, isDark, series }: { data: TrendItem[]; i
     : series === 'vocab' ? [ALL_SERIES[1]]
     : ALL_SERIES
   const grid = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'
-  const tick = isDark ? '#64748b' : '#94a3b8'
-  const bg   = isDark ? '#1e1e2e' : '#ffffff'
+  const tick = isDark ? '#94A3B8' : '#8B95A1'
+  const bg   = isDark ? '#1E293B' : '#FFFFFF'
 
   return (
     <div>

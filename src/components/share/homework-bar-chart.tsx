@@ -18,10 +18,10 @@ function CustomTooltip({ active, payload, label, isDark }: {
 }) {
   if (!active || !payload?.length) return null
   const d = payload[0].payload
-  const bg     = isDark ? '#1e1e2e' : '#ffffff'
+  const bg     = isDark ? '#1E293B' : '#FFFFFF'
   const border = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'
-  const text   = isDark ? '#f1f5f9' : '#0f172a'
-  const sub    = isDark ? '#94a3b8' : '#64748b'
+  const text   = isDark ? '#F8FAFC' : '#1A1C1E'
+  const sub    = isDark ? '#94A3B8' : '#8B95A1'
   const accent = homeworkColor(d.rate, isDark)
 
   return (
