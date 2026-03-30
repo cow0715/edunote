@@ -5,6 +5,7 @@ export type Week = {
 export type WeekScore = {
   id: string; week_id: string
   reading_correct: number; vocab_correct: number | null; homework_done: number | null; memo: string | null
+  vocab_retake_correct: number | null
 }
 export type ConceptTag = { id: string; name: string; category_id: string | null; category_name: string | null }
 export type StudentAnswer = {

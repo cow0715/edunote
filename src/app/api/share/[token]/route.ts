@@ -49,7 +49,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
   // 학생의 채점 결과
   const { data: weekScores } = await supabase
     .from('week_score')
-    .select('*')
+    .select('*, vocab_retake_correct')
     .in('week_id', weekIds)
     .eq('student_id', student.id)
 
