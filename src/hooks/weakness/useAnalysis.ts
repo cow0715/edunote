@@ -118,7 +118,7 @@ export function detectWeaknessAlerts(tagSummaries: TagSummary[]): TagSummary[] {
 
 // ── 반복 오답 패턴 분류 ──────────────────────────────────────────────────────
 
-export type PatternType = 'persistent' | 'deteriorating' | 'intermittent' | 'improving'
+export type PatternType = 'persistent' | 'deteriorating' | 'improving'
 
 export type PatternItem = {
   id: string
@@ -210,8 +210,8 @@ export function classifyPatterns(
       // 처음보다 15%p↑ 개선됐으나 아직 70% 미만 → 개선형
       patternType = 'improving'
     } else {
-      // 그 외 (들쑥날쑥, 분산 큼) → 간헐형
-      patternType = 'intermittent'
+      // 그 외 (방향성 불명확) → 표시 안 함
+      continue
     }
 
     result.push({
@@ -222,7 +222,7 @@ export function classifyPatterns(
   }
 
   // 정렬: 고착형 > 악화형 > 간헐형 > 개선형, 같은 유형 내에서는 정답률 낮은 순
-  const ORDER: Record<PatternType, number> = { persistent: 0, deteriorating: 1, intermittent: 2, improving: 3 }
+  const ORDER: Record<PatternType, number> = { persistent: 0, deteriorating: 1, improving: 2 }
   return result.sort((a, b) =>
     ORDER[a.patternType] !== ORDER[b.patternType]
       ? ORDER[a.patternType] - ORDER[b.patternType]
