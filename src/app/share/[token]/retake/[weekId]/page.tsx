@@ -13,6 +13,8 @@ type Word = {
   correct_answer: string | null
   synonyms: string[] | null
   antonyms: string[] | null
+  example_sentence: string | null
+  example_translation: string | null
   retake_answer: string | null
   retake_is_correct: boolean | null
 }
@@ -33,7 +35,6 @@ type GradedResult = {
   is_correct: boolean
 }
 
-type HintState = { sentence: string; translation: string } | 'loading' | 'error'
 type Phase = 'loading' | 'playing' | 'grading' | 'revealing' | 'done' | 'error'
 
 const SECS_PER_WORD = 10
@@ -62,7 +63,6 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
   const [retakeScore, setRetakeScore] = useState<{ correct: number; total: number } | null>(null)
   const [remaining, setRemaining] = useState<number | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [hints, setHints] = useState<Record<string, HintState>>({})
 
   const inputRef = useRef<HTMLInputElement>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -184,16 +184,8 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
     }, 160)
   }
 
-  function toggleExpand(answerId: string, englishWord: string) {
-    const next = expandedId === answerId ? null : answerId
-    setExpandedId(next)
-    if (next && !hints[answerId]) {
-      setHints(p => ({ ...p, [answerId]: 'loading' }))
-      fetch(`/api/share/${token}/vocab-hint?word=${encodeURIComponent(englishWord)}`)
-        .then(r => r.json())
-        .then(d => setHints(p => ({ ...p, [answerId]: d.error ? 'error' : d })))
-        .catch(() => setHints(p => ({ ...p, [answerId]: 'error' })))
-    }
+  function toggleExpand(answerId: string) {
+    setExpandedId(prev => prev === answerId ? null : answerId)
   }
 
   // ── Computed ──────────────────────────────────────────────────────────────────
@@ -413,7 +405,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
               {roundResults.slice(0, revealCount).map((r) => {
                 const word = data?.words.find(w => w.answer_id === r.answer_id)
                 const isExpanded = expandedId === r.answer_id
-                const hint = hints[r.answer_id]
+                const hasDetail = !r.is_correct && (word?.synonyms?.length || word?.antonyms?.length || word?.example_sentence)
 
                 return (
                   <div key={r.answer_id} className={`rounded-2xl overflow-hidden ring-1 bg-white dark:bg-card ${
@@ -423,9 +415,9 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                   }`}>
                     <button
                       type="button"
-                      onClick={() => !r.is_correct && toggleExpand(r.answer_id, r.english_word)}
+                      onClick={() => hasDetail && toggleExpand(r.answer_id)}
                       className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${
-                        !r.is_correct ? 'active:bg-gray-50 dark:active:bg-white/5' : 'cursor-default'
+                        hasDetail ? 'active:bg-gray-50 dark:active:bg-white/5' : 'cursor-default'
                       }`}
                     >
                       <div className="shrink-0">
@@ -442,7 +434,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                           {r.retake_answer || '(미작성)'}
                         </p>
                       </div>
-                      {!r.is_correct && (
+                      {hasDetail && (
                         <ChevronDown className={`h-4 w-4 text-gray-300 dark:text-gray-600 shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
                       )}
                     </button>
@@ -472,26 +464,19 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                                 </div>
                               </div>
                             )}
-                            <div>
-                              <p className="text-[10px] font-bold text-sky-400 uppercase tracking-widest mb-1.5">예문</p>
-                              {hint === 'loading' && (
-                                <div className="flex items-center gap-2">
-                                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-sky-400 border-t-transparent" />
-                                  <span className="text-xs text-gray-400">생성 중...</span>
-                                </div>
-                              )}
-                              {hint === 'error' && <p className="text-xs text-gray-400">불러올 수 없습니다</p>}
-                              {hint && hint !== 'loading' && hint !== 'error' && (
+                            {word?.example_sentence && (
+                              <div>
+                                <p className="text-[10px] font-bold text-sky-400 uppercase tracking-widest mb-1.5">예문</p>
                                 <div className="space-y-1">
                                   <p className="text-sm text-gray-700 dark:text-gray-300 italic leading-relaxed">
-                                    "{(hint as { sentence: string; translation: string }).sentence}"
+                                    "{word.example_sentence}"
                                   </p>
-                                  <p className="text-xs text-gray-400 dark:text-gray-500">
-                                    {(hint as { sentence: string; translation: string }).translation}
-                                  </p>
+                                  {word.example_translation && (
+                                    <p className="text-xs text-gray-400 dark:text-gray-500">{word.example_translation}</p>
+                                  )}
                                 </div>
-                              )}
-                            </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
