@@ -2,7 +2,7 @@
 
 import { use, useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, Sparkles, Timer, XCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Sparkles, Timer, XCircle } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -66,6 +66,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
   const inputRef = useRef<HTMLInputElement>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const touchStartX = useRef<number>(0)
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -196,6 +197,17 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
     }, 160)
   }
 
+  function handleTouchStart(e: React.TouchEvent) {
+    touchStartX.current = e.touches[0].clientX
+  }
+
+  function handleTouchEnd(e: React.TouchEvent) {
+    const delta = touchStartX.current - e.changedTouches[0].clientX
+    if (Math.abs(delta) < 50) return
+    if (delta > 0) goNext()
+    else goPrev()
+  }
+
   function toggleExpand(answerId: string) {
     setExpandedId(prev => prev === answerId ? null : answerId)
   }
@@ -304,41 +316,43 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
               ))}
             </div>
 
-            {/* 단어 카드 + 네비게이션 */}
-            <div className="flex items-center justify-center gap-4 w-full px-3">
-              {/* 이전 버튼 */}
-              <button
-                type="button"
-                onClick={goPrev}
-                disabled={currentIndex === 0}
-                className="flex items-center justify-center h-10 w-10 rounded-full bg-gray-100 dark:bg-white/[0.08] disabled:opacity-30 active:scale-95 transition-all text-gray-700 dark:text-gray-300 shrink-0"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-
-              {/* 단어 카드 */}
-              <div className={`flex-1 max-w-xs transition-all duration-150 ${
+            {/* 단어 카드 (스와이프 + 아이콘 네비게이션) */}
+            <div
+              className={`w-full max-w-sm px-3 transition-all duration-150 ${
                 cardVisible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95'
-              }`}>
-                <div className="bg-white dark:bg-[#1E293B] rounded-3xl shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-8 py-10 text-center">
-                  <p className="text-[11px] font-bold text-gray-300 dark:text-gray-600 uppercase tracking-widest mb-4">
-                    No. {currentWord?.number}
-                  </p>
-                  <p className="text-3xl font-black text-gray-900 dark:text-white tracking-wide break-words leading-snug">
-                    {currentWord?.english_word}
-                  </p>
-                </div>
-              </div>
+              }`}
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+            >
+              <div className="relative bg-white dark:bg-[#1E293B] rounded-3xl shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-12 py-10 text-center min-h-[160px] flex flex-col items-center justify-center">
 
-              {/* 다음 버튼 (마지막일 때는 제출 확인) */}
-              <button
-                type="button"
-                onClick={goNext}
-                className="flex items-center justify-center h-10 w-10 rounded-full bg-[#2463EB] dark:bg-[#3B82F6] active:scale-95 transition-all text-white shrink-0"
-                title={currentIndex >= words.length - 1 ? '제출' : '다음'}
-              >
-                <ArrowRight className="h-5 w-5" />
-              </button>
+                {/* 이전 아이콘 */}
+                <button
+                  type="button"
+                  onClick={goPrev}
+                  disabled={currentIndex === 0}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-200 dark:text-white/15 disabled:opacity-0 transition-opacity active:text-gray-400 dark:active:text-white/40"
+                >
+                  <ChevronLeft className="h-6 w-6" />
+                </button>
+
+                <p className="text-[11px] font-bold text-gray-300 dark:text-gray-600 uppercase tracking-widest mb-4">
+                  No. {currentWord?.number}
+                </p>
+                <p className="text-3xl font-black text-gray-900 dark:text-white tracking-wide break-words leading-snug w-full">
+                  {currentWord?.english_word}
+                </p>
+
+                {/* 다음/제출 아이콘 */}
+                <button
+                  type="button"
+                  onClick={goNext}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-200 dark:text-white/15 transition-opacity active:text-gray-400 dark:active:text-white/40"
+                  title={currentIndex >= words.length - 1 ? '제출' : '다음'}
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </button>
+              </div>
             </div>
 
             {/* 입력 */}
