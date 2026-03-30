@@ -483,6 +483,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
               )}
               {sheetView.type === 'exam' && (
                 <ExamSheetContent
+                  weekId={weekId}
                   row={sheetRow}
                   questions={questions}
                   readingTotal={readingTotal}

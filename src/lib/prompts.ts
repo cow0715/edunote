@@ -262,6 +262,74 @@ export const VOCAB_OCR_VISION_PROMPT = `이 단어 시험지에서 각 문항의
 JSON 배열만 출력:
 [{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null},{"number":43,"english_word":"immune / condemned","student_answer":"immune"},{"number":50,"english_word":"showing great attention to detail or correct behavior","student_answer":"meticulous"}]`
 
+// ── 시험 답안지 OCR ───────────────────────────────────────────────────────
+
+export type ExamOcrQuestion = {
+  question_number: number
+  sub_label: string | null
+  question_style: 'objective' | 'ox' | 'subjective' | 'find_error' | 'multi_select'
+}
+
+function buildExamQuestionList(questions: ExamOcrQuestion[]): string {
+  const styleLabel: Record<ExamOcrQuestion['question_style'], string> = {
+    objective:    '객관식 (1~5 중 선택)',
+    ox:           'O/X 교정형',
+    subjective:   '서술형',
+    find_error:   '오류교정',
+    multi_select: '복수정답',
+  }
+  const grouped = new Map<number, ExamOcrQuestion[]>()
+  for (const q of questions) {
+    const arr = grouped.get(q.question_number) ?? []
+    arr.push(q)
+    grouped.set(q.question_number, arr)
+  }
+  const lines: string[] = []
+  for (const [num, group] of [...grouped.entries()].sort((a, b) => a[0] - b[0])) {
+    if (group.length === 1 && !group[0].sub_label) {
+      lines.push(`- ${num}번: ${styleLabel[group[0].question_style]}`)
+    } else {
+      for (const q of group) {
+        lines.push(`- ${num}번 (${q.sub_label}): ${styleLabel[q.question_style]}`)
+      }
+    }
+  }
+  return lines.join('\n')
+}
+
+const EXAM_OCR_RULES = `규칙:
+- 객관식: student_answer에 숫자(1~5). 동그라미 또는 숫자 기입 모두 인식
+- 서술형/오류교정: student_answer_text에 영어 텍스트 그대로
+- O/X 교정형: student_answer_text에 "O" 또는 "X 수정어" (예: "X has been")
+- 복수정답: student_answer_text에 쉼표 구분 (예: "1,3")
+- sub_label 있는 문항: (a)(b) 표기 찾아 분리. 표기 없으면 첫 번째 sub_label에 전체 텍스트, 나머지는 제외
+- 이미지에 보이지 않는 문항(뒷면 등)은 결과에서 제외
+- 빈 답안은 결과에서 제외
+
+JSON 배열만 출력:
+[{"question_number":1,"sub_label":null,"student_answer":3},{"question_number":2,"sub_label":null,"student_answer_text":"The experiment was conducted"},{"question_number":3,"sub_label":"a","student_answer_text":"enough"},{"question_number":3,"sub_label":"b","student_answer_text":"greenhouse"}]`
+
+export function buildExamOcrClovaPrompt(questions: ExamOcrQuestion[], clovaText: string): string {
+  return `시험 답안지 OCR 결과와 이미지를 함께 참고해 각 문항의 학생 답안을 추출하세요.
+
+CLOVA OCR 텍스트:
+${clovaText}
+
+문항 목록:
+${buildExamQuestionList(questions)}
+
+${EXAM_OCR_RULES}`
+}
+
+export function buildExamOcrVisionPrompt(questions: ExamOcrQuestion[]): string {
+  return `이 시험 답안지에서 각 문항의 학생 답안을 추출하세요.
+
+문항 목록:
+${buildExamQuestionList(questions)}
+
+${EXAM_OCR_RULES}`
+}
+
 // ── 단어 채점 ────────────────────────────────────────────────────────────
 
 export const VOCAB_GRADING_RULES = `━━━ 공통 규칙 ━━━
