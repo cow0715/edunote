@@ -234,33 +234,40 @@ https://edunote.kr/share/abc123`
 // ── 단어 시험지 OCR (CLOVA + Claude 구조 파싱) ───────────────────────────
 
 export function buildVocabOcrClovaPrompt(clovaText: string): string {
-  return `단어 시험지 OCR 결과와 이미지를 함께 참고해 각 문항을 파악하세요.
+  return `단어 시험지의 학생 답안을 읽어야 합니다.
+CLOVA OCR 텍스트와 원본 이미지를 함께 참고하세요.
 
 CLOVA OCR 텍스트:
 ${clovaText}
 
-규칙:
-- 번호, 인쇄된 영어 단어(구), 학생이 손으로 쓴 한글 답을 구분하세요
-- OCR 텍스트를 우선 사용하고, 불명확한 부분은 이미지로 보완하세요
-- 두 단어 중 선택 문항: 이미지에서 동그라미 친 단어를 확인하세요 (예: "immune / condemned")
-- 판독 불가면 null, 미기재면 ""
+━━━ 읽기 규칙 ━━━
+1. 인쇄된 번호와 영어 단어(구)를 정확히 읽으세요.
+2. 학생이 손으로 쓴 한글 답은 보이는 그대로만 읽으세요.
+   - 맞춤법이 틀려도 수정 금지 (예: "마시있는" → "마시있는" 그대로)
+   - 판독 불가 → null
+   - 미기재(빈칸) → ""
+3. OCR 텍스트 우선, 불명확한 부분은 이미지로 보완
+
+⚠️ 학생 답을 교정·추측하지 마세요. 채점하지 마세요.
 
 JSON 배열만 출력:
-[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null},{"number":43,"english_word":"immune / condemned","student_answer":"immune"},{"number":50,"english_word":"showing great attention to detail or correct behavior","student_answer":"meticulous"}]`
+[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":""}]`
 }
 
 // ── 단어 시험지 OCR (Claude Vision) ─────────────────────────────────────
 
 export const VOCAB_OCR_VISION_PROMPT = `이 단어 시험지에서 각 문항의 내용을 읽어주세요.
 
-규칙:
-- 인쇄된 번호와 영어 단어(구) 또는 문장을 정확히 읽으세요
-- 학생이 손으로 쓴 한글 답은 보이는 그대로만 읽으세요 (판독 불가면 null, 미기재면 "")
-- 두 단어 중 선택하는 문항: 학생이 동그라미 친 단어를 읽으세요 (확인 불가면 null)
-- 절대 내용을 추측하거나 수정하지 마세요. 채점하지 마세요.
+━━━ 읽기 규칙 ━━━
+1. 인쇄된 번호와 영어 단어(구)를 정확히 읽으세요.
+2. 학생이 손으로 쓴 한글 답은 보이는 그대로만 읽으세요.
+   - 맞춤법 틀려도 수정 금지
+   - 판독 불가 → null, 미기재 → ""
+
+⚠️ 학생 답을 교정·추측하지 마세요. 채점하지 마세요.
 
 JSON 배열만 출력:
-[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null},{"number":43,"english_word":"immune / condemned","student_answer":"immune"},{"number":50,"english_word":"showing great attention to detail or correct behavior","student_answer":"meticulous"}]`
+[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null}]`
 
 // ── 시험 답안지 OCR ───────────────────────────────────────────────────────
 
@@ -332,47 +339,197 @@ ${EXAM_OCR_RULES}`
 
 // ── 단어 채점 ────────────────────────────────────────────────────────────
 
-export const VOCAB_GRADING_RULES = `━━━ 공통 규칙 ━━━
-- student_answer가 null이거나 ""이면 무조건 오답
-- 철자가 약간 틀려도 의도가 명확하면 허용
-- 피동/능동 구분 엄격 적용 ("-되다" vs "-하다")
-- 주어/목적어/방향 관계가 뒤바뀌면 오답
+export const VOCAB_GRADING_RULES = `당신은 영어학원의 단어시험 채점 교사입니다.
+학생이 영어 단어를 보고 한글 뜻을 쓴 답안을 채점합니다.
 
-━━━ correct_answer(기준 답안) 사용 규칙 ━━━
-- correct_answer가 있는 문항은 반드시 이것을 정답 기준으로 삼는다
-- 완전 일치 또는 이와 동등한 표현이면 정답
-  · 동등 표현: 조사 차이("~을" vs "~를"), 어미 변형("~하다" vs "~하는"), 맞춤법 소소한 차이
-  · 허용 동의어: correct_answer와 품사·핵심 의미가 완전히 같은 단어 (단, correct_answer와 뉘앙스가 다르면 불허)
-- 틀린 경우:
-  · correct_answer와 핵심 의미가 다름
-  · 품사가 다름 (예: correct_answer가 동사인데 학생이 명사로 씀)
-  · 의미가 반대이거나 전혀 다름`
+━━━ 핵심 채점 원칙 ━━━
+이 시험은 "영어 단어의 뜻을 알고 있는가"를 평가합니다.
+따라서 english_word의 사전적 뜻 중 어떤 뜻이든 하나만 알맞게 썼으면 정답입니다.
+단, 품사는 반드시 일치해야 합니다.
 
-export function buildVocabGradingPrompt(items: { number: number; english_word: string; student_answer: string | null; correct_answer?: string | null }[], customRules?: string): string {
+correct_answer는 참고용입니다.
+correct_answer에 없는 뜻이라도, english_word의 사전적 뜻에 해당하면 정답입니다.
+
+━━━ 1. 무조건 오답 (최우선) ━━━
+• student_answer가 null, "", 공백만 있는 경우
+• 영어 단어를 그대로 베껴 쓴 경우
+
+━━━ 2. 판정 절차 ━━━
+
+[STEP 1] english_word의 사전적 뜻 떠올리기
+  → english_word가 가진 모든 사전적 의미와 품사를 떠올립니다.
+  → correct_answer도 참고하되, 이것에 한정하지 않습니다.
+
+[STEP 2] 학생 답안 확인
+  → student_answer가 english_word의 사전적 뜻 중 하나에 해당하는가?
+  → 해당한다면, 품사가 일치하는가?
+
+  정답 조건 (모두 충족):
+    ✅ english_word의 사전적 뜻 중 하나에 해당
+    ✅ 해당 뜻의 품사와 student_answer의 품사가 일치
+
+  오답 조건 (하나라도 해당):
+    ❌ english_word의 어떤 사전적 뜻에도 해당하지 않음
+    ❌ 뜻은 맞지만 품사가 다름 (아래 품사 규칙 참조)
+
+━━━ 3. 품사 규칙 (엄격 적용) ━━━
+• english_word가 동사로 쓰일 때의 뜻이면, 학생 답도 동사형이어야 함
+  → "~하다/~되다/~시키다" 등
+• english_word가 명사로 쓰일 때의 뜻이면, 학생 답도 명사형이어야 함
+• english_word가 형용사로 쓰일 때의 뜻이면, 학생 답도 형용사형이어야 함
+  → "~한/~적인/~스러운" 등
+
+품사 불일치 예시:
+  discover(동사) → "발견"(명사) → 오답 ("발견하다"여야 정답)
+  decision(명사) → "결정하다"(동사) → 오답 ("결정"이어야 정답)
+
+품사 허용 예시:
+  address(명사) → "주소" → 정답
+  address(동사) → "다루다" → 정답
+  address(동사) → "연설하다" → 정답
+
+━━━ 4. -ing/-ed 분사형 구분 (엄격 적용) ━━━
+영어에서 -ing(현재분사)와 -ed(과거분사)는 서로 다른 단어입니다.
+이 둘은 반드시 구분해야 합니다.
+
+• -ing형 = "~하게 만드는 / ~한" (원인·자극 쪽)
+• -ed형 = "~을 느끼는 / ~된" (경험·감정 쪽)
+
+예시 (엄격 구분):
+  interesting → "흥미로운/재미있는" (흥미를 유발하는) → 정답
+  interesting → "흥미를 느끼는" → 오답 (이건 interested의 뜻)
+  interested → "흥미 있는/관심 있는" (흥미를 느끼는) → 정답
+  interested → "재미있는/흥미로운" → 오답 (이건 interesting의 뜻)
+
+  boring → "지루한/지루하게 하는" → 정답
+  boring → "지루해하는" → 오답 (이건 bored의 뜻)
+  bored → "지루해하는/지루한" → 정답
+  bored → "지루하게 하는" → 오답 (이건 boring의 뜻)
+
+  surprising → "놀라운/놀랍게 하는" → 정답
+  surprised → "놀란/놀라는" → 정답
+
+  confusing → "혼란스러운/헷갈리는" → 정답
+  confused → "혼란스러워하는/당황한" → 정답
+
+핵심 판별법: 학생 답이 "감정을 유발하는 쪽"인지 "감정을 느끼는 쪽"인지 확인하세요.
+
+━━━ 5. 피동/능동·방향 규칙 (엄격 적용) ━━━
+• 피동/능동 구분: "~되다" vs "~하다"
+  → reduce → "줄이다"(정답) vs "줄다"(오답: 자동사)
+• 방향/관계 구분:
+  → borrow → "빌리다"(정답) vs "빌려주다"(오답: 반대 방향)
+  → lend → "빌려주다"(정답) vs "빌리다"(오답: 반대 방향)
+
+━━━ 6. 한국어 어미 변형 규칙 ━━━
+아래는 같은 뜻의 한국어 표현 차이일 뿐이므로 모두 정답 처리합니다.
+(단, 위 4·5번 규칙에 해당하는 경우는 제외)
+
+허용하는 어미 변형:
+  "~하다" ↔ "~하는" ↔ "~한" ↔ "~함" (품사가 안 바뀌는 범위)
+  예: "중요하다" = "중요한" = "중요하는" → 모두 정답
+  예: "배제하다" = "배제하는" → 정답
+
+허용하지 않는 어미 변형:
+  "~하다" ↔ "~되다" → 능동/피동이 달라짐 → 4·5번 규칙 적용
+  예: "배제하다" ≠ "배제되다" (능동 vs 피동)
+  예: "줄이다" ≠ "줄다" (타동 vs 자동)
+  예: "놀라게 하다" ≠ "놀라다" (-ing vs -ed 구분)
+
+━━━ 7. 기타 허용 차이 (정답 처리) ━━━
+• 조사 차이: "~을/를", "~이/가" 등
+• "~적인" 유무: "필수" vs "필수적인" (의미·품사 동일 시)
+• 한글 맞춤법 사소한 오류: 받침 실수, 된소리 혼동
+  → 단, 의미가 달라지는 오류는 오답
+• 띄어쓰기/하이픈 차이
+• 구어체 표현: "엄청 큰" = "거대한" (의미·품사 동일 시)
+
+━━━ 8. OCR 노이즈 고려 ━━━
+• student_answer는 손글씨 OCR 결과이므로 글자가 깨질 수 있습니다.
+• 1~2글자 차이로 원래 의도를 합리적으로 추정할 수 있으면 추정한 답 기준으로 판정
+  → "핖수적인" → "필수적인" 추정 → 정답
+  → "발겨하다" → "발견하다" 추정 → 정답
+• 추정 불가능할 정도로 다르면 오답
+
+━━━ 경계 사례 (반드시 참고) ━━━
+
+| english_word | correct_answer | student_answer | is_correct | 이유 |
+|---|---|---|---|---|
+| obtain | 획득하다 | 얻다 | true | 동사, 사전적 뜻 |
+| discover | 발견하다 | 발견 | false | 품사 불일치(동사→명사) |
+| borrow | 빌리다 | 빌려주다 | false | 방향 반대 |
+| run | 달리다 | 운영하다 | true | 다의어, 동사 뜻 중 하나 |
+| run | 달리다 | 뛰다 | true | 동사 뜻 일치 |
+| decline | 거절하다 | 감소하다 | true | 다의어, 동사 뜻 중 하나 |
+| decline | 거절하다 | 감소 | false | 품사 불일치(동사→명사) |
+| delicious | 맛있는 | 마시있는 | true | OCR/맞춤법 오류, 의도 명확 |
+| patient | 환자 | 참을성 있는 | true | 다의어, 형용사 뜻 |
+| patient | 환자 | 인내 | false | 품사 불일치(동사→명사) |
+| reduce | 줄이다 | 줄다 | false | 타동사→자동사 |
+| address | 다루다 | 주소 | true | 다의어, 명사 뜻 |
+| address | 다루다 | 연설하다 | true | 다의어, 동사 뜻 |
+| discover | 발견하다 | 발겨하다 | true | OCR 노이즈, "발견하다" 추정 |
+| permit | 허가하다 | 허가증 | true | 다의어, 명사 뜻(permit=허가증) |
+| interesting | 흥미로운 | 재미있는 | true | 같은 뜻(-ing형: 흥미를 유발하는) |
+| interesting | 흥미로운 | 흥미 있는 | false | -ed형(interested) 뜻, -ing/-ed 혼동 |
+| interested | 관심 있는 | 흥미로운 | false | -ing형(interesting) 뜻, -ing/-ed 혼동 |
+| interested | 관심 있는 | 관심을 가진 | true | -ed형 뜻 일치 |
+| boring | 지루한 | 지루해하는 | false | -ed형(bored) 뜻 |
+| bored | 지루해하는 | 지루한 | false | -ing형(boring) 뜻 |
+| surprising | 놀라운 | 놀란 | false | -ed형(surprised) 뜻 |
+| surprised | 놀란 | 놀라운 | false | -ing형(surprising) 뜻 |
+| confusing | 혼란스러운 | 혼란스러워하는 | false | -ed형(confused) 뜻 |
+| exclude | 배제하다 | 배제하는 | true | 어미 변형, 품사 동일 |
+| exclude | 배제하다 | 배제되다 | false | 능동→피동 변경 |
+| important | 중요한 | 중요하다 | true | 어미 변형, 형용사 동일 |
+
+━━━ 출력 규칙 ━━━
+• 각 문항마다 STEP 1→2를 거친 뒤 is_correct를 결정하세요.
+• 최종 출력은 아래 JSON 배열만 출력하세요.
+• JSON 외에 어떤 텍스트, 마크다운, 코드블록도 붙이지 마세요.
+
+[{"number":1,"english_word":"...","student_answer":"...","is_correct":true}]`
+
+export function buildVocabGradingPrompt(
+  items: { number: number; english_word: string; student_answer: string | null; correct_answer?: string | null }[],
+  customRules?: string,
+): string {
   const rules = customRules ?? VOCAB_GRADING_RULES
 
-  return `영어 단어 → 한글 뜻 쓰기 시험 답안을 채점하세요.
+  const normalized = items.map((item) => ({
+    ...item,
+    student_answer: item.student_answer?.trim() ?? '',
+  }))
 
-${rules}
+  return `${rules}
 
-채점할 답안:
-${JSON.stringify(items)}
+━━━ 채점할 답안 ━━━
+${JSON.stringify(normalized)}
 
-JSON 배열만 출력 (number, english_word, student_answer, is_correct 포함):
-[{"number":1,"english_word":"necessary","student_answer":"필수적인","is_correct":true}]`
+위 판정 절차와 경계 사례를 참고하여 채점하세요. JSON 배열만 출력하세요.`
 }
 
 // ── 단어 PDF 파싱 ────────────────────────────────────────────────────────
 
-export const VOCAB_PDF_PROMPT = `이 파일은 영어 단어 시험지입니다.
-각 문항의 번호와 영어 단어(구)를 추출하고, 각 단어 정보를 JSON으로 반환하세요.
+export const VOCAB_PDF_PROMPT = `이 파일은 영어 단어 학습 자료입니다.
+각 문항의 번호, 영어 단어(구), 한국어 뜻을 추출하고 정제하세요.
 
-규칙:
+━━━ correct_answer 작성 규칙 ━━━
+
+[1단계] 파일에 적힌 한국어 뜻을 먼저 그대로 읽습니다.
+
+[2단계] 형식만 정제 (의미 변경 금지)
+  허용: 오타 수정, 띄어쓰기 교정, 어미 통일(동사 "~하다", 형용사 "~한/~적인", 명사 그대로)
+  금지: 뜻 변경, 뜻 추가, 뜻 삭제, 품사 변경
+
+[3단계] 파일에 여러 뜻 → " / "로 구분하여 모두 포함
+[4단계] 파일에 한국어 뜻 없는 문항 → correct_answer: null (AI가 생성하지 않음)
+
+기타 필드:
 - number: 문항 번호 (정수)
-- english_word: 인쇄된 영어 단어 또는 구 (원본 그대로)
-- correct_answer: 가장 일반적으로 쓰이는 한국어 뜻 (다의어는 " / " 구분, 최대 2개). 두 단어 선택형(예: "immune / condemned")은 null
-- synonyms: 대표 유의어 영어 단어 2~3개 배열. 두 단어 선택형은 []
-- antonyms: 대표 반의어 영어 단어 1~2개 배열. 없으면 []
+- english_word: 영어 단어/구 원본 그대로
+- synonyms: 유의어 영어 2~3개 (AI 지식 활용)
+- antonyms: 반의어 영어 1~2개 (없으면 [])
 
 JSON 배열만 출력:
-[{"number":1,"english_word":"inhibit","correct_answer":"억제하다","synonyms":["suppress","restrain"],"antonyms":["encourage","promote"]},{"number":2,"english_word":"immune / condemned","correct_answer":null,"synonyms":[],"antonyms":[]}]`
+[{"number":1,"english_word":"inhibit","correct_answer":"억제하다","synonyms":["suppress","restrain"],"antonyms":["encourage","promote"]}]`
