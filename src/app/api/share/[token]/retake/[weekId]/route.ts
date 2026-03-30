@@ -40,7 +40,7 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
   // 원본 오답 전체 조회
   const { data: wrongAnswers } = await supabase
     .from('student_vocab_answer')
-    .select('id, retake_answer, retake_is_correct, vocab_word(id, number, english_word, correct_answer, synonyms, antonyms)')
+    .select('id, retake_answer, retake_is_correct, vocab_word(id, number, english_word, correct_answer, synonyms, antonyms, example_sentence, example_translation)')
     .eq('week_score_id', score.id)
     .eq('is_correct', false)
     .order('id')
@@ -56,6 +56,8 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
         correct_answer: vw.correct_answer,
         synonyms: vw.synonyms ?? null,
         antonyms: vw.antonyms ?? null,
+        example_sentence: (vw as any).example_sentence ?? null,
+        example_translation: (vw as any).example_translation ?? null,
         retake_answer: a.retake_answer ?? null,
         retake_is_correct: a.retake_is_correct ?? null,
       }
