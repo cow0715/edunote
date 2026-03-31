@@ -118,21 +118,26 @@ export function detectWeaknessAlerts(tagSummaries: TagSummary[]): TagSummary[] {
 
 // ── 반복 오답 패턴 분류 ──────────────────────────────────────────────────────
 
-export type PatternType = 'persistent' | 'deteriorating' | 'improving'
+export type PatternType = 'persistent' | 'deteriorating' | 'improving' | 'unstable'
 
 export type PatternItem = {
   id: string
   name: string
   patternType: PatternType
-  overallAccuracy: number   // 전체 정답률 (0~100)
-  firstAccuracy: number
-  latestAccuracy: number
-  diff: number              // latestAccuracy - firstAccuracy
-  recentDiff: number        // latestAccuracy - prevAccuracy
-  stdDev: number
+  overallAccuracy: number   // 전체 가중 정답률 (0~100)
+  recentAccuracy: number    // 최근 2주 합산 가중 정답률 (0~100)
+  trend: number             // 뒤 절반 - 앞 절반 가중 정답률 차이 (-100~100)
+  volatility: number        // max(주차%) - min(주차%) (0~100)
   weekCount: number         // 출제된 주차 수
-  wrongWeekCount: number    // 오답률 50%↑ 인 주차 수
+  wrongWeekCount: number    // 정답률 50% 미만인 주차 수
   weeks: { weekNumber: number; accuracy: number; correct: number; total: number }[]
+}
+
+// 가중 정답률 계산 헬퍼 (문항 수 기반 가중평균)
+function weightedAccuracy(weeks: { correct: number; total: number }[]): number {
+  const totalCorrect = weeks.reduce((s, w) => s + w.correct, 0)
+  const totalTotal   = weeks.reduce((s, w) => s + w.total,   0)
+  return totalTotal > 0 ? (totalCorrect / totalTotal) * 100 : 0
 }
 
 export function classifyPatterns(
@@ -178,51 +183,61 @@ export function classifyPatterns(
       }))
 
     const weekCount = weeks.length
-    if (weekCount < 2) continue  // 출제 2회 미만 제외
+    const totalTotal = weeks.reduce((s, w) => s + w.total, 0)
 
-    const totalCorrect = weeks.reduce((s, w) => s + w.correct, 0)
-    const totalTotal   = weeks.reduce((s, w) => s + w.total,   0)
-    const overallAccuracy = totalTotal > 0 ? Math.round((totalCorrect / totalTotal) * 100) : 0
+    // 최소 기준: 2주 이상 + 총 문항 4개 이상
+    if (weekCount < 2 || totalTotal < 4) continue
 
-    if (overallAccuracy >= 70) continue  // 전반적으로 잘 맞히면 약점 아님
+    // 전체 가중 정답률 (0~100 정수)
+    const overallAccuracy = Math.round(weightedAccuracy(weeks))
+    if (overallAccuracy >= 70) continue  // 약점 범위 아님
 
-    const firstAccuracy  = weeks[0].accuracy
-    const latestAccuracy = weeks[weekCount - 1].accuracy
-    const prevAccuracy   = weekCount > 1 ? weeks[weekCount - 2].accuracy : latestAccuracy
-    const diff           = latestAccuracy - firstAccuracy
-    const recentDiff     = latestAccuracy - prevAccuracy
+    // 앞/뒤 절반 가중 정답률로 trend 계산
+    const mid       = Math.ceil(weekCount / 2)
+    const frontAcc  = weightedAccuracy(weeks.slice(0, mid))
+    const backAcc   = weightedAccuracy(weeks.slice(mid))
+    const trend     = Math.round(backAcc - frontAcc)   // -100~100
+
+    // 최근 2주 합산 가중 정답률
+    const recentAccuracy = Math.round(weightedAccuracy(weeks.slice(-2)))
+
+    // 주차별 accuracy 범위 (volatility)
+    const accuracies  = weeks.map((w) => w.accuracy)
+    const volatility  = Math.max(...accuracies) - Math.min(...accuracies)
+
+    // 오답 주차 수 (정답률 50% 미만)
     const wrongWeekCount = weeks.filter((w) => w.accuracy < 50).length
-
-    // 분산: 출제된 주차들만 기준
-    const variance = weeks.reduce((s, w) => s + Math.pow(w.accuracy - overallAccuracy, 2), 0) / weekCount
-    const stdDev   = Math.sqrt(variance)
+    const wrongWeekRatio = wrongWeekCount / weekCount
 
     // ── 분류 (우선순위 순) ──────────────────────────────────────────────────
     let patternType: PatternType
 
-    if (wrongWeekCount >= Math.ceil(weekCount * 0.75) && stdDev < 25) {
-      // 출제 주차의 75% 이상에서 오답률 50%↑, 일관성 있음 → 고착형
+    if (wrongWeekRatio >= 0.7 && overallAccuracy < 50) {
+      // 출제 주차 70% 이상 오답 + 전체 정답률 50% 미만 → 고착형
       patternType = 'persistent'
-    } else if (diff <= -15 && latestAccuracy < 60 && recentDiff <= 0) {
-      // 처음보다 15%p↑ 악화 + 최근 정답률 60% 미만 + 최근 추세도 하락 → 악화형
+    } else if (trend <= -15 && recentAccuracy < 50) {
+      // 뒤 절반이 앞 절반보다 15%p↑ 낮음 + 최근 2주 정답률 50% 미만 → 악화형
       patternType = 'deteriorating'
-    } else if (diff >= 15 && latestAccuracy < 70) {
-      // 처음보다 15%p↑ 개선됐으나 아직 70% 미만 → 개선형
+    } else if (trend >= 15 && overallAccuracy < 70) {
+      // 뒤 절반이 앞 절반보다 15%p↑ 높음 + 아직 약점 범위 → 개선형
       patternType = 'improving'
+    } else if (Math.abs(trend) < 15 && volatility >= 50) {
+      // 방향성 없음 + 주차별 정답률 편차 50%p 이상 → 기복형
+      patternType = 'unstable'
     } else {
-      // 그 외 (방향성 불명확) → 표시 안 함
+      // 그 외 → 표시 안 함
       continue
     }
 
     result.push({
       id, name, patternType,
-      overallAccuracy, firstAccuracy, latestAccuracy,
-      diff, recentDiff, stdDev, weekCount, wrongWeekCount, weeks,
+      overallAccuracy, recentAccuracy, trend, volatility,
+      weekCount, wrongWeekCount, weeks,
     })
   }
 
-  // 정렬: 고착형 > 악화형 > 간헐형 > 개선형, 같은 유형 내에서는 정답률 낮은 순
-  const ORDER: Record<PatternType, number> = { persistent: 0, deteriorating: 1, improving: 2 }
+  // 정렬: 고착 > 악화 > 기복 > 개선, 같은 유형 내에서는 정답률 낮은 순
+  const ORDER: Record<PatternType, number> = { persistent: 0, deteriorating: 1, unstable: 2, improving: 3 }
   return result.sort((a, b) =>
     ORDER[a.patternType] !== ORDER[b.patternType]
       ? ORDER[a.patternType] - ORDER[b.patternType]

@@ -679,7 +679,8 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                     <div className="rounded-lg border border-gray-100 dark:border-white/[0.07] overflow-hidden">
                       {[
                         { label: '고착', accent: '#f43f5e', color: 'text-rose-500 dark:text-rose-400', desc: '반복 출제에도 오답이 지속 — 개념 보완 필요' },
-                        { label: '악화', accent: '#f97316', color: 'text-orange-500 dark:text-orange-400', desc: '최근 회차로 갈수록 정답률 하락 추세' },
+                        { label: '악화', accent: '#f97316', color: 'text-orange-500 dark:text-orange-400', desc: '최근으로 갈수록 정답률 하락 추세' },
+                        { label: '기복', accent: '#a855f7', color: 'text-purple-500 dark:text-purple-400', desc: '맞을 때도 있고 틀릴 때도 있어 불안정' },
                         { label: '개선', accent: '#10b981', color: 'text-emerald-500 dark:text-emerald-400', desc: '최근 회차에서 정답률 상승세 확인' },
                       ].map(({ label, accent, color, desc }, i, arr) => (
                         <div
