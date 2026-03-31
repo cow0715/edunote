@@ -70,6 +70,10 @@ export async function POST(request: Request) {
   const timeStr = new Date().toISOString().slice(11, 16).replace(':', '')
   const fileName = `backup_${dateStr}_${timeStr}.json`
 
+  const rowCounts = Object.fromEntries(
+    Object.entries(dump.tables).map(([k, v]) => [k, v.length])
+  )
+
   const { error: uploadErr } = await supabase.storage
     .from('backup')
     .upload(fileName, buffer, {
@@ -79,12 +83,21 @@ export async function POST(request: Request) {
 
   if (uploadErr) {
     console.error('[backup] Storage 저장 실패:', uploadErr)
+    await supabase.from('backup_log').insert({
+      triggered_by: isCron ? 'cron' : 'manual',
+      status: 'error',
+      error_msg: uploadErr.message,
+    })
     return err(uploadErr.message, 500)
   }
 
-  const rowCounts = Object.fromEntries(
-    Object.entries(dump.tables).map(([k, v]) => [k, v.length])
-  )
+  await supabase.from('backup_log').insert({
+    triggered_by: isCron ? 'cron' : 'manual',
+    status: 'success',
+    file_name: fileName,
+    row_counts: rowCounts,
+  })
+
   console.log('[backup] 완료:', fileName, rowCounts)
   return ok({ ok: true, file: fileName, rows: rowCounts })
 }
