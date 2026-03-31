@@ -379,7 +379,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                   <p className="text-sm text-[#8B95A1] dark:text-[#94A3B8] mb-2">
                     {[student.grade, student.school].filter(Boolean).join(' · ') || '학습 현황'}
                   </p>
-                  <h1 className="text-2xl font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">{student.name}님</h1>
+                  <h1 className="text-2xl font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">{student.name}</h1>
                 </div>
 
                 {weekScores.length > 0 ? (
@@ -460,7 +460,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
               {/* 강사 코멘트 */}
               {commentFeed.length > 0 && (
-                <Card title="강사 코멘트" subtitle="최근 수업 피드백" info="선생님이 수업 후 직접 작성한 피드백입니다. 최근 수업부터 순서대로 표시됩니다.">
+                <Card title="추쌤 코멘트 💬" subtitle="최근 수업 피드백" info="선생님이 수업 후 직접 작성한 피드백입니다. 최근 수업부터 순서대로 표시됩니다.">
                   <div className="space-y-3">
                     {(commentExpanded ? commentFeed : commentFeed.slice(0, 1)).map(({ week, memo, className }, idx, arr) => (
                       <div key={week.id} className="flex gap-3">
@@ -629,7 +629,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                               </div>
                               {score.memo && (
                                 <div className="mt-3 rounded-xl border border-blue-100 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/40 px-4 py-3">
-                                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#2463EB] dark:text-blue-500">강사 코멘트</p>
+                                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#2463EB] dark:text-blue-500">추쌤 코멘트 💬</p>
                                   <p className="text-sm leading-relaxed text-[#1A1C1E] dark:text-blue-300">{score.memo}</p>
                                 </div>
                               )}
@@ -794,7 +794,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                         </div>
                                       </div>
                                       {q.question_text && (
-                                        <div className="mb-3 rounded-lg bg-gray-50 dark:bg-background border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line">
+                                        <div className="mb-3 rounded-lg bg-gray-50 dark:bg-background border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line text-justify">
                                           {q.question_text}
                                         </div>
                                       )}
@@ -1069,7 +1069,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                     </p>
 
                     {q.question_text && (
-                      <div className="mb-3 rounded-lg bg-white dark:bg-card border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line">
+                      <div className="mb-3 rounded-lg bg-white dark:bg-card border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line text-justify">
                         {q.question_text}
                       </div>
                     )}
