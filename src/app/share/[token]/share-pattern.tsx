@@ -14,21 +14,32 @@ export const PATTERN_META: Record<PatternType, {
     color: 'text-rose-500 dark:text-rose-400',
     accent: '#f43f5e',
     insightFn: (p) =>
-      `출제 ${p.weekCount}회 중 ${p.wrongWeekCount}회 오답 · 평균 정답률 ${p.overallAccuracy}%`,
+      `${p.weekCount}회 출제 중 ${p.wrongWeekCount}회 오답 · 평균 ${p.overallAccuracy}%`,
   },
   deteriorating: {
     label: '악화',
     color: 'text-orange-500 dark:text-orange-400',
     accent: '#f97316',
     insightFn: (p) =>
-      `정답률 ${p.firstAccuracy}% → ${p.latestAccuracy}% (${Math.abs(p.diff)}%p 하락)`,
+      `최근 정답률 ${p.recentAccuracy}% · ${Math.abs(p.trend)}%p 하락 추세`,
   },
   improving: {
     label: '개선',
     color: 'text-emerald-500 dark:text-emerald-400',
     accent: '#10b981',
     insightFn: (p) =>
-      `정답률 ${p.firstAccuracy}% → ${p.latestAccuracy}% (+${p.diff}%p)`,
+      `${p.trend}%p 상승 중 · 현재 ${p.recentAccuracy}%`,
+  },
+  unstable: {
+    label: '기복',
+    color: 'text-purple-500 dark:text-purple-400',
+    accent: '#a855f7',
+    insightFn: (p) => {
+      const accuracies = p.weeks.map((w) => w.accuracy)
+      const min = Math.min(...accuracies)
+      const max = Math.max(...accuracies)
+      return `정답률 ${min}%~${max}% 변동 · 평균 ${p.overallAccuracy}%`
+    },
   },
 }
 
