@@ -434,22 +434,33 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               </div>
 
               {/* 스탯 카드 */}
-              {weekScores.length > 0 && (
+              {weekScores.length > 0 && (() => {
+                const avgReading = avg(readingRates)
+                const avgVocab = avg(vocabRates)
+                const avgHomework = avg(homeworkRates)
+                const latestReading = latestW && latestS ? weekRate(latestS, latestW, 'reading') : null
+                const latestVocab = latestW && latestS ? weekRate(latestS, latestW, 'vocab') : null
+                const latestHomework = latestW && latestS ? weekRate(latestS, latestW, 'homework') : null
+                const vsAvgReading = latestReading !== null && avgReading !== null ? latestReading - avgReading : null
+                const vsAvgVocab = latestVocab !== null && avgVocab !== null ? latestVocab - avgVocab : null
+                const vsAvgHomework = latestHomework !== null && avgHomework !== null ? latestHomework - avgHomework : null
+                return (
                 <div className="grid grid-cols-4 gap-2">
                   <StatCard label="시험 평균" color="indigo"
-                    value={avg(readingRates) !== null ? `${avg(readingRates)}%` : null} delta={delta('reading')}
+                    value={avgReading !== null ? `${avgReading}%` : null} delta={vsAvgReading}
                     onClick={() => { setActiveTab('score'); scrollTo('section-reading-chart', 120) }} />
                   <StatCard label="단어 평균" color="emerald"
-                    value={avg(vocabRates) !== null ? `${avg(vocabRates)}%` : null} delta={delta('vocab')}
+                    value={avgVocab !== null ? `${avgVocab}%` : null} delta={vsAvgVocab}
                     onClick={() => { setActiveTab('score'); scrollTo('section-vocab-chart', 120) }} />
                   <StatCard label="과제 평균" color="amber"
-                    value={avg(homeworkRates) !== null ? `${avg(homeworkRates)}%` : null} delta={delta('homework')}
+                    value={avgHomework !== null ? `${avgHomework}%` : null} delta={vsAvgHomework}
                     onClick={() => scrollTo('section-homework')} />
                   <StatCard label="출석률" color="blue"
                     value={attRate !== null ? `${attRate}%` : null} delta={null}
                     onClick={() => scrollTo('section-attendance')} />
                 </div>
-              )}
+                )
+              })()}
 
               {/* 성장 하이라이트 */}
               {highlights.length > 0 && (
