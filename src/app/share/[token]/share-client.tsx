@@ -382,29 +382,51 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                   <h1 className="text-2xl font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">{student.name}</h1>
                 </div>
 
-                {weekScores.length > 0 ? (
+                {weekScores.length > 0 && latestW && latestS ? (
                   <div>
-                    <p className="text-sm text-[#8B95A1] dark:text-[#94A3B8] mb-3">시험 평균 정답률</p>
-                    <div className="flex items-baseline gap-3">
-                      <span className="text-[56px] font-black leading-none text-[#2463EB] dark:text-blue-300">
-                        {avg(readingRates) ?? '-'}
-                      </span>
-                      {avg(readingRates) !== null && (
-                        <span className="text-3xl font-bold text-[#8B95A1] dark:text-[#94A3B8]">%</span>
-                      )}
-                    </div>
-                    {delta('reading') !== null && (
-                      <p className={`mt-3 text-base font-semibold ${delta('reading')! > 0 ? 'text-[#2463EB] dark:text-blue-400' : delta('reading')! < 0 ? 'text-[#FF4D4D]' : 'text-[#8B95A1]'}`}>
-                        지난주 대비 {delta('reading')! > 0 ? '+' : ''}{delta('reading')}%p
-                      </p>
-                    )}
-                    <p className="mt-4 text-sm text-[#8B95A1] dark:text-gray-500">
-                      총 {scoredWeeks.length}회차 누적 데이터
+                    <p className="text-sm text-[#8B95A1] dark:text-[#94A3B8] mb-4">
+                      최근 시험 · {fmtWeekLabel(latestW)}
                     </p>
+                    <div className="flex gap-4">
+                      {/* 시험 */}
+                      <div className="flex-1 rounded-2xl bg-blue-50 dark:bg-blue-950/40 px-4 py-3">
+                        <p className="text-xs font-semibold text-[#2463EB] dark:text-blue-400 mb-1">시험</p>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-[40px] font-black leading-none text-[#2463EB] dark:text-blue-300">
+                            {weekRate(latestS, latestW, 'reading') ?? '-'}
+                          </span>
+                          {weekRate(latestS, latestW, 'reading') !== null && (
+                            <span className="text-lg font-bold text-[#2463EB]/60 dark:text-blue-400/60">%</span>
+                          )}
+                        </div>
+                        {delta('reading') !== null && (
+                          <p className={`mt-1 text-xs font-semibold ${delta('reading')! > 0 ? 'text-[#2463EB] dark:text-blue-400' : delta('reading')! < 0 ? 'text-rose-500' : 'text-[#8B95A1]'}`}>
+                            {delta('reading')! > 0 ? '+' : ''}{delta('reading')}%p
+                          </p>
+                        )}
+                      </div>
+                      {/* 단어 */}
+                      <div className="flex-1 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 px-4 py-3">
+                        <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1">단어</p>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-[40px] font-black leading-none text-emerald-600 dark:text-emerald-400">
+                            {weekRate(latestS, latestW, 'vocab') ?? '-'}
+                          </span>
+                          {weekRate(latestS, latestW, 'vocab') !== null && (
+                            <span className="text-lg font-bold text-emerald-600/60 dark:text-emerald-400/60">%</span>
+                          )}
+                        </div>
+                        {delta('vocab') !== null && (
+                          <p className={`mt-1 text-xs font-semibold ${delta('vocab')! > 0 ? 'text-emerald-600 dark:text-emerald-400' : delta('vocab')! < 0 ? 'text-rose-500' : 'text-[#8B95A1]'}`}>
+                            {delta('vocab')! > 0 ? '+' : ''}{delta('vocab')}%p
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <div>
-                    <p className="text-sm text-[#8B95A1] dark:text-[#94A3B8] mb-3">시험 평균 정답률</p>
+                    <p className="text-sm text-[#8B95A1] dark:text-[#94A3B8] mb-3">최근 시험 점수</p>
                     <span className="text-[56px] font-black leading-none text-[#8B95A1] dark:text-gray-600">-</span>
                     <p className="mt-4 text-sm text-[#8B95A1] dark:text-gray-500">아직 시험 결과가 없습니다</p>
                   </div>
@@ -460,7 +482,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
               {/* 강사 코멘트 */}
               {commentFeed.length > 0 && (
-                <Card title="추쌤 코멘트 💬" subtitle="최근 수업 피드백" info="선생님이 수업 후 직접 작성한 피드백입니다. 최근 수업부터 순서대로 표시됩니다.">
+                <Card title="추쌤 코멘트 💬" subtitle="최근 수업 피드백">
                   <div className="space-y-3">
                     {(commentExpanded ? commentFeed : commentFeed.slice(0, 1)).map(({ week, memo, className }, idx, arr) => (
                       <div key={week.id} className="flex gap-3">
