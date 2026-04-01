@@ -425,7 +425,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       )}
 
       {/* 슬라이드 Sheet */}
-      <Sheet open={sheetView !== null} onOpenChange={(open) => { if (!open) { setSheetView(null); saveGrade.mutate(rows, { onSuccess: () => {}, onError: () => {} }) } }}>
+      <Sheet open={sheetView !== null} onOpenChange={(open) => { if (!open) setSheetView(null) }}>
         <SheetContent
           showCloseButton={false}
           className="w-full sm:w-[600px] sm:max-w-[600px] p-0 gap-0 overflow-y-auto"
