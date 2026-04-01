@@ -39,7 +39,6 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, week_score_id: weekScoreId, student_answer, is_correct, teacher_locked }),
     })
-    queryClient.invalidateQueries({ queryKey: ['grade', weekId] })
   }
 
   async function regrade() {
@@ -152,7 +151,6 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
                     setEditableVocab((prev) => prev.map((x) => x.id === a.id ? { ...x, student_answer: val, teacher_locked: false } : x))
                     setDirtyIds((prev) => new Set(prev).add(a.id))
                   }}
-                  onBlur={(e) => saveVocabAnswer(a.id, e.target.value, a.is_correct, false)}
                 />
                 {a.teacher_locked && (
                   <Lock className="shrink-0 h-2.5 w-2.5 text-blue-400" />
