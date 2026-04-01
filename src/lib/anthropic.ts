@@ -401,6 +401,32 @@ export async function parseVocabPdf(fileData: string, mimeType: string): Promise
   }
 }
 
+// ── 단어 예문 생성 ───────────────────────────────────────────────────────
+
+export async function generateVocabExamples(
+  words: { id: string; english_word: string }[]
+): Promise<{ id: string; sentence: string; translation: string }[]> {
+  const results = await Promise.allSettled(
+    words.map(async (w) => {
+      const res = await anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 150,
+        messages: [{
+          role: 'user',
+          content: `영어 단어 "${w.english_word}"를 사용한 자연스러운 예문 1개.\nJSON만 출력: {"sentence":"영어 예문","translation":"한국어 번역"}`,
+        }],
+      })
+      const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+      const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
+      const parsed = JSON.parse(jsonrepair(cleaned)) as { sentence: string; translation: string }
+      return { id: w.id, sentence: parsed.sentence, translation: parsed.translation }
+    })
+  )
+  return results
+    .filter((r): r is PromiseFulfilledResult<{ id: string; sentence: string; translation: string }> => r.status === 'fulfilled')
+    .map((r) => r.value)
+}
+
 // ── 서술형 채점 ──────────────────────────────────────────────────────────
 
 export async function gradeSubjectiveAnswers(

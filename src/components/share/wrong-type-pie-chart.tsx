@@ -7,18 +7,24 @@ import { statusColor } from '@/lib/chart-colors'
 
 type TypeItem = { id: string; name: string; wrong: number; total: number }
 
-const COLORS = [
-  '#6366f1', '#10b981', '#f59e0b', '#f87171',
-  '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16',
-  '#f97316', '#14b8a6', '#a78bfa', '#fb923c',
+const COLORS_LIGHT = [
+  '#93C5FD', '#6EE7B7', '#FCD34D', '#FDA4AF',
+  '#C4B5FD', '#67E8F9', '#F9A8D4', '#BEF264',
+  '#FDE68A', '#99F6E4', '#DDD6FE', '#FED7AA',
+]
+
+const COLORS_DARK = [
+  '#4F46E5', '#059669', '#D97706', '#DC2626',
+  '#7C3AED', '#0891B2', '#DB2777', '#65A30D',
+  '#B45309', '#0F766E', '#6D28D9', '#C2410C',
 ]
 
 const MAX_SLICES = 7
 
 // ChartConfig는 키가 정해져야 해서 동적으로 생성
-function buildConfig(names: string[]): ChartConfig {
+function buildConfig(names: string[], colors: string[]): ChartConfig {
   return Object.fromEntries(
-    names.map((name, i) => [name, { label: name, color: COLORS[i % COLORS.length] }])
+    names.map((name, i) => [name, { label: name, color: colors[i % colors.length] }])
   ) as ChartConfig
 }
 
@@ -48,6 +54,7 @@ export function WrongTypePieChart({ data, onTagClick, isDark }: {
   isDark?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
+  const colors = isDark ? COLORS_DARK : COLORS_LIGHT
 
   const sorted = data.filter((d) => d.wrong > 0).sort((a, b) => b.wrong - a.wrong)
   if (sorted.length === 0) return (
@@ -63,7 +70,7 @@ export function WrongTypePieChart({ data, onTagClick, isDark }: {
         ...(hasRest ? [{ id: '__rest__', name: '기타', value: sorted.slice(MAX_SLICES).reduce((s, d) => s + d.wrong, 0) }] : []),
       ]
 
-  const chartConfig = buildConfig(pieData.map((d) => d.name))
+  const chartConfig = buildConfig(pieData.map((d) => d.name), colors)
 
   return (
     <div>
@@ -72,8 +79,8 @@ export function WrongTypePieChart({ data, onTagClick, isDark }: {
           <defs>
             {pieData.map((_, i) => (
               <radialGradient key={i} id={`pie-grad-${i}`} cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor={COLORS[i % COLORS.length]} stopOpacity={1} />
-                <stop offset="100%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0.75} />
+                <stop offset="0%" stopColor={colors[i % colors.length]} stopOpacity={1} />
+                <stop offset="100%" stopColor={colors[i % colors.length]} stopOpacity={0.75} />
               </radialGradient>
             ))}
           </defs>
@@ -110,7 +117,7 @@ export function WrongTypePieChart({ data, onTagClick, isDark }: {
             }}
             className="flex items-center gap-1 disabled:cursor-default"
           >
-            <div className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+            <div className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colors[i % colors.length] }} />
             <span className={`text-[11px] ${
               d.id === '__rest__'
                 ? 'text-blue-500 dark:text-blue-400 hover:underline'
