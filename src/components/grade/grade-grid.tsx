@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { useGradeData, useSaveGrade, useSaveWeekScore, GradeRow } from '@/hooks/use-grade'
+import { useGradeData, useSaveGrade, useSaveGradeDraft, useSaveWeekScore, GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { VocabSheetContent, VocabAnswerRow } from './vocab-sheet-content'
@@ -23,6 +23,7 @@ interface Props {
 export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onSaved }: Props) {
   const { data, isLoading } = useGradeData(weekId)
   const saveGrade = useSaveGrade(weekId)
+  const saveDraft = useSaveGradeDraft(weekId)
   const saveWeekScore = useSaveWeekScore(weekId)
   const [rows, setRows] = useState<GradeRow[]>([])
   const [savedAt, setSavedAt] = useState<Date | null>(null)
@@ -196,6 +197,9 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
 
   function navigateSheet(delta: number) {
     if (!sheetView) return
+    if (sheetView.type === 'exam' && sheetRow) {
+      saveDraft.mutate([sheetRow])
+    }
     const next = sheetView.studentIndex + delta
     if (next >= 0 && next < rows.length) {
       setSheetView({ ...sheetView, studentIndex: next })
@@ -425,7 +429,12 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       )}
 
       {/* 슬라이드 Sheet */}
-      <Sheet open={sheetView !== null} onOpenChange={(open) => { if (!open) setSheetView(null) }}>
+      <Sheet open={sheetView !== null} onOpenChange={(open) => {
+        if (!open) {
+          if (sheetView?.type === 'exam' && sheetRow) saveDraft.mutate([sheetRow])
+          setSheetView(null)
+        }
+      }}>
         <SheetContent
           showCloseButton={false}
           className="w-full sm:w-[600px] sm:max-w-[600px] p-0 gap-0 overflow-y-auto"
@@ -463,7 +472,10 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                   </button>
                   <button
                     type="button"
-                    onClick={() => setSheetView(null)}
+                    onClick={() => {
+                      if (sheetView?.type === 'exam' && sheetRow) saveDraft.mutate([sheetRow])
+                      setSheetView(null)
+                    }}
                     className="rounded p-1.5 hover:bg-gray-100 transition-colors ml-1"
                   >
                     <X className="h-4 w-4 text-gray-400" />

@@ -99,8 +99,15 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
   }
 
   let rows: GradeRow[]
+  let skipAI = false
   try {
-    rows = await request.json()
+    const body = await request.json()
+    if (Array.isArray(body)) {
+      rows = body
+    } else {
+      rows = body.rows
+      skipAI = body.skip_ai ?? false
+    }
   } catch {
     return err('요청 데이터 파싱 실패')
   }
@@ -322,8 +329,8 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     }
   }
 
-  // 서술형 AI 배치 채점
-  if (subjectiveForGrading.length > 0) {
+  // 서술형 AI 배치 채점 (skip_ai=true이면 건너뜀)
+  if (!skipAI && subjectiveForGrading.length > 0) {
     const uniqueKeys = [...new Set(subjectiveForGrading.map((a) => `${a.question_number}__${a.sub_label ?? ''}`))]
     const subjectiveQuestions = uniqueKeys
       .map((key) => {

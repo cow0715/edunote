@@ -38,6 +38,19 @@ export function useSaveWeekScore(weekId: string) {
   })
 }
 
+// 모달 닫기 / 학생 이동 시 조용히 저장 (AI 채점 없음)
+export function useSaveGradeDraft(weekId: string) {
+  return useMutation({
+    mutationFn: async (rows: GradeRow[]) => {
+      await fetch(`/api/weeks/${weekId}/grade`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows, skip_ai: true }),
+      })
+    },
+  })
+}
+
 export function useSaveGrade(weekId: string) {
   const qc = useQueryClient()
   return useMutation({
@@ -45,7 +58,7 @@ export function useSaveGrade(weekId: string) {
       const res = await fetch(`/api/weeks/${weekId}/grade`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rows),
+        body: JSON.stringify({ rows, skip_ai: false }),
       })
       if (!res.ok) {
         const text = await res.text()
