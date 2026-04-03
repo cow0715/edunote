@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Moon, Sun, TrendingUp, TrendingDown, Minus, Info, ChevronRight } from 'lucide-react'
+import { Moon, Sun, TrendingUp, TrendingDown, Minus, Info, ChevronRight, ChevronLeft } from 'lucide-react'
 import { AttendanceRecord } from './share-types'
 
 // ── 공통 카드 ──────────────────────────────────────────────────────────────
@@ -80,13 +80,14 @@ export function StatCard({ label, value, delta, color, onClick }: {
 
 // ── 출석 캘린더 ────────────────────────────────────────────────────────────
 export function AttendanceCalendar({ attendance }: { attendance: AttendanceRecord[] }) {
+  const months = [...new Set(attendance.map((a) => a.date.substring(0, 7)))].sort()
+  const [idx, setIdx] = useState(months.length - 1)
+
   if (attendance.length === 0) return (
     <p className="py-6 text-center text-xs text-[#8B95A1] dark:text-gray-500">출결 기록이 없습니다</p>
   )
 
   const attMap = new Map(attendance.map((a) => [a.date, a.status]))
-  const months = [...new Set(attendance.map((a) => a.date.substring(0, 7)))].sort().reverse()
-
   const DOW = ['일', '월', '화', '수', '목', '금', '토']
   const STATUS_COLOR: Record<string, string> = {
     present: 'bg-[#2463EB] text-white',
@@ -94,51 +95,64 @@ export function AttendanceCalendar({ attendance }: { attendance: AttendanceRecor
     absent:  'bg-rose-400 text-white',
   }
 
+  const monthStr = months[idx]
+  const [year, month] = monthStr.split('-').map(Number)
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const startDow = new Date(year, month - 1, 1).getDay()
+
+  const cells: (number | null)[] = []
+  for (let i = 0; i < startDow; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+
+  const toDateStr = (d: number) =>
+    `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+
   return (
-    <div className="space-y-5">
-      {months.map((monthStr) => {
-        const [year, month] = monthStr.split('-').map(Number)
-        const daysInMonth = new Date(year, month, 0).getDate()
-        const startDow = new Date(year, month - 1, 1).getDay()
+    <div>
+      {/* 월 네비게이션 */}
+      <div className="flex items-center justify-between mb-3">
+        <button
+          onClick={() => setIdx((i) => i - 1)}
+          disabled={idx === 0}
+          className="flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-20"
+        >
+          <ChevronLeft className="h-4 w-4 text-[#1A1C1E] dark:text-gray-300" />
+        </button>
+        <p className="text-sm font-semibold text-[#1A1C1E] dark:text-gray-300">
+          {year}년 {month}월
+        </p>
+        <button
+          onClick={() => setIdx((i) => i + 1)}
+          disabled={idx === months.length - 1}
+          className="flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-20"
+        >
+          <ChevronRight className="h-4 w-4 text-[#1A1C1E] dark:text-gray-300" />
+        </button>
+      </div>
 
-        const cells: (number | null)[] = []
-        for (let i = 0; i < startDow; i++) cells.push(null)
-        for (let d = 1; d <= daysInMonth; d++) cells.push(d)
-
-        const toDateStr = (d: number) =>
-          `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-
-        return (
-          <div key={monthStr}>
-            <p className="mb-2 text-xs font-semibold text-[#1A1C1E] dark:text-gray-300">
-              {year}년 {month}월
-            </p>
-            <div className="grid grid-cols-7 gap-y-1 text-center">
-              {DOW.map((d) => (
-                <div key={d} className="pb-1 text-[10px] font-medium text-[#8B95A1] dark:text-[#94A3B8]">{d}</div>
-              ))}
-              {cells.map((d, i) => {
-                if (!d) return <div key={`e${i}`} />
-                const status = attMap.get(toDateStr(d))
-                if (!status) return (
-                  <div key={d} className="flex items-center justify-center py-0.5">
-                    <span className="text-[11px] text-gray-300 dark:text-gray-500">{d}</span>
-                  </div>
-                )
-                return (
-                  <div key={d} className="flex items-center justify-center py-0.5">
-                    <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold ${STATUS_COLOR[status]}`}>
-                      {d}
-                    </span>
-                  </div>
-                )
-              })}
+      <div className="grid grid-cols-7 gap-y-1 text-center">
+        {DOW.map((d) => (
+          <div key={d} className="pb-1 text-[10px] font-medium text-[#8B95A1] dark:text-[#94A3B8]">{d}</div>
+        ))}
+        {cells.map((d, i) => {
+          if (!d) return <div key={`e${i}`} />
+          const status = attMap.get(toDateStr(d))
+          if (!status) return (
+            <div key={d} className="flex items-center justify-center py-0.5">
+              <span className="text-[11px] text-gray-300 dark:text-gray-500">{d}</span>
             </div>
-          </div>
-        )
-      })}
+          )
+          return (
+            <div key={d} className="flex items-center justify-center py-0.5">
+              <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold ${STATUS_COLOR[status]}`}>
+                {d}
+              </span>
+            </div>
+          )
+        })}
+      </div>
 
-      <div className="flex gap-4 pt-1">
+      <div className="flex gap-4 pt-3">
         {[['bg-[#2463EB]', '출석'], ['bg-amber-400', '지각'], ['bg-rose-400', '결석']].map(([color, label]) => (
           <div key={label} className="flex items-center gap-1.5">
             <span className={`h-2 w-2 rounded-full ${color}`} />
