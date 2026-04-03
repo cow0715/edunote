@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
-import { BookOpen, Users, LogOut, GraduationCap, Tag, MessageSquare, TrendingUp, Menu } from 'lucide-react'
+import { BookOpen, Users, LogOut, GraduationCap, Tag, MessageSquare, TrendingUp, Menu, LibraryBig } from 'lucide-react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -16,6 +16,7 @@ const navItems = [
   { href: '/concept-tags', label: '문제 유형', icon: Tag },
   { href: '/analysis', label: '학생 현황', icon: TrendingUp },
   { href: '/messages', label: '메시지 내역', icon: MessageSquare },
+  { href: '/exam-bank', label: '기출문제 은행', icon: LibraryBig },
 ]
 
 export function MobileNav() {
