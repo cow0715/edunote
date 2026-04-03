@@ -1,6 +1,8 @@
 import { getAuth, err, ok } from '@/lib/api'
 import { gradeVocabItems, generateVocabExamples } from '@/lib/anthropic'
 
+export const maxDuration = 60
+
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params

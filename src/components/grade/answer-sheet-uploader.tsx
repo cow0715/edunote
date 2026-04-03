@@ -1,13 +1,41 @@
 'use client'
 
-import { useRef, useState } from 'react'
-import { Upload, CheckCircle2, AlertTriangle, Loader2, FileText, FileCheck } from 'lucide-react'
+import { useRef, useState, useEffect } from 'react'
+import { Upload, CheckCircle2, AlertTriangle, FileText, FileCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useUploadStore, AnswerSheetStatus } from '@/store/upload-store'
 
 const IDLE_STATUS: AnswerSheetStatus = { type: 'idle' }
+
+const ANSWER_STEPS = [
+  { label: 'Claude가 해설지를 읽는 중...', sub: 'PDF 페이지와 정답 표를 파악하고 있습니다' },
+  { label: '정답 추출 중...', sub: '문항별 정답을 하나씩 확인하고 있습니다' },
+  { label: '거의 다 됐습니다...', sub: '학생 답안과 대조해 재채점 중입니다' },
+]
+
+function AnswerParseProgress({ elapsed }: { elapsed: number }) {
+  const idx = elapsed < 10 ? 0 : elapsed < 30 ? 1 : 2
+  const current = ANSWER_STEPS[idx]
+  const progress = Math.min((elapsed / 90) * 100, 95)
+
+  return (
+    <div className="rounded-lg border bg-blue-50 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium text-blue-900">{current.label}</p>
+        <span className="text-xs text-blue-600">{elapsed}초</span>
+      </div>
+      <p className="text-xs text-blue-600">{current.sub}</p>
+      <div className="h-1.5 w-full rounded-full bg-blue-200">
+        <div
+          className="h-1.5 rounded-full bg-blue-500 transition-all duration-1000"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </div>
+  )
+}
 
 interface Props {
   weekId: string
@@ -26,10 +54,18 @@ function readFileAsBase64(file: File): Promise<string> {
 export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
+  const [elapsed, setElapsed] = useState(0)
   const qc = useQueryClient()
 
   const status = useUploadStore((s) => s.answerSheet[weekId]) ?? IDLE_STATUS
   const setStatus = useUploadStore((s) => s.setAnswerSheet)
+
+  useEffect(() => {
+    if (status.type !== 'loading') return
+    setElapsed(0)
+    const timer = setInterval(() => setElapsed((s) => s + 1), 1000)
+    return () => clearInterval(timer)
+  }, [status.type])
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -92,10 +128,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
       )}
 
       {status.type === 'loading' ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50/40 py-8">
-          <Loader2 className="h-8 w-8 text-indigo-400 animate-spin" />
-          <p className="text-sm text-gray-500">{status.step}</p>
-        </div>
+        <AnswerParseProgress elapsed={elapsed} />
       ) : (
         <div
           onClick={() => inputRef.current?.click()}

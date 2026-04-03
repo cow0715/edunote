@@ -1,16 +1,45 @@
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
-import { Upload, Loader2, CheckCircle2, AlertTriangle, RotateCcw, FileText, ChevronDown, ChevronUp, Save } from 'lucide-react'
+import { Upload, CheckCircle2, AlertTriangle, RotateCcw, FileText, ChevronDown, ChevronUp, Save, Loader2, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useQueryClient } from '@tanstack/react-query'
 import { useUploadStore, VocabEntry } from '@/store/upload-store'
+import { toast } from 'sonner'
 import { usePrompt, useSavePrompt } from '@/hooks/use-prompts'
 import { VOCAB_GRADING_RULES } from '@/lib/prompts'
 
 const PROMPT_KEY = 'vocab_grading_rules'
+
+const VOCAB_STEPS = [
+  { label: 'Claude가 단어시험지를 읽는 중...', sub: 'PDF에서 단어와 뜻을 파악하고 있습니다' },
+  { label: '단어와 보기를 추출하는 중...', sub: '번호·영단어·정답을 하나씩 파싱하고 있습니다' },
+  { label: '거의 다 됐습니다...', sub: 'JSON 구조로 변환 중입니다. 조금만 기다려주세요' },
+]
+
+function VocabParseProgress({ elapsed }: { elapsed: number }) {
+  const idx = elapsed < 8 ? 0 : elapsed < 25 ? 1 : 2
+  const current = VOCAB_STEPS[idx]
+  const progress = Math.min((elapsed / 60) * 100, 95)
+
+  return (
+    <div className="rounded-lg border bg-blue-50 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium text-blue-900">{current.label}</p>
+        <span className="text-xs text-blue-600">{elapsed}초</span>
+      </div>
+      <p className="text-xs text-blue-600">{current.sub}</p>
+      <div className="h-1.5 w-full rounded-full bg-blue-200">
+        <div
+          className="h-1.5 rounded-full bg-blue-500 transition-all duration-1000"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </div>
+  )
+}
 
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -32,6 +61,31 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const savedWords = vocabState?.savedWords ?? []
   const setVocabStatus = useUploadStore((s) => s.setVocabStatus)
   const setVocabSaved = useUploadStore((s) => s.setVocabSaved)
+
+  const [elapsed, setElapsed] = useState(0)
+  const [regenLoading, setRegenLoading] = useState(false)
+
+  useEffect(() => {
+    if (status.type !== 'loading') return
+    setElapsed(0)
+    const timer = setInterval(() => setElapsed((s) => s + 1), 1000)
+    return () => clearInterval(timer)
+  }, [status.type])
+
+  async function handleRegenExamples() {
+    setRegenLoading(true)
+    try {
+      const res = await fetch(`/api/weeks/${weekId}/vocab-words/regen-examples`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error ?? '예문 생성 실패'); return }
+      if (data.generated === 0) toast.success('누락된 예문이 없습니다')
+      else toast.success(`${data.generated}개 예문 생성 완료`)
+    } catch {
+      toast.error('예문 생성 중 오류가 발생했습니다')
+    } finally {
+      setRegenLoading(false)
+    }
+  }
 
   // editWords: 로컬 state (키입력 성능용)
   const [editWords, setEditWords] = useState<VocabEntry[]>([])
@@ -169,12 +223,14 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   // ── 로딩 / 저장 중 ────────────────────────────────────────────────────────
   if (status.type === 'loading' || status.type === 'saving') return (
     <div className="space-y-4">
-      <div className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50/40 py-8">
-        <Loader2 className="h-8 w-8 text-indigo-400 animate-spin" />
-        <p className="text-sm text-gray-500">
-          {status.type === 'loading' ? status.step : '저장 중...'}
-        </p>
-      </div>
+      {status.type === 'loading' ? (
+        <VocabParseProgress elapsed={elapsed} />
+      ) : (
+        <div className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50/40 py-8">
+          <Loader2 className="h-8 w-8 text-indigo-400 animate-spin" />
+          <p className="text-sm text-gray-500">저장 중...</p>
+        </div>
+      )}
     </div>
   )
 
@@ -195,10 +251,16 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
             </span>
           )}
         </div>
-        <Button variant="outline" size="sm" onClick={() => setVocabStatus(weekId, { type: 'idle' })}>
-          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-          다시 올리기
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleRegenExamples} disabled={regenLoading}>
+            {regenLoading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
+            예문 생성
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setVocabStatus(weekId, { type: 'idle' })}>
+            <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+            다시 올리기
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-lg border border-gray-200 overflow-hidden">
