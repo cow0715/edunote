@@ -387,7 +387,18 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                     <p className="text-sm text-[#8B95A1] dark:text-[#94A3B8] mb-4">
                       최근 시험 · {fmtWeekLabel(latestW)}
                     </p>
-                    <div className="flex gap-4">
+                    <div
+                      className="flex gap-4 cursor-pointer"
+                      onClick={() => {
+                        const latestGroup = wrongNoteGroups[0]
+                        setActiveTab('wrongnote')
+                        setWrongNoteTab('reading')
+                        if (latestGroup) {
+                          setExpandedWrongWeekIds((prev) => new Set([...prev, latestGroup.week.id]))
+                          scrollTo(`wrongnote-reading-${latestGroup.week.id}`, 150)
+                        }
+                      }}
+                    >
                       {/* 시험 */}
                       <div className="flex-1 rounded-2xl bg-blue-50 dark:bg-blue-950/40 px-4 py-3">
                         <p className="text-xs font-semibold text-[#2463EB] dark:text-blue-400 mb-1">시험</p>
@@ -983,20 +994,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                               <span className="text-sm text-rose-400 dark:text-rose-500 line-through">
                                                 {va.student_answer || '미작성'}
                                               </span>
-                                              {retaken && (
-                                                <>
-                                                  <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
-                                                  <span className={`text-sm font-semibold ${va.retake_is_correct ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-                                                    {va.retake_answer || '미작성'}
-                                                  </span>
-                                                </>
-                                              )}
-                                              {va.retake_is_correct === false && vw.correct_answer && (
-                                                <>
-                                                  <span className="text-gray-300 dark:text-gray-600 text-xs">→</span>
-                                                  <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">{vw.correct_answer}</span>
-                                                </>
-                                              )}
                                             </div>
                                             {(vw.synonyms?.length ?? 0) > 0 && (
                                               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1014,6 +1011,14 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                                     반 {s}
                                                   </span>
                                                 ))}
+                                              </div>
+                                            )}
+                                            {vw.example_sentence && (
+                                              <div className="mt-2 rounded-lg bg-gray-100 dark:bg-white/[0.05] px-3 py-2 space-y-0.5">
+                                                <p className="text-xs text-gray-700 dark:text-gray-300 italic">{vw.example_sentence}</p>
+                                                {vw.example_translation && (
+                                                  <p className="text-[11px] text-gray-400 dark:text-gray-500">{vw.example_translation}</p>
+                                                )}
                                               </div>
                                             )}
                                           </div>

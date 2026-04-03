@@ -23,6 +23,7 @@ export type AttendanceRecord = { id: string; class_id: string; date: string; sta
 export type VocabWord = {
   id: string; number: number; english_word: string
   correct_answer: string | null; synonyms: string[] | null; antonyms: string[] | null
+  example_sentence: string | null; example_translation: string | null
 }
 export type VocabAnswer = {
   id: string; week_score_id: string; is_correct: boolean
