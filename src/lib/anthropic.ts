@@ -7,6 +7,7 @@ import {
   buildVocabGradingPrompt, VOCAB_PDF_PROMPT,
   buildExamOcrClovaPrompt, buildExamOcrVisionPrompt,
   ExamOcrQuestion,
+  EXAM_BANK_PARSE_RULES,
 } from './prompts'
 
 export type { ExamOcrQuestion }
@@ -311,7 +312,7 @@ export async function gradeVocabPhoto(
     const parseRes = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 4096,
-      messages: [{ role: 'user', content: [fileContent, { type: 'text', text: parsePrompt }] }],
+      messages: [{ role: 'user', content: parsePrompt }],
     })
     const parseRaw = parseRes.content[0].type === 'text' ? parseRes.content[0].text : ''
     console.log('[gradeVocabPhoto] 구조 파싱 raw length:', parseRaw.length)
@@ -410,7 +411,7 @@ export async function generateVocabExamples(
     words.map(async (w) => {
       const res = await anthropic.messages.create({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 150,
+        max_tokens: 300,
         messages: [{
           role: 'user',
           content: `영어 단어 "${w.english_word}"를 사용한 자연스러운 예문 1개.\nJSON만 출력: {"sentence":"영어 예문","translation":"한국어 번역"}`,
@@ -495,6 +496,55 @@ ${GRADING_RULES}`
       }
     })
     .filter((r): r is GradingResult => r !== null)
+}
+
+// ── 기출문제 은행 파싱 ────────────────────────────────────────────────────
+
+export type ExamBankParsedQuestion = {
+  question_number: number
+  question_type: string
+  passage: string
+  question_text: string
+  choices: string[]
+  answer: string
+}
+
+export async function parseExamBankPage(
+  fileData: string,
+  mimeType: string,
+): Promise<ExamBankParsedQuestion[]> {
+  const isImage = mimeType.startsWith('image/')
+  const isPdf = mimeType === 'application/pdf'
+  if (!isImage && !isPdf) throw new Error('지원하지 않는 파일 형식 (PDF 또는 이미지만 가능)')
+
+  const fileContent = isImage
+    ? { type: 'image' as const, source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: fileData } }
+    : { type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: fileData } }
+
+  const stream = await anthropic.messages.stream({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 32768,
+    messages: [{
+      role: 'user',
+      content: [fileContent, { type: 'text', text: EXAM_BANK_PARSE_RULES }],
+    }],
+  })
+  const res = await stream.finalMessage()
+
+  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  console.log('[parseExamBankPage] raw response length:', raw.length)
+
+  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
+  let parsed: ExamBankParsedQuestion[]
+  try {
+    parsed = JSON.parse(jsonrepair(cleaned))
+  } catch (e) {
+    console.error('[parseExamBankPage] JSON parse 실패:', e)
+    throw e
+  }
+
+  console.log('[parseExamBankPage] parsed count:', parsed.length, '| questions:', parsed.map(p => p.question_number).join(', '))
+  return parsed
 }
 
 // ── 시험 답안지 OCR ───────────────────────────────────────────────────────

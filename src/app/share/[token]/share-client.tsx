@@ -387,20 +387,20 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                     <p className="text-sm text-[#8B95A1] dark:text-[#94A3B8] mb-4">
                       최근 시험 · {fmtWeekLabel(latestW)}
                     </p>
-                    <div
-                      className="flex gap-4 cursor-pointer"
-                      onClick={() => {
-                        const latestGroup = wrongNoteGroups[0]
-                        setActiveTab('wrongnote')
-                        setWrongNoteTab('reading')
-                        if (latestGroup) {
-                          setExpandedWrongWeekIds((prev) => new Set([...prev, latestGroup.week.id]))
-                          scrollTo(`wrongnote-reading-${latestGroup.week.id}`, 150)
-                        }
-                      }}
-                    >
+                    <div className="flex gap-4">
                       {/* 시험 */}
-                      <div className="flex-1 rounded-2xl bg-blue-50 dark:bg-blue-950/40 px-4 py-3">
+                      <div
+                        className="flex-1 rounded-2xl bg-blue-50 dark:bg-blue-950/40 px-4 py-3 cursor-pointer"
+                        onClick={() => {
+                          const latestGroup = wrongNoteGroups[0]
+                          setActiveTab('wrongnote')
+                          setWrongNoteTab('reading')
+                          if (latestGroup) {
+                            setExpandedWrongWeekIds((prev) => new Set([...prev, latestGroup.week.id]))
+                            scrollTo(`wrongnote-reading-${latestGroup.week.id}`, 150)
+                          }
+                        }}
+                      >
                         <p className="text-xs font-semibold text-[#2463EB] dark:text-blue-400 mb-1">시험</p>
                         <div className="flex items-baseline gap-1">
                           <span className="text-[40px] font-black leading-none text-[#2463EB] dark:text-blue-300">
@@ -417,7 +417,18 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                         )}
                       </div>
                       {/* 단어 */}
-                      <div className="flex-1 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 px-4 py-3">
+                      <div
+                        className="flex-1 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 px-4 py-3 cursor-pointer"
+                        onClick={() => {
+                          const latestVocabGroup = vocabWrongGroups[0]
+                          setActiveTab('wrongnote')
+                          setWrongNoteTab('vocab')
+                          if (latestVocabGroup) {
+                            setExpandedVocabWeekIds((prev) => new Set([...prev, latestVocabGroup.week.id]))
+                            scrollTo(`wrongnote-vocab-${latestVocabGroup.week.id}`, 150)
+                          }
+                        }}
+                      >
                         <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1">단어</p>
                         <div className="flex items-baseline gap-1">
                           <span className="text-[40px] font-black leading-none text-emerald-600 dark:text-emerald-400">
