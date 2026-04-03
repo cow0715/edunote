@@ -848,7 +848,7 @@ const UPLOAD_STEPS = [
 ]
 
 function UploadProgress({ step, elapsed }: { step: number; elapsed: number }) {
-  const current = UPLOAD_STEPS[(step - 1) ?? 0] ?? UPLOAD_STEPS[0]
+  const current = UPLOAD_STEPS[step - 1] ?? UPLOAD_STEPS[0]
   const progress = Math.min((elapsed / 240) * 100, 95)
 
   return (
