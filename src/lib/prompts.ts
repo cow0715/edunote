@@ -234,8 +234,7 @@ https://edunote.kr/share/abc123`
 // ── 단어 시험지 OCR (CLOVA + Claude 구조 파싱) ───────────────────────────
 
 export function buildVocabOcrClovaPrompt(clovaText: string): string {
-  return `단어 시험지의 학생 답안을 읽어야 합니다.
-CLOVA OCR 텍스트와 원본 이미지를 함께 참고하세요.
+  return `단어 시험지의 학생 답안을 구조화하세요.
 
 CLOVA OCR 텍스트:
 ${clovaText}
@@ -246,7 +245,6 @@ ${clovaText}
    - 맞춤법이 틀려도 수정 금지 (예: "마시있는" → "마시있는" 그대로)
    - 판독 불가 → null
    - 미기재(빈칸) → ""
-3. OCR 텍스트 우선, 불명확한 부분은 이미지로 보완
 
 ⚠️ 학생 답을 교정·추측하지 마세요. 채점하지 마세요.
 
@@ -533,3 +531,68 @@ export const VOCAB_PDF_PROMPT = `이 파일은 영어 단어 학습 자료입니
 
 JSON 배열만 출력:
 [{"number":1,"english_word":"inhibit","correct_answer":"억제하다","synonyms":["suppress","restrain"],"antonyms":["encourage","promote"]}]`
+
+// ── 기출문제 은행 파싱 ──────────────────────────────────────────────────────
+
+export const EXAM_BANK_PARSE_RULES = `이 이미지는 한국 수능/모의고사 영어 시험지의 한 페이지(또는 여러 페이지)입니다.
+**18번부터 45번 사이의 문항만 추출하세요. 1~17번(듣기) 문항은 완전히 무시하세요.**
+
+━━━ 추출 규칙 ━━━
+
+1. question_number: 문항번호 (정수). 이미지에 보이는 번호 그대로.
+
+2. question_type: 아래 목록에서 가장 적합한 유형을 선택.
+   - purpose (글의 목적)
+   - mood (심경/분위기)
+   - claim (주장)
+   - implication (함축 의미)
+   - topic (주제)
+   - title (제목)
+   - summary (요약문 완성)
+   - blank_vocabulary (빈칸 - 어휘)
+   - blank_grammar (빈칸 - 문법)
+   - blank_connective (빈칸 - 연결어)
+   - blank_phrase (빈칸 - 구/절)
+   - grammar (어법)
+   - vocabulary (어휘)
+   - reference (지칭 대상)
+   - content_match (내용 일치/불일치)
+   - notice (안내문/실용문)
+   - order (문장 순서)
+   - insert (문장 삽입)
+   - irrelevant (무관한 문장)
+   - long_blank (장문 빈칸)
+   - long_order (장문 순서)
+   - long_insert (장문 삽입)
+   - long_content_match (장문 내용 일치)
+   - long_title (장문 제목/주제)
+   - other (위에 없는 유형)
+
+3. passage: 지문 텍스트. 줄바꿈은 \\n으로 유지.
+   - 지문이 없는 문항(듣기 등)은 빈 문자열 "".
+   - 대괄호/괄호 안의 빈칸 표시는 원본 그대로 유지.
+   - 밑줄 표시는 ___로 변환.
+
+4. question_text: 발문(지시문) + 주어진 문장(있는 경우).
+   - 발문이 이미지 상단/하단에 있을 수 있음. 정확히 읽을 것.
+   - 발문 아래에 별도의 문장이 제시된 경우(예: 삽입 유형의 "주어진 문장", 요약 유형의 빈칸 문장 등)는
+     발문과 \\n\\n으로 구분하여 question_text에 함께 포함할 것.
+   - 예: "주어진 문장이 들어갈 위치로 가장 적절한 곳을 고르시오.\\n\\nHowever, this approach has significant limitations."
+
+5. choices: 보기 배열 (문자열 5개). 예: ["① 감사", "② 항의", ...]
+   - 원문 번호(①②③④⑤) 포함하여 그대로 기재.
+   - 보기가 없는 서술형이면 빈 배열 [].
+
+6. answer: 정답. 이미지에 정답이 표시되어 있으면 해당 값, 없으면 빈 문자열 "".
+
+━━━ 주의사항 ━━━
+- **추출 범위: 18번~45번만. 17번 이하는 절대 포함하지 말 것.**
+- **도표/그래프 문항(question_type: chart)은 추출하지 말 것.** 도표 이미지가 포함된 문항은 텍스트로 복원 불가하므로 완전히 건너뛸 것.
+- 2단 편집 레이아웃: 왼쪽 → 오른쪽 순서로 읽을 것.
+- 장문(두 문항이 하나의 지문을 공유)은 각 문항을 별도 객체로 만들되, passage는 동일한 텍스트를 양쪽 모두에 넣을 것.
+- JSON 문자열 내 큰따옴표는 \\"로 이스케이프.
+- \\n은 실제 줄바꿈을 의미.
+
+━━━ 출력 형식 ━━━
+JSON 배열만 출력 (다른 텍스트 없이):
+[{"question_number":18,"question_type":"purpose","passage":"Dear Mr. Harrison,\\nI am writing to...","question_text":"다음 글의 목적으로 가장 적절한 것은?","choices":["① 감사","② 항의","③ 안내","④ 사과","⑤ 초대"],"answer":""}]`
