@@ -26,11 +26,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .from('class_student')
     .select('student_id, student(id, name, phone, father_phone, mother_phone, share_token)')
     .eq('class_id', classId)
+    .is('left_at', null)
     .order('joined_at')
   if (week.start_date) {
-    csQuery = csQuery.lte('joined_at', week.start_date).or(`left_at.is.null,left_at.gt.${week.start_date}`)
-  } else {
-    csQuery = csQuery.is('left_at', null)
+    csQuery = csQuery.lte('joined_at', week.start_date)
   }
 
   const [{ data: classStudents }, { data: prevWeek }, { data: questions }] = await Promise.all([
