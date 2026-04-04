@@ -234,6 +234,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
             student_answer_text: correction,
             ox_selection: oxSelection,
             is_correct,
+            needs_review: false,
           }
         }
 
@@ -250,6 +251,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
           student_answer_text: isTextAnswer ? (a.student_answer_text ?? null) : null,
           ox_selection: null,
           is_correct,
+          needs_review: false,
         }
       })
 
