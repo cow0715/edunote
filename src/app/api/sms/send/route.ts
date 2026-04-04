@@ -5,25 +5,29 @@ export async function POST(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
 
-  const { targets, weekId } = await request.json() as {
+  const { targets, weekId, scheduledDate } = await request.json() as {
     targets: SendTarget[]
     weekId?: string
+    scheduledDate?: string
   }
 
   if (!targets || targets.length === 0) return err('발송 대상 없음')
 
-  const results = await sendMessages(targets)
+  const targetsWithSchedule = targets.map((t) => ({ ...t, scheduledDate }))
+  const results = await sendMessages(targetsWithSchedule)
 
-  // 성공한 것만 message_log에 저장
-  const successTargets = results.filter((r) => r.success)
-  if (successTargets.length > 0) {
-    await supabase.from('message_log').insert(
-      successTargets.map((r) => ({
-        student_id: r.studentId,
-        week_id: weekId ?? null,
-        message: r.message,
-      }))
-    )
+  // 예약 발송이 아닌 경우에만 성공 건 즉시 message_log 저장
+  if (!scheduledDate) {
+    const successTargets = results.filter((r) => r.success)
+    if (successTargets.length > 0) {
+      await supabase.from('message_log').insert(
+        successTargets.map((r) => ({
+          student_id: r.studentId,
+          week_id: weekId ?? null,
+          message: r.message,
+        }))
+      )
+    }
   }
 
   return ok(results)

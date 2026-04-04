@@ -10,6 +10,7 @@ export type SendTarget = {
   recipientLabel: string  // '어머니' | '아버지' | '학생'
   phone: string
   message: string
+  scheduledDate?: string  // ISO8601, e.g. '2026-04-05T09:00:00+09:00'
 }
 
 export type SendResult = {
@@ -31,6 +32,7 @@ export async function sendMessages(targets: SendTarget[]): Promise<SendResult[]>
         from: sender,
         to: t.phone.replace(/-/g, ''),
         text: t.message,
+        ...(t.scheduledDate ? { scheduledDate: t.scheduledDate } : {}),
       })
     )
   )

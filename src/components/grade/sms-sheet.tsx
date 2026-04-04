@@ -40,6 +40,9 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
   const [selectedRecipients, setSelectedRecipients] = useState<Record<string, Set<RecipientKey>>>({})
   const [sendStatus, setSendStatus] = useState<Record<string, SendStatus>>({})
   const [sendError, setSendError] = useState<Record<string, string>>({})
+  const [scheduleEnabled, setScheduleEnabled] = useState(false)
+  const [scheduleDate, setScheduleDate] = useState('')
+  const [scheduleTime, setScheduleTime] = useState('09:00')
   const [promptText, setPromptText] = useState(SMS_RULES)
   const [promptOpen, setPromptOpen] = useState(false)
   const saveMessageLog = useSaveMessageLog()
@@ -91,7 +94,12 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
   function handleOpen(v: boolean) {
     setOpen(v)
     if (v && messages.length === 0) generate()
-    if (!v) { setSendStatus({}); setSendError({}) }
+    if (!v) { setSendStatus({}); setSendError({}); setScheduleEnabled(false); setScheduleDate(''); setScheduleTime('09:00') }
+  }
+
+  function buildScheduledDate() {
+    if (!scheduleEnabled || !scheduleDate || !scheduleTime) return undefined
+    return `${scheduleDate}T${scheduleTime}:00+09:00`
   }
 
   function updateMessage(studentId: string, text: string) {
@@ -186,7 +194,7 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
       const res = await fetch('/api/sms/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targets, weekId }),
+        body: JSON.stringify({ targets, weekId, scheduledDate: buildScheduledDate() }),
       })
       const results = await res.json()
       const allSuccess = results.every((r: { success: boolean }) => r.success)
@@ -256,6 +264,36 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
             </div>
           )}
         </SheetHeader>
+
+        {/* ── 예약 발송 토글 ── */}
+        {messages.length > 0 && !loading && (
+          <div className="px-5 py-2.5 border-b bg-white shrink-0 space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                checked={scheduleEnabled}
+                onCheckedChange={(v) => setScheduleEnabled(!!v)}
+              />
+              <span className="text-xs font-medium text-gray-700">예약 발송</span>
+            </label>
+            {scheduleEnabled && (
+              <div className="flex gap-2 ml-6">
+                <input
+                  type="date"
+                  value={scheduleDate}
+                  min={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => setScheduleDate(e.target.value)}
+                  className="flex-1 rounded-md border border-input bg-white px-3 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <input
+                  type="time"
+                  value={scheduleTime}
+                  onChange={(e) => setScheduleTime(e.target.value)}
+                  className="w-24 rounded-md border border-input bg-white px-3 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── 빠른 선택 (메시지 있을 때만) ── */}
         {messages.length > 0 && !loading && (
@@ -368,13 +406,13 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
                         <Button
                           size="sm"
                           onClick={() => sendOne(m)}
-                          disabled={keys.size === 0 || status === 'sending' || status === 'success'}
+                          disabled={keys.size === 0 || status === 'sending' || status === 'success' || (scheduleEnabled && (!scheduleDate || !scheduleTime))}
                           className={`h-7 text-xs ${status === 'success' ? 'bg-green-500 hover:bg-green-500 text-white' : ''}`}
                         >
                           {status === 'sending' && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                           {status === 'success' && <Check className="mr-1 h-3 w-3" />}
                           {(status === 'idle' || status === 'error') && <Send className="mr-1 h-3 w-3" />}
-                          {status === 'sending' ? '발송 중' : status === 'success' ? '발송 완료' : '발송'}
+                          {status === 'sending' ? '처리 중' : status === 'success' ? (scheduleEnabled ? '예약 완료' : '발송 완료') : scheduleEnabled ? '예약' : '발송'}
                         </Button>
                       </div>
                     </div>
