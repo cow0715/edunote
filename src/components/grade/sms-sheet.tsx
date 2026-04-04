@@ -220,9 +220,12 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
         setSendStatus((prev) => ({ ...prev, [m.student_id]: 'success' }))
         await saveMessageLog.mutateAsync({ student_id: m.student_id, week_id: weekId, message: m.message })
       } else {
-        const failedLabels = results.filter((r: { success: boolean }) => !r.success).map((r: { recipientLabel: string }) => r.recipientLabel).join(', ')
+        const failedResults = results.filter((r: { success: boolean; error?: string }) => !r.success)
+        const failedLabels = failedResults.map((r: { recipientLabel: string }) => r.recipientLabel).join(', ')
+        const errorMsg = failedResults[0]?.error ?? '발송 실패'
         setSendStatus((prev) => ({ ...prev, [m.student_id]: 'error' }))
-        setSendError((prev) => ({ ...prev, [m.student_id]: `${failedLabels} 발송 실패` }))
+        setSendError((prev) => ({ ...prev, [m.student_id]: errorMsg }))
+        toast.error(`${m.student_name}(${failedLabels}): ${errorMsg}`)
       }
     } catch {
       setSendStatus((prev) => ({ ...prev, [m.student_id]: 'error' }))
@@ -240,7 +243,7 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
 
       <SheetContent className="w-full sm:max-w-lg flex flex-col gap-0 p-0">
         {/* ── 헤더: 제목 + 재생성 + 프롬프트 ── */}
-        <SheetHeader className={`px-5 py-4 border-b shrink-0 ${promptOpen ? 'overflow-y-auto max-h-[55vh]' : ''}`}>
+        <SheetHeader className="px-5 py-4 border-b shrink-0">
           <div className="flex items-center justify-between">
             <SheetTitle>{weekNumber}주차 문자 발송</SheetTitle>
             <div className="flex gap-2">
@@ -268,7 +271,7 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
           </button>
 
           {promptOpen && (
-            <div className="space-y-1.5 pt-1">
+            <div className="space-y-1.5 pt-1 max-h-[40vh] overflow-y-auto">
               <Textarea value={promptText} onChange={(e) => setPromptText(e.target.value)} rows={8} className="font-mono text-xs resize-none" spellCheck={false} />
               <div className="flex justify-between">
                 <Button size="sm" variant="ghost" onClick={() => setPromptText(SMS_RULES)} className="h-7 text-xs text-gray-400 hover:text-gray-600">
