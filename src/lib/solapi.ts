@@ -7,6 +7,7 @@ const sender = process.env.SOLAPI_SENDER!
 export type SendTarget = {
   studentId: string
   studentName: string
+  recipientLabel: string  // '어머니' | '아버지' | '학생'
   phone: string
   message: string
 }
@@ -14,6 +15,7 @@ export type SendTarget = {
 export type SendResult = {
   studentId: string
   studentName: string
+  recipientLabel: string
   phone: string
   message: string
   success: boolean
