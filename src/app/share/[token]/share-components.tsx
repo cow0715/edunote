@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Moon, Sun, TrendingUp, TrendingDown, Minus, Info, ChevronRight, ChevronLeft } from 'lucide-react'
 import { AttendanceRecord } from './share-types'
 
@@ -82,6 +82,10 @@ export function StatCard({ label, value, delta, color, onClick }: {
 export function AttendanceCalendar({ attendance }: { attendance: AttendanceRecord[] }) {
   const months = [...new Set(attendance.map((a) => a.date.substring(0, 7)))].sort()
   const [idx, setIdx] = useState(months.length - 1)
+
+  useEffect(() => {
+    setIdx(months.length - 1)
+  }, [months.length])
 
   if (attendance.length === 0) return (
     <p className="py-6 text-center text-xs text-[#8B95A1] dark:text-gray-500">출결 기록이 없습니다</p>
