@@ -23,6 +23,23 @@ const TYPE_LABEL: Record<RecipientType, '어머니' | '아버지' | '학생'> = 
   mother: '어머니', father: '아버지', student: '학생',
 }
 
+const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
+  const h = Math.floor(i / 2).toString().padStart(2, '0')
+  const m = i % 2 === 0 ? '00' : '30'
+  return `${h}:${m}`
+})
+
+function getNearestSchedule() {
+  const now = new Date()
+  const nearest = new Date(Math.ceil(now.getTime() / (30 * 60 * 1000)) * (30 * 60 * 1000))
+  const yyyy = nearest.getFullYear()
+  const mm = String(nearest.getMonth() + 1).padStart(2, '0')
+  const dd = String(nearest.getDate()).padStart(2, '0')
+  const hh = String(nearest.getHours()).padStart(2, '0')
+  const min = String(nearest.getMinutes()).padStart(2, '0')
+  return { date: `${yyyy}-${mm}-${dd}`, time: `${hh}:${min}` }
+}
+
 function getRecipients(s: Student): Recipient[] {
   const list: Recipient[] = []
   if (s.mother_phone) list.push({ key: `${s.id}:mother`, studentId: s.id, type: 'mother', label: '어머니', phone: s.mother_phone })
@@ -42,8 +59,8 @@ export function BroadcastDialog() {
   const [classesWithStudents, setClassesWithStudents] = useState<ClassWithStudents[]>([])
   const [loadingStudents, setLoadingStudents] = useState(false)
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
-  const [scheduleDate, setScheduleDate] = useState('')
-  const [scheduleTime, setScheduleTime] = useState('09:00')
+  const [scheduleDate, setScheduleDate] = useState(() => getNearestSchedule().date)
+  const [scheduleTime, setScheduleTime] = useState(() => getNearestSchedule().time)
 
   const { data: classes = [] } = useClasses()
   const qc = useQueryClient()
@@ -73,7 +90,8 @@ export function BroadcastDialog() {
   function reset() {
     setStep('select'); setClassFilter('all')
     setSelectedKeys(new Set()); setMessage(''); setResults([])
-    setScheduleEnabled(false); setScheduleDate(''); setScheduleTime('09:00')
+    const ns = getNearestSchedule()
+    setScheduleEnabled(false); setScheduleDate(ns.date); setScheduleTime(ns.time)
   }
 
   // 전체 학생 (중복 제거)
@@ -428,12 +446,13 @@ export function BroadcastDialog() {
                       onChange={(e) => setScheduleDate(e.target.value)}
                       className="flex-1 rounded-md border border-input bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                     />
-                    <input
-                      type="time"
+                    <select
                       value={scheduleTime}
                       onChange={(e) => setScheduleTime(e.target.value)}
-                      className="w-28 rounded-md border border-input bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                    />
+                      className="flex-1 rounded-md border border-input bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      {TIME_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
                   </div>
                 )}
               </div>

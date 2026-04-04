@@ -27,6 +27,23 @@ type SendStatus = 'idle' | 'sending' | 'success' | 'error'
 
 const RECIPIENT_LABEL: Record<RecipientKey, string> = { mother: '어머니', father: '아버지', student: '학생' }
 
+const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
+  const h = Math.floor(i / 2).toString().padStart(2, '0')
+  const m = i % 2 === 0 ? '00' : '30'
+  return `${h}:${m}`
+})
+
+function getNearestSchedule() {
+  const now = new Date()
+  const nearest = new Date(Math.ceil(now.getTime() / (30 * 60 * 1000)) * (30 * 60 * 1000))
+  const yyyy = nearest.getFullYear()
+  const mm = String(nearest.getMonth() + 1).padStart(2, '0')
+  const dd = String(nearest.getDate()).padStart(2, '0')
+  const hh = String(nearest.getHours()).padStart(2, '0')
+  const min = String(nearest.getMinutes()).padStart(2, '0')
+  return { date: `${yyyy}-${mm}-${dd}`, time: `${hh}:${min}` }
+}
+
 interface Props {
   weekId: string
   weekNumber: number
@@ -41,8 +58,8 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
   const [sendStatus, setSendStatus] = useState<Record<string, SendStatus>>({})
   const [sendError, setSendError] = useState<Record<string, string>>({})
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
-  const [scheduleDate, setScheduleDate] = useState('')
-  const [scheduleTime, setScheduleTime] = useState('09:00')
+  const [scheduleDate, setScheduleDate] = useState(() => getNearestSchedule().date)
+  const [scheduleTime, setScheduleTime] = useState(() => getNearestSchedule().time)
   const [promptText, setPromptText] = useState(SMS_RULES)
   const [promptOpen, setPromptOpen] = useState(false)
   const saveMessageLog = useSaveMessageLog()
@@ -94,7 +111,7 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
   function handleOpen(v: boolean) {
     setOpen(v)
     if (v && messages.length === 0) generate()
-    if (!v) { setSendStatus({}); setSendError({}); setScheduleEnabled(false); setScheduleDate(''); setScheduleTime('09:00') }
+    if (!v) { setSendStatus({}); setSendError({}); setScheduleEnabled(false); const ns = getNearestSchedule(); setScheduleDate(ns.date); setScheduleTime(ns.time) }
   }
 
   function buildScheduledDate() {
@@ -223,7 +240,7 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
 
       <SheetContent className="w-full sm:max-w-lg flex flex-col gap-0 p-0">
         {/* ── 헤더: 제목 + 재생성 + 프롬프트 ── */}
-        <SheetHeader className="px-5 py-4 border-b shrink-0">
+        <SheetHeader className={`px-5 py-4 border-b shrink-0 ${promptOpen ? 'overflow-y-auto max-h-[55vh]' : ''}`}>
           <div className="flex items-center justify-between">
             <SheetTitle>{weekNumber}주차 문자 발송</SheetTitle>
             <div className="flex gap-2">
@@ -284,12 +301,13 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
                   onChange={(e) => setScheduleDate(e.target.value)}
                   className="flex-1 rounded-md border border-input bg-white px-3 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                 />
-                <input
-                  type="time"
+                <select
                   value={scheduleTime}
                   onChange={(e) => setScheduleTime(e.target.value)}
-                  className="w-24 rounded-md border border-input bg-white px-3 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-                />
+                  className="flex-1 rounded-md border border-input bg-white px-3 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  {TIME_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
               </div>
             )}
           </div>
