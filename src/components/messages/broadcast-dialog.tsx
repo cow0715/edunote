@@ -85,19 +85,22 @@ export function BroadcastDialog() {
     return classesWithStudents.find((c) => c.id === classFilter)?.students ?? []
   }, [classFilter, allStudents, classesWithStudents])
 
-  // 전체 학생 수신자 (선택용 — 필터 무관)
+  // 전체 학생 수신자 (선택 결과 집계용)
   const allRecipients = useMemo(() => allStudents.flatMap(getRecipients), [allStudents])
 
-  // 타입별 전체 수신자 수 (전체 학생 기준)
+  // 현재 필터된 수신자 (빠른 선택 버튼 기준)
+  const visibleRecipients2 = useMemo(() => visibleStudents.flatMap(getRecipients), [visibleStudents])
+
+  // 타입별 수신자 수 (현재 필터 기준)
   const typeCount = useMemo(() => {
     const counts: Record<RecipientType, number> = { mother: 0, father: 0, student: 0 }
-    allRecipients.forEach((r) => counts[r.type]++)
+    visibleRecipients2.forEach((r) => counts[r.type]++)
     return counts
-  }, [allRecipients])
+  }, [visibleRecipients2])
 
-  // 타입별 선택 상태 (전체 학생 기준)
+  // 타입별 선택 상태 (현재 필터 기준)
   function typeCheckState(type: RecipientType): boolean | 'indeterminate' {
-    const typeRecs = allRecipients.filter((r) => r.type === type)
+    const typeRecs = visibleRecipients2.filter((r) => r.type === type)
     if (typeRecs.length === 0) return false
     const selected = typeRecs.filter((r) => selectedKeys.has(r.key))
     if (selected.length === 0) return false
@@ -106,7 +109,7 @@ export function BroadcastDialog() {
   }
 
   function toggleType(type: RecipientType) {
-    const typeRecs = allRecipients.filter((r) => r.type === type)
+    const typeRecs = visibleRecipients2.filter((r) => r.type === type)
     const allChecked = typeRecs.every((r) => selectedKeys.has(r.key))
     setSelectedKeys((prev) => {
       const next = new Set(prev)
@@ -117,15 +120,14 @@ export function BroadcastDialog() {
   }
 
   // 보이는 학생 전체 선택 상태
-  const visibleRecipients = useMemo(() => visibleStudents.flatMap(getRecipients), [visibleStudents])
-  const allVisibleChecked = visibleRecipients.length > 0 && visibleRecipients.every((r) => selectedKeys.has(r.key))
-  const someVisibleChecked = visibleRecipients.some((r) => selectedKeys.has(r.key))
+  const allVisibleChecked = visibleRecipients2.length > 0 && visibleRecipients2.every((r) => selectedKeys.has(r.key))
+  const someVisibleChecked = visibleRecipients2.some((r) => selectedKeys.has(r.key))
 
   function toggleAllVisible() {
     setSelectedKeys((prev) => {
       const next = new Set(prev)
-      if (allVisibleChecked) visibleRecipients.forEach((r) => next.delete(r.key))
-      else visibleRecipients.forEach((r) => next.add(r.key))
+      if (allVisibleChecked) visibleRecipients2.forEach((r) => next.delete(r.key))
+      else visibleRecipients2.forEach((r) => next.add(r.key))
       return next
     })
   }
@@ -276,7 +278,7 @@ export function BroadcastDialog() {
                     <Checkbox
                       checked={allVisibleChecked ? true : someVisibleChecked ? 'indeterminate' : false}
                       onCheckedChange={toggleAllVisible}
-                      disabled={visibleRecipients.length === 0}
+                      disabled={visibleRecipients2.length === 0}
                     />
                     <span className="text-xs text-gray-500">
                       {classFilter === 'all' ? '전체' : classesWithStudents.find(c => c.id === classFilter)?.name} 전체 선택
