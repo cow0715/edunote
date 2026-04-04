@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { MessageSquare, Copy, Check, RefreshCw, ChevronDown, ChevronUp, RotateCcw, Save, Send, XCircle, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -25,6 +25,8 @@ type SmsMessage = {
 type RecipientKey = 'mother' | 'father' | 'student'
 type SendStatus = 'idle' | 'sending' | 'success' | 'error'
 
+const RECIPIENT_LABEL: Record<RecipientKey, string> = { mother: '어머니', father: '아버지', student: '학생' }
+
 interface Props {
   weekId: string
   weekNumber: number
@@ -35,7 +37,6 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
   const [loading, setLoading] = useState(false)
   const [messages, setMessages] = useState<SmsMessage[]>([])
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  // 학생별 선택된 수신자 키 Set
   const [selectedRecipients, setSelectedRecipients] = useState<Record<string, Set<RecipientKey>>>({})
   const [sendStatus, setSendStatus] = useState<Record<string, SendStatus>>({})
   const [sendError, setSendError] = useState<Record<string, string>>({})
@@ -63,12 +64,10 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
       if (!res.ok) throw new Error((await res.json()).error)
       const data = await res.json()
       setMessages(data.messages)
-      // 기본 선택: 어머니 > 아버지 > 학생 순으로 첫 번째만 선택
       const defaults: Record<string, Set<RecipientKey>> = {}
       for (const m of data.messages) {
-        defaults[m.student_id] = new Set([
-          m.mother_phone ? 'mother' : m.father_phone ? 'father' : m.phone ? 'student' : null
-        ].filter(Boolean) as RecipientKey[])
+        const key: RecipientKey = m.mother_phone ? 'mother' : m.father_phone ? 'father' : 'student'
+        defaults[m.student_id] = new Set([key])
       }
       setSelectedRecipients(defaults)
       setSendStatus({})
@@ -101,6 +100,49 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
     })
   }
 
+  // 전체 타입별 빠른 선택
+  const typeStats = useMemo(() => {
+    const stats: Record<RecipientKey, { total: number; selected: number }> = {
+      mother: { total: 0, selected: 0 },
+      father: { total: 0, selected: 0 },
+      student: { total: 0, selected: 0 },
+    }
+    for (const m of messages) {
+      const phoneMap: Record<RecipientKey, string | null> = { mother: m.mother_phone, father: m.father_phone, student: m.phone }
+      for (const key of (['mother', 'father', 'student'] as RecipientKey[])) {
+        if (phoneMap[key]) {
+          stats[key].total++
+          if (selectedRecipients[m.student_id]?.has(key)) stats[key].selected++
+        }
+      }
+    }
+    return stats
+  }, [messages, selectedRecipients])
+
+  function typeCheckState(key: RecipientKey): boolean | 'indeterminate' {
+    const { total, selected } = typeStats[key]
+    if (total === 0) return false
+    if (selected === 0) return false
+    if (selected === total) return true
+    return 'indeterminate'
+  }
+
+  function toggleType(key: RecipientKey) {
+    const allChecked = typeStats[key].selected === typeStats[key].total
+    setSelectedRecipients((prev) => {
+      const next = { ...prev }
+      for (const m of messages) {
+        const phone = key === 'mother' ? m.mother_phone : key === 'father' ? m.father_phone : m.phone
+        if (!phone) continue
+        const s = new Set(next[m.student_id] ?? [])
+        if (allChecked) s.delete(key)
+        else s.add(key)
+        next[m.student_id] = s
+      }
+      return next
+    })
+  }
+
   async function copyMessage(studentId: string, text: string) {
     await navigator.clipboard.writeText(text)
     setCopiedId(studentId)
@@ -116,11 +158,10 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
 
   async function sendOne(m: SmsMessage) {
     const keys = selectedRecipients[m.student_id] ?? new Set()
-    const LABEL: Record<RecipientKey, string> = { mother: '어머니', father: '아버지', student: '학생' }
     const targets = (Array.from(keys) as RecipientKey[])
       .map((k) => {
         const phone = k === 'mother' ? m.mother_phone : k === 'father' ? m.father_phone : m.phone
-        return phone ? { studentId: m.student_id, studentName: m.student_name, recipientLabel: LABEL[k], phone, message: m.message } : null
+        return phone ? { studentId: m.student_id, studentName: m.student_name, recipientLabel: RECIPIENT_LABEL[k], phone, message: m.message } : null
       })
       .filter(Boolean)
 
@@ -140,12 +181,11 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
       })
       const results = await res.json()
       const allSuccess = results.every((r: { success: boolean }) => r.success)
-      const anyFail = results.some((r: { success: boolean }) => !r.success)
 
       if (allSuccess) {
         setSendStatus((prev) => ({ ...prev, [m.student_id]: 'success' }))
         await saveMessageLog.mutateAsync({ student_id: m.student_id, week_id: weekId, message: m.message })
-      } else if (anyFail) {
+      } else {
         const failedLabels = results.filter((r: { success: boolean }) => !r.success).map((r: { recipientLabel: string }) => r.recipientLabel).join(', ')
         setSendStatus((prev) => ({ ...prev, [m.student_id]: 'error' }))
         setSendError((prev) => ({ ...prev, [m.student_id]: `${failedLabels} 발송 실패` }))
@@ -165,7 +205,8 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
       </SheetTrigger>
 
       <SheetContent className="w-full sm:max-w-lg flex flex-col gap-0 p-0">
-        <SheetHeader className="px-5 py-4 border-b overflow-y-auto max-h-[60vh] shrink-0">
+        {/* ── 헤더: 제목 + 재생성 + 프롬프트 ── */}
+        <SheetHeader className="px-5 py-4 border-b shrink-0">
           <div className="flex items-center justify-between">
             <SheetTitle>{weekNumber}주차 문자 발송</SheetTitle>
             <div className="flex gap-2">
@@ -194,7 +235,7 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
 
           {promptOpen && (
             <div className="space-y-1.5 pt-1">
-              <Textarea value={promptText} onChange={(e) => setPromptText(e.target.value)} rows={10} className="font-mono text-xs resize-none" spellCheck={false} />
+              <Textarea value={promptText} onChange={(e) => setPromptText(e.target.value)} rows={8} className="font-mono text-xs resize-none" spellCheck={false} />
               <div className="flex justify-between">
                 <Button size="sm" variant="ghost" onClick={() => setPromptText(SMS_RULES)} className="h-7 text-xs text-gray-400 hover:text-gray-600">
                   <RotateCcw className="mr-1 h-3 w-3" />기본값으로 되돌리기
@@ -207,6 +248,39 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
           )}
         </SheetHeader>
 
+        {/* ── 빠른 선택 (메시지 있을 때만) ── */}
+        {messages.length > 0 && !loading && (
+          <div className="flex items-center gap-1.5 px-5 py-2.5 border-b bg-gray-50 shrink-0">
+            <span className="text-xs text-gray-400 mr-1 shrink-0">전체 선택</span>
+            {(['mother', 'father', 'student'] as RecipientKey[]).map((key) => {
+              const { total } = typeStats[key]
+              if (total === 0) return null
+              const state = typeCheckState(key)
+              return (
+                <button
+                  key={key}
+                  onClick={() => toggleType(key)}
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                    state === true ? 'border-primary bg-primary/10 text-primary'
+                    : state === 'indeterminate' ? 'border-primary/50 bg-primary/5 text-primary/70'
+                    : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+                  }`}
+                >
+                  <span className={`flex h-3 w-3 items-center justify-center rounded-sm border ${
+                    state === true ? 'border-primary bg-primary' : state === 'indeterminate' ? 'border-primary/50 bg-primary/10' : 'border-gray-300'
+                  }`}>
+                    {state === true && <span className="block h-1.5 w-1.5 rounded-sm bg-white" />}
+                    {state === 'indeterminate' && <span className="block h-px w-2 bg-primary/70" />}
+                  </span>
+                  {RECIPIENT_LABEL[key]}
+                  <span className={state ? 'text-primary/60' : 'text-gray-400'}>{total}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ── 메시지 목록 ── */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="flex flex-col items-center justify-center gap-3 py-20 text-gray-400">
@@ -221,32 +295,31 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
                 const status = sendStatus[m.student_id] ?? 'idle'
                 const error = sendError[m.student_id]
                 const keys = selectedRecipients[m.student_id] ?? new Set()
-                const hasAnyRecipient = keys.size > 0
-                const PHONES: { key: RecipientKey; label: string; phone: string | null }[] = [
-                  { key: 'mother', label: '어머니', phone: m.mother_phone },
-                  { key: 'father', label: '아버지', phone: m.father_phone },
-                  { key: 'student', label: '학생', phone: m.phone },
+                const PHONES: { key: RecipientKey; phone: string | null }[] = [
+                  { key: 'mother', phone: m.mother_phone },
+                  { key: 'father', phone: m.father_phone },
+                  { key: 'student', phone: m.phone },
                 ]
-                const availablePhones = PHONES.filter((p) => !!p.phone)
+                const available = PHONES.filter((p) => !!p.phone)
 
                 return (
                   <div key={m.student_id} className="px-5 py-4 space-y-2.5">
-                    {/* 학생명 + 수신자 체크박스 */}
+                    {/* 학생명 + 수신자 선택 */}
                     <div className="flex items-start justify-between gap-3">
                       <span className="font-medium text-gray-900 text-sm pt-0.5">{m.student_name}</span>
-                      {availablePhones.length === 0 ? (
+                      {available.length === 0 ? (
                         <span className="text-xs text-red-400">번호 없음</span>
                       ) : (
                         <div className="flex flex-wrap gap-x-3 gap-y-1.5 justify-end">
-                          {availablePhones.map((p) => (
-                            <label key={p.key} className="flex items-center gap-1.5 cursor-pointer">
+                          {available.map((p) => (
+                            <label key={p.key} className="flex items-center gap-1.5 cursor-pointer select-none">
                               <Checkbox
                                 checked={keys.has(p.key)}
                                 onCheckedChange={() => toggleRecipient(m.student_id, p.key)}
                                 disabled={status === 'success'}
                                 className="h-3.5 w-3.5"
                               />
-                              <span className="text-xs font-medium text-gray-700">{p.label}</span>
+                              <span className="text-xs font-medium text-gray-700">{RECIPIENT_LABEL[p.key]}</span>
                               <span className="text-xs text-gray-400">{p.phone}</span>
                             </label>
                           ))}
@@ -278,7 +351,7 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
                         <Button
                           size="sm"
                           onClick={() => sendOne(m)}
-                          disabled={!hasAnyRecipient || status === 'sending' || status === 'success'}
+                          disabled={keys.size === 0 || status === 'sending' || status === 'success'}
                           className={`h-7 text-xs ${status === 'success' ? 'bg-green-500 hover:bg-green-500 text-white' : ''}`}
                         >
                           {status === 'sending' && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
