@@ -52,6 +52,7 @@ export type GradingResult = {
 export type SmsStudentInput = {
   student_name: string
   is_absent?: boolean
+  is_unexamined?: boolean
   vocab: { correct: number; total: number; prev_correct: number | null }
   reading: {
     correct: number
@@ -97,6 +98,12 @@ ${students.map((s) => {
     return `---
 학생: ${s.student_name}
 결석: 예
+링크: ${s.share_url}`
+  }
+  if (s.is_unexamined) {
+    return `---
+학생: ${s.student_name}
+미응시: 예 (출석했으나 시험 미응시)
 링크: ${s.share_url}`
   }
   return `---

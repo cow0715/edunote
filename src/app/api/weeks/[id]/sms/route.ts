@@ -94,6 +94,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         teacher_memo: null,
         share_url: `${host}/share/${student.share_token}`,
       })
+    } else if (!score) {
+      // 출석했으나 채점 미완료 (미응시)
+      studentInputs.push({
+        student_name: student.name,
+        is_unexamined: true,
+        vocab: { correct: 0, total: week.vocab_total, prev_correct: null },
+        reading: { correct: 0, total: readingTotal, wrong_objective: [], wrong_subjective: [] },
+        homework: { done: 0, total: week.homework_total },
+        teacher_memo: null,
+        share_url: `${host}/share/${student.share_token}`,
+      })
     }
     if (!score) continue
 
