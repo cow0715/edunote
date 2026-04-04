@@ -117,6 +117,7 @@ export default function StudentsPage() {
       if (rows.length === 0) continue
       XLSX.utils.book_append_sheet(wb, makeSheet(rows), c.name.slice(0, 31))
       if (!wb.Workbook) wb.Workbook = { Sheets: [] }
+      if (!wb.Workbook.Sheets) wb.Workbook.Sheets = []
       wb.Workbook.Sheets[sheetIdx] = { TabColor: { rgb: TAB_COLORS[sheetIdx % TAB_COLORS.length] } }
       sheetIdx++
     }
