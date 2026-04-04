@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Moon, Sun, TrendingUp, TrendingDown, Minus, Info, ChevronRight, ChevronLeft } from 'lucide-react'
 import { AttendanceRecord } from './share-types'
 
@@ -81,11 +81,7 @@ export function StatCard({ label, value, delta, color, onClick }: {
 // ── 출석 캘린더 ────────────────────────────────────────────────────────────
 export function AttendanceCalendar({ attendance }: { attendance: AttendanceRecord[] }) {
   const months = [...new Set(attendance.map((a) => a.date.substring(0, 7)))].sort()
-  const [idx, setIdx] = useState(months.length - 1)
-
-  useEffect(() => {
-    setIdx(months.length - 1)
-  }, [months.length])
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
 
   if (attendance.length === 0) return (
     <p className="py-6 text-center text-xs text-[#8B95A1] dark:text-gray-500">출결 기록이 없습니다</p>
@@ -99,7 +95,9 @@ export function AttendanceCalendar({ attendance }: { attendance: AttendanceRecor
     absent:  'bg-rose-400 text-white',
   }
 
-  const monthStr = months[idx]
+  // selectedMonth가 null이거나 목록에 없으면 가장 최신 월
+  const monthStr = (selectedMonth && months.includes(selectedMonth)) ? selectedMonth : months[months.length - 1]
+  const idx = months.indexOf(monthStr)
   const [year, month] = monthStr.split('-').map(Number)
   const daysInMonth = new Date(year, month, 0).getDate()
   const startDow = new Date(year, month - 1, 1).getDay()
@@ -116,8 +114,8 @@ export function AttendanceCalendar({ attendance }: { attendance: AttendanceRecor
       {/* 월 네비게이션 */}
       <div className="flex items-center justify-between mb-3">
         <button
-          onClick={() => setIdx((i) => i - 1)}
-          disabled={idx === 0}
+          onClick={() => setSelectedMonth(months[idx - 1])}
+          disabled={idx <= 0}
           className="flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-20"
         >
           <ChevronLeft className="h-4 w-4 text-[#1A1C1E] dark:text-gray-300" />
@@ -126,8 +124,8 @@ export function AttendanceCalendar({ attendance }: { attendance: AttendanceRecor
           {year}년 {month}월
         </p>
         <button
-          onClick={() => setIdx((i) => i + 1)}
-          disabled={idx === months.length - 1}
+          onClick={() => setSelectedMonth(months[idx + 1])}
+          disabled={idx >= months.length - 1}
           className="flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-20"
         >
           <ChevronRight className="h-4 w-4 text-[#1A1C1E] dark:text-gray-300" />
