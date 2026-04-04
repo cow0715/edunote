@@ -4,11 +4,11 @@ import { toast } from 'sonner'
 export type MessageLog = {
   id: string
   student_id: string
-  week_id: string
+  week_id: string | null
   message: string
   sent_at: string
   student?: { id: string; name: string; mother_phone: string | null; father_phone: string | null; phone: string | null }
-  week?: { id: string; week_number: number; class_id: string; class?: { id: string; name: string } }
+  week?: { id: string; week_number: number; class_id: string; class?: { id: string; name: string } } | null
 }
 
 export function useMessageLogs(studentId?: string) {

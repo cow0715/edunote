@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { MessageSquare, Copy, Check, RefreshCw, Phone, SendHorizonal, ChevronDown, ChevronUp, RotateCcw, Save } from 'lucide-react'
+import { MessageSquare, Copy, Check, RefreshCw, Phone, ChevronDown, ChevronUp, RotateCcw, Save, Send, XCircle, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
@@ -21,6 +21,8 @@ type SmsMessage = {
   message: string
 }
 
+type SendStatus = 'idle' | 'sending' | 'success' | 'error'
+
 interface Props {
   weekId: string
   weekNumber: number
@@ -31,14 +33,14 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
   const [loading, setLoading] = useState(false)
   const [messages, setMessages] = useState<SmsMessage[]>([])
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [sentIds, setSentIds] = useState<Set<string>>(new Set())
+  const [sendStatus, setSendStatus] = useState<Record<string, SendStatus>>({})
+  const [sendError, setSendError] = useState<Record<string, string>>({})
   const [promptText, setPromptText] = useState(SMS_RULES)
   const [promptOpen, setPromptOpen] = useState(false)
   const saveMessageLog = useSaveMessageLog()
   const { data: savedPrompt } = usePrompt(PROMPT_KEY)
   const savePrompt = useSavePrompt(PROMPT_KEY)
 
-  // DB에 저장된 프롬프트가 있으면 로드
   useEffect(() => {
     if (savedPrompt) setPromptText(savedPrompt)
   }, [savedPrompt])
@@ -49,15 +51,16 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
   async function generate() {
     setLoading(true)
     try {
-      const body = JSON.stringify({ customPrompt: promptText })
       const res = await fetch(`/api/weeks/${weekId}/sms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body,
+        body: JSON.stringify({ customPrompt: promptText }),
       })
       if (!res.ok) throw new Error((await res.json()).error)
       const data = await res.json()
       setMessages(data.messages)
+      setSendStatus({})
+      setSendError({})
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'SMS 생성에 실패했습니다')
     } finally {
@@ -68,12 +71,7 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
   function handleOpen(v: boolean) {
     setOpen(v)
     if (v && messages.length === 0) generate()
-    if (!v) setSentIds(new Set())
-  }
-
-  async function markSent(m: SmsMessage) {
-    await saveMessageLog.mutateAsync({ student_id: m.student_id, week_id: weekId, message: m.message })
-    setSentIds((prev) => new Set(prev).add(m.student_id))
+    if (!v) { setSendStatus({}); setSendError({}) }
   }
 
   function updateMessage(studentId: string, text: string) {
@@ -90,22 +88,52 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
   }
 
   async function copyAll() {
-    const all = messages
-      .map((m) => `[${m.student_name}]\n${m.message}`)
-      .join('\n\n')
+    const all = messages.map((m) => `[${m.student_name}]\n${m.message}`).join('\n\n')
     await navigator.clipboard.writeText(all)
     toast.success(`${messages.length}명 문자 전체 복사됐습니다`)
   }
 
-  const primaryPhone = (m: SmsMessage) =>
-    m.mother_phone ?? m.father_phone ?? m.phone
+  async function sendOne(m: SmsMessage) {
+    const phone = m.mother_phone ?? m.father_phone ?? m.phone
+    if (!phone) {
+      toast.error(`${m.student_name}: 등록된 전화번호가 없습니다`)
+      return
+    }
+
+    setSendStatus((prev) => ({ ...prev, [m.student_id]: 'sending' }))
+    setSendError((prev) => { const n = { ...prev }; delete n[m.student_id]; return n })
+
+    try {
+      const res = await fetch('/api/sms/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: [{ studentId: m.student_id, studentName: m.student_name, phone, message: m.message }],
+          weekId,
+        }),
+      })
+      const [result] = await res.json()
+      if (result.success) {
+        setSendStatus((prev) => ({ ...prev, [m.student_id]: 'success' }))
+        await saveMessageLog.mutateAsync({ student_id: m.student_id, week_id: weekId, message: m.message })
+      } else {
+        setSendStatus((prev) => ({ ...prev, [m.student_id]: 'error' }))
+        setSendError((prev) => ({ ...prev, [m.student_id]: result.error ?? '발송 실패' }))
+      }
+    } catch {
+      setSendStatus((prev) => ({ ...prev, [m.student_id]: 'error' }))
+      setSendError((prev) => ({ ...prev, [m.student_id]: '네트워크 오류' }))
+    }
+  }
+
+  const primaryPhone = (m: SmsMessage) => m.mother_phone ?? m.father_phone ?? m.phone
 
   return (
     <Sheet open={open} onOpenChange={handleOpen}>
       <SheetTrigger asChild>
         <Button variant="outline">
           <MessageSquare className="mr-2 h-4 w-4" />
-          문자 생성
+          문자 발송
         </Button>
       </SheetTrigger>
 
@@ -114,13 +142,7 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
           <div className="flex items-center justify-between">
             <SheetTitle>{weekNumber}주차 문자 발송</SheetTitle>
             <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={generate}
-                disabled={loading}
-                className="h-8 text-xs"
-              >
+              <Button size="sm" variant="ghost" onClick={generate} disabled={loading} className="h-8 text-xs">
                 <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
                 재생성
               </Button>
@@ -193,74 +215,77 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
             </div>
           ) : (
             <div className="divide-y">
-              {messages.map((m) => (
-                <div key={m.student_id} className="px-5 py-4 space-y-2.5">
-                  {/* 학생 정보 */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-gray-900 text-sm">{m.student_name}</span>
-                    {primaryPhone(m) && (
-                      <span className="flex items-center gap-1 text-xs text-gray-400">
-                        <Phone className="h-3 w-3" />
-                        {primaryPhone(m)}
+              {messages.map((m) => {
+                const status = sendStatus[m.student_id] ?? 'idle'
+                const error = sendError[m.student_id]
+                const hasPhone = !!primaryPhone(m)
+                return (
+                  <div key={m.student_id} className="px-5 py-4 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-gray-900 text-sm">{m.student_name}</span>
+                      {primaryPhone(m) ? (
+                        <span className="flex items-center gap-1 text-xs text-gray-400">
+                          <Phone className="h-3 w-3" />
+                          {primaryPhone(m)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-red-400">번호 없음</span>
+                      )}
+                    </div>
+
+                    <Textarea
+                      value={m.message}
+                      onChange={(e) => updateMessage(m.student_id, e.target.value)}
+                      rows={5}
+                      className="text-sm resize-none"
+                      disabled={status === 'success'}
+                    />
+
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs ${m.message.length > 90 ? 'text-amber-500' : 'text-gray-400'}`}>
+                        {m.message.length}자
+                        {m.message.length > 90 && ' (장문 LMS)'}
                       </span>
-                    )}
-                  </div>
-
-                  {/* 문자 내용 */}
-                  <Textarea
-                    value={m.message}
-                    onChange={(e) => updateMessage(m.student_id, e.target.value)}
-                    rows={5}
-                    className="text-sm resize-none"
-                  />
-
-                  {/* 글자 수 + 버튼 */}
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xs ${m.message.length > 90 ? 'text-amber-500' : 'text-gray-400'}`}>
-                      {m.message.length}자
-                      {m.message.length > 90 && ' (장문 LMS)'}
-                    </span>
-                    <div className="flex gap-1.5">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => copyMessage(m.student_id, m.message)}
-                        className="h-7 text-xs"
-                      >
-                        {copiedId === m.student_id ? (
-                          <><Check className="mr-1 h-3 w-3 text-green-600" />복사됨</>
-                        ) : (
-                          <><Copy className="mr-1 h-3 w-3" />복사</>
+                      <div className="flex items-center gap-1.5">
+                        {error && (
+                          <span className="flex items-center gap-1 text-xs text-red-400">
+                            <XCircle className="h-3 w-3" />
+                            {error}
+                          </span>
                         )}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant={sentIds.has(m.student_id) ? 'default' : 'outline'}
-                        onClick={() => markSent(m)}
-                        disabled={sentIds.has(m.student_id) || saveMessageLog.isPending}
-                        className="h-7 text-xs"
-                      >
-                        {sentIds.has(m.student_id) ? (
-                          <><Check className="mr-1 h-3 w-3" />전송 완료</>
-                        ) : (
-                          <><SendHorizonal className="mr-1 h-3 w-3" />전송 완료</>
-                        )}
-                      </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => copyMessage(m.student_id, m.message)}
+                          className="h-7 text-xs"
+                          disabled={status === 'success'}
+                        >
+                          {copiedId === m.student_id ? (
+                            <><Check className="mr-1 h-3 w-3 text-green-600" />복사됨</>
+                          ) : (
+                            <><Copy className="mr-1 h-3 w-3" />복사</>
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => sendOne(m)}
+                          disabled={!hasPhone || status === 'sending' || status === 'success'}
+                          className={`h-7 text-xs ${status === 'success' ? 'bg-green-500 hover:bg-green-500 text-white' : ''}`}
+                        >
+                          {status === 'sending' && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                          {status === 'success' && <Check className="mr-1 h-3 w-3" />}
+                          {status === 'idle' && <Send className="mr-1 h-3 w-3" />}
+                          {status === 'error' && <Send className="mr-1 h-3 w-3" />}
+                          {status === 'sending' ? '발송 중' : status === 'success' ? '발송 완료' : '발송'}
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
-
-        {messages.length > 0 && (
-          <div className="border-t px-5 py-3 bg-gray-50">
-            <p className="text-xs text-gray-400 text-center">
-              복사 후 뿌리오에 붙여넣어 발송하세요
-            </p>
-          </div>
-        )}
       </SheetContent>
     </Sheet>
   )

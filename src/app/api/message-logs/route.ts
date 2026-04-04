@@ -27,13 +27,13 @@ export async function POST(request: Request) {
   if (!user) return err('인증 필요', 401)
 
   const { student_id, week_id, message } = await request.json()
-  if (!student_id || !week_id || !message) {
+  if (!student_id || !message) {
     return err('필수 항목 누락')
   }
 
   const { data, error } = await supabase
     .from('message_log')
-    .insert({ student_id, week_id, message })
+    .insert({ student_id, week_id: week_id ?? null, message })
     .select()
     .single()
 
