@@ -127,7 +127,8 @@ export default function StudentsPage() {
     if (unassigned.length > 0) {
       XLSX.utils.book_append_sheet(wb, makeSheet(unassigned), '미배정')
       if (!wb.Workbook) wb.Workbook = { Sheets: [] }
-      wb.Workbook.Sheets[sheetIdx] = { TabColor: { rgb: '808080' } }
+      if (!wb.Workbook.Sheets) wb.Workbook.Sheets = []
+      wb.Workbook.Sheets[sheetIdx] = { TabColor: { rgb: '808080' } } as XLSX.SheetProps
     }
 
     XLSX.writeFile(wb, `학생목록_${new Date().toISOString().slice(0, 10)}.xlsx`)
