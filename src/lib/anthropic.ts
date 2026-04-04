@@ -407,19 +407,21 @@ export async function parseVocabPdf(fileData: string, mimeType: string): Promise
 export async function generateVocabExamples(
   words: { id: string; english_word: string }[]
 ): Promise<{ id: string; sentence: string; translation: string }[]> {
-  const wordList = words.map((w, i) => `${i}|${w.id}|${w.english_word}`).join('\n')
+  const wordList = words.map((w, i) => `${i}. ${w.english_word}`).join('\n')
   const res = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 8000,
     messages: [{
       role: 'user',
-      content: `아래 단어들 각각에 대해 자연스러운 영어 예문 1개와 한국어 번역을 만들어줘.\nJSON 배열만 출력: [{"id":"단어ID","sentence":"영어 예문","translation":"한국어 번역"}, ...]\n\n${wordList}`,
+      content: `아래 단어들 각각에 대해 자연스러운 영어 예문 1개와 한국어 번역을 만들어줘.\nJSON 배열만 출력 (idx는 입력의 번호): [{"idx":0,"sentence":"영어 예문","translation":"한국어 번역"}, ...]\n\n${wordList}`,
     }],
   })
   const raw = res.content[0].type === 'text' ? res.content[0].text : ''
   const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
-  const parsed = JSON.parse(jsonrepair(cleaned)) as { id: string; sentence: string; translation: string }[]
-  return parsed.filter((p) => p.id && p.sentence && p.translation)
+  const parsed = JSON.parse(jsonrepair(cleaned)) as { idx: number; sentence: string; translation: string }[]
+  return parsed
+    .filter((p) => p.idx != null && p.sentence && p.translation && words[p.idx])
+    .map((p) => ({ id: words[p.idx].id, sentence: p.sentence, translation: p.translation }))
 }
 
 // ── 서술형 채점 ──────────────────────────────────────────────────────────
