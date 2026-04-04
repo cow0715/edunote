@@ -19,7 +19,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
 
   const examples = await generateVocabExamples(missing)
 
-  await Promise.all(
+  const updates = await Promise.all(
     examples.map((u) =>
       supabase
         .from('vocab_word')
@@ -27,6 +27,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
         .eq('id', u.id)
     )
   )
+  const saved = updates.filter((r) => !r.error).length
 
-  return ok({ generated: examples.length, missing: missing.length })
+  return ok({ generated: examples.length, saved, missing: missing.length })
 }
