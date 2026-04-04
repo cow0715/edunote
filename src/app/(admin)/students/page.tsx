@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Plus, Users, Pencil, Trash2, Phone, School, ExternalLink, Search } from 'lucide-react'
+import { Plus, Users, Pencil, Trash2, Phone, School, ExternalLink, Search, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -9,6 +9,7 @@ import { StudentFormDialog } from '@/components/students/student-form-dialog'
 import { useStudents, useDeleteStudent, useClassStudents } from '@/hooks/use-students'
 import { useClasses } from '@/hooks/use-classes'
 import { Student } from '@/lib/types'
+import * as XLSX from 'xlsx'
 
 export default function StudentsPage() {
   const { data: students, isLoading } = useStudents()
@@ -65,6 +66,71 @@ export default function StudentsPage() {
     setDialogOpen(true)
   }
 
+  async function handleExportExcel() {
+    if (!students || !classes) return
+
+    // 반별 학생 목록 병렬 조회
+    const classStudentsList = await Promise.all(
+      classes.map(async (c) => {
+        const res = await fetch(`/api/classes/${c.id}/students`)
+        if (!res.ok) return { classId: c.id, studentIds: [] as string[] }
+        const data: { student_id: string }[] = await res.json()
+        return { classId: c.id, studentIds: data.map((d) => d.student_id) }
+      })
+    )
+
+    const assignedIds = new Set(classStudentsList.flatMap((cl) => cl.studentIds))
+
+    const wb = XLSX.utils.book_new()
+
+    const COLS = [{ wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }]
+    const TAB_COLORS = [
+      '4F81BD', 'C0504D', '9BBB59', '8064A2',
+      '4BACC6', 'F79646', '17375E', '953734',
+    ]
+
+    const toRow = (s: Student) => ({
+      이름: s.name,
+      학생연락처: s.phone ?? '',
+      어머니연락처: s.mother_phone ?? '',
+      아버지연락처: s.father_phone ?? '',
+    })
+
+    const makeSheet = (rows: ReturnType<typeof toRow>[]) => {
+      const ws = XLSX.utils.json_to_sheet(rows, {
+        header: ['이름', '학생연락처', '어머니연락처', '아버지연락처'],
+      })
+      ws['!cols'] = COLS
+      ws['!freeze'] = { xSplit: 0, ySplit: 1 }
+      return ws
+    }
+
+    let sheetIdx = 0
+
+    // 반별 시트
+    for (const c of classes) {
+      const entry = classStudentsList.find((cl) => cl.classId === c.id)
+      const rows = (entry?.studentIds ?? [])
+        .map((id) => students.find((s) => s.id === id))
+        .filter((s): s is Student => !!s)
+        .map(toRow)
+      if (rows.length === 0) continue
+      XLSX.utils.book_append_sheet(wb, makeSheet(rows), c.name.slice(0, 31))
+      if (!wb.Workbook) wb.Workbook = { Sheets: [] }
+      wb.Workbook.Sheets[sheetIdx] = { TabColor: { rgb: TAB_COLORS[sheetIdx % TAB_COLORS.length] } }
+      sheetIdx++
+    }
+
+    // 미배정 학생 시트
+    const unassigned = students.filter((s) => !assignedIds.has(s.id)).map(toRow)
+    if (unassigned.length > 0) {
+      XLSX.utils.book_append_sheet(wb, makeSheet(unassigned), '미배정')
+      if (!wb.Workbook) wb.Workbook = { Sheets: [] }
+      wb.Workbook.Sheets[sheetIdx] = { TabColor: { rgb: '808080' } }
+    }
+
+    XLSX.writeFile(wb, `학생목록_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
 
   return (
     <div>
@@ -76,10 +142,16 @@ export default function StudentsPage() {
             {hasFilter && ` · 검색 결과 ${filtered.length}명`}
           </p>
         </div>
-        <Button onClick={handleCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          학생 등록
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExportExcel} disabled={!students?.length}>
+            <Download className="mr-2 h-4 w-4" />
+            엑셀 내보내기
+          </Button>
+          <Button onClick={handleCreate}>
+            <Plus className="mr-2 h-4 w-4" />
+            학생 등록
+          </Button>
+        </div>
       </div>
 
       {/* 검색 필터 */}
