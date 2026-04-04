@@ -53,7 +53,13 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
   const activePrompt = savedPrompt ?? SMS_RULES
   const isPromptModified = promptText !== activePrompt
 
+  const sentCount = Object.values(sendStatus).filter((s) => s === 'success').length
+
   async function generate() {
+    if (sentCount > 0) {
+      const ok = window.confirm(`이미 ${sentCount}명에게 발송됐습니다.\n재생성하면 발송 상태가 초기화됩니다. 계속할까요?`)
+      if (!ok) return
+    }
     setLoading(true)
     try {
       const res = await fetch(`/api/weeks/${weekId}/sms`, {
@@ -66,8 +72,11 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
       setMessages(data.messages)
       const defaults: Record<string, Set<RecipientKey>> = {}
       for (const m of data.messages) {
-        const key: RecipientKey = m.mother_phone ? 'mother' : m.father_phone ? 'father' : 'student'
-        defaults[m.student_id] = new Set([key])
+        const keys = new Set<RecipientKey>()
+        if (m.mother_phone) keys.add('mother')
+        if (m.phone) keys.add('student')
+        if (keys.size === 0 && m.father_phone) keys.add('father')
+        defaults[m.student_id] = keys
       }
       setSelectedRecipients(defaults)
       setSendStatus({})
@@ -303,10 +312,22 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
                 const available = PHONES.filter((p) => !!p.phone)
 
                 return (
-                  <div key={m.student_id} className="px-5 py-4 space-y-2.5">
-                    {/* 학생명 + 수신자 선택 */}
+                  <div key={m.student_id} className={`px-5 py-4 space-y-2.5 ${status === 'success' ? 'bg-green-50/50' : status === 'error' ? 'bg-red-50/50' : ''}`}>
+                    {/* 학생명 + 발송 상태 + 수신자 선택 */}
                     <div className="flex items-start justify-between gap-3">
-                      <span className="font-medium text-gray-900 text-sm pt-0.5">{m.student_name}</span>
+                      <div className="flex items-center gap-2 pt-0.5">
+                        <span className="font-medium text-gray-900 text-sm">{m.student_name}</span>
+                        {status === 'success' && (
+                          <span className="flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                            <Check className="h-3 w-3" />발송완료
+                          </span>
+                        )}
+                        {status === 'error' && (
+                          <span className="flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600">
+                            <XCircle className="h-3 w-3" />발송실패
+                          </span>
+                        )}
+                      </div>
                       {available.length === 0 ? (
                         <span className="text-xs text-red-400">번호 없음</span>
                       ) : (
@@ -340,11 +361,7 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
                         {m.message.length}자{m.message.length > 90 && ' (장문 LMS)'}
                       </span>
                       <div className="flex items-center gap-1.5">
-                        {error && (
-                          <span className="flex items-center gap-1 text-xs text-red-400">
-                            <XCircle className="h-3 w-3" />{error}
-                          </span>
-                        )}
+                        {error && <span className="text-xs text-red-400">{error}</span>}
                         <Button size="sm" variant="outline" onClick={() => copyMessage(m.student_id, m.message)} className="h-7 text-xs" disabled={status === 'success'}>
                           {copiedId === m.student_id ? <><Check className="mr-1 h-3 w-3 text-green-600" />복사됨</> : <><Copy className="mr-1 h-3 w-3" />복사</>}
                         </Button>
