@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Megaphone, CheckCircle2, XCircle, Loader2, ChevronRight, ChevronLeft } from 'lucide-react'
+import { Megaphone, CheckCircle2, XCircle, Loader2, ChevronRight, ChevronLeft, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useClasses } from '@/hooks/use-classes'
 import { useQueryClient } from '@tanstack/react-query'
 import { Student } from '@/lib/types'
@@ -15,22 +15,26 @@ import { toast } from 'sonner'
 type ClassWithStudents = { id: string; name: string; students: Student[] }
 type SendResult = { studentId: string; studentName: string; recipientLabel: string; phone: string; message: string; success: boolean; error?: string }
 type Step = 'select' | 'compose' | 'result'
+type RecipientType = 'mother' | 'father' | 'student'
 
-// 학생별 수신자 목록 (번호 있는 것만)
-type Recipient = { key: string; studentId: string; label: '어머니' | '아버지' | '학생'; phone: string }
+type Recipient = { key: string; studentId: string; type: RecipientType; label: '어머니' | '아버지' | '학생'; phone: string }
+
+const TYPE_LABEL: Record<RecipientType, '어머니' | '아버지' | '학생'> = {
+  mother: '어머니', father: '아버지', student: '학생',
+}
 
 function getRecipients(s: Student): Recipient[] {
   const list: Recipient[] = []
-  if (s.mother_phone) list.push({ key: `${s.id}:mother`, studentId: s.id, label: '어머니', phone: s.mother_phone })
-  if (s.father_phone) list.push({ key: `${s.id}:father`, studentId: s.id, label: '아버지', phone: s.father_phone })
-  if (s.phone)        list.push({ key: `${s.id}:student`, studentId: s.id, label: '학생',   phone: s.phone })
+  if (s.mother_phone) list.push({ key: `${s.id}:mother`, studentId: s.id, type: 'mother', label: '어머니', phone: s.mother_phone })
+  if (s.father_phone) list.push({ key: `${s.id}:father`, studentId: s.id, type: 'father', label: '아버지', phone: s.father_phone })
+  if (s.phone)        list.push({ key: `${s.id}:student`, studentId: s.id, type: 'student', label: '학생',   phone: s.phone })
   return list
 }
 
 export function BroadcastDialog() {
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>('select')
-  const [selectedTab, setSelectedTab] = useState('all')
+  const [classFilter, setClassFilter] = useState('all')
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
@@ -64,29 +68,60 @@ export function BroadcastDialog() {
   }
 
   function reset() {
-    setStep('select'); setSelectedTab('all')
+    setStep('select'); setClassFilter('all')
     setSelectedKeys(new Set()); setMessage(''); setResults([])
   }
 
+  // 전체 학생 (중복 제거)
   const allStudents = useMemo(() => {
     const map = new Map<string, Student>()
     classesWithStudents.forEach((c) => c.students.forEach((s) => map.set(s.id, s)))
     return Array.from(map.values())
   }, [classesWithStudents])
 
+  // 필터된 학생 (목록 표시용만)
   const visibleStudents = useMemo(() => {
-    if (selectedTab === 'all') return allStudents
-    return classesWithStudents.find((c) => c.id === selectedTab)?.students ?? []
-  }, [selectedTab, allStudents, classesWithStudents])
+    if (classFilter === 'all') return allStudents
+    return classesWithStudents.find((c) => c.id === classFilter)?.students ?? []
+  }, [classFilter, allStudents, classesWithStudents])
 
-  const visibleRecipients = useMemo(() =>
-    visibleStudents.flatMap(getRecipients), [visibleStudents])
+  // 전체 학생 수신자 (선택용 — 필터 무관)
+  const allRecipients = useMemo(() => allStudents.flatMap(getRecipients), [allStudents])
 
-  const allVisibleChecked = visibleRecipients.length > 0 &&
-    visibleRecipients.every((r) => selectedKeys.has(r.key))
+  // 타입별 전체 수신자 수 (전체 학생 기준)
+  const typeCount = useMemo(() => {
+    const counts: Record<RecipientType, number> = { mother: 0, father: 0, student: 0 }
+    allRecipients.forEach((r) => counts[r.type]++)
+    return counts
+  }, [allRecipients])
+
+  // 타입별 선택 상태 (전체 학생 기준)
+  function typeCheckState(type: RecipientType): boolean | 'indeterminate' {
+    const typeRecs = allRecipients.filter((r) => r.type === type)
+    if (typeRecs.length === 0) return false
+    const selected = typeRecs.filter((r) => selectedKeys.has(r.key))
+    if (selected.length === 0) return false
+    if (selected.length === typeRecs.length) return true
+    return 'indeterminate'
+  }
+
+  function toggleType(type: RecipientType) {
+    const typeRecs = allRecipients.filter((r) => r.type === type)
+    const allChecked = typeRecs.every((r) => selectedKeys.has(r.key))
+    setSelectedKeys((prev) => {
+      const next = new Set(prev)
+      if (allChecked) typeRecs.forEach((r) => next.delete(r.key))
+      else typeRecs.forEach((r) => next.add(r.key))
+      return next
+    })
+  }
+
+  // 보이는 학생 전체 선택 상태
+  const visibleRecipients = useMemo(() => visibleStudents.flatMap(getRecipients), [visibleStudents])
+  const allVisibleChecked = visibleRecipients.length > 0 && visibleRecipients.every((r) => selectedKeys.has(r.key))
   const someVisibleChecked = visibleRecipients.some((r) => selectedKeys.has(r.key))
 
-  function toggleAll() {
+  function toggleAllVisible() {
     setSelectedKeys((prev) => {
       const next = new Set(prev)
       if (allVisibleChecked) visibleRecipients.forEach((r) => next.delete(r.key))
@@ -97,7 +132,7 @@ export function BroadcastDialog() {
 
   function toggleStudent(s: Student) {
     const recs = getRecipients(s)
-    const allChecked = recs.every((r) => selectedKeys.has(r.key))
+    const allChecked = recs.length > 0 && recs.every((r) => selectedKeys.has(r.key))
     setSelectedKeys((prev) => {
       const next = new Set(prev)
       if (allChecked) recs.forEach((r) => next.delete(r.key))
@@ -115,13 +150,11 @@ export function BroadcastDialog() {
     })
   }
 
-  // 선택된 수신자 목록 (전송 시 사용)
-  const selectedRecipients = useMemo(() => {
-    const allRecs = allStudents.flatMap(getRecipients)
-    return allRecs.filter((r) => selectedKeys.has(r.key))
-  }, [selectedKeys, allStudents])
+  const selectedRecipients = useMemo(
+    () => allRecipients.filter((r) => selectedKeys.has(r.key)),
+    [selectedKeys, allRecipients]
+  )
 
-  // 스텝2 미리보기용: 학생별 그룹핑
   const selectedByStudent = useMemo(() => {
     const map = new Map<string, { name: string; labels: string[] }>()
     for (const r of selectedRecipients) {
@@ -176,38 +209,83 @@ export function BroadcastDialog() {
         {/* ── Step 1: 받는 사람 선택 ── */}
         {step === 'select' && (
           <>
-            <div className="overflow-y-auto max-h-[60vh]">
+            {/* 고정 필터 영역 */}
+            <div className="px-6 pt-4 pb-3 space-y-3 border-b bg-white">
+              {/* 반 셀렉트 */}
+              <Select value={classFilter} onValueChange={setClassFilter}>
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue placeholder="반 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">전체 반</SelectItem>
+                  {classesWithStudents.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* 빠른 선택: 어머니/아버지/학생 전체 */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-400 mr-1 shrink-0">전체 선택</span>
+                {(['mother', 'father', 'student'] as RecipientType[]).map((type) => {
+                  const state = typeCheckState(type)
+                  const count = typeCount[type]
+                  if (count === 0) return null
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => toggleType(type)}
+                      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                        state === true
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : state === 'indeterminate'
+                          ? 'border-primary/50 bg-primary/5 text-primary/70'
+                          : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+                      }`}
+                    >
+                      <Checkbox
+                        checked={state}
+                        className="h-3 w-3 pointer-events-none"
+                      />
+                      {TYPE_LABEL[type]}
+                      <span className={`${state ? 'text-primary/60' : 'text-gray-400'}`}>{count}</span>
+                    </button>
+                  )
+                })}
+                {selectedKeys.size > 0 && (
+                  <button
+                    onClick={() => setSelectedKeys(new Set())}
+                    className="ml-auto flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-3 w-3" />초기화
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 학생 목록 */}
+            <div className="overflow-y-auto max-h-[50vh]">
               {loadingStudents ? (
                 <div className="flex items-center justify-center py-16">
                   <Loader2 className="h-6 w-6 animate-spin text-gray-300" />
                 </div>
               ) : (
                 <>
-                  <div className="px-6 pt-4">
-                    <Tabs value={selectedTab} onValueChange={setSelectedTab}>
-                      <TabsList className="h-8">
-                        <TabsTrigger value="all" className="text-xs px-3">전체</TabsTrigger>
-                        {classesWithStudents.map((c) => (
-                          <TabsTrigger key={c.id} value={c.id} className="text-xs px-3">{c.name}</TabsTrigger>
-                        ))}
-                      </TabsList>
-                    </Tabs>
-                  </div>
-
-                  {/* 전체 선택 */}
-                  <div className="flex items-center gap-3 px-6 py-3 border-b">
+                  {/* 목록 전체 선택 (현재 필터 기준) */}
+                  <div className="flex items-center gap-3 px-6 py-2.5 border-b bg-gray-50">
                     <Checkbox
                       checked={allVisibleChecked ? true : someVisibleChecked ? 'indeterminate' : false}
-                      onCheckedChange={toggleAll}
+                      onCheckedChange={toggleAllVisible}
                       disabled={visibleRecipients.length === 0}
                     />
-                    <span className="text-sm text-gray-600">전체 선택</span>
-                    <span className="ml-auto text-xs text-gray-400">
-                      {selectedKeys.size}명 선택됨
+                    <span className="text-xs text-gray-500">
+                      {classFilter === 'all' ? '전체' : classesWithStudents.find(c => c.id === classFilter)?.name} 전체 선택
+                    </span>
+                    <span className="ml-auto text-xs font-semibold text-primary">
+                      {selectedKeys.size}건 선택
                     </span>
                   </div>
 
-                  {/* 학생 목록 */}
                   <div className="divide-y">
                     {visibleStudents.map((s) => {
                       const recs = getRecipients(s)
@@ -215,7 +293,6 @@ export function BroadcastDialog() {
                       const someChecked = recs.some((r) => selectedKeys.has(r.key))
                       return (
                         <div key={s.id} className="px-6 py-3">
-                          {/* 학생명 + 학생 전체 체크 */}
                           <div
                             className="flex items-center gap-3 cursor-pointer mb-2"
                             onClick={() => recs.length > 0 && toggleStudent(s)}
@@ -227,19 +304,12 @@ export function BroadcastDialog() {
                               onClick={(e) => e.stopPropagation()}
                             />
                             <span className="text-sm font-semibold text-gray-900">{s.name}</span>
-                            {recs.length === 0 && (
-                              <span className="ml-auto text-xs text-gray-400">번호 없음</span>
-                            )}
+                            {recs.length === 0 && <span className="ml-auto text-xs text-gray-400">번호 없음</span>}
                           </div>
-
-                          {/* 개별 번호 체크박스 */}
                           {recs.length > 0 && (
                             <div className="ml-7 flex flex-wrap gap-x-4 gap-y-1.5">
                               {recs.map((r) => (
-                                <label
-                                  key={r.key}
-                                  className="flex items-center gap-1.5 cursor-pointer"
-                                >
+                                <label key={r.key} className="flex items-center gap-1.5 cursor-pointer">
                                   <Checkbox
                                     checked={selectedKeys.has(r.key)}
                                     onCheckedChange={() => toggleRecipient(r.key)}
@@ -260,12 +330,9 @@ export function BroadcastDialog() {
 
             <div className="px-6 py-4 border-t bg-gray-50 flex items-center justify-between">
               <span className="text-sm">
-                {selectedKeys.size > 0 ? (
-                  <span className="font-semibold text-primary">{selectedKeys.size}건</span>
-                ) : (
-                  <span className="text-gray-400">선택된 수신자 없음</span>
-                )}
-                {selectedKeys.size > 0 && <span className="text-gray-500"> 선택됨</span>}
+                {selectedKeys.size > 0
+                  ? <><span className="font-semibold text-primary">{selectedKeys.size}건</span><span className="text-gray-500"> 선택됨</span></>
+                  : <span className="text-gray-400">선택된 수신자 없음</span>}
               </span>
               <Button onClick={() => setStep('compose')} disabled={selectedKeys.size === 0} size="sm">
                 다음 <ChevronRight className="ml-1 h-4 w-4" />
@@ -278,7 +345,6 @@ export function BroadcastDialog() {
         {step === 'compose' && (
           <>
             <div className="overflow-y-auto max-h-[60vh] px-6 py-4 space-y-4">
-              {/* 수신자 미리보기 */}
               <div>
                 <p className="text-xs text-gray-400 mb-2">받는 사람 ({selectedRecipients.length}건)</p>
                 <div className="flex flex-wrap gap-1.5">
@@ -293,7 +359,6 @@ export function BroadcastDialog() {
                 </div>
               </div>
 
-              {/* 메시지 입력 */}
               <div>
                 <p className="text-xs text-gray-400 mb-2">메시지</p>
                 <Textarea
@@ -336,11 +401,9 @@ export function BroadcastDialog() {
                 <ChevronLeft className="mr-1 h-4 w-4" />이전
               </Button>
               <Button onClick={send} disabled={!message.trim() || sending} size="sm">
-                {sending ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{selectedRecipients.length}건 발송 중...</>
-                ) : (
-                  <><Megaphone className="mr-2 h-4 w-4" />{selectedRecipients.length}건 발송</>
-                )}
+                {sending
+                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{selectedRecipients.length}건 발송 중...</>
+                  : <><Megaphone className="mr-2 h-4 w-4" />{selectedRecipients.length}건 발송</>}
               </Button>
             </div>
           </>
@@ -364,7 +427,6 @@ export function BroadcastDialog() {
                   </div>
                 )}
               </div>
-
               <div className="divide-y">
                 {results.map((r, i) => (
                   <div key={i} className="flex items-center gap-3 px-6 py-3">
@@ -379,7 +441,6 @@ export function BroadcastDialog() {
                 ))}
               </div>
             </div>
-
             <div className="px-6 py-4 border-t bg-gray-50 flex justify-end">
               <Button onClick={() => setOpen(false)} size="sm">확인</Button>
             </div>
