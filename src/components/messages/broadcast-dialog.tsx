@@ -245,10 +245,13 @@ export function BroadcastDialog() {
                           : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
                       }`}
                     >
-                      <Checkbox
-                        checked={state}
-                        className="h-3 w-3 pointer-events-none"
-                      />
+                      {/* button 중첩 방지: Checkbox 대신 시각적 표시 */}
+                      <span className={`flex h-3 w-3 items-center justify-center rounded-sm border ${
+                        state === true ? 'border-primary bg-primary' : state === 'indeterminate' ? 'border-primary/50 bg-primary/10' : 'border-gray-300'
+                      }`}>
+                        {state === true && <span className="block h-1.5 w-1.5 rounded-sm bg-white" />}
+                        {state === 'indeterminate' && <span className="block h-px w-2 bg-primary/70" />}
+                      </span>
                       {TYPE_LABEL[type]}
                       <span className={`${state ? 'text-primary/60' : 'text-gray-400'}`}>{count}</span>
                     </button>
