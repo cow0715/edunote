@@ -41,6 +41,9 @@ export function BroadcastDialog() {
   const [results, setResults] = useState<SendResult[]>([])
   const [classesWithStudents, setClassesWithStudents] = useState<ClassWithStudents[]>([])
   const [loadingStudents, setLoadingStudents] = useState(false)
+  const [scheduleEnabled, setScheduleEnabled] = useState(false)
+  const [scheduleDate, setScheduleDate] = useState('')
+  const [scheduleTime, setScheduleTime] = useState('09:00')
 
   const { data: classes = [] } = useClasses()
   const qc = useQueryClient()
@@ -70,6 +73,7 @@ export function BroadcastDialog() {
   function reset() {
     setStep('select'); setClassFilter('all')
     setSelectedKeys(new Set()); setMessage(''); setResults([])
+    setScheduleEnabled(false); setScheduleDate(''); setScheduleTime('09:00')
   }
 
   // 전체 학생 (중복 제거)
@@ -167,6 +171,11 @@ export function BroadcastDialog() {
     return Array.from(map.values())
   }, [selectedRecipients, allStudents])
 
+  function buildScheduledDate() {
+    if (!scheduleEnabled || !scheduleDate || !scheduleTime) return undefined
+    return `${scheduleDate}T${scheduleTime}:00+09:00`
+  }
+
   async function send() {
     setSending(true)
     try {
@@ -174,10 +183,11 @@ export function BroadcastDialog() {
         const s = allStudents.find((s) => s.id === r.studentId)!
         return { studentId: r.studentId, studentName: s.name, recipientLabel: r.label, phone: r.phone, message }
       })
+      const scheduledDate = buildScheduledDate()
       const res = await fetch('/api/sms/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targets }),
+        body: JSON.stringify({ targets, scheduledDate }),
       })
       const data: SendResult[] = await res.json()
       setResults(data)
@@ -399,15 +409,49 @@ export function BroadcastDialog() {
                   </p>
                 </div>
               )}
+
+              {/* 예약 발송 */}
+              <div className="rounded-xl border px-4 py-3 space-y-2.5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={scheduleEnabled}
+                    onCheckedChange={(v) => setScheduleEnabled(!!v)}
+                  />
+                  <span className="text-sm font-medium text-gray-700">예약 발송</span>
+                </label>
+                {scheduleEnabled && (
+                  <div className="flex gap-2 ml-6">
+                    <input
+                      type="date"
+                      value={scheduleDate}
+                      min={new Date().toISOString().slice(0, 10)}
+                      onChange={(e) => setScheduleDate(e.target.value)}
+                      className="flex-1 rounded-md border border-input bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <input
+                      type="time"
+                      value={scheduleTime}
+                      onChange={(e) => setScheduleTime(e.target.value)}
+                      className="w-28 rounded-md border border-input bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="px-6 py-4 border-t bg-gray-50 flex items-center justify-between">
               <Button variant="ghost" size="sm" onClick={() => setStep('select')}>
                 <ChevronLeft className="mr-1 h-4 w-4" />이전
               </Button>
-              <Button onClick={send} disabled={!message.trim() || sending} size="sm">
+              <Button
+                onClick={send}
+                disabled={!message.trim() || sending || (scheduleEnabled && (!scheduleDate || !scheduleTime))}
+                size="sm"
+              >
                 {sending
-                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{selectedRecipients.length}건 발송 중...</>
+                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{selectedRecipients.length}건 처리 중...</>
+                  : scheduleEnabled
+                  ? <><Megaphone className="mr-2 h-4 w-4" />{selectedRecipients.length}건 예약</>
                   : <><Megaphone className="mr-2 h-4 w-4" />{selectedRecipients.length}건 발송</>}
               </Button>
             </div>
