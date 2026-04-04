@@ -57,6 +57,7 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
   const [selectedRecipients, setSelectedRecipients] = useState<Record<string, Set<RecipientKey>>>({})
   const [sendStatus, setSendStatus] = useState<Record<string, SendStatus>>({})
   const [sendError, setSendError] = useState<Record<string, string>>({})
+  const [sendingAll, setSendingAll] = useState(false)
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
   const [scheduleDate, setScheduleDate] = useState(() => getNearestSchedule().date)
   const [scheduleTime, setScheduleTime] = useState(() => getNearestSchedule().time)
@@ -177,6 +178,21 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
     })
   }
 
+  async function sendAll() {
+    const pending = messages.filter((m) => (sendStatus[m.student_id] ?? 'idle') !== 'success')
+    if (pending.length === 0) return
+    const totalTargets = pending.reduce((sum, m) => sum + (selectedRecipients[m.student_id]?.size ?? 0), 0)
+    const confirmed = window.confirm(
+      `${pending.length}명(${totalTargets}건)에게 ${scheduleEnabled ? '예약 발송' : '전체 발송'}하시겠습니까?`
+    )
+    if (!confirmed) return
+    setSendingAll(true)
+    for (const m of pending) {
+      await sendOne(m)
+    }
+    setSendingAll(false)
+  }
+
   async function copyMessage(studentId: string, text: string) {
     await navigator.clipboard.writeText(text)
     setCopiedId(studentId)
@@ -221,11 +237,9 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
         await saveMessageLog.mutateAsync({ student_id: m.student_id, week_id: weekId, message: m.message })
       } else {
         const failedResults = results.filter((r: { success: boolean; error?: string }) => !r.success)
-        const failedLabels = failedResults.map((r: { recipientLabel: string }) => r.recipientLabel).join(', ')
         const errorMsg = failedResults[0]?.error ?? '발송 실패'
         setSendStatus((prev) => ({ ...prev, [m.student_id]: 'error' }))
         setSendError((prev) => ({ ...prev, [m.student_id]: errorMsg }))
-        toast.error(`${m.student_name}(${failedLabels}): ${errorMsg}`)
       }
     } catch {
       setSendStatus((prev) => ({ ...prev, [m.student_id]: 'error' }))
@@ -247,13 +261,19 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
           <div className="flex items-center justify-between">
             <SheetTitle>{weekNumber}주차 문자 발송</SheetTitle>
             <div className="flex gap-2">
-              <Button size="sm" variant="ghost" onClick={generate} disabled={loading} className="h-8 text-xs">
+              <Button size="sm" variant="ghost" onClick={generate} disabled={loading || sendingAll} className="h-8 text-xs">
                 <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />재생성
               </Button>
               {messages.length > 0 && (
-                <Button size="sm" variant="outline" onClick={copyAll} className="h-8 text-xs">
-                  <Copy className="mr-1.5 h-3.5 w-3.5" />전체 복사
-                </Button>
+                <>
+                  <Button size="sm" variant="outline" onClick={copyAll} className="h-8 text-xs">
+                    <Copy className="mr-1.5 h-3.5 w-3.5" />전체 복사
+                  </Button>
+                  <Button size="sm" onClick={sendAll} disabled={loading || sendingAll} className="h-8 text-xs">
+                    {sendingAll ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
+                    전체 발송
+                  </Button>
+                </>
               )}
             </div>
           </div>
@@ -271,8 +291,10 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
           </button>
 
           {promptOpen && (
-            <div className="space-y-1.5 pt-1 max-h-[40vh] overflow-y-auto">
-              <Textarea value={promptText} onChange={(e) => setPromptText(e.target.value)} rows={8} className="font-mono text-xs resize-none" spellCheck={false} />
+            <div className="space-y-1.5 pt-1">
+              <div className="max-h-[35vh] overflow-y-auto rounded-md">
+                <Textarea value={promptText} onChange={(e) => setPromptText(e.target.value)} rows={8} className="font-mono text-xs resize-none" spellCheck={false} />
+              </div>
               <div className="flex justify-between">
                 <Button size="sm" variant="ghost" onClick={() => setPromptText(SMS_RULES)} className="h-7 text-xs text-gray-400 hover:text-gray-600">
                   <RotateCcw className="mr-1 h-3 w-3" />기본값으로 되돌리기
