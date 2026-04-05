@@ -13,9 +13,13 @@ function monthToExamType(month: number): number {
 }
 
 async function fetchExamSeq(grade: number, examYear: number, examMonth: number): Promise<number | null> {
+  // DB는 학년도 기준, 메가스터디는 시행연도 기준 → 항상 -1
+  // 예: 2026학년도 수능/6월/9월 = 2025년 시행 → megastudy examYear=2025
+  const megastudyYear = examYear - 1
+
   const body = new URLSearchParams({
     grdFlg: String(grade),
-    examYear: String(examYear),
+    examYear: String(megastudyYear),
     examType: String(monthToExamType(examMonth)),
   })
 
@@ -30,7 +34,7 @@ async function fetchExamSeq(grade: number, examYear: number, examMonth: number):
   const html = await res.text()
   // 예: onclick="fncSelExamSeq(334,'1',0);">2024.11.14 수능
   const monthStr = String(examMonth).padStart(2, '0')
-  const re = new RegExp(`fncSelExamSeq\\((\\d+),'\\d+',\\d+\\)[^>]*>\\s*${examYear}\\.${monthStr}\\.`)
+  const re = new RegExp(`fncSelExamSeq\\((\\d+),'\\d+',\\d+\\)[^>]*>\\s*${megastudyYear}\\.${monthStr}\\.`)
   const m = html.match(re)
   return m ? parseInt(m[1]) : null
 }
