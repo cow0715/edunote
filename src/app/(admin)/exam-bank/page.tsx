@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, Plus, Pencil, File } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 // ── 타입 ──────────────────────────────────────────────────────────────────
 
@@ -696,14 +697,13 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
     const step4 = setTimeout(() => setUploadStep(4), 120000)
 
     try {
-      const buffer = await file.arrayBuffer()
-      const bytes = new Uint8Array(buffer)
-      const chunkSize = 8192
-      let binary = ''
-      for (let i = 0; i < bytes.length; i += chunkSize) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
-      }
-      const base64 = btoa(binary)
+      // PDF를 Supabase Storage에 직접 업로드 (Vercel 4.5MB body 한도 우회)
+      const supabase = createClient()
+      const storagePath = `${Date.now()}_${file.name}`
+      const { error: uploadErr } = await supabase.storage
+        .from('exam-pdf-temp')
+        .upload(storagePath, file, { contentType: file.type || 'application/pdf', upsert: true })
+      if (uploadErr) throw new Error(`파일 업로드 실패: ${uploadErr.message}`)
 
       const res = await fetch('/api/exam-bank', {
         method: 'POST',
@@ -711,7 +711,7 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
         body: JSON.stringify({
           ...form,
           title: autoTitle,
-          fileData: base64,
+          storagePath,
           mimeType: file.type || 'application/pdf',
         }),
       })
