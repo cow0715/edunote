@@ -107,6 +107,10 @@ export async function POST(request: Request) {
     // 파싱 에러 시 exam_bank 삭제
     await supabase.from('exam_bank').delete().eq('id', exam.id)
     console.error('[exam-bank] 파싱 실패', e)
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg.includes('content filtering')) {
+      return err('이 PDF는 AI 안전 필터에 걸려 파싱할 수 없습니다. 다른 연도/파일로 시도해주세요.', 422)
+    }
     return err('PDF 파싱 실패. 파일을 확인해주세요.', 422)
   }
 }
