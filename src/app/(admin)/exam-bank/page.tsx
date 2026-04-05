@@ -84,21 +84,15 @@ function mdToPlain(text: string): string {
 }
 
 async function copyRich(plainText: string, htmlText: string) {
-  // execCommand 방식: 브라우저+OS가 HTML→RTF 변환 처리 (한글 호환성 ↑)
-  const div = document.createElement('div')
-  div.innerHTML = htmlText
-  div.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;'
-  document.body.appendChild(div)
   try {
-    const range = document.createRange()
-    range.selectNodeContents(div)
-    const sel = window.getSelection()
-    sel?.removeAllRanges()
-    sel?.addRange(range)
-    document.execCommand('copy')
-    sel?.removeAllRanges()
-  } finally {
-    document.body.removeChild(div)
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'text/plain': new Blob([plainText], { type: 'text/plain' }),
+        'text/html': new Blob([htmlText], { type: 'text/html' }),
+      }),
+    ])
+  } catch {
+    await navigator.clipboard.writeText(plainText)
   }
 }
 
@@ -437,7 +431,7 @@ function QuestionCard({
       + (q.answer ? `<p>정답: ${q.answer}</p>` : '')
 
     await copyRich(plain, html)
-    toast.success('클립보드에 복사되었습니다')
+    toast.success('복사되었습니다 · 한글 사용 시 Word에 먼저 붙여넣기 후 복사하세요')
   }, [q])
 
   return (
