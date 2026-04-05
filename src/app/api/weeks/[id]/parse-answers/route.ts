@@ -179,8 +179,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     await supabase.from('exam_question_tag').insert(tagInserts)
   }
 
-  // ── 6. reading_total 자동 업데이트 ────────────────────────────────────
-  await supabase.from('week').update({ reading_total: questions.length }).eq('id', weekId)
+  // ── 6. reading_total 자동 업데이트 (실제 DB 행 수 기준 — INSERT 후 select null 방어)
+  const { count: qCount } = await supabase
+    .from('exam_question')
+    .select('id', { count: 'exact', head: true })
+    .eq('week_id', weekId)
+    .eq('exam_type', 'reading')
+  await supabase.from('week').update({ reading_total: qCount ?? parsedAnswers.length }).eq('id', weekId)
 
   // ── 7. 기존 학생 답안 재채점 ──────────────────────────────────────────
   const { data: weekScores } = await supabase
