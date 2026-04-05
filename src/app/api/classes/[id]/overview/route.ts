@@ -5,7 +5,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (!user) return err('인증 필요', 401)
   const { id: classId } = await params
   const [{ data: classStudents }, { data: weeks }] = await Promise.all([
-    supabase.from('class_student').select('student_id, student(*), joined_at, left_at').eq('class_id', classId).order('joined_at'),
+    supabase.from('class_student').select('student_id, student(*), joined_at, left_at').eq('class_id', classId).is('left_at', null).order('joined_at'),
     supabase.from('week').select('*').eq('class_id', classId).order('week_number'),
   ])
   if (!weeks || !classStudents) return ok({ students: [], weeks: [], scores: [], attendance: [] })
