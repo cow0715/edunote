@@ -407,6 +407,8 @@ export default function AnalysisPage() {
                 <th className="px-4 py-3 text-left w-10">#</th>
                 <th className="px-4 py-3 text-left min-w-[100px]">이름</th>
                 <th className="px-4 py-3 text-left w-24">성적 추이</th>
+                <th className="px-3 py-3 text-center w-16">최근 단어</th>
+                <th className="px-3 py-3 text-center w-16">최근 시험</th>
                 <th className="px-4 py-3 text-left min-w-[130px]">부 전화</th>
                 <th className="px-4 py-3 text-left min-w-[130px]">모 전화</th>
                 <th className="px-4 py-3 text-left min-w-[130px]">학생 전화</th>
@@ -426,6 +428,21 @@ export default function AnalysisPage() {
                   if (!sc || sc.reading_correct === null || w.reading_total === 0) return null
                   return Math.round(sc.reading_correct / w.reading_total * 100)
                 })
+
+                // 가장 최근 데이터가 있는 주차 찾기 (역순 탐색)
+                let latestVocab: number | null = null
+                let latestReading: number | null = null
+                for (let i = weeks.length - 1; i >= 0; i--) {
+                  const w = weeks[i]
+                  const sc = weekScoreMap.get(w.id)
+                  if (latestVocab === null && sc && sc.vocab_correct !== null && w.vocab_total > 0) {
+                    latestVocab = Math.round(sc.vocab_correct / w.vocab_total * 100)
+                  }
+                  if (latestReading === null && sc && sc.reading_correct !== null && w.reading_total > 0) {
+                    latestReading = Math.round(sc.reading_correct / w.reading_total * 100)
+                  }
+                  if (latestVocab !== null && latestReading !== null) break
+                }
 
                 const weekAttMap = new Map(
                   attendance
@@ -450,6 +467,20 @@ export default function AnalysisPage() {
                     <td className="px-4 py-3 font-medium text-gray-900">{student.name}</td>
                     <td className="px-4 py-3">
                       <Sparkline data={sparkData} />
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {latestVocab !== null
+                        ? <span className={cn('text-xs font-semibold', latestVocab < 50 ? 'text-red-500' : latestVocab < 70 ? 'text-yellow-600' : 'text-emerald-600')}>
+                            {latestVocab}%
+                          </span>
+                        : <span className="text-gray-300 text-xs">-</span>}
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {latestReading !== null
+                        ? <span className={cn('text-xs font-semibold', latestReading < 50 ? 'text-red-500' : latestReading < 70 ? 'text-yellow-600' : 'text-emerald-600')}>
+                            {latestReading}%
+                          </span>
+                        : <span className="text-gray-300 text-xs">-</span>}
                     </td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <CopyPhone phone={student.father_phone} />
