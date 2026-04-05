@@ -27,7 +27,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, Plus, Pencil, File } from 'lucide-react'
+import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, Plus, Pencil, File, BarChart2, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 // ── 타입 ──────────────────────────────────────────────────────────────────
@@ -39,6 +39,7 @@ type ExamBank = {
   exam_month: number
   grade: number
   source: string
+  form_type: string
   created_at: string
   exam_bank_question: { count: number }[]
 }
@@ -53,6 +54,10 @@ type ExamBankQuestion = {
   choices: string[]
   answer: string
   raw_text: string
+  difficulty: string | null
+  points: number | null
+  correct_rate: number | null
+  choice_rates: number[] | null
   exam_bank?: {
     title: string
     exam_year: number
@@ -269,11 +274,50 @@ export default function ExamBankPage() {
   )
 }
 
+// ── 메가스터디 통계 버튼 ──────────────────────────────────────────────────
+
+function FetchStatsButton({ examId, formType }: { examId: string; formType: string }) {
+  const queryClient = useQueryClient()
+  const [loading, setLoading] = useState(false)
+
+  const handleFetch = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/exam-bank/${examId}/fetch-stats`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ form_type: formType }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(`통계 저장 완료 (${data.updated}/${data.total}문항)`)
+      queryClient.invalidateQueries({ queryKey: ['exam-bank-questions', examId] })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '통계 가져오기 실패')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={handleFetch}
+      disabled={loading}
+      title="메가스터디 통계 가져오기"
+    >
+      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart2 className="h-4 w-4" />}
+    </Button>
+  )
+}
+
 // ── 시험 목록 ─────────────────────────────────────────────────────────────
 
 function ExamList() {
   const queryClient = useQueryClient()
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [bulkLoading, setBulkLoading] = useState(false)
 
   const { data: exams, isLoading } = useQuery<ExamBank[]>({
     queryKey: ['exam-bank'],
@@ -289,11 +333,47 @@ function ExamList() {
     },
   })
 
+  const handleBulkFetch = async () => {
+    if (!exams?.length) return
+    setBulkLoading(true)
+    let success = 0, fail = 0
+    for (const exam of exams) {
+      try {
+        const res = await fetch(`/api/exam-bank/${exam.id}/fetch-stats`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ form_type: exam.form_type || '홀수형' }),
+        })
+        const data = await res.json()
+        if (res.ok && data.updated > 0) success++
+        else fail++
+      } catch {
+        fail++
+      }
+    }
+    queryClient.invalidateQueries({ queryKey: ['exam-bank-questions'] })
+    toast.success(`완료 · 성공 ${success}개 / 실패 ${fail}개`)
+    setBulkLoading(false)
+  }
+
   if (isLoading) return <p className="text-sm text-gray-500">불러오는 중...</p>
   if (!exams?.length) return <p className="text-sm text-gray-500">등록된 기출 시험이 없습니다.</p>
 
   return (
     <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleBulkFetch}
+          disabled={bulkLoading}
+        >
+          {bulkLoading
+            ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />통계 가져오는 중...</>
+            : <><BarChart2 className="mr-2 h-4 w-4" />전체 통계 일괄 가져오기</>
+          }
+        </Button>
+      </div>
       {exams.map((exam) => (
         <Card key={exam.id} className="p-4">
           <div className="flex items-center justify-between">
@@ -324,6 +404,7 @@ function ExamList() {
                   <ChevronDown className="h-4 w-4" />
                 )}
               </Button>
+              <FetchStatsButton examId={exam.id} formType={exam.form_type || '홀수형'} />
               <Button
                 variant="ghost"
                 size="sm"
@@ -445,6 +526,17 @@ function QuestionCard({
           {q.answer && (
             <Badge variant="outline" className="text-xs">
               정답: {q.answer}
+            </Badge>
+          )}
+          {q.difficulty && (
+            <Badge variant="outline" className={`text-xs ${
+              q.difficulty === '하' ? 'text-green-600 border-green-300' :
+              q.difficulty === '중하' ? 'text-lime-600 border-lime-300' :
+              q.difficulty === '중' ? 'text-yellow-600 border-yellow-300' :
+              q.difficulty === '중상' ? 'text-orange-600 border-orange-300' :
+              'text-red-600 border-red-300'
+            }`}>
+              {q.difficulty} · {q.points}점 · {q.correct_rate}%
             </Badge>
           )}
           {showExamInfo && q.exam_bank && (
@@ -826,6 +918,7 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
     exam_month: 3,
     grade: 2,
     source: '교육청',
+    form_type: '홀수형',
   })
 
   const autoTitle = form.source === '수능'
@@ -865,13 +958,15 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
         }),
       })
 
+
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || '업로드 실패')
 
-      toast.success(`${data.question_count}개 문항이 추출되었습니다`)
+      const statsMsg = data.stats_fetched > 0 ? ` · 메가스터디 통계 ${data.stats_fetched}문항` : ''
+      toast.success(`${data.question_count}개 문항 추출 완료${statsMsg}`)
       queryClient.invalidateQueries({ queryKey: ['exam-bank'] })
       onOpenChange(false)
-      setForm({ exam_year: new Date().getFullYear(), exam_month: 3, grade: 2, source: '교육청' })
+      setForm({ exam_year: new Date().getFullYear(), exam_month: 3, grade: 2, source: '교육청', form_type: '홀수형' })
       setFileName('')
       if (fileRef.current) fileRef.current.value = ''
     } catch (e) {
@@ -936,6 +1031,18 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
               <SelectContent>
                 <SelectItem value="수능">수능</SelectItem>
                 <SelectItem value="모의고사">모의고사</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* 시험지 유형 */}
+          <div className="flex items-center gap-3">
+            <Label className="w-16 shrink-0 text-right text-sm text-gray-500">유형</Label>
+            <Select value={form.form_type} onValueChange={(v) => setForm({ ...form, form_type: v })}>
+              <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="홀수형">홀수형</SelectItem>
+                <SelectItem value="짝수형">짝수형</SelectItem>
               </SelectContent>
             </Select>
           </div>
