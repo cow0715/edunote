@@ -1,6 +1,7 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parseExamBankPage } from '@/lib/anthropic'
+import { getMegastudyStats } from '@/lib/megastudy'
 
 export const maxDuration = 300
 
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
   const teacherId = await getTeacherId(supabase, user.id)
   if (!teacherId) return err('선생님 정보 없음', 403)
 
-  const { title, exam_year, exam_month, grade, source, storagePath, mimeType } = await request.json()
+  const { title, exam_year, exam_month, grade, source, form_type, storagePath, mimeType } = await request.json()
 
   if (!title || !exam_year || !exam_month || !grade) {
     return err('필수 정보 누락 (title, exam_year, exam_month, grade)')
@@ -65,7 +66,7 @@ export async function POST(request: Request) {
   // 1. exam_bank 레코드 생성
   const { data: exam, error: examError } = await supabase
     .from('exam_bank')
-    .insert({ teacher_id: teacherId, title, exam_year, exam_month, grade, source: source || '교육청' })
+    .insert({ teacher_id: teacherId, title, exam_year, exam_month, grade, source: source || '교육청', form_type: form_type || '홀수형' })
     .select()
     .single()
 
@@ -102,7 +103,31 @@ export async function POST(request: Request) {
       return err(`문항 저장 실패: ${insertError.message}`)
     }
 
-    return ok({ ok: true, exam_id: exam.id, question_count: questions.length })
+    // 메가스터디 통계 자동 fetch (실패해도 업로드는 성공 처리)
+    let statsFetched = 0
+    try {
+      const formTypeVal: '홀수형' | '짝수형' = form_type === '짝수형' ? '짝수형' : '홀수형'
+      const stats = await getMegastudyStats(grade, exam_year, exam_month, formTypeVal)
+      if (stats && stats.length > 0) {
+        for (const row of stats) {
+          const { error: updateErr } = await supabase
+            .from('exam_bank_question')
+            .update({
+              difficulty: row.difficulty,
+              points: row.points,
+              correct_rate: row.correct_rate,
+              choice_rates: row.choice_rates,
+            })
+            .eq('exam_bank_id', exam.id)
+            .eq('question_number', row.question_number)
+          if (!updateErr) statsFetched++
+        }
+      }
+    } catch {
+      // 통계 fetch 실패는 무시
+    }
+
+    return ok({ ok: true, exam_id: exam.id, question_count: questions.length, stats_fetched: statsFetched })
   } catch (e) {
     // 파싱 에러 시 exam_bank 삭제
     await supabase.from('exam_bank').delete().eq('id', exam.id)
