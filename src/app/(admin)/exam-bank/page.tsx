@@ -84,16 +84,21 @@ function mdToPlain(text: string): string {
 }
 
 async function copyRich(plainText: string, htmlText: string) {
+  // execCommand 방식: 브라우저+OS가 HTML→RTF 변환 처리 (한글 호환성 ↑)
+  const div = document.createElement('div')
+  div.innerHTML = htmlText
+  div.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;'
+  document.body.appendChild(div)
   try {
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        'text/plain': new Blob([plainText], { type: 'text/plain' }),
-        'text/html': new Blob([htmlText], { type: 'text/html' }),
-      }),
-    ])
-  } catch {
-    // ClipboardItem 미지원 브라우저 fallback
-    await navigator.clipboard.writeText(plainText)
+    const range = document.createRange()
+    range.selectNodeContents(div)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+    document.execCommand('copy')
+    sel?.removeAllRanges()
+  } finally {
+    document.body.removeChild(div)
   }
 }
 
