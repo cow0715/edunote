@@ -67,6 +67,36 @@ type ExamBankQuestion = {
 
 const MD_TOKEN_RE = /(\*\*[^*]+\*\*|\*[^*]+\*|<u>[^<]+<\/u>)/g
 
+// 마크다운 → HTML (한글/워드 붙여넣기용)
+function mdToHtml(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br>')
+}
+
+// 마크다운 기호 제거 (plain text용)
+function mdToPlain(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/<u>([^<]+)<\/u>/g, '$1')
+}
+
+async function copyRich(plainText: string, htmlText: string) {
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        'text/plain': new Blob([plainText], { type: 'text/plain' }),
+        'text/html': new Blob([htmlText], { type: 'text/html' }),
+      }),
+    ])
+  } catch {
+    // ClipboardItem 미지원 브라우저 fallback
+    await navigator.clipboard.writeText(plainText)
+  }
+}
+
 function renderLine(line: string, lineKey: number) {
   const parts = line.split(MD_TOKEN_RE)
   return (
@@ -388,14 +418,20 @@ function QuestionCard({
   onEdit?: () => void
   onDelete?: () => void
 }) {
-  const copyText = useCallback(() => {
-    const parts = [
-      `[${q.question_number}번] ${q.question_text}`,
-      q.passage ? `\n${q.passage}` : '',
-      q.choices.length > 0 ? `\n${q.choices.join('\n')}` : '',
+  const copyText = useCallback(async () => {
+    const plain = [
+      `[${q.question_number}번] ${mdToPlain(q.question_text)}`,
+      q.passage ? `\n${mdToPlain(q.passage)}` : '',
+      q.choices.length > 0 ? `\n${q.choices.map(mdToPlain).join('\n')}` : '',
       q.answer ? `\n정답: ${q.answer}` : '',
-    ]
-    navigator.clipboard.writeText(parts.join(''))
+    ].join('')
+
+    const html = `<p><strong>[${q.question_number}번]</strong> ${mdToHtml(q.question_text)}</p>`
+      + (q.passage ? `<p>${mdToHtml(q.passage)}</p>` : '')
+      + (q.choices.length > 0 ? `<p>${q.choices.map(mdToHtml).join('<br>')}</p>` : '')
+      + (q.answer ? `<p>정답: ${q.answer}</p>` : '')
+
+    await copyRich(plain, html)
     toast.success('클립보드에 복사되었습니다')
   }, [q])
 
@@ -496,19 +532,26 @@ function QuestionSearch() {
     setResults(null)
   }
 
-  const copyAll = () => {
+  const copyAll = async () => {
     if (!results?.length) return
-    const text = results.map((q) => {
-      const parts = [
-        `[${q.exam_bank ? `${q.exam_bank.exam_year}년 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade}` : ''} ${q.question_number}번]`,
-        q.question_text,
-        q.passage ? `\n${q.passage}` : '',
-        q.choices.length > 0 ? `\n${q.choices.join('\n')}` : '',
-        q.answer ? `\n정답: ${q.answer}` : '',
-      ]
-      return parts.join('')
-    }).join('\n\n---\n\n')
-    navigator.clipboard.writeText(text)
+    const examInfo = (q: ExamBankQuestion) =>
+      q.exam_bank ? `${q.exam_bank.exam_year}년 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade}` : ''
+
+    const plain = results.map((q) => [
+      `[${examInfo(q)} ${q.question_number}번] ${mdToPlain(q.question_text)}`,
+      q.passage ? `\n${mdToPlain(q.passage)}` : '',
+      q.choices.length > 0 ? `\n${q.choices.map(mdToPlain).join('\n')}` : '',
+      q.answer ? `\n정답: ${q.answer}` : '',
+    ].join('')).join('\n\n---\n\n')
+
+    const html = results.map((q) =>
+      `<p><strong>[${examInfo(q)} ${q.question_number}번]</strong> ${mdToHtml(q.question_text)}</p>`
+      + (q.passage ? `<p>${mdToHtml(q.passage)}</p>` : '')
+      + (q.choices.length > 0 ? `<p>${q.choices.map(mdToHtml).join('<br>')}</p>` : '')
+      + (q.answer ? `<p>정답: ${q.answer}</p>` : '')
+    ).join('<hr>')
+
+    await copyRich(plain, html)
     toast.success(`${results.length}개 문항이 클립보드에 복사되었습니다`)
   }
 
