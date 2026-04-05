@@ -702,7 +702,7 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
       const storagePath = `${Date.now()}_${file.name}`
       const { error: uploadErr } = await supabase.storage
         .from('exam-pdf-temp')
-        .upload(storagePath, file, { contentType: file.type || 'application/pdf', upsert: true })
+        .upload(storagePath, file, { contentType: file.type || 'application/pdf' })
       if (uploadErr) throw new Error(`파일 업로드 실패: ${uploadErr.message}`)
 
       const res = await fetch('/api/exam-bank', {
