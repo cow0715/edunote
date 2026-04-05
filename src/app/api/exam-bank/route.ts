@@ -1,4 +1,5 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
+import { createServiceClient } from '@/lib/supabase/server'
 import { parseExamBankPage } from '@/lib/anthropic'
 
 export const maxDuration = 300
@@ -30,14 +31,36 @@ export async function POST(request: Request) {
   const teacherId = await getTeacherId(supabase, user.id)
   if (!teacherId) return err('선생님 정보 없음', 403)
 
-  const { title, exam_year, exam_month, grade, source, fileData, mimeType } = await request.json()
+  const { title, exam_year, exam_month, grade, source, storagePath, mimeType } = await request.json()
 
   if (!title || !exam_year || !exam_month || !grade) {
     return err('필수 정보 누락 (title, exam_year, exam_month, grade)')
   }
-  if (!fileData || !mimeType) {
+  if (!storagePath || !mimeType) {
     return err('PDF 파일 필요')
   }
+
+  // Storage에서 PDF 다운로드
+  const serviceClient = createServiceClient()
+  const { data: fileBlob, error: downloadErr } = await serviceClient.storage
+    .from('exam-pdf-temp')
+    .download(storagePath)
+
+  if (downloadErr || !fileBlob) {
+    return err(`파일 다운로드 실패: ${downloadErr?.message}`)
+  }
+
+  const buffer = await fileBlob.arrayBuffer()
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunkSize = 8192
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+  }
+  const fileData = btoa(binary)
+
+  // 처리 후 임시 파일 삭제 (에러 여부 무관)
+  void serviceClient.storage.from('exam-pdf-temp').remove([storagePath])
 
   // 1. exam_bank 레코드 생성
   const { data: exam, error: examError } = await supabase
