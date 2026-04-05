@@ -42,7 +42,8 @@ export function WeekResultTable({ weekId, classId, startDate, vocabTotal, readin
 
   if (isLoading) return <div className="h-40 animate-pulse rounded-lg bg-gray-100" />
 
-  const { classStudents = [], weekScores = [] } = data ?? {}
+  const { classStudents = [], weekScores = [], questions = [] } = data ?? {}
+  const effectiveReadingTotal = readingTotal > 0 ? readingTotal : (questions as { id: string }[]).length
   const scoreMap = new Map<string, ScoreRecord>(weekScores.map((s: ScoreRecord) => [s.student_id, s]))
   const attendanceMap = new Map<string, AttendanceStatus>(
     attendanceRecords.map((a: { student_id: string; status: AttendanceStatus }) => [a.student_id, a.status])
@@ -58,7 +59,7 @@ export function WeekResultTable({ weekId, classId, startDate, vocabTotal, readin
         <thead className="bg-gray-50 text-gray-500">
           <tr>
             <th className="px-3 py-2 text-left">학생</th>
-            {readingTotal > 0  && <th className="px-2 py-2 text-center">독해</th>}
+            {effectiveReadingTotal > 0  && <th className="px-2 py-2 text-center">독해</th>}
             {vocabTotal > 0    && <th className="px-2 py-2 text-center">단어</th>}
             {homeworkTotal > 0 && <th className="px-2 py-2 text-center">숙제</th>}
             <th className="px-2 py-2 text-center">출결</th>
@@ -75,10 +76,10 @@ export function WeekResultTable({ weekId, classId, startDate, vocabTotal, readin
               <tr key={cs.student_id} className="hover:bg-gray-50">
                 <td className="px-3 py-2 font-medium text-gray-900 whitespace-nowrap">{cs.student?.name}</td>
 
-                {readingTotal > 0 && (
+                {effectiveReadingTotal > 0 && (
                   <td className="px-2 py-2 text-center">
                     {score
-                      ? <ScoreCell correct={score.reading_correct} total={readingTotal} />
+                      ? <ScoreCell correct={score.reading_correct} total={effectiveReadingTotal} />
                       : notAbsent
                         ? <span className="text-orange-400 font-medium">미응시</span>
                         : <span className="text-gray-300">-</span>}

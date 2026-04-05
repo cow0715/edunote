@@ -373,5 +373,13 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
   // student_answer.is_correct 기준으로 reading_correct 자동 계산 (답안 없으면 null)
   await recalcReadingCorrect(supabase, processedScoreIds)
 
+  // reading_total이 0인데 문항이 있으면 자동 업데이트
+  if (allQuestions && allQuestions.length > 0) {
+    const { data: week } = await supabase.from('week').select('reading_total').eq('id', weekId).single()
+    if (week && week.reading_total === 0) {
+      await supabase.from('week').update({ reading_total: allQuestions.length }).eq('id', weekId)
+    }
+  }
+
   return ok({ ok: true })
 }
