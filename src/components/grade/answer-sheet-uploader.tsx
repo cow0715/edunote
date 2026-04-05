@@ -121,7 +121,15 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
       </p>
 
       {savedFilePath && status.type !== 'done' && (
-        <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+        <div
+          className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
+          onClick={async () => {
+            const res = await fetch(`/api/answer-sheet-url?path=${encodeURIComponent(savedFilePath)}`)
+            if (!res.ok) { toast.error('다운로드 링크 생성 실패'); return }
+            const { url } = await res.json()
+            window.open(url, '_blank')
+          }}
+        >
           <FileCheck className="h-3.5 w-3.5 shrink-0" />
           <span>저장된 해설지 있음 · <span className="font-mono opacity-70">{savedFilePath.split('/').pop()}</span></span>
         </div>
