@@ -72,11 +72,19 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       ((data.attendance ?? []) as { student_id: string; status: string }[]).map((a) => [a.student_id, a.status])
     )
 
-    setRows(
-      (classStudents ?? []).map((cs: { student_id: string; student: { name: string } }) => {
+    setRows((prev) => {
+      const prevMap = new Map(prev.map((r) => [r.student_id, r]))
+      return (classStudents ?? []).map((cs: { student_id: string; student: { name: string } }) => {
         const score = scoreMap.get(cs.student_id)
         const attStatus = attendanceMap.get(cs.student_id)
-        const present = attStatus === 'absent' ? false : (hasAnyScore ? !!score : true)
+        // 명시적 출결 기록 우선. 없으면 기존 present 상태 유지 (refetch 시 OCR로 인한 오판 방지).
+        // 최초 로드(prevMap 없음)일 때만 hasAnyScore로 추론.
+        const prevRow = prevMap.get(cs.student_id)
+        let present: boolean
+        if (attStatus === 'absent') present = false
+        else if (attStatus === 'present') present = true
+        else if (prevRow !== undefined) present = prevRow.present
+        else present = hasAnyScore ? !!score : true
         return {
           student_id: cs.student_id,
           student_name: cs.student?.name ?? '',
@@ -107,7 +115,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           }),
         }
       })
-    )
+    })
   }, [data])
 
   // 단어 답안 맵 (data 변경 시에만 재계산)
@@ -205,6 +213,18 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       setSheetView({ ...sheetView, studentIndex: next })
     }
   }
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!sheetView) return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.key === 'ArrowLeft') { e.preventDefault(); navigateSheet(-1) }
+      if (e.key === 'ArrowRight') { e.preventDefault(); navigateSheet(1) }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [sheetView, sheetRow, rows.length])
 
   return (
     <div className="space-y-3">
