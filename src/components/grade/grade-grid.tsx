@@ -189,6 +189,30 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     )
   }, [])
 
+  const sheetRow = sheetView !== null ? rows[sheetView.studentIndex] ?? null : null
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!sheetView) return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        if (sheetView.type === 'exam' && sheetRow) saveDraft.mutate([sheetRow])
+        const next = sheetView.studentIndex - 1
+        if (next >= 0) setSheetView({ ...sheetView, studentIndex: next })
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        if (sheetView.type === 'exam' && sheetRow) saveDraft.mutate([sheetRow])
+        const next = sheetView.studentIndex + 1
+        if (next < rows.length) setSheetView({ ...sheetView, studentIndex: next })
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [sheetView, sheetRow, rows.length])
+
   if (isLoading) return <div className="h-40 animate-pulse rounded-lg bg-gray-100" />
 
   const questions: ExamQuestion[] = data?.questions ?? []
@@ -199,7 +223,6 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
   }
 
   const hasSubjective = questions.some((q) => q.question_style === 'subjective')
-  const sheetRow = sheetView !== null ? rows[sheetView.studentIndex] ?? null : null
   const showVocab = vocabTotal > 0
   const showExam = readingTotal > 0 || questions.length > 0
 
@@ -213,18 +236,6 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       setSheetView({ ...sheetView, studentIndex: next })
     }
   }
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (!sheetView) return
-      const tag = (e.target as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
-      if (e.key === 'ArrowLeft') { e.preventDefault(); navigateSheet(-1) }
-      if (e.key === 'ArrowRight') { e.preventDefault(); navigateSheet(1) }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [sheetView, sheetRow, rows.length])
 
   return (
     <div className="space-y-3">
