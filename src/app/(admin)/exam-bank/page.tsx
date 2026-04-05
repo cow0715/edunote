@@ -2,6 +2,10 @@
 
 import { useState, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEditor, EditorContent } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import Underline from '@tiptap/extension-underline'
+import { Markdown, type MarkdownStorage } from 'tiptap-markdown'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -56,6 +60,111 @@ type ExamBankQuestion = {
     grade: number
     source: string
   }
+}
+
+// ── 마크다운 인라인 렌더러 ────────────────────────────────────────────────
+// **bold**, *italic*, <u>underline</u>을 React 요소로 변환
+
+const MD_TOKEN_RE = /(\*\*[^*]+\*\*|\*[^*]+\*|<u>[^<]+<\/u>)/g
+
+function renderLine(line: string, lineKey: number) {
+  const parts = line.split(MD_TOKEN_RE)
+  return (
+    <span key={lineKey}>
+      {parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          return <strong key={i}>{part.slice(2, -2)}</strong>
+        }
+        if (part.startsWith('*') && part.endsWith('*')) {
+          return <em key={i}>{part.slice(1, -1)}</em>
+        }
+        if (part.startsWith('<u>') && part.endsWith('</u>')) {
+          return <u key={i}>{part.slice(3, -4)}</u>
+        }
+        return part
+      })}
+    </span>
+  )
+}
+
+function MarkdownText({ text, className }: { text: string; className?: string }) {
+  const lines = text.split('\n')
+  return (
+    <span className={className}>
+      {lines.map((line, i) => (
+        <span key={i}>
+          {renderLine(line, i)}
+          {i < lines.length - 1 && <br />}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+function MarkdownField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  minRows = 3,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  minRows?: number
+}) {
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({ heading: false, blockquote: false, code: false, codeBlock: false, horizontalRule: false }),
+      Underline,
+      Markdown.configure({ html: true, transformPastedText: true }),
+    ],
+    content: value,
+    onUpdate({ editor }) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      onChange((editor.storage as unknown as { markdown: MarkdownStorage }).markdown.getMarkdown())
+    },
+    editorProps: {
+      attributes: {
+        class: 'outline-none min-h-[60px] text-sm text-gray-800 leading-relaxed',
+      },
+    },
+  })
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <Label>{label}</Label>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onMouseDown={(e) => { e.preventDefault(); editor?.chain().focus().toggleBold().run() }}
+            className={`rounded px-1.5 py-0.5 text-xs font-bold border ${editor?.isActive('bold') ? 'bg-gray-200 border-gray-400' : 'border-gray-200 hover:bg-gray-100'}`}
+          >B</button>
+          <button
+            type="button"
+            onMouseDown={(e) => { e.preventDefault(); editor?.chain().focus().toggleItalic().run() }}
+            className={`rounded px-1.5 py-0.5 text-xs italic border ${editor?.isActive('italic') ? 'bg-gray-200 border-gray-400' : 'border-gray-200 hover:bg-gray-100'}`}
+          >I</button>
+          <button
+            type="button"
+            onMouseDown={(e) => { e.preventDefault(); editor?.chain().focus().toggleUnderline().run() }}
+            className={`rounded px-1.5 py-0.5 text-xs underline border ${editor?.isActive('underline') ? 'bg-gray-200 border-gray-400' : 'border-gray-200 hover:bg-gray-100'}`}
+          >U</button>
+        </div>
+      </div>
+      <div
+        className="rounded-md border bg-white px-3 py-2 text-sm focus-within:ring-1 focus-within:ring-ring"
+        style={{ minHeight: `${minRows * 1.75 + 1}rem` }}
+      >
+        {editor && !editor.getText() && !editor.isFocused && (
+          <p className="pointer-events-none absolute text-gray-400 text-sm">{placeholder}</p>
+        )}
+        <EditorContent editor={editor} />
+      </div>
+    </div>
+  )
 }
 
 const QUESTION_TYPE_LABELS: Record<string, string> = {
@@ -326,11 +435,13 @@ function QuestionCard({
         </div>
       </div>
 
-      <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap text-justify">{q.question_text}</p>
+      <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap text-justify">
+        <MarkdownText text={q.question_text} />
+      </p>
 
       {q.passage && (
         <pre className="mt-2 whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-600 text-justify">
-          {q.passage}
+          <MarkdownText text={q.passage} />
         </pre>
       )}
 
@@ -602,25 +713,21 @@ function QuestionEditDialog({
             </div>
           </div>
 
-          <div>
-            <Label>발문 (+ 주어진 문장)</Label>
-            <Textarea
-              rows={3}
-              value={form.question_text}
-              onChange={(e) => setForm({ ...form, question_text: e.target.value })}
-              placeholder="다음 글의 목적으로 가장 적절한 것은?"
-            />
-          </div>
+          <MarkdownField
+            label="발문 (+ 주어진 문장)"
+            minRows={3}
+            value={form.question_text}
+            onChange={(v) => setForm({ ...form, question_text: v })}
+            placeholder="다음 글의 목적으로 가장 적절한 것은?"
+          />
 
-          <div>
-            <Label>지문</Label>
-            <Textarea
-              rows={8}
-              value={form.passage}
-              onChange={(e) => setForm({ ...form, passage: e.target.value })}
-              placeholder="지문 내용 (없으면 비워두세요)"
-            />
-          </div>
+          <MarkdownField
+            label="지문"
+            minRows={8}
+            value={form.passage}
+            onChange={(v) => setForm({ ...form, passage: v })}
+            placeholder="지문 내용 (없으면 비워두세요)"
+          />
 
           <div>
             <Label>보기 (5개)</Label>
