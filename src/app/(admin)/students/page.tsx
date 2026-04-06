@@ -11,7 +11,7 @@ import { useClasses } from '@/hooks/use-classes'
 import { Student, StudentWithEnrollments } from '@/lib/types'
 import * as XLSX from 'xlsx'
 
-type SortKey = 'name' | 'grade' | 'joined_at' | 'left_at'
+type SortKey = 'name' | 'school' | 'grade' | 'class' | 'joined_at' | 'left_at'
 type SortDir = 'asc' | 'desc'
 
 function getJoinedAt(s: StudentWithEnrollments): string | null {
@@ -96,7 +96,9 @@ export default function StudentsPage() {
     list = [...list].sort((a, b) => {
       let av: string = '', bv: string = ''
       if (sortKey === 'name') { av = a.name; bv = b.name }
+      else if (sortKey === 'school') { av = a.school ?? ''; bv = b.school ?? '' }
       else if (sortKey === 'grade') { av = a.grade ?? ''; bv = b.grade ?? '' }
+      else if (sortKey === 'class') { av = getActiveClasses(a); bv = getActiveClasses(b) }
       else if (sortKey === 'joined_at') { av = getJoinedAt(a) ?? ''; bv = getJoinedAt(b) ?? '' }
       else if (sortKey === 'left_at') { av = getLeftAt(a) ?? ''; bv = getLeftAt(b) ?? '' }
       const cmp = av.localeCompare(bv, 'ko')
@@ -307,17 +309,34 @@ export default function StudentsPage() {
                   </th>
                   <th
                     className={thSortClass}
+                    onClick={() => handleSort('school')}
+                  >
+                    <span className="flex items-center">
+                      학교
+                      <SortIcon col="school" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
+                  </th>
+                  <th
+                    className={thSortClass}
                     onClick={() => handleSort('grade')}
                   >
                     <span className="flex items-center">
-                      학교/학년
+                      학년
                       <SortIcon col="grade" sortKey={sortKey} sortDir={sortDir} />
                     </span>
                   </th>
                   <th className={thClass}>학생 연락처</th>
                   <th className={thClass}>부 연락처</th>
                   <th className={thClass}>모 연락처</th>
-                  <th className={thClass}>반</th>
+                  <th
+                    className={thSortClass}
+                    onClick={() => handleSort('class')}
+                  >
+                    <span className="flex items-center">
+                      반
+                      <SortIcon col="class" sortKey={sortKey} sortDir={sortDir} />
+                    </span>
+                  </th>
                   <th
                     className={thSortClass}
                     onClick={() => handleSort('joined_at')}
@@ -349,7 +368,10 @@ export default function StudentsPage() {
                         {s.name}
                       </td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                        {[s.school, s.grade].filter(Boolean).join(' ') || '-'}
+                        {s.school || '-'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                        {s.grade || '-'}
                       </td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                         {s.phone || '-'}
