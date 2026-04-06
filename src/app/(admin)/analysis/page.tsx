@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { Users, Copy, Check, Trash2, Link2, StickyNote, TrendingUp, BookOpen, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
-import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts'
+import { LineChart, Line, XAxis, ResponsiveContainer, Tooltip, Legend } from 'recharts'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
@@ -171,6 +171,24 @@ function StudentSheet({
     return Math.round(sc.reading_correct / w.reading_total * 100)
   })
 
+  // 주차별 반 평균 (시험)
+  const avgData = weeks.map((w) => {
+    if (w.reading_total === 0) return null
+    const weekScores = scores
+      .filter((s) => s.week_id === w.id && s.reading_correct !== null)
+      .map((s) => Math.round(s.reading_correct! / w.reading_total * 100))
+    return weekScores.length > 0 ? Math.round(weekScores.reduce((a, b) => a + b, 0) / weekScores.length) : null
+  })
+
+  // 날짜 레이블 (MM/DD, 없으면 N차)
+  const chartData = weeks
+    .map((w, i) => ({
+      name: w.start_date ? w.start_date.slice(5).replace('-', '/') : `${w.week_number}차`,
+      student: scoreData[i],
+      avg: avgData[i],
+    }))
+    .filter((d) => d.student !== null || d.avg !== null)
+
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent className="w-[400px] sm:w-[480px] flex flex-col p-0 gap-0 overflow-hidden">
@@ -229,15 +247,24 @@ function StudentSheet({
                 <p className="text-sm text-gray-400 text-center py-8">등록된 주차가 없습니다</p>
               ) : (
                 <>
-                  {scoreData.filter((v) => v !== null).length >= 2 && (
+                  {chartData.length >= 2 && (
                     <div className="rounded-xl border bg-white p-3">
                       <p className="text-xs text-gray-400 mb-2">시험 점수 추이</p>
-                      <ResponsiveContainer width="100%" height={60}>
-                        <LineChart data={weeks.map((w, i) => ({ name: `${w.week_number}차`, v: scoreData[i] })).filter((d) => d.v !== null)}>
-                          <Line type="monotone" dataKey="v" stroke="#6366f1" strokeWidth={2} dot={{ r: 3, fill: '#6366f1' }} />
-                          <Tooltip contentStyle={{ fontSize: 11 }} formatter={(v) => [`${v}`, '점']} />
+                      <ResponsiveContainer width="100%" height={90}>
+                        <LineChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                          <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} />
+                          <Tooltip
+                            contentStyle={{ fontSize: 11, padding: '4px 8px', borderRadius: 6 }}
+                            formatter={(v, name) => [`${v}%`, name === 'student' ? student.name : '반 평균']}
+                          />
+                          <Line type="monotone" dataKey="avg" stroke="#d1d5db" strokeWidth={1.5} dot={false} strokeDasharray="4 3" connectNulls />
+                          <Line type="monotone" dataKey="student" stroke="#6366f1" strokeWidth={2} dot={{ r: 3, fill: '#6366f1' }} connectNulls />
                         </LineChart>
                       </ResponsiveContainer>
+                      <div className="flex items-center gap-3 mt-1">
+                        <span className="flex items-center gap-1 text-[10px] text-gray-500"><span className="inline-block w-4 h-0.5 bg-indigo-500 rounded" />{student.name}</span>
+                        <span className="flex items-center gap-1 text-[10px] text-gray-400"><span className="inline-block w-4 border-t border-dashed border-gray-300" />반 평균</span>
+                      </div>
                     </div>
                   )}
                   <div className="rounded-xl border overflow-hidden">
