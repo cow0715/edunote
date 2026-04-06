@@ -14,6 +14,7 @@ import { GradeGrid } from '@/components/grade/grade-grid'
 import { SmsSheet } from '@/components/grade/sms-sheet'
 import { AttendanceManager } from '@/components/attendance/attendance-manager'
 import { AnswerSheetUploader } from '@/components/grade/answer-sheet-uploader'
+import { ExplanationEditor } from '@/components/grade/explanation-editor'
 import { QuestionTypeEditor } from '@/components/grade/question-type-editor'
 import { VocabWordSetup } from '@/components/grade/vocab-word-setup'
 import { useWeek, useUpdateWeek } from '@/hooks/use-weeks'
@@ -210,8 +211,9 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
               </form>
             </TabsContent>
 
-            <TabsContent value="answer-sheet" forceMount className="data-[state=inactive]:hidden pt-4">
+            <TabsContent value="answer-sheet" forceMount className="data-[state=inactive]:hidden pt-4 space-y-0">
               <AnswerSheetUploader weekId={weekId} savedFilePath={week?.answer_sheet_path} />
+              <ExplanationEditor weekId={weekId} />
             </TabsContent>
 
             <TabsContent value="vocab-words" forceMount className="data-[state=inactive]:hidden pt-4">

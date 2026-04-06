@@ -32,12 +32,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     question_style?: string
     correct_answer?: number | null
     extra_correct_answers?: number[]
+    explanation?: string | null
+    correct_answer_text_override?: string | null
+    grading_criteria?: string | null
   }[] = await request.json()
 
   const VALID_STYLES = ['objective', 'subjective', 'ox', 'multi_select', 'find_error']
   const regradeScoreIds = new Set<string>()
 
-  for (const { id, concept_tag_ids, question_style, correct_answer, extra_correct_answers } of updates) {
+  for (const { id, concept_tag_ids, question_style, correct_answer, extra_correct_answers, explanation, correct_answer_text_override, grading_criteria } of updates) {
     // 소유 확인
     const { data: q } = await supabase
       .from('exam_question')
@@ -75,6 +78,20 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
           return supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
         })
       )
+    }
+
+    // 해설·모범답안·채점기준 업데이트
+    {
+      const textUpdate: Record<string, unknown> = {}
+      if (explanation !== undefined) textUpdate.explanation = explanation
+      if (correct_answer_text_override !== undefined) {
+        const effectiveStyle2 = question_style ?? q.question_style
+        if (effectiveStyle2 !== 'objective') textUpdate.correct_answer_text = correct_answer_text_override
+      }
+      if (grading_criteria !== undefined) textUpdate.grading_criteria = grading_criteria
+      if (Object.keys(textUpdate).length > 0) {
+        await supabase.from('exam_question').update(textUpdate).eq('id', id)
+      }
     }
 
     // 태그 교체
