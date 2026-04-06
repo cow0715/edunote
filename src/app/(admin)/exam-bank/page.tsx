@@ -374,55 +374,55 @@ function ExamList() {
           }
         </Button>
       </div>
-      {exams.map((exam) => (
-        <Card key={exam.id} className="p-4">
-          <div className="flex items-center justify-between">
-            <div
-              className="flex-1 cursor-pointer"
-              onClick={() => setExpandedId(expandedId === exam.id ? null : exam.id)}
-            >
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-gray-900">{exam.title}</h3>
-                <Badge variant="secondary">{exam.source}</Badge>
-                <Badge variant="outline">
-                  {exam.exam_bank_question?.[0]?.count ?? 0}문항
-                </Badge>
+      {exams.map((exam) => {
+        const isExpanded = expandedId === exam.id
+        const qCount = exam.exam_bank_question?.[0]?.count ?? 0
+        return (
+          <div key={exam.id} className="rounded-2xl bg-white shadow-[0px_4px_24px_rgba(0,75,198,0.06)] border border-gray-100/80 overflow-hidden">
+            <div className="flex items-center gap-3 px-4 py-3">
+              {/* 아이콘 */}
+              <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-blue-50 shrink-0">
+                <FileText className="h-4 w-4 text-blue-600" />
               </div>
-              <p className="mt-1 text-sm text-gray-500">
-                {exam.exam_year}년 {exam.exam_month}월 · 고{exam.grade}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setExpandedId(expandedId === exam.id ? null : exam.id)}
+              {/* 정보 */}
+              <div
+                className="flex-1 min-w-0 cursor-pointer"
+                onClick={() => setExpandedId(isExpanded ? null : exam.id)}
               >
-                {expandedId === exam.id ? (
-                  <ChevronUp className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </Button>
-              <FetchStatsButton examId={exam.id} formType={exam.form_type || '홀수형'} />
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-red-500 hover:text-red-700"
-                onClick={() => {
-                  if (confirm('이 시험과 모든 문항을 삭제하시겠습니까?')) {
-                    deleteMutation.mutate(exam.id)
-                  }
-                }}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-gray-900 truncate">{exam.title}</span>
+                  <span className="text-xs text-gray-400 shrink-0">{exam.form_type}</span>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-xs text-gray-400">{exam.exam_year}년 {exam.exam_month}월 · 고{exam.grade}</span>
+                  <span className="text-xs font-medium text-blue-600">{qCount}문항</span>
+                </div>
+              </div>
+              {/* 액션 버튼 */}
+              <div className="flex items-center gap-0.5 shrink-0">
+                <button
+                  onClick={() => setExpandedId(isExpanded ? null : exam.id)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                >
+                  {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
+                <FetchStatsButton examId={exam.id} formType={exam.form_type || '홀수형'} />
+                <button
+                  onClick={() => { if (confirm('이 시험과 모든 문항을 삭제하시겠습니까?')) deleteMutation.mutate(exam.id) }}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
             </div>
+            {isExpanded && (
+              <div className="border-t border-gray-100">
+                <QuestionList examId={exam.id} />
+              </div>
+            )}
           </div>
-
-          {expandedId === exam.id && <QuestionList examId={exam.id} />}
-        </Card>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -449,17 +449,17 @@ function QuestionList({ examId }: { examId: string }) {
   })
 
   return (
-    <div className="mt-4 border-t pt-4">
+    <div className="px-4 py-4">
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-xs text-gray-500">{questions?.length ?? 0}문항</p>
+        <p className="text-xs text-gray-400">{questions?.length ?? 0}문항</p>
         <Button size="sm" variant="outline" onClick={() => setEditTarget('new')}>
           <Plus className="mr-1 h-3.5 w-3.5" />
           문항 추가
         </Button>
       </div>
 
-      {isLoading && <p className="text-sm text-gray-500">문항 로딩 중...</p>}
-      {!isLoading && !questions?.length && <p className="text-sm text-gray-500">문항 없음</p>}
+      {isLoading && <p className="text-sm text-gray-400">문항 로딩 중...</p>}
+      {!isLoading && !questions?.length && <p className="text-sm text-gray-400">문항 없음</p>}
 
       <div className="space-y-3">
         {questions?.map((q) => (
@@ -483,6 +483,16 @@ function QuestionList({ examId }: { examId: string }) {
       />
     </div>
   )
+}
+
+// ── 난이도 색상 ────────────────────────────────────────────────────────────
+
+const DIFFICULTY_STYLE: Record<string, { bg: string; text: string; dot: string }> = {
+  '하':   { bg: 'bg-green-50',  text: 'text-green-700',  dot: 'bg-green-400' },
+  '중하': { bg: 'bg-lime-50',   text: 'text-lime-700',   dot: 'bg-lime-400' },
+  '중':   { bg: 'bg-yellow-50', text: 'text-yellow-700', dot: 'bg-yellow-400' },
+  '중상': { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-400' },
+  '최상': { bg: 'bg-red-50',    text: 'text-red-600',    dot: 'bg-red-400' },
 }
 
 // ── 문항 카드 ─────────────────────────────────────────────────────────────
@@ -515,70 +525,113 @@ function QuestionCard({
     toast.success('복사되었습니다 · 한글 사용 시 Word에 먼저 붙여넣기 후 복사하세요')
   }, [q])
 
+  const diffStyle = q.difficulty ? (DIFFICULTY_STYLE[q.difficulty] ?? DIFFICULTY_STYLE['중상']) : null
+
+  // 정답 번호 (①→1, ②→2, ...)
+  const answerIdx = q.answer ? ['①','②','③','④','⑤'].indexOf(q.answer) : -1
+
   return (
-    <div className="rounded-lg border bg-white p-4">
-      <div className="flex items-start justify-between gap-2">
+    <div className="rounded-2xl bg-white shadow-[0px_4px_24px_rgba(0,75,198,0.06)] border border-gray-100/80 overflow-hidden">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-bold text-gray-900">{q.question_number}번</span>
-          <Badge variant="secondary" className="text-xs">
+          {/* 문항번호 */}
+          <span className="flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-bold shrink-0">
+            {q.question_number}
+          </span>
+          {/* 유형 */}
+          <span className="text-xs font-medium text-gray-500 bg-gray-100 rounded-full px-2.5 py-0.5">
             {QUESTION_TYPE_LABELS[q.question_type] || q.question_type}
-          </Badge>
-          {q.answer && (
-            <Badge variant="outline" className="text-xs">
-              정답: {q.answer}
-            </Badge>
+          </span>
+          {/* 난이도 칩 */}
+          {diffStyle && (
+            <span className={`flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-0.5 ${diffStyle.bg} ${diffStyle.text}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${diffStyle.dot}`} />
+              {q.difficulty}
+            </span>
           )}
-          {q.difficulty && (
-            <Badge variant="outline" className={`text-xs ${
-              q.difficulty === '하' ? 'text-green-600 border-green-300' :
-              q.difficulty === '중하' ? 'text-lime-600 border-lime-300' :
-              q.difficulty === '중' ? 'text-yellow-600 border-yellow-300' :
-              q.difficulty === '중상' ? 'text-orange-600 border-orange-300' :
-              'text-red-600 border-red-300'
-            }`}>
-              {q.difficulty} · {q.points}점 · {q.correct_rate}%
-            </Badge>
+          {/* 배점 */}
+          {q.points && (
+            <span className="text-xs text-gray-400 font-medium">{q.points}점</span>
           )}
+          {/* 정답률 */}
+          {q.correct_rate != null && (
+            <span className="text-xs text-blue-500 font-semibold">{q.correct_rate}%</span>
+          )}
+          {/* 출처 */}
           {showExamInfo && q.exam_bank && (
             <span className="text-xs text-gray-400">
               {q.exam_bank.exam_year}년 {q.exam_bank.exam_month}월 고{q.exam_bank.grade} {q.exam_bank.source}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <Button variant="ghost" size="sm" onClick={copyText}>
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button onClick={copyText} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
             <Copy className="h-3.5 w-3.5" />
-          </Button>
+          </button>
           {onEdit && (
-            <Button variant="ghost" size="sm" onClick={onEdit}>
+            <button onClick={onEdit} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
               <Pencil className="h-3.5 w-3.5" />
-            </Button>
+            </button>
           )}
           {onDelete && (
-            <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={onDelete}>
+            <button onClick={onDelete} className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
               <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            </button>
           )}
         </div>
       </div>
 
-      <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap text-justify">
-        <MarkdownText text={q.question_text} />
-      </p>
+      <div className="px-4 pb-4 space-y-3">
+        {/* 발문 */}
+        <p className="text-sm font-medium text-gray-800 leading-relaxed">
+          <MarkdownText text={q.question_text} />
+        </p>
 
-      {q.passage && (
-        <pre className="mt-2 whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-600 text-justify">
-          <MarkdownText text={q.passage} />
-        </pre>
-      )}
+        {/* 지문 */}
+        {q.passage && (
+          <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3">
+            <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap text-justify">
+              <MarkdownText text={q.passage} />
+            </p>
+          </div>
+        )}
 
-      {q.choices.length > 0 && (
-        <div className="mt-2 space-y-1">
-          {q.choices.map((c, i) => (
-            <p key={i} className="text-sm text-gray-600">{c}</p>
-          ))}
-        </div>
-      )}
+        {/* 선지 */}
+        {q.choices.length > 0 && (
+          <div className="space-y-1">
+            {q.choices.map((c, i) => {
+              const isAnswer = i === answerIdx
+              return (
+                <div
+                  key={i}
+                  className={`flex items-start gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                    isAnswer
+                      ? 'bg-blue-50 text-blue-700 font-medium'
+                      : 'text-gray-600'
+                  }`}
+                >
+                  <span className="shrink-0">{c}</span>
+                  {/* 선지별 선택률 바 */}
+                  {q.choice_rates && q.choice_rates[i] != null && (
+                    <div className="ml-auto flex items-center gap-1.5 shrink-0">
+                      <div className="w-16 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${isAnswer ? 'bg-blue-400' : 'bg-gray-300'}`}
+                          style={{ width: `${q.choice_rates[i]}%` }}
+                        />
+                      </div>
+                      <span className={`text-[11px] w-7 text-right ${isAnswer ? 'text-blue-500 font-semibold' : 'text-gray-400'}`}>
+                        {q.choice_rates[i]}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
