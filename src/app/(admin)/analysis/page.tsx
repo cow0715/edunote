@@ -377,8 +377,11 @@ export default function AnalysisPage() {
   const scores = overview?.scores ?? []
   const attendance = overview?.attendance ?? []
 
-  // 가장 최근 수업 주차 (weeks는 week_number 오름차순으로 정렬되어 있다고 가정)
-  const latestWeek = weeks.length > 0 ? weeks[weeks.length - 1] : null
+  // 오늘 이하 start_date 중 가장 최근 주차
+  const today = new Date().toISOString().slice(0, 10)
+  const latestWeek = weeks
+    .filter((w) => w.start_date && w.start_date <= today)
+    .at(-1) ?? null
 
   function handleSort(col: SortColumn) {
     if (sortCol === col) {
@@ -492,19 +495,19 @@ export default function AnalysisPage() {
                 <th className="px-3 py-3 text-center w-16">
                   <div className="flex flex-col items-center gap-0.5">
                     <SortHeader label="단어" column="vocab" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="justify-center" />
-                    {latestWeek && <span className="text-[10px] text-gray-400 font-normal">{latestWeek.week_number}차시</span>}
+                    {latestWeek?.start_date && <span className="text-[10px] text-gray-400 font-normal">{latestWeek.start_date.slice(5).replace('-', '/')}</span>}
                   </div>
                 </th>
                 <th className="px-3 py-3 text-center w-16">
                   <div className="flex flex-col items-center gap-0.5">
                     <SortHeader label="시험" column="reading" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="justify-center" />
-                    {latestWeek && <span className="text-[10px] text-gray-400 font-normal">{latestWeek.week_number}차시</span>}
+                    {latestWeek?.start_date && <span className="text-[10px] text-gray-400 font-normal">{latestWeek.start_date.slice(5).replace('-', '/')}</span>}
                   </div>
                 </th>
                 <th className="px-3 py-3 text-center w-16">
                   <div className="flex flex-col items-center gap-0.5">
                     <SortHeader label="과제율" column="homework" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="justify-center" />
-                    {latestWeek && <span className="text-[10px] text-gray-400 font-normal">{latestWeek.week_number}차시</span>}
+                    {latestWeek?.start_date && <span className="text-[10px] text-gray-400 font-normal">{latestWeek.start_date.slice(5).replace('-', '/')}</span>}
                   </div>
                 </th>
                 <th className="px-4 py-3 text-left min-w-[130px]">부 전화</th>
