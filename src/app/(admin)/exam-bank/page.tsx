@@ -27,7 +27,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, Plus, Pencil, File, BarChart2, Loader2 } from 'lucide-react'
+import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, Plus, Pencil, BarChart2, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 // ── 타입 ──────────────────────────────────────────────────────────────────
@@ -317,7 +317,6 @@ function FetchStatsButton({ examId, formType }: { examId: string; formType: stri
 function ExamList() {
   const queryClient = useQueryClient()
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [bulkLoading, setBulkLoading] = useState(false)
 
   const { data: exams, isLoading } = useQuery<ExamBank[]>({
     queryKey: ['exam-bank'],
@@ -333,47 +332,11 @@ function ExamList() {
     },
   })
 
-  const handleBulkFetch = async () => {
-    if (!exams?.length) return
-    setBulkLoading(true)
-    let success = 0, fail = 0
-    for (const exam of exams) {
-      try {
-        const res = await fetch(`/api/exam-bank/${exam.id}/fetch-stats`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ form_type: exam.form_type || '홀수형' }),
-        })
-        const data = await res.json()
-        if (res.ok && data.updated > 0) success++
-        else fail++
-      } catch {
-        fail++
-      }
-    }
-    queryClient.invalidateQueries({ queryKey: ['exam-bank-questions'] })
-    toast.success(`완료 · 성공 ${success}개 / 실패 ${fail}개`)
-    setBulkLoading(false)
-  }
-
   if (isLoading) return <p className="text-sm text-gray-500">불러오는 중...</p>
   if (!exams?.length) return <p className="text-sm text-gray-500">등록된 기출 시험이 없습니다.</p>
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleBulkFetch}
-          disabled={bulkLoading}
-        >
-          {bulkLoading
-            ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />통계 가져오는 중...</>
-            : <><BarChart2 className="mr-2 h-4 w-4" />전체 통계 일괄 가져오기</>
-          }
-        </Button>
-      </div>
       {exams.map((exam) => {
         const isExpanded = expandedId === exam.id
         const qCount = exam.exam_bank_question?.[0]?.count ?? 0
