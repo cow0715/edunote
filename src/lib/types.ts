@@ -20,6 +20,16 @@ export interface Student {
   created_at: string;
 }
 
+export interface StudentEnrollment {
+  joined_at: string | null;
+  left_at: string | null;
+  class: { name: string } | null;
+}
+
+export interface StudentWithEnrollments extends Student {
+  class_student: StudentEnrollment[];
+}
+
 export interface Class {
   id: string;
   teacher_id: string;
