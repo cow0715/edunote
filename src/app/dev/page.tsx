@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 
+const ModelCompare = dynamic(() => import('@/components/dev/model-compare'), { ssr: false })
+
 const ScoreTrendChart  = dynamic(() => import('@/components/share/score-trend-chart').then((m) => m.ScoreTrendChart),  { ssr: false })
 const WeeklyBarChart   = dynamic(() => import('@/components/share/weekly-bar-chart').then((m) => m.WeeklyBarChart),    { ssr: false })
 const HomeworkBarChart = dynamic(() => import('@/components/share/homework-bar-chart').then((m) => m.HomeworkBarChart), { ssr: false })
@@ -98,11 +100,15 @@ function Badge({ children, color }: { children: React.ReactNode; color: 'green' 
   return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{children}</span>
 }
 
+const TABS = ['개발 도구', '모델 비교'] as const
+type Tab = (typeof TABS)[number]
+
 export default function DevPage() {
   const [isDark, setIsDark] = useState(false)
   const [db, setDb] = useState<DbStatus | null>(null)
   const [shareToken, setShareToken] = useState('')
   const [previewToken, setPreviewToken] = useState('')
+  const [tab, setTab] = useState<Tab>('개발 도구')
 
   useEffect(() => {
     fetchDbStatus().then(setDb).catch(() => setDb({ ok: false, label: '연결 실패', url: '', isProd: false, userEmail: null, tableCount: null }))
@@ -128,7 +134,26 @@ export default function DevPage() {
           </div>
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-2">
+        {/* 탭 */}
+        <div className="mb-6 flex gap-1 rounded-xl border border-border bg-muted/40 p-1 w-fit">
+          {TABS.map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`rounded-lg px-4 py-1.5 text-xs font-medium transition-colors ${
+                tab === t
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {tab === '모델 비교' && <ModelCompare />}
+
+        {tab === '개발 도구' && <div className="grid gap-5 lg:grid-cols-2">
 
           {/* DB 상태 */}
           <Section title="🗄 DB · 세션 상태">
@@ -231,7 +256,7 @@ export default function DevPage() {
             <ConceptWeakChart data={WEAK_DATA} isDark={isDark} />
           </Section>
 
-        </div>
+        </div>}
 
         <p className="mt-8 text-center text-[11px] text-muted-foreground">/dev — 개발용 페이지 (프로덕션 배포 시 접근 제한 권장)</p>
       </div>

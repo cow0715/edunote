@@ -290,7 +290,7 @@ function HistoryRow({
 
 // ── 메인 페이지 ────────────────────────────────────────────────────────────
 
-export default function DevPage() {
+export default function ModelCompare() {
   const [selectedFn, setSelectedFn] = useState<FnId>('parseAnswerSheet')
   const [selectedModels, setSelectedModels] = useState<Set<ModelId>>(
     new Set(['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'])
@@ -427,14 +427,7 @@ export default function DevPage() {
     (currentFn.inputType === 'file' ? !!file : !!jsonInput.trim())
 
   return (
-    <div className="min-h-screen p-6" style={{ background: 'linear-gradient(to bottom, #EBF3FF, #FFFFFF)' }}>
-      <div className="mx-auto max-w-6xl space-y-6">
-        {/* 헤더 */}
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">모델 비교 테스트</h1>
-          <p className="mt-1 text-sm text-gray-500">같은 입력으로 모델별 결과와 비용을 비교합니다</p>
-        </div>
-
+    <div className="space-y-6">
         {/* 함수 선택 */}
         <div className="rounded-2xl bg-white p-5 shadow-sm dark:bg-slate-800">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400">API 함수</p>
@@ -617,7 +610,6 @@ export default function DevPage() {
             </div>
           </div>
         )}
-      </div>
     </div>
   )
 }
