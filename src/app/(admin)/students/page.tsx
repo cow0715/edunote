@@ -191,7 +191,7 @@ export default function StudentsPage() {
       sheetIdx++
     }
 
-    const unassigned = students.filter((s) => !assignedIds.has(s.id)).map(toRow)
+    const unassigned = students.filter((s) => !assignedIds.has(s.id) && !isWithdrawn(s)).map(toRow)
     if (unassigned.length > 0) {
       XLSX.utils.book_append_sheet(wb, makeSheet(unassigned), '미배정')
       if (!wb.Workbook) wb.Workbook = { Sheets: [] }
