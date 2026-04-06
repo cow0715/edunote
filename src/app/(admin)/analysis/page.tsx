@@ -8,11 +8,13 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Users, Copy, Check, Trash2, Link2, StickyNote, TrendingUp, BookOpen } from 'lucide-react'
+import { Users, Copy, Check, Trash2, Link2, StickyNote, TrendingUp, BookOpen, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+
+type SortColumn = 'name' | 'vocab' | 'reading' | 'homework'
+type SortDirection = 'asc' | 'desc'
 
 // ── 출결 배지 ──────────────────────────────────────────────
 function AttendanceBadge({ status }: { status?: string }) {
@@ -329,10 +331,44 @@ function StudentSheet({
   )
 }
 
+// ── 정렬 헤더 버튼 ────────────────────────────────────────
+function SortHeader({
+  label,
+  column,
+  sortCol,
+  sortDir,
+  onSort,
+  className,
+}: {
+  label: string
+  column: SortColumn
+  sortCol: SortColumn
+  sortDir: SortDirection
+  onSort: (col: SortColumn) => void
+  className?: string
+}) {
+  const active = sortCol === column
+  return (
+    <button
+      onClick={() => onSort(column)}
+      className={cn('flex items-center gap-0.5 hover:text-indigo-600 transition-colors', active && 'text-indigo-600', className)}
+    >
+      {label}
+      {active ? (
+        sortDir === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />
+      ) : (
+        <ChevronsUpDown className="h-3 w-3 opacity-40" />
+      )}
+    </button>
+  )
+}
+
 // ── 메인 페이지 ────────────────────────────────────────────
 export default function AnalysisPage() {
   const [selectedClassId, setSelectedClassId] = useState<string>('')
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
+  const [sortCol, setSortCol] = useState<SortColumn>('name')
+  const [sortDir, setSortDir] = useState<SortDirection>('asc')
 
   const { data: classes, isLoading: classesLoading } = useClasses()
   const { data: overview, isLoading: overviewLoading } = useClassOverview(selectedClassId)
@@ -340,9 +376,53 @@ export default function AnalysisPage() {
   const weeks = overview?.weeks ?? []
   const scores = overview?.scores ?? []
   const attendance = overview?.attendance ?? []
-  const students = (overview?.students ?? [])
-    .map((cs) => cs.student)
-    .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+
+  // 가장 최근 수업 주차 (weeks는 week_number 오름차순으로 정렬되어 있다고 가정)
+  const latestWeek = weeks.length > 0 ? weeks[weeks.length - 1] : null
+
+  function handleSort(col: SortColumn) {
+    if (sortCol === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortCol(col)
+      setSortDir('asc')
+    }
+  }
+
+  const rawStudents = (overview?.students ?? []).map((cs) => cs.student)
+
+  // 정렬을 위해 최근 주차 데이터 미리 계산
+  const studentsWithLatest = rawStudents.map((student) => {
+    const studentScores = scores.filter((s) => s.student_id === student.id)
+    const weekScoreMap = new Map(studentScores.map((s) => [s.week_id, s]))
+    const latestSc = latestWeek ? weekScoreMap.get(latestWeek.id) : undefined
+
+    const vocab = latestSc && latestSc.vocab_correct !== null && latestWeek && latestWeek.vocab_total > 0
+      ? Math.round(latestSc.vocab_correct / latestWeek.vocab_total * 100)
+      : null
+    const reading = latestSc && latestSc.reading_correct !== null && latestWeek && latestWeek.reading_total > 0
+      ? Math.round(latestSc.reading_correct / latestWeek.reading_total * 100)
+      : null
+    const homework = latestSc && latestSc.homework_done !== null && latestWeek && latestWeek.homework_total > 0
+      ? Math.round(latestSc.homework_done / latestWeek.homework_total * 100)
+      : null
+
+    return { student, weekScoreMap, vocab, reading, homework }
+  })
+
+  const students = [...studentsWithLatest].sort((a, b) => {
+    if (sortCol === 'name') {
+      const cmp = a.student.name.localeCompare(b.student.name, 'ko')
+      return sortDir === 'asc' ? cmp : -cmp
+    }
+    const av = a[sortCol]
+    const bv = b[sortCol]
+    // null은 항상 뒤로
+    if (av === null && bv === null) return 0
+    if (av === null) return 1
+    if (bv === null) return -1
+    return sortDir === 'asc' ? av - bv : bv - av
+  })
 
   function handleClassSelect(classId: string) {
     setSelectedClassId(classId)
@@ -405,10 +485,28 @@ export default function AnalysisPage() {
             <thead>
               <tr className="border-b bg-gray-50 text-xs text-gray-500">
                 <th className="px-4 py-3 text-left w-10">#</th>
-                <th className="px-4 py-3 text-left min-w-[100px]">이름</th>
+                <th className="px-4 py-3 text-left min-w-[100px]">
+                  <SortHeader label="이름" column="name" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                </th>
                 <th className="px-4 py-3 text-left w-24">성적 추이</th>
-                <th className="px-3 py-3 text-center w-16">최근 단어</th>
-                <th className="px-3 py-3 text-center w-16">최근 시험</th>
+                <th className="px-3 py-3 text-center w-16">
+                  <div className="flex flex-col items-center gap-0.5">
+                    <SortHeader label="단어" column="vocab" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="justify-center" />
+                    {latestWeek && <span className="text-[10px] text-gray-400 font-normal">{latestWeek.week_number}차시</span>}
+                  </div>
+                </th>
+                <th className="px-3 py-3 text-center w-16">
+                  <div className="flex flex-col items-center gap-0.5">
+                    <SortHeader label="시험" column="reading" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="justify-center" />
+                    {latestWeek && <span className="text-[10px] text-gray-400 font-normal">{latestWeek.week_number}차시</span>}
+                  </div>
+                </th>
+                <th className="px-3 py-3 text-center w-16">
+                  <div className="flex flex-col items-center gap-0.5">
+                    <SortHeader label="과제율" column="homework" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} className="justify-center" />
+                    {latestWeek && <span className="text-[10px] text-gray-400 font-normal">{latestWeek.week_number}차시</span>}
+                  </div>
+                </th>
                 <th className="px-4 py-3 text-left min-w-[130px]">부 전화</th>
                 <th className="px-4 py-3 text-left min-w-[130px]">모 전화</th>
                 <th className="px-4 py-3 text-left min-w-[130px]">학생 전화</th>
@@ -420,29 +518,12 @@ export default function AnalysisPage() {
               </tr>
             </thead>
             <tbody>
-              {students.map((student, idx) => {
-                const studentScores = scores.filter((s) => s.student_id === student.id)
-                const weekScoreMap = new Map(studentScores.map((s) => [s.week_id, s]))
+              {students.map(({ student, weekScoreMap, vocab, reading, homework }, idx) => {
                 const sparkData = weeks.map((w) => {
                   const sc = weekScoreMap.get(w.id)
                   if (!sc || sc.reading_correct === null || w.reading_total === 0) return null
                   return Math.round(sc.reading_correct / w.reading_total * 100)
                 })
-
-                // 가장 최근 데이터가 있는 주차 찾기 (역순 탐색)
-                let latestVocab: number | null = null
-                let latestReading: number | null = null
-                for (let i = weeks.length - 1; i >= 0; i--) {
-                  const w = weeks[i]
-                  const sc = weekScoreMap.get(w.id)
-                  if (latestVocab === null && sc && sc.vocab_correct !== null && w.vocab_total > 0) {
-                    latestVocab = Math.round(sc.vocab_correct / w.vocab_total * 100)
-                  }
-                  if (latestReading === null && sc && sc.reading_correct !== null && w.reading_total > 0) {
-                    latestReading = Math.round(sc.reading_correct / w.reading_total * 100)
-                  }
-                  if (latestVocab !== null && latestReading !== null) break
-                }
 
                 const weekAttMap = new Map(
                   attendance
@@ -469,16 +550,23 @@ export default function AnalysisPage() {
                       <Sparkline data={sparkData} />
                     </td>
                     <td className="px-3 py-3 text-center">
-                      {latestVocab !== null
-                        ? <span className={cn('text-xs font-semibold', latestVocab < 50 ? 'text-red-500' : latestVocab < 70 ? 'text-yellow-600' : 'text-emerald-600')}>
-                            {latestVocab}%
+                      {vocab !== null
+                        ? <span className={cn('text-xs font-semibold', vocab < 50 ? 'text-red-500' : vocab < 70 ? 'text-yellow-600' : 'text-emerald-600')}>
+                            {vocab}%
                           </span>
                         : <span className="text-gray-300 text-xs">-</span>}
                     </td>
                     <td className="px-3 py-3 text-center">
-                      {latestReading !== null
-                        ? <span className={cn('text-xs font-semibold', latestReading < 50 ? 'text-red-500' : latestReading < 70 ? 'text-yellow-600' : 'text-emerald-600')}>
-                            {latestReading}%
+                      {reading !== null
+                        ? <span className={cn('text-xs font-semibold', reading < 50 ? 'text-red-500' : reading < 70 ? 'text-yellow-600' : 'text-emerald-600')}>
+                            {reading}%
+                          </span>
+                        : <span className="text-gray-300 text-xs">-</span>}
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {homework !== null
+                        ? <span className={cn('text-xs font-semibold', homework < 50 ? 'text-red-500' : homework < 70 ? 'text-yellow-600' : 'text-emerald-600')}>
+                            {homework}%
                           </span>
                         : <span className="text-gray-300 text-xs">-</span>}
                     </td>
