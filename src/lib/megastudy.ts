@@ -33,11 +33,14 @@ async function fetchExamSeq(grade: number, examYear: number, examMonth: number):
 
   const buf = await res.arrayBuffer()
   const html = new TextDecoder('euc-kr').decode(buf)
-  // 예: onclick="fncSelExamSeq(334,'1',0);">2024.11.14 수능
-  // 6/9월 평가원은 날짜 없이 "2025.06 평가원" 형식일 수 있으므로 월 뒤 점 불필요
+  console.log('[megastudy:fetchExamSeq] grade=%d year=%d month=%d examType=%d', grade, megastudyYear, examMonth, monthToExamType(examMonth))
+  // fncSelExamSeq 전체 목록 출력
+  const allSeqs = html.match(/fncSelExamSeq[^>]+>[^<]*/g)
+  console.log('[megastudy:fetchExamSeq] all entries:', JSON.stringify(allSeqs?.slice(0, 20)))
   const monthStr = String(examMonth).padStart(2, '0')
   const re = new RegExp(`fncSelExamSeq\\((\\d+),'\\d+',\\d+\\)[^>]*>\\s*${megastudyYear}\\.${monthStr}`)
   const m = html.match(re)
+  console.log('[megastudy:fetchExamSeq] match:', m?.[0] ?? 'null')
   return m ? parseInt(m[1]) : null
 }
 
