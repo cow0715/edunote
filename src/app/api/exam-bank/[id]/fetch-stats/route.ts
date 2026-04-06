@@ -37,6 +37,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const { error } = await supabase
       .from('exam_bank_question')
       .update({
+        answer: row.answer,
         difficulty: row.difficulty,
         points: row.points,
         correct_rate: row.correct_rate,
