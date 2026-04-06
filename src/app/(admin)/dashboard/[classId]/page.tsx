@@ -2,14 +2,12 @@
 
 import { use, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, UserPlus, UserMinus, Users, RefreshCw, ClipboardList, Link as LinkIcon, AlertTriangle } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { ChevronLeft, ChevronRight, UserPlus, UserMinus, RefreshCw, Link as LinkIcon, AlertTriangle } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Class, ClassStudent, Student } from '@/lib/types'
-import { toast } from 'sonner'
+import { Class, ClassStudent, Student, Week } from '@/lib/types'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useClassStudents, useStudents, useAddClassStudent, useRemoveClassStudent } from '@/hooks/use-students'
@@ -19,6 +17,7 @@ import { useSyncWeeks } from '@/hooks/use-classes'
 const DAY_LABEL: Record<string, string> = {
   mon: '월', tue: '화', wed: '수', thu: '목', fri: '금', sat: '토', sun: '일',
 }
+const DOW = ['일', '월', '화', '수', '목', '금', '토']
 
 async function fetchClass(id: string): Promise<Class> {
   const res = await fetch(`/api/classes/${id}`)
@@ -26,8 +25,136 @@ async function fetchClass(id: string): Promise<Class> {
   return res.json()
 }
 
+// 수업일 → weekId 맵 생성
+// week.start_date는 수업일 자체 (generateSessionDates가 각 수업일을 별도 주차로 저장)
+function buildDateWeekMap(weeks: Week[]): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const week of weeks) {
+    if (week.start_date) map.set(week.start_date, week.id)
+  }
+  return map
+}
+
+function todayLocalStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// ── 달력 컴포넌트 ─────────────────────────────────────────────────────────────
+function ClassCalendar({
+  classStartDate,
+  classEndDate,
+  dateWeekMap,
+  onDateClick,
+}: {
+  classStartDate: string
+  classEndDate: string
+  dateWeekMap: Map<string, string>
+  onDateClick: (weekId: string) => void
+}) {
+  const [year, setYear] = useState(() => {
+    const today = todayLocalStr()
+    if (today >= classStartDate && today <= classEndDate) return new Date().getFullYear()
+    return parseInt(classStartDate.slice(0, 4))
+  })
+  const [month, setMonth] = useState(() => {
+    const today = todayLocalStr()
+    if (today >= classStartDate && today <= classEndDate) return new Date().getMonth() + 1
+    return parseInt(classStartDate.slice(5, 7))
+  })
+
+  const minYear = parseInt(classStartDate.slice(0, 4))
+  const minMonth = parseInt(classStartDate.slice(5, 7))
+  const maxYear = parseInt(classEndDate.slice(0, 4))
+  const maxMonth = parseInt(classEndDate.slice(5, 7))
+
+  const canPrev = year > minYear || (year === minYear && month > minMonth)
+  const canNext = year < maxYear || (year === maxYear && month < maxMonth)
+
+  function prev() {
+    if (month === 1) { setYear(y => y - 1); setMonth(12) }
+    else setMonth(m => m - 1)
+  }
+  function next() {
+    if (month === 12) { setYear(y => y + 1); setMonth(1) }
+    else setMonth(m => m + 1)
+  }
+
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const startDow = new Date(year, month - 1, 1).getDay()
+
+  const cells: (number | null)[] = []
+  for (let i = 0; i < startDow; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+
+  const toDateStr = (d: number) =>
+    `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+
+  const today = todayLocalStr()
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <button
+          onClick={prev}
+          disabled={!canPrev}
+          className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100 transition-colors disabled:opacity-20"
+        >
+          <ChevronLeft className="h-4 w-4 text-gray-600" />
+        </button>
+        <p className="text-sm font-semibold text-gray-800">{year}년 {month}월</p>
+        <button
+          onClick={next}
+          disabled={!canNext}
+          className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100 transition-colors disabled:opacity-20"
+        >
+          <ChevronRight className="h-4 w-4 text-gray-600" />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-7 gap-y-1 text-center">
+        {DOW.map((d) => (
+          <div key={d} className="pb-1 text-[10px] font-medium text-gray-400">{d}</div>
+        ))}
+        {cells.map((d, i) => {
+          if (!d) return <div key={`e${i}`} />
+          const dateStr = toDateStr(d)
+          const weekId = dateWeekMap.get(dateStr)
+          const isToday = dateStr === today
+
+          if (weekId) {
+            return (
+              <div key={d} className="flex items-center justify-center py-0.5">
+                <button
+                  onClick={() => onDateClick(weekId)}
+                  className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold transition-colors
+                    bg-primary text-white hover:bg-primary/80
+                    ${isToday ? 'ring-2 ring-primary ring-offset-1' : ''}`}
+                >
+                  {d}
+                </button>
+              </div>
+            )
+          }
+
+          return (
+            <div key={d} className="flex items-center justify-center py-0.5">
+              <span className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px]
+                ${isToday ? 'border border-primary text-primary font-semibold' : 'text-gray-300'}`}>
+                {d}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── 메인 페이지 ───────────────────────────────────────────────────────────────
 export default function ClassDetailPage({ params }: { params: Promise<{ classId: string }> }) {
   const { classId } = use(params)
+  const router = useRouter()
   const [addOpen, setAddOpen] = useState(false)
   const [addStep, setAddStep] = useState<{ studentId: string; name: string; joinedAt: string } | null>(null)
   const [removeTarget, setRemoveTarget] = useState<{ studentId: string; name: string; leftAt: string } | null>(null)
@@ -64,7 +191,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     setAddOpen(false)
   }
 
-async function handleSync(force = false) {
+  async function handleSync(force = false) {
     const result = await syncWeeks.mutateAsync(force)
     if (result?.warning) {
       setSyncWarning({ message: result.message, affected_weeks: result.affected_weeks })
@@ -81,8 +208,11 @@ async function handleSync(force = false) {
     ? `주 ${scheduleDays.length}회 (${scheduleDays.map((d) => DAY_LABEL[d] ?? d).join('·')})`
     : '요일 미설정'
 
+  const dateWeekMap = buildDateWeekMap(weeks as Week[])
+
   return (
     <div>
+      {/* 헤더 */}
       <div className="flex items-center gap-2 mb-6">
         <Button variant="ghost" size="sm" asChild>
           <Link href="/dashboard">
@@ -102,154 +232,120 @@ async function handleSync(force = false) {
         </p>
       </div>
 
-      <Tabs defaultValue="students">
-        <TabsList className="mb-4">
-          <TabsTrigger value="students">학생 ({classStudents.length})</TabsTrigger>
-          <TabsTrigger value="weeks">주차 ({weeks.length})</TabsTrigger>
-        </TabsList>
+      {/* 학생 섹션 */}
+      <div className="mb-6 rounded-xl border bg-white p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-800">
+            학생 <span className="text-gray-400 font-normal">({classStudents.length})</span>
+          </h2>
+          <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
+            <UserPlus className="mr-1.5 h-3.5 w-3.5" />
+            학생 추가
+          </Button>
+        </div>
 
-        {/* 학생 탭 */}
-        <TabsContent value="students">
-          <div className="flex justify-end mb-3">
-            <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
-              <UserPlus className="mr-1.5 h-4 w-4" />
-              학생 추가
-            </Button>
-          </div>
-
-          {classStudents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-12 text-center">
-              <Users className="mb-3 h-8 w-8 text-gray-300" />
-              <p className="text-sm text-gray-500">수강 학생이 없어요</p>
-              <Button variant="outline" size="sm" className="mt-3" onClick={() => setAddOpen(true)}>
-                학생 추가하기
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {(classStudents as ClassStudent[]).map((cs) => (
-                <Card key={cs.id} className="group">
-                  <CardContent className="flex items-center gap-3 py-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                      {cs.student?.name[0]}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">{cs.student?.name}</p>
-                      {cs.student?.grade && (
-                        <p className="text-xs text-gray-400">
-                          {cs.student.school ? `${cs.student.school} ` : ''}{cs.student.grade}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {cs.student?.share_token && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 px-2 text-blue-400 hover:text-blue-600"
-                          onClick={() => window.open(`/share/${cs.student!.share_token}`, '_blank')}
-                          title="학부모 공유 페이지 열기"
-                        >
-                          <LinkIcon className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-600"
-                        onClick={() => handleRemoveClick(cs.student_id, cs.student?.name ?? '')}
-                      >
-                        <UserMinus className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* 주차 탭 */}
-        <TabsContent value="weeks">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs text-gray-400">{scheduleLabel}</p>
-            {scheduleDays.length > 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleSync(false)}
-                disabled={syncWeeks.isPending}
+        {classStudents.length === 0 ? (
+          <p className="py-3 text-center text-xs text-gray-400">수강 학생이 없어요</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {(classStudents as ClassStudent[]).map((cs) => (
+              <div
+                key={cs.id}
+                className="group flex items-center gap-1.5 rounded-full border bg-gray-50 pl-1 pr-2 py-1 text-xs"
               >
-                <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncWeeks.isPending ? 'animate-spin' : ''}`} />
-                주차 재생성
-              </Button>
-            )}
+                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+                  {cs.student?.name[0]}
+                </div>
+                <span className="text-gray-700 font-medium">{cs.student?.name}</span>
+                {cs.student?.share_token && (
+                  <button
+                    onClick={() => window.open(`/share/${cs.student!.share_token}`, '_blank')}
+                    className="text-blue-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="학부모 공유 페이지"
+                  >
+                    <LinkIcon className="h-3 w-3" />
+                  </button>
+                )}
+                <button
+                  onClick={() => handleRemoveClick(cs.student_id, cs.student?.name ?? '')}
+                  className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <UserMinus className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
           </div>
+        )}
+      </div>
 
-          {/* 경고 다이얼로그 */}
-          {syncWarning && (
-            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600 shrink-0" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-amber-800">{syncWarning.message}</p>
-                  <p className="mt-1 text-xs text-amber-600">
-                    영향받는 주차: {syncWarning.affected_weeks.join(', ')}주차
-                  </p>
-                  <div className="mt-3 flex gap-2">
-                    <Button size="sm" variant="destructive" onClick={() => handleSync(true)}>
-                      삭제하고 재생성
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setSyncWarning(null)}>
-                      취소
-                    </Button>
-                  </div>
+      {/* 달력 섹션 */}
+      <div className="rounded-xl border bg-white p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-gray-800">수업 일정</h2>
+          {scheduleDays.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleSync(false)}
+              disabled={syncWeeks.isPending}
+            >
+              <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncWeeks.isPending ? 'animate-spin' : ''}`} />
+              주차 재생성
+            </Button>
+          )}
+        </div>
+
+        {/* 주차 재생성 경고 */}
+        {syncWarning && (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-amber-800">{syncWarning.message}</p>
+                <p className="mt-1 text-xs text-amber-600">
+                  영향받는 주차: {syncWarning.affected_weeks.join(', ')}주차
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <Button size="sm" variant="destructive" onClick={() => handleSync(true)}>
+                    삭제하고 재생성
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setSyncWarning(null)}>
+                    취소
+                  </Button>
                 </div>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {weeks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-12 text-center">
-              <p className="text-sm text-gray-500">아직 주차가 없어요</p>
-              {scheduleDays.length === 0 && (
-                <p className="mt-1 text-xs text-gray-400">수업 수정에서 요일을 설정하면 자동으로 생성됩니다</p>
-              )}
-              {scheduleDays.length > 0 && (
-                <Button variant="outline" size="sm" className="mt-3" onClick={() => handleSync(false)} disabled={syncWeeks.isPending}>
-                  주차 생성하기
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {weeks.map((week) => (
-                <Card key={week.id} className="group hover:shadow-sm transition-shadow">
-                  <CardContent className="flex items-center gap-4 py-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-600">
-                      {week.week_number}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">{week.week_number}주차</p>
-                      <div className="flex gap-3 mt-0.5 text-xs text-gray-400">
-                        {week.start_date && <span>{new Date(week.start_date).toLocaleDateString('ko-KR')}</span>}
-                        <span>단어 {week.vocab_total}개</span>
-                        <span>숙제 {week.homework_total}개</span>
-                      </div>
-                    </div>
-                    <Button size="sm" variant="outline" className="h-7 px-3" asChild>
-                      <Link href={`/dashboard/${classId}/weeks/${week.id}`}>
-                        <ClipboardList className="mr-1.5 h-3.5 w-3.5" />
-                        채점/설정
-                      </Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+        {weeks.length === 0 ? (
+          <div className="py-8 text-center">
+            <p className="text-sm text-gray-500">아직 주차가 없어요</p>
+            {scheduleDays.length === 0 && (
+              <p className="mt-1 text-xs text-gray-400">수업 수정에서 요일을 설정하면 자동으로 생성됩니다</p>
+            )}
+            {scheduleDays.length > 0 && (
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => handleSync(false)} disabled={syncWeeks.isPending}>
+                주차 생성하기
+              </Button>
+            )}
+          </div>
+        ) : (
+          <ClassCalendar
+            classStartDate={cls.start_date}
+            classEndDate={cls.end_date}
+            dateWeekMap={dateWeekMap}
+            onDateClick={(weekId) => router.push(`/dashboard/${classId}/weeks/${weekId}`)}
+          />
+        )}
+
+        {weeks.length > 0 && (
+          <div className="mt-3 flex items-center gap-2 pt-3 border-t">
+            <span className="flex h-5 w-5 rounded-full bg-primary" />
+            <span className="text-[11px] text-gray-400">수업일 (클릭하면 채점/설정으로 이동)</span>
+          </div>
+        )}
+      </div>
 
       {/* 학생 추가 다이얼로그 */}
       <Dialog open={addOpen} onOpenChange={(v) => { setAddOpen(v); if (!v) setAddStep(null) }}>
