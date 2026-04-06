@@ -5,11 +5,11 @@ const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
 }
 
-/** 월 → megastudy examType (1:수능, 2:교육청, 3:평가원) */
+/** 월 → megastudy examType (1:수능, 2:평가원, 3:교육청) */
 function monthToExamType(month: number): number {
   if (month === 11) return 1
-  if (month === 6 || month === 9) return 3
-  return 2
+  if (month === 6 || month === 9) return 2
+  return 3
 }
 
 async function fetchExamSeq(grade: number, examYear: number, examMonth: number): Promise<number | null> {
@@ -33,14 +33,9 @@ async function fetchExamSeq(grade: number, examYear: number, examMonth: number):
 
   const buf = await res.arrayBuffer()
   const html = new TextDecoder('euc-kr').decode(buf)
-  console.log('[megastudy:fetchExamSeq] grade=%d year=%d month=%d examType=%d', grade, megastudyYear, examMonth, monthToExamType(examMonth))
-  // fncSelExamSeq 전체 목록 출력
-  const allSeqs = html.match(/fncSelExamSeq[^>]+>[^<]*/g)
-  console.log('[megastudy:fetchExamSeq] all entries:', JSON.stringify(allSeqs?.slice(0, 20)))
   const monthStr = String(examMonth).padStart(2, '0')
   const re = new RegExp(`fncSelExamSeq\\((\\d+),'\\d+',\\d+\\)[^>]*>\\s*${megastudyYear}\\.${monthStr}`)
   const m = html.match(re)
-  console.log('[megastudy:fetchExamSeq] match:', m?.[0] ?? 'null')
   return m ? parseInt(m[1]) : null
 }
 
@@ -119,11 +114,7 @@ export async function getMegastudyStats(
 
   // 메가스터디는 EUC-KR 인코딩 → ArrayBuffer로 받아서 수동 디코딩
   const buf = await res.arrayBuffer()
-  const contentType = res.headers.get('content-type') ?? ''
-  console.log('[megastudy] content-type:', contentType)
-  console.log('[megastudy] first 20 bytes (hex):', Array.from(new Uint8Array(buf).slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' '))
   const html = new TextDecoder('euc-kr').decode(buf)
-  console.log('[megastudy] decoded sample (100 chars):', html.slice(0, 100))
   const rows = parseStatsHtml(html)
   return rows.length > 0 ? rows : null
 }
