@@ -115,7 +115,11 @@ export async function getMegastudyStats(
 
   // 메가스터디는 EUC-KR 인코딩 → ArrayBuffer로 받아서 수동 디코딩
   const buf = await res.arrayBuffer()
+  const contentType = res.headers.get('content-type') ?? ''
+  console.log('[megastudy] content-type:', contentType)
+  console.log('[megastudy] first 20 bytes (hex):', Array.from(new Uint8Array(buf).slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' '))
   const html = new TextDecoder('euc-kr').decode(buf)
+  console.log('[megastudy] decoded sample (100 chars):', html.slice(0, 100))
   const rows = parseStatsHtml(html)
   return rows.length > 0 ? rows : null
 }
