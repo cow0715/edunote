@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -27,7 +27,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, Plus, Pencil, BarChart2, Loader2 } from 'lucide-react'
+import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 // ── 타입 ──────────────────────────────────────────────────────────────────
@@ -599,29 +599,52 @@ function QuestionCard({
   )
 }
 
-// ── 문제 검색 (인라인) ────────────────────────────────────────────────────
+// ── 문제 검색 ────────────────────────────────────────────────────────────
 
-const EMPTY_FILTERS = { type: '', grade: '', year_from: '', year_to: '', kind: '', month: '' }
+const DIFFICULTY_OPTIONS = ['하', '중하', '중', '중상', '최상'] as const
+const EMPTY_FILTERS = {
+  type: '',
+  grade: '',
+  year_from: '',
+  year_to: '',
+  kind: '',
+  month: '',
+  points: '',
+  difficulties: [] as string[],
+  max_correct_rate: '',
+}
 
 function QuestionSearch() {
   const [filters, setFilters] = useState(EMPTY_FILTERS)
   const [results, setResults] = useState<ExamBankQuestion[] | null>(null)
   const [searching, setSearching] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const set = (key: keyof typeof EMPTY_FILTERS) => (v: string) =>
     setFilters((f) => ({ ...f, [key]: v === 'all' ? '' : v }))
 
-  const handleSearch = async () => {
+  const toggleDifficulty = (d: string) =>
+    setFilters((f) => ({
+      ...f,
+      difficulties: f.difficulties.includes(d)
+        ? f.difficulties.filter((x) => x !== d)
+        : [...f.difficulties, d],
+    }))
+
+  const doSearch = async (f: typeof EMPTY_FILTERS) => {
     setSearching(true)
     try {
       const params = new URLSearchParams()
-      if (filters.type) params.set('type', filters.type)
-      if (filters.grade) params.set('grade', filters.grade)
-      if (filters.year_from) params.set('year_from', filters.year_from)
-      if (filters.year_to) params.set('year_to', filters.year_to)
-      if (filters.month) params.set('month', filters.month)
-      if (filters.kind === '수능') params.set('source', '수능')
-      else if (filters.kind === '모의고사') params.set('source', '모의고사')
+      if (f.type) params.set('type', f.type)
+      if (f.grade) params.set('grade', f.grade)
+      if (f.year_from) params.set('year_from', f.year_from)
+      if (f.year_to) params.set('year_to', f.year_to)
+      if (f.month) params.set('month', f.month)
+      if (f.kind === '수능') params.set('source', '수능')
+      else if (f.kind === '모의고사') params.set('source', '모의고사')
+      if (f.points) params.set('points', f.points)
+      if (f.difficulties.length) params.set('difficulty', f.difficulties.join(','))
+      if (f.max_correct_rate) params.set('max_correct_rate', f.max_correct_rate)
 
       const res = await fetch(`/api/exam-bank/questions?${params}`)
       const data = await res.json()
@@ -634,10 +657,15 @@ function QuestionSearch() {
     }
   }
 
-  const handleReset = () => {
-    setFilters(EMPTY_FILTERS)
-    setResults(null)
-  }
+  // 필터 변경 시 debounce 자동 검색
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => doSearch(filters), 400)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters])
+
+  const handleReset = () => setFilters(EMPTY_FILTERS)
 
   const copyAll = async () => {
     if (!results?.length) return
@@ -662,67 +690,81 @@ function QuestionSearch() {
     toast.success(`${results.length}개 문항이 클립보드에 복사되었습니다`)
   }
 
-  const hasFilter = Object.values(filters).some(Boolean)
+  const hasFilter = filters.type || filters.grade || filters.year_from || filters.year_to
+    || filters.kind || filters.month || filters.points || filters.difficulties.length || filters.max_correct_rate
 
   return (
-    <div className="flex gap-5 items-start">
-      {/* 결과 영역 */}
-      <div className="flex-1 min-w-0 space-y-3">
-        {results === null && (
-          <p className="text-sm text-gray-400 mt-2">필터를 선택하고 검색하세요.</p>
-        )}
-        {results !== null && results.length === 0 && (
-          <p className="text-sm text-gray-400 mt-2">검색 결과가 없습니다.</p>
-        )}
-        {results !== null && results.length > 0 && (
-          <>
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">{results.length}개 문항</p>
-              <Button size="sm" variant="outline" onClick={copyAll}>
-                <Copy className="mr-1.5 h-3.5 w-3.5" />
-                전체 복사 ({results.length})
-              </Button>
-            </div>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {results.map((q) => <QuestionCard key={q.id} question={q} showExamInfo />)}
-            </div>
-          </>
-        )}
-      </div>
+    <div className="space-y-4">
+      {/* ── 상단 필터 패널 ── */}
+      <div className="rounded-2xl bg-white shadow-[0px_4px_24px_rgba(0,75,198,0.06)] border border-gray-100/80 p-4 sticky top-4 z-10">
+        <div className="flex flex-wrap gap-x-6 gap-y-3 items-end">
 
-      {/* 필터 패널 (우측 고정) */}
-      <Card className="w-44 shrink-0 p-3 sticky top-4">
-        <div className="space-y-2">
-          {([
-            { key: 'type', label: '유형', items: [['all', '전체 유형'], ...Object.entries(QUESTION_TYPE_LABELS)] },
-            { key: 'grade', label: '학년', items: [['all', '전체'], ['1', '고1'], ['2', '고2'], ['3', '고3']] },
-            { key: 'kind', label: '구분', items: [['all', '전체'], ['수능', '수능'], ['모의고사', '모의고사']] },
-            { key: 'month', label: '월', items: [['all', '전체'], ...MONTHS.map((m) => [String(m), `${m}월`])] },
-          ] as { key: keyof typeof EMPTY_FILTERS; label: string; items: [string, string][] }[]).map(({ key, label, items }) => (
-            <div key={key}>
-              <p className="mb-0.5 text-[11px] text-gray-400">{label}</p>
-              <Select value={filters[key] || 'all'} onValueChange={set(key)}>
-                <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {items.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          ))}
+          {/* 유형 */}
+          <div className="min-w-[120px]">
+            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">유형</p>
+            <Select value={filters.type || 'all'} onValueChange={set('type')}>
+              <SelectTrigger className="h-8 text-xs w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">전체 유형</SelectItem>
+                {Object.entries(QUESTION_TYPE_LABELS).map(([k, v]) => (
+                  <SelectItem key={k} value={k}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
+          {/* 학년 */}
+          <div className="min-w-[72px]">
+            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">학년</p>
+            <Select value={filters.grade || 'all'} onValueChange={set('grade')}>
+              <SelectTrigger className="h-8 text-xs w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {[['all','전체'],['1','고1'],['2','고2'],['3','고3']].map(([v,l]) => (
+                  <SelectItem key={v} value={v}>{l}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* 구분 */}
+          <div className="min-w-[88px]">
+            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">구분</p>
+            <Select value={filters.kind || 'all'} onValueChange={set('kind')}>
+              <SelectTrigger className="h-8 text-xs w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {[['all','전체'],['수능','수능'],['모의고사','모의고사']].map(([v,l]) => (
+                  <SelectItem key={v} value={v}>{l}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* 월 */}
+          <div className="min-w-[72px]">
+            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">월</p>
+            <Select value={filters.month || 'all'} onValueChange={set('month')}>
+              <SelectTrigger className="h-8 text-xs w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">전체</SelectItem>
+                {MONTHS.map((m) => <SelectItem key={m} value={String(m)}>{m}월</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* 년도 */}
           <div>
-            <p className="mb-0.5 text-[11px] text-gray-400">년도</p>
+            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">년도</p>
             <div className="flex items-center gap-1">
               <Select value={filters.year_from || 'all'} onValueChange={set('year_from')}>
-                <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="시작" /></SelectTrigger>
+                <SelectTrigger className="h-8 text-xs w-[72px]"><SelectValue placeholder="시작" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
                   {YEARS.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <span className="text-[11px] text-gray-400">~</span>
+              <span className="text-xs text-gray-300">~</span>
               <Select value={filters.year_to || 'all'} onValueChange={set('year_to')}>
-                <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="종료" /></SelectTrigger>
+                <SelectTrigger className="h-8 text-xs w-[72px]"><SelectValue placeholder="종료" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
                   {YEARS.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
@@ -730,20 +772,107 @@ function QuestionSearch() {
               </Select>
             </div>
           </div>
-        </div>
 
-        <div className="mt-3 flex flex-col gap-1.5">
-          <Button size="sm" onClick={handleSearch} disabled={searching} className="w-full h-7 text-xs">
-            <Search className="mr-1 h-3 w-3" />
-            {searching ? '검색 중...' : '검색'}
-          </Button>
+          {/* 구분선 */}
+          <div className="w-px h-8 bg-gray-200 hidden sm:block" />
+
+          {/* 배점 */}
+          <div>
+            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">배점</p>
+            <div className="flex gap-1">
+              {[['', '전체'], ['2', '2점'], ['3', '3점']].map(([v, l]) => (
+                <button
+                  key={v}
+                  onClick={() => setFilters((f) => ({ ...f, points: f.points === v ? '' : v }))}
+                  className={`h-8 px-3 rounded-lg text-xs font-medium transition-colors ${
+                    filters.points === v
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 난이도 */}
+          <div>
+            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">난이도</p>
+            <div className="flex gap-1">
+              {DIFFICULTY_OPTIONS.map((d) => {
+                const s = DIFFICULTY_STYLE[d]
+                const active = filters.difficulties.includes(d)
+                return (
+                  <button
+                    key={d}
+                    onClick={() => toggleDifficulty(d)}
+                    className={`h-8 px-2.5 rounded-lg text-xs font-medium transition-colors ${
+                      active ? `${s.bg} ${s.text} ring-1 ring-current` : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                    }`}
+                  >
+                    {d}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* 정답률 */}
+          <div className="min-w-[96px]">
+            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">정답률 이하</p>
+            <Select value={filters.max_correct_rate || 'all'} onValueChange={set('max_correct_rate')}>
+              <SelectTrigger className="h-8 text-xs w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">전체</SelectItem>
+                <SelectItem value="30">~30%</SelectItem>
+                <SelectItem value="40">~40%</SelectItem>
+                <SelectItem value="50">~50%</SelectItem>
+                <SelectItem value="60">~60%</SelectItem>
+                <SelectItem value="70">~70%</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* 리셋 */}
           {hasFilter && (
-            <Button size="sm" variant="ghost" onClick={handleReset} className="w-full h-7 text-xs text-gray-400">
+            <button
+              onClick={handleReset}
+              className="h-8 px-3 rounded-lg text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors self-end"
+            >
               초기화
-            </Button>
+            </button>
           )}
         </div>
-      </Card>
+      </div>
+
+      {/* ── 결과 ── */}
+      {searching && (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+        </div>
+      )}
+
+      {!searching && results !== null && (
+        <>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-500">
+              {results.length > 0 ? `${results.length}개 문항` : '검색 결과가 없습니다'}
+            </p>
+            {results.length > 0 && (
+              <Button size="sm" variant="outline" onClick={copyAll}>
+                <Copy className="mr-1.5 h-3.5 w-3.5" />
+                전체 복사 ({results.length})
+              </Button>
+            )}
+          </div>
+          {results.length > 0 && (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {results.map((q) => <QuestionCard key={q.id} question={q} showExamInfo />)}
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
