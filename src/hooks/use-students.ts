@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Student } from '@/lib/types'
+import { StudentWithEnrollments } from '@/lib/types'
 import { toast } from 'sonner'
 
 type StudentBody = {
@@ -14,7 +14,7 @@ type StudentBody = {
   joined_at?: string
 }
 
-async function fetchStudents(): Promise<Student[]> {
+async function fetchStudents(): Promise<StudentWithEnrollments[]> {
   const res = await fetch('/api/students')
   if (!res.ok) throw new Error('학생 목록 조회 실패')
   return res.json()
@@ -100,7 +100,11 @@ export function useWithdrawStudent() {
       })
       if (!res.ok) throw new Error((await res.json()).error)
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['class-students'] }); toast.success('퇴원 처리되었습니다') },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['class-students'] })
+      toast.success('퇴원 처리되었습니다')
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 }
