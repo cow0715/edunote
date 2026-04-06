@@ -31,7 +31,8 @@ async function fetchExamSeq(grade: number, examYear: number, examMonth: number):
   })
   if (!res.ok) return null
 
-  const html = await res.text()
+  const buf = await res.arrayBuffer()
+  const html = new TextDecoder('euc-kr').decode(buf)
   // 예: onclick="fncSelExamSeq(334,'1',0);">2024.11.14 수능
   const monthStr = String(examMonth).padStart(2, '0')
   const re = new RegExp(`fncSelExamSeq\\((\\d+),'\\d+',\\d+\\)[^>]*>\\s*${megastudyYear}\\.${monthStr}\\.`)
@@ -41,10 +42,17 @@ async function fetchExamSeq(grade: number, examYear: number, examMonth: number):
 
 export type StatsRow = {
   question_number: number
+  answer: string
   difficulty: string
   points: number
   correct_rate: number
   choice_rates: number[]
+}
+
+// 숫자 "1"~"5" → 원문자 "①"~"⑤"
+function toCircledNumber(s: string): string {
+  const map: Record<string, string> = { '1': '①', '2': '②', '3': '③', '4': '④', '5': '⑤' }
+  return map[s.trim()] ?? s.trim()
 }
 
 function parseStatsHtml(html: string): StatsRow[] {
@@ -60,10 +68,12 @@ function parseStatsHtml(html: string): StatsRow[] {
       cells.push(tdMatch[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, '').trim())
     }
 
+    // 컬럼 순서: [0]번호 [1]정답 [2]난이도 [3]배점 [4]정답률 [5~9]선지별선택률
     if (cells.length >= 10 && /^\d+$/.test(cells[0])) {
       const pct = (s: string) => { const n = parseFloat(s.replace('%', '')); return isNaN(n) ? 0 : n }
       results.push({
         question_number: parseInt(cells[0]),
+        answer: toCircledNumber(cells[1]),
         difficulty: cells[2] || '',
         points: parseInt(cells[3]) || 2,
         correct_rate: pct(cells[4]),
@@ -103,7 +113,9 @@ export async function getMegastudyStats(
   })
   if (!res.ok) return null
 
-  const html = await res.text()
+  // 메가스터디는 EUC-KR 인코딩 → ArrayBuffer로 받아서 수동 디코딩
+  const buf = await res.arrayBuffer()
+  const html = new TextDecoder('euc-kr').decode(buf)
   const rows = parseStatsHtml(html)
   return rows.length > 0 ? rows : null
 }
