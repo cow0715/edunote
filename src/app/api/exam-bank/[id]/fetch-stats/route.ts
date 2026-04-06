@@ -1,6 +1,8 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { getMegastudyStats } from '@/lib/megastudy'
 
+export const runtime = 'nodejs'
+
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
