@@ -42,13 +42,6 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, updateR
           <span className="text-xs text-gray-400 mr-1">답안 OCR</span>
           <ExamPhotoButton
             weekId={weekId}
-            side="front"
-            disabled={!row.present}
-            onResult={applyOcrResults}
-          />
-          <ExamPhotoButton
-            weekId={weekId}
-            side="back"
             disabled={!row.present}
             onResult={applyOcrResults}
           />

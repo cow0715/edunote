@@ -8,8 +8,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
 
-  const { fileData, mimeType } = await request.json()
-  if (!fileData || !mimeType) return err('파일 없음')
+  const { files } = await request.json()
+  if (!files?.length) return err('파일 없음')
 
   const { data: questions } = await supabase
     .from('exam_question')
@@ -27,7 +27,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }))
 
   try {
-    const results = await ocrExamAnswers(fileData, mimeType, ocrQuestions)
+    const results = await ocrExamAnswers(files, ocrQuestions)
     return ok({ ok: true, results })
   } catch (e) {
     console.error('[ocr-exam-photo] OCR 실패', e)
