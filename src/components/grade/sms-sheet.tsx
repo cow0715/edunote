@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { MessageSquare, Copy, Check, RefreshCw, ChevronDown, ChevronUp, RotateCcw, Save, Send, XCircle, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -47,9 +47,10 @@ function getNearestSchedule() {
 interface Props {
   weekId: string
   weekNumber: number
+  children?: React.ReactNode
 }
 
-export function SmsSheet({ weekId, weekNumber }: Props) {
+export function SmsSheet({ weekId, weekNumber, children }: Props) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [messages, setMessages] = useState<SmsMessage[]>([])
@@ -250,9 +251,11 @@ export function SmsSheet({ weekId, weekNumber }: Props) {
   return (
     <Sheet open={open} onOpenChange={handleOpen}>
       <SheetTrigger asChild>
-        <Button variant="outline">
-          <MessageSquare className="mr-2 h-4 w-4" />문자 발송
-        </Button>
+        {children ?? (
+          <Button variant="outline">
+            <MessageSquare className="mr-2 h-4 w-4" />문자 발송
+          </Button>
+        )}
       </SheetTrigger>
 
       <SheetContent className="w-full sm:max-w-lg flex flex-col gap-0 p-0">
