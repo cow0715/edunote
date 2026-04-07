@@ -553,24 +553,18 @@ export async function parseExamBankPage(
 // ── 시험 답안지 OCR ───────────────────────────────────────────────────────
 
 export async function ocrExamAnswers(
-  files: Array<{ data: string; mimeType: string }>,
+  fileData: string,
+  mimeType: string,
   questions: ExamOcrQuestion[],
 ): Promise<ExamOcrResult[]> {
-  const imageBlocks = files.map((f) => ({
-    type: 'image' as const,
-    source: {
-      type: 'base64' as const,
-      media_type: f.mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-      data: f.data,
-    },
-  }))
+  const fileContent = { type: 'image' as const, source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: fileData } }
 
   console.log('[ocrExamAnswers] Claude Vision OCR 사용')
   const prompt = buildExamOcrVisionPrompt(questions)
   const res = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 4096,
-    messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: prompt }] }],
+    messages: [{ role: 'user', content: [fileContent, { type: 'text', text: prompt }] }],
   })
   const raw = res.content[0].type === 'text' ? res.content[0].text : ''
 
