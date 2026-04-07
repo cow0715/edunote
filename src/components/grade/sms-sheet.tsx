@@ -1,10 +1,10 @@
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
-import { MessageSquare, Copy, Check, RefreshCw, ChevronDown, ChevronUp, RotateCcw, Save, Send, XCircle, Loader2 } from 'lucide-react'
+import { MessageSquare, Copy, Check, RefreshCw, ChevronDown, ChevronUp, RotateCcw, Save, Send, XCircle, Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
 import { useSaveMessageLog } from '@/hooks/use-message-logs'
@@ -258,12 +258,12 @@ export function SmsSheet({ weekId, weekNumber, children }: Props) {
         )}
       </SheetTrigger>
 
-      <SheetContent className="w-full sm:max-w-lg flex flex-col gap-0 p-0">
+      <SheetContent className="w-full sm:max-w-lg flex flex-col gap-0 p-0" showCloseButton={false}>
         {/* ── 헤더: 제목 + 재생성 + 프롬프트 ── */}
         <SheetHeader className="px-5 py-4 border-b shrink-0">
           <div className="flex items-center justify-between">
             <SheetTitle>{weekNumber}주차 문자 발송</SheetTitle>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <Button size="sm" variant="ghost" onClick={generate} disabled={loading || sendingAll} className="h-8 text-xs">
                 <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />재생성
               </Button>
@@ -278,6 +278,12 @@ export function SmsSheet({ weekId, weekNumber, children }: Props) {
                   </Button>
                 </>
               )}
+              <SheetClose asChild>
+                <button className="rounded p-1.5 hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600">
+                  <X className="h-4 w-4" />
+                  <span className="sr-only">Close</span>
+                </button>
+              </SheetClose>
             </div>
           </div>
 
