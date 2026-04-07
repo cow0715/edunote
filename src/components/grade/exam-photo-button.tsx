@@ -11,9 +11,34 @@ export type ExamOcrResult = {
   student_answer_text?: string
 }
 
-export function ExamPhotoButton({ weekId, side, disabled, onResult }: {
+async function resizeImage(file: File, maxDim = 1200, quality = 0.75): Promise<{ data: string; mimeType: string }> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(img.width * scale)
+      canvas.height = Math.round(img.height * scale)
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      URL.revokeObjectURL(url)
+      canvas.toBlob(
+        (blob) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve({ data: (reader.result as string).split(',')[1], mimeType: 'image/jpeg' })
+          reader.readAsDataURL(blob!)
+        },
+        'image/jpeg',
+        quality
+      )
+    }
+    img.src = url
+  })
+}
+
+export function ExamPhotoButton({ weekId, disabled, onResult }: {
   weekId: string
-  side: 'front' | 'back'
   disabled: boolean
   onResult: (results: ExamOcrResult[]) => void
 }) {
@@ -21,22 +46,18 @@ export function ExamPhotoButton({ weekId, side, disabled, onResult }: {
   const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    if (!files.length) return
     e.target.value = ''
     setLoading(true)
     setError(null)
     try {
-      const b64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve((reader.result as string).split(',')[1])
-        reader.readAsDataURL(file)
-      })
+      const resized = await Promise.all(files.map((f) => resizeImage(f)))
       const resp = await fetch(`/api/weeks/${weekId}/ocr-exam-photo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileData: b64, mimeType: file.type }),
+        body: JSON.stringify({ files: resized }),
       })
       const data = await resp.json()
       if (data.ok) {
@@ -58,8 +79,9 @@ export function ExamPhotoButton({ weekId, side, disabled, onResult }: {
         type="file"
         accept="image/*"
         capture="environment"
+        multiple
         className="hidden"
-        onChange={handleFile}
+        onChange={handleFiles}
       />
       <button
         type="button"
@@ -73,7 +95,7 @@ export function ExamPhotoButton({ weekId, side, disabled, onResult }: {
         )}
       >
         {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
-        {loading ? 'OCR 중...' : `${side === 'front' ? '앞면' : '뒷면'} 촬영`}
+        {loading ? 'OCR 중...' : '답안 촬영'}
       </button>
       {error && <span className="text-xs text-red-400">{error}</span>}
     </>
