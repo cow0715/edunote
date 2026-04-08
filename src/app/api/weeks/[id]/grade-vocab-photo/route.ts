@@ -73,23 +73,44 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     vocabWordMap = new Map((vocabWords ?? []).map((w) => [w.number, w.id]))
   }
 
-  // ── 4. week_score upsert ──────────────────────────────────────────────
-  const vocabCorrect = results.filter((r) => r.is_correct).length
-  const { data: score, error: scoreError } = await supabase
-    .from('week_score')
-    .upsert(
-      { week_id: weekId, student_id: studentId, vocab_correct: vocabCorrect },
-      { onConflict: 'week_id,student_id' }
-    )
-    .select('id')
-    .single()
+  // ── 4. week_score 확보 (기존 row id 필요) ────────────────────────────────
+  // 먼저 기존 row 조회, 없으면 생성
+  let score: { id: string }
+  {
+    const { data: existing } = await supabase
+      .from('week_score')
+      .select('id')
+      .eq('week_id', weekId)
+      .eq('student_id', studentId)
+      .maybeSingle()
 
-  if (scoreError || !score) {
-    console.error('[grade-vocab-photo] week_score upsert 실패', scoreError)
-    return err('week_score 생성 실패', 500)
+    if (existing) {
+      score = existing
+    } else {
+      const { data: created, error: createError } = await supabase
+        .from('week_score')
+        .insert({ week_id: weekId, student_id: studentId })
+        .select('id')
+        .single()
+      if (createError || !created) {
+        console.error('[grade-vocab-photo] week_score 생성 실패', createError)
+        return err('week_score 생성 실패', 500)
+      }
+      score = created
+    }
   }
 
   // ── 5. student_vocab_answer upsert ─────────────────────────────────────
+  // teacher_locked=true 항목은 AI 결과로 덮어쓰지 않음 (is_correct + student_answer 모두 보존)
+  const { data: lockedAnswers } = await supabase
+    .from('student_vocab_answer')
+    .select('vocab_word_id, is_correct, student_answer')
+    .eq('week_score_id', score.id)
+    .eq('teacher_locked', true)
+  const lockedMap = new Map(
+    (lockedAnswers ?? []).map((a) => [a.vocab_word_id, { is_correct: a.is_correct, student_answer: a.student_answer }])
+  )
+
   // OCR 번호 이탈 대비: 번호 매칭 실패 시 english_word로 fallback 매칭
   const vocabWordByEnglish = new Map(
     (existingVocabWords ?? []).map((w) => [w.english_word.toLowerCase(), w.id])
@@ -105,11 +126,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         }
       }
       if (!vocabWordId) return null
+      // teacher_locked 항목은 기존 is_correct + student_answer 모두 보존
+      const locked = lockedMap.get(vocabWordId)
       return {
         week_score_id: score.id,
         vocab_word_id: vocabWordId,
-        student_answer: r.student_answer || null,
-        is_correct: r.is_correct,
+        student_answer: locked ? locked.student_answer : (r.student_answer || null),
+        is_correct: locked ? locked.is_correct : r.is_correct,
       }
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
@@ -120,6 +143,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       .upsert(answerInserts, { onConflict: 'week_score_id,vocab_word_id' })
     if (answerError) console.error('[grade-vocab-photo] student_vocab_answer upsert 실패', answerError)
   }
+
+  // ── 4-b. vocab_correct 계산 후 업데이트 (매핑 성공 항목만, teacher_locked 반영) ──
+  const vocabCorrect = answerInserts.filter((a) => a.is_correct).length
+  await supabase.from('week_score').update({ vocab_correct: vocabCorrect }).eq('id', score.id)
 
   // ── 6. week.vocab_total 자동 업데이트 ────────────────────────────────
   // 기존 단어가 있으면 그 수를 기준으로, 없으면 OCR 결과 수 사용
@@ -143,5 +170,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     console.error('[grade-vocab-photo] 사진 업로드 예외', e)
   }
 
-  return ok({ ok: true, vocab_correct: vocabCorrect, vocab_total: results.length, results })
+  return ok({ ok: true, vocab_correct: vocabCorrect, vocab_total: answerInserts.length, results })
 }

@@ -21,7 +21,7 @@ export async function PATCH(request: Request) {
 
   if (error) return err(error.message, 500)
 
-  // vocab_correct 재계산
+  // vocab_correct 재계산 (빈 문자열 방어)
   if (week_score_id) {
     const { data: all } = await supabase
       .from('student_vocab_answer')
@@ -68,17 +68,17 @@ export async function POST(request: Request) {
 
   const graded = await gradeVocabItems(itemsWithAnswer, customRules)
 
-  // DB 업데이트
+  // DB 업데이트 (재채점 완료 → teacher_locked: false 해제)
   await Promise.all(graded.map((g) => {
     const orig = items.find((i) => i.number === g.number)
     if (!orig) return
     return supabase
       .from('student_vocab_answer')
-      .update({ student_answer: g.student_answer ?? null, is_correct: g.is_correct })
+      .update({ student_answer: g.student_answer ?? null, is_correct: g.is_correct, teacher_locked: false })
       .eq('id', orig.id)
   }))
 
-  // vocab_correct 재계산
+  // vocab_correct 재계산 (weekScoreId 빈 문자열 방어)
   if (weekScoreId) {
     const { data: all } = await supabase
       .from('student_vocab_answer')

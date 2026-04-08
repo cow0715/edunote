@@ -7,3 +7,6 @@ create table if not exists backup_log (
   row_counts  jsonb,
   created_at  timestamptz not null default now()
 );
+
+-- 내부 로그 테이블이므로 RLS 불필요
+alter table backup_log disable row level security;

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Camera, X, Lock } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { GradeRow } from '@/hooks/use-grade'
 import { cn } from '@/lib/utils'
 import { VocabPhotoButton } from './vocab-photo-button'
@@ -23,6 +24,7 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(new Set())
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [photoOpen, setPhotoOpen] = useState(false)
+
   useEffect(() => { setEditableVocab(vocabAnswers); setDirtyIds(new Set()) }, [vocabAnswers])
 
   useEffect(() => {
@@ -33,18 +35,30 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
       .catch(() => {})
   }, [vocabPhotoPath])
 
+  // 개별 답안 저장 (is_correct 수동 토글 또는 텍스트 blur)
   async function saveVocabAnswer(id: string, student_answer: string, is_correct: boolean, teacher_locked?: boolean) {
-    await fetch('/api/vocab-answer', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, week_score_id: weekScoreId, student_answer, is_correct, teacher_locked }),
-    })
+    try {
+      const res = await fetch('/api/vocab-answer', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, week_score_id: weekScoreId || undefined, student_answer, is_correct, teacher_locked }),
+      })
+      if (!res.ok) throw new Error('저장 실패')
+    } catch {
+      toast.error('답안 저장에 실패했습니다')
+    }
+  }
+
+  // 텍스트 수정 후 blur → student_answer 즉시 저장 (is_correct 변경 없음, teacher_locked 해제)
+  async function saveTextOnly(a: VocabAnswerRow, value: string) {
+    if (!dirtyIds.has(a.id)) return
+    await saveVocabAnswer(a.id, value, a.is_correct, false)
+    // vocab_correct 반영 위해 refetch (is_correct 변경 없으므로 생략 가능하나 일관성 유지)
   }
 
   async function regrade() {
     setRegrading(true)
     try {
-      // teacher_locked 항목은 AI 재채점에서 제외
       const itemsToRegrade = editableVocab.filter((a) => dirtyIds.has(a.id) && !a.teacher_locked)
       if (itemsToRegrade.length === 0) { setDirtyIds(new Set()); return }
 
@@ -52,7 +66,7 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          weekScoreId,
+          weekScoreId: weekScoreId || undefined,
           items: itemsToRegrade.map((a) => ({ id: a.id, number: a.number, english_word: a.english_word, student_answer: a.student_answer })),
         }),
       })
@@ -60,7 +74,11 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
       if (data.ok) {
         await queryClient.refetchQueries({ queryKey: ['grade', weekId] })
         setDirtyIds(new Set())
+      } else {
+        toast.error('재채점에 실패했습니다')
       }
+    } catch {
+      toast.error('재채점 중 오류가 발생했습니다')
     } finally {
       setRegrading(false)
     }
@@ -74,6 +92,7 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
           weekId={weekId}
           studentId={row.student_id}
           disabled={!row.present}
+          hasExistingData={vocabAnswers.length > 0}
           onResult={(correct, _total, _results) => {
             updateRow(row.student_id, 'vocab_correct', correct)
             queryClient.refetchQueries({ queryKey: ['grade', weekId] })
@@ -147,9 +166,12 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
                   value={a.student_answer ?? ''}
                   onChange={(e) => {
                     const val = e.target.value
-                    // 텍스트 수정 시 teacher_locked 해제
                     setEditableVocab((prev) => prev.map((x) => x.id === a.id ? { ...x, student_answer: val, teacher_locked: false } : x))
                     setDirtyIds((prev) => new Set(prev).add(a.id))
+                  }}
+                  onBlur={(e) => {
+                    // blur 시 텍스트 즉시 저장 (is_correct는 재채점 버튼으로 별도 업데이트)
+                    saveTextOnly(a, e.target.value)
                   }}
                 />
                 {a.teacher_locked && (
@@ -160,9 +182,10 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
                   title={a.teacher_locked ? '교사 확정 (클릭해서 해제)' : '클릭해서 정오 전환 (교사 확정)'}
                   onClick={() => {
                     const next = !a.is_correct
-                    const locked = !a.teacher_locked  // 첫 클릭: 잠금, 잠긴 상태 재클릭: 해제 + 토글
+                    const locked = !a.teacher_locked
                     const updated = editableVocab.map((x) => x.id === a.id ? { ...x, is_correct: next, teacher_locked: locked } : x)
                     setEditableVocab(updated)
+                    setDirtyIds((prev) => { const s = new Set(prev); s.delete(a.id); return s })
                     saveVocabAnswer(a.id, a.student_answer ?? '', next, locked)
                     updateRow(row.student_id, 'vocab_correct', updated.filter((x) => x.is_correct).length)
                   }}

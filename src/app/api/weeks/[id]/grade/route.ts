@@ -94,6 +94,8 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
       student_answer_text?: string
       ox_selection?: string | null
       is_correct?: boolean
+      needs_review?: boolean
+      ai_feedback?: string
       teacher_confirmed?: boolean
     }[]
   }
@@ -240,11 +242,25 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         }
 
         const isTextAnswer = style === 'subjective' || style === 'multi_select' || style === 'find_error'
-        const is_correct = style === 'objective'
-          ? (a.student_answer !== null && a.student_answer === q?.correct_answer)
-          : style === 'multi_select'
-            ? (q?.correct_answer_text ? gradeMultiSelect(q.correct_answer_text, a.student_answer_text ?? '') : false)
-            : false // subjective: AI 채점 후 업데이트
+        const isSubjective = style === 'subjective'
+
+        let is_correct: boolean
+        let needs_review = false
+        let ai_feedback: string | null = null
+
+        if (style === 'objective') {
+          is_correct = a.student_answer !== null && a.student_answer === q?.correct_answer
+        } else if (style === 'multi_select') {
+          is_correct = q?.correct_answer_text ? gradeMultiSelect(q.correct_answer_text, a.student_answer_text ?? '') : false
+        } else if (isSubjective && skipAI) {
+          // draft 저장 시: 기존 AI 채점 결과 보존 (덮어쓰지 않음)
+          is_correct = a.is_correct ?? false
+          needs_review = a.needs_review ?? false
+          ai_feedback = a.ai_feedback ?? null
+        } else {
+          is_correct = false // subjective: AI 채점 후 업데이트
+        }
+
         return {
           week_score_id: score.id,
           exam_question_id: a.exam_question_id,
@@ -252,8 +268,9 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
           student_answer_text: isTextAnswer ? (a.student_answer_text ?? null) : null,
           ox_selection: null,
           is_correct,
-          needs_review: false,
+          needs_review,
           teacher_confirmed: false,
+          ...(isSubjective && { ai_feedback }),
         }
       })
 
