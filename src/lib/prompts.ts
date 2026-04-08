@@ -246,6 +246,9 @@ ${clovaText}
    - 판독 불가 → null
    - 미기재(빈칸) → ""
 
+⚠️ 중요: 시험지에 인쇄된 모든 번호를 빠짐없이 포함하세요.
+   학생이 아무것도 쓰지 않아 OCR 텍스트에 없더라도, 번호·영어 단어가 인쇄되어 있으면 반드시 포함 (student_answer: "").
+   번호를 건너뛰거나 임의로 재번호 매기지 마세요.
 ⚠️ 학생 답을 교정·추측하지 마세요. 채점하지 마세요.
 
 JSON 배열만 출력:
@@ -262,10 +265,13 @@ export const VOCAB_OCR_VISION_PROMPT = `이 단어 시험지에서 각 문항의
    - 맞춤법 틀려도 수정 금지
    - 판독 불가 → null, 미기재 → ""
 
+⚠️ 중요: 시험지에 인쇄된 모든 번호를 빠짐없이 포함하세요.
+   학생이 아무것도 쓰지 않은 칸도 number·english_word는 반드시 포함 (student_answer: "").
+   번호를 건너뛰거나 임의로 재번호 매기지 마세요.
 ⚠️ 학생 답을 교정·추측하지 마세요. 채점하지 마세요.
 
 JSON 배열만 출력:
-[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":null}]`
+[{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":""}]`
 
 // ── 시험 답안지 OCR ───────────────────────────────────────────────────────
 
