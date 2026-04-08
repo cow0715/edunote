@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 
 const ModelCompare = dynamic(() => import('@/components/dev/model-compare'), { ssr: false })
+const OcrTest = dynamic(() => import('@/components/dev/ocr-test'), { ssr: false })
 
 const ScoreTrendChart  = dynamic(() => import('@/components/share/score-trend-chart').then((m) => m.ScoreTrendChart),  { ssr: false })
 const WeeklyBarChart   = dynamic(() => import('@/components/share/weekly-bar-chart').then((m) => m.WeeklyBarChart),    { ssr: false })
@@ -100,7 +101,7 @@ function Badge({ children, color }: { children: React.ReactNode; color: 'green' 
   return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{children}</span>
 }
 
-const TABS = ['개발 도구', '모델 비교'] as const
+const TABS = ['개발 도구', '모델 비교', 'OCR 테스트'] as const
 type Tab = (typeof TABS)[number]
 
 export default function DevPage() {
@@ -152,6 +153,7 @@ export default function DevPage() {
         </div>
 
         {tab === '모델 비교' && <ModelCompare />}
+        {tab === 'OCR 테스트' && <OcrTest />}
 
         {tab === '개발 도구' && <div className="grid gap-5 lg:grid-cols-2">
 

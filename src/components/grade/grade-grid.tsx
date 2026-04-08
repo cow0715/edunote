@@ -11,6 +11,9 @@ import { VocabSheetContent, VocabAnswerRow } from './vocab-sheet-content'
 import { ExamSheetContent } from './exam-sheet-content'
 import { SubjectiveReviewPanel } from './subjective-review-panel'
 
+// 빈 배열 상수 — 매 렌더마다 새 참조 생성 방지 (useEffect 의존성 안정화)
+const EMPTY_VOCAB: VocabAnswerRow[] = []
+
 // ── 메인 컴포넌트 ──────────────────────────────────────
 interface Props {
   weekId: string
@@ -147,19 +150,19 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     return m
   }, [data?.weekScores])
 
-  const weekScoreIdMap = (() => {
+  const weekScoreIdMap = useMemo(() => {
     const m = new Map<string, string>()
     for (const score of data?.weekScores ?? []) m.set(score.student_id, score.id)
     return m
-  })()
+  }, [data?.weekScores])
 
-  const vocabPhotoPathMap = (() => {
+  const vocabPhotoPathMap = useMemo(() => {
     const m = new Map<string, string>()
     for (const score of data?.weekScores ?? []) {
       if (score.vocab_photo_path) m.set(score.student_id, score.vocab_photo_path)
     }
     return m
-  })()
+  }, [data?.weekScores])
 
   const updateRow = useCallback((studentId: string, key: keyof GradeRow, value: unknown) => {
     setRows((prev) => prev.map((r) => (r.student_id === studentId ? { ...r, [key]: value } : r)))
@@ -518,10 +521,11 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
 
               {sheetView.type === 'vocab' && (
                 <VocabSheetContent
+                  key={sheetRow.student_id}
                   row={sheetRow}
                   weekId={weekId}
                   weekScoreId={weekScoreIdMap.get(sheetRow.student_id) ?? ''}
-                  vocabAnswers={vocabAnswerMap.get(sheetRow.student_id) ?? []}
+                  vocabAnswers={vocabAnswerMap.get(sheetRow.student_id) ?? EMPTY_VOCAB}
                   vocabPhotoPath={vocabPhotoPathMap.get(sheetRow.student_id) ?? null}
                   updateRow={updateRow}
                 />

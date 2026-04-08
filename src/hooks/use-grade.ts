@@ -21,6 +21,7 @@ export function useGradeData(weekId: string) {
       if (!res.ok) throw new Error('채점 데이터 조회 실패')
       return res.json()
     },
+    refetchOnWindowFocus: false, // 창 전환 시 자동 refetch로 인한 로컬 상태 리셋 방지
   })
 }
 
