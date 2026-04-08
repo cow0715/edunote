@@ -98,6 +98,8 @@ export interface ExamQuestion {
   explanation: string | null;
   exam_type: 'vocab' | 'reading';
   question_style: 'objective' | 'subjective' | 'ox' | 'multi_select' | 'find_error';
+  is_void: boolean;
+  all_correct: boolean;
   created_at: string;
   exam_question_tag?: { concept_tag: ConceptTag | null }[];
   exam_question_choice?: ExamQuestionChoice[];

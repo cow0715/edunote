@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
-import { X } from 'lucide-react'
+import { Ban, CheckCheck, X } from 'lucide-react'
 import { ExamQuestion } from '@/lib/types'
 import { useConceptCategories, useConceptTags } from '@/hooks/use-concept-tags'
 
@@ -39,10 +39,12 @@ export function QuestionTypeEditor({ weekId }: Props) {
   const [tagMap, setTagMap] = useState<Record<string, string[]>>({})
   const [styleMap, setStyleMap] = useState<Record<string, string>>({})
   const [answerMap, setAnswerMap] = useState<Record<string, { primary: number | null; extra: number[] }>>({})
+  const [voidMap, setVoidMap] = useState<Record<string, boolean>>({})
+  const [allCorrectMap, setAllCorrectMap] = useState<Record<string, boolean>>({})
   const [addState, setAddState] = useState<Record<string, { catId: string; tagId: string }>>({})
 
   const questionSnapshot = questions
-    .map((q) => `${q.id}:${q.correct_answer}:${q.correct_answer_text}:${(q.exam_question_tag ?? []).map((t) => t.concept_tag?.id).sort().join(',')}`)
+    .map((q) => `${q.id}:${q.correct_answer}:${q.correct_answer_text}:${q.is_void}:${q.all_correct}:${(q.exam_question_tag ?? []).map((t) => t.concept_tag?.id).sort().join(',')}`)
     .join('|')
 
   useEffect(() => {
@@ -50,11 +52,15 @@ export function QuestionTypeEditor({ weekId }: Props) {
     const map: Record<string, string[]> = {}
     const sMap: Record<string, string> = {}
     const aMap: Record<string, { primary: number | null; extra: number[] }> = {}
+    const vMap: Record<string, boolean> = {}
+    const acMap: Record<string, boolean> = {}
     for (const q of questions) {
       map[q.id] = (q.exam_question_tag ?? [])
         .map((t) => t.concept_tag?.id)
         .filter((id): id is string => !!id)
       sMap[q.id] = q.question_style
+      vMap[q.id] = q.is_void ?? false
+      acMap[q.id] = q.all_correct ?? false
       if (q.question_style === 'objective') {
         const extra = q.correct_answer_text
           ? q.correct_answer_text.split(',').map(Number).filter((n) => !isNaN(n) && n !== q.correct_answer)
@@ -67,6 +73,8 @@ export function QuestionTypeEditor({ weekId }: Props) {
     setTagMap(map)
     setStyleMap(sMap)
     setAnswerMap(aMap)
+    setVoidMap(vMap)
+    setAllCorrectMap(acMap)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionSnapshot])
 
@@ -113,6 +121,8 @@ export function QuestionTypeEditor({ weekId }: Props) {
         id,
         concept_tag_ids,
         question_style: styleMap[id],
+        is_void: voidMap[id] ?? false,
+        all_correct: allCorrectMap[id] ?? false,
         ...(styleMap[id] === 'objective' && answerMap[id] ? {
           correct_answer: answerMap[id].primary,
           extra_correct_answers: answerMap[id].extra,
@@ -174,11 +184,46 @@ export function QuestionTypeEditor({ weekId }: Props) {
           const ans = answerMap[q.id] ?? { primary: null, extra: [] }
           const effectiveStyle = styleMap[q.id] ?? q.question_style
 
+          const isVoid = voidMap[q.id] ?? false
+          const isAllCorrect = allCorrectMap[q.id] ?? false
+
           return (
-            <div key={q.id} className="rounded-lg border bg-white p-3 space-y-3">
-              <span className="font-medium text-sm">
-                {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
-              </span>
+            <div key={q.id} className={['rounded-lg border bg-white p-3 space-y-3', isVoid ? 'opacity-50' : ''].join(' ')}>
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-sm">
+                  {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
+                </span>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setVoidMap((prev) => ({ ...prev, [q.id]: !isVoid }))}
+                    className={[
+                      'inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors',
+                      isVoid
+                        ? 'bg-red-100 text-red-700 border border-red-300'
+                        : 'bg-gray-100 text-gray-400 border border-gray-200 hover:bg-red-50 hover:text-red-500',
+                    ].join(' ')}
+                    title="이 문항을 무효 처리합니다 (채점에서 제외)"
+                  >
+                    <Ban className="h-3 w-3" />
+                    무효
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAllCorrectMap((prev) => ({ ...prev, [q.id]: !isAllCorrect }))}
+                    className={[
+                      'inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors',
+                      isAllCorrect
+                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                        : 'bg-gray-100 text-gray-400 border border-gray-200 hover:bg-emerald-50 hover:text-emerald-500',
+                    ].join(' ')}
+                    title="모든 학생을 정답 처리합니다"
+                  >
+                    <CheckCheck className="h-3 w-3" />
+                    전원정답
+                  </button>
+                </div>
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 {/* 정답 */}
@@ -323,6 +368,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
               <th className="w-16 px-3 py-2 text-left">번호</th>
               <th className="w-36 px-2 py-2 text-left">정답</th>
               <th className="w-32 px-2 py-2 text-left">형식</th>
+              <th className="w-36 px-2 py-2 text-left">특수처리</th>
               <th className="px-2 py-2 text-left">선택된 유형</th>
               <th className="w-64 px-2 py-2 text-left">유형 추가</th>
             </tr>
@@ -337,8 +383,11 @@ export function QuestionTypeEditor({ weekId }: Props) {
               const ans = answerMap[q.id] ?? { primary: null, extra: [] }
               const effectiveStyle = styleMap[q.id] ?? q.question_style
 
+              const isVoid = voidMap[q.id] ?? false
+              const isAllCorrect = allCorrectMap[q.id] ?? false
+
               return (
-                <tr key={q.id} className="hover:bg-gray-50">
+                <tr key={q.id} className={['hover:bg-gray-50', isVoid ? 'opacity-50' : ''].join(' ')}>
                   <td className="px-3 py-2 font-medium whitespace-nowrap">
                     {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
                   </td>
@@ -382,6 +431,39 @@ export function QuestionTypeEditor({ weekId }: Props) {
                       </SelectTrigger>
                       {styleSelectContent}
                     </Select>
+                  </td>
+
+                  <td className="px-2 py-2">
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setVoidMap((prev) => ({ ...prev, [q.id]: !isVoid }))}
+                        className={[
+                          'inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors',
+                          isVoid
+                            ? 'bg-red-100 text-red-700 border border-red-300'
+                            : 'bg-gray-100 text-gray-400 border border-gray-200 hover:bg-red-50 hover:text-red-500',
+                        ].join(' ')}
+                        title="이 문항을 무효 처리합니다 (채점에서 제외)"
+                      >
+                        <Ban className="h-3 w-3" />
+                        무효
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAllCorrectMap((prev) => ({ ...prev, [q.id]: !isAllCorrect }))}
+                        className={[
+                          'inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors',
+                          isAllCorrect
+                            ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                            : 'bg-gray-100 text-gray-400 border border-gray-200 hover:bg-emerald-50 hover:text-emerald-500',
+                        ].join(' ')}
+                        title="모든 학생을 정답 처리합니다"
+                      >
+                        <CheckCheck className="h-3 w-3" />
+                        전원정답
+                      </button>
+                    </div>
                   </td>
 
                   <td className="px-2 py-2">

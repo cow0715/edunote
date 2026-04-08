@@ -222,6 +222,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     return <p className="py-8 text-center text-sm text-gray-400">수강 학생이 없어요. 먼저 학생을 배정해주세요.</p>
   }
 
+  const activeQuestions = questions.filter((q) => !q.is_void)
+  const effectiveReadingTotal = activeQuestions.length > 0 ? activeQuestions.length : readingTotal
   const hasSubjective = questions.some((q) => q.question_style === 'subjective')
   const showVocab = vocabTotal > 0
   const showExam = readingTotal > 0 || questions.length > 0
@@ -320,7 +322,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                       )}
                     >
                       {row.reading_correct !== null
-                        ? `${row.reading_correct}/${readingTotal > 0 ? readingTotal : questions.length}`
+                        ? `${row.reading_correct}/${effectiveReadingTotal}`
                         : '—'}
                     </button>
                   </td>
@@ -529,7 +531,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                   weekId={weekId}
                   row={sheetRow}
                   questions={questions}
-                  readingTotal={readingTotal}
+                  readingTotal={effectiveReadingTotal}
                   updateRow={updateRow}
                   updateAnswer={updateAnswer}
                   updateAnswerText={updateAnswerText}
