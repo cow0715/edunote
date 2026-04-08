@@ -43,7 +43,8 @@ export function WeekResultTable({ weekId, classId, startDate, vocabTotal, readin
   if (isLoading) return <div className="h-40 animate-pulse rounded-lg bg-gray-100" />
 
   const { classStudents = [], weekScores = [], questions = [] } = data ?? {}
-  const effectiveReadingTotal = readingTotal > 0 ? readingTotal : (questions as { id: string }[]).length
+  const activeQuestions = (questions as { id: string; is_void?: boolean }[]).filter((q) => !q.is_void)
+  const effectiveReadingTotal = activeQuestions.length > 0 ? activeQuestions.length : readingTotal
   const scoreMap = new Map<string, ScoreRecord>(weekScores.map((s: ScoreRecord) => [s.student_id, s]))
   const attendanceMap = new Map<string, AttendanceStatus>(
     attendanceRecords.map((a: { student_id: string; status: AttendanceStatus }) => [a.student_id, a.status])

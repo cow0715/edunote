@@ -35,16 +35,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     explanation?: string | null
     correct_answer_text_override?: string | null
     grading_criteria?: string | null
+    is_void?: boolean
+    all_correct?: boolean
   }[] = await request.json()
 
   const VALID_STYLES = ['objective', 'subjective', 'ox', 'multi_select', 'find_error']
   const regradeScoreIds = new Set<string>()
 
-  for (const { id, concept_tag_ids, question_style, correct_answer, extra_correct_answers, explanation, correct_answer_text_override, grading_criteria } of updates) {
+  for (const { id, concept_tag_ids, question_style, correct_answer, extra_correct_answers, explanation, correct_answer_text_override, grading_criteria, is_void, all_correct } of updates) {
     // 소유 확인
     const { data: q } = await supabase
       .from('exam_question')
-      .select('id, question_style')
+      .select('id, question_style, correct_answer, correct_answer_text')
       .eq('id', id)
       .eq('week_id', weekId)
       .single()
@@ -55,7 +57,58 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       await supabase.from('exam_question').update({ question_style }).eq('id', id)
     }
 
-    // 정답 수정 (객관식만)
+    // 무효/전원정답 처리
+    if (is_void !== undefined || all_correct !== undefined) {
+      const flagUpdate: Record<string, boolean> = {}
+      if (is_void !== undefined) flagUpdate.is_void = is_void
+      if (all_correct !== undefined) flagUpdate.all_correct = all_correct
+      await supabase.from('exam_question').update(flagUpdate).eq('id', id)
+
+      const { data: answers } = await supabase
+        .from('student_answer')
+        .select('id, student_answer, week_score_id')
+        .eq('exam_question_id', id)
+
+      const effectiveIsVoid = is_void ?? false
+      const effectiveAllCorrect = all_correct ?? false
+
+      if (effectiveIsVoid) {
+        // 무효: is_correct = null
+        await Promise.all(
+          (answers ?? []).map((a) => {
+            regradeScoreIds.add(a.week_score_id)
+            return supabase.from('student_answer').update({ is_correct: null }).eq('id', a.id)
+          })
+        )
+      } else if (effectiveAllCorrect) {
+        // 전원정답: is_correct = true
+        await Promise.all(
+          (answers ?? []).map((a) => {
+            regradeScoreIds.add(a.week_score_id)
+            return supabase.from('student_answer').update({ is_correct: true }).eq('id', a.id)
+          })
+        )
+      } else {
+        // 무효/전원정답 해제 → 원래 정답 기준 재채점
+        const effectiveStyle = question_style ?? q.question_style
+        if (effectiveStyle === 'objective') {
+          const primaryAnswer = q.correct_answer
+          const extraAnswers = q.correct_answer_text
+            ? q.correct_answer_text.split(',').map(Number).filter((n: number) => !isNaN(n))
+            : []
+          const accepted = new Set([primaryAnswer, ...extraAnswers])
+          await Promise.all(
+            (answers ?? []).map((a) => {
+              const isCorrect = a.student_answer !== null && accepted.has(a.student_answer)
+              regradeScoreIds.add(a.week_score_id)
+              return supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
+            })
+          )
+        }
+      }
+    }
+
+    // 정답 수정 (객관식만, 무효/전원정답 상태가 아닐 때)
     const effectiveStyle = question_style ?? q.question_style
     if (correct_answer !== undefined && effectiveStyle === 'objective') {
       const extraText = extra_correct_answers?.length ? extra_correct_answers.join(',') : null
