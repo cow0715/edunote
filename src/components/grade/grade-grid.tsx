@@ -94,7 +94,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           reading_correct: score?.reading_correct ?? null,
           homework_done: score?.homework_done ?? null,
           memo: score?.memo ?? '',
-          answers: (questions ?? []).map((q: ExamQuestion) => {
+          answers: (questions ?? []).filter((q: ExamQuestion) => !q.is_void).map((q: ExamQuestion) => {
             const saved = score?.student_answer?.find((a) => a.exam_question_id === q.id)
             let answerText = ''
             if (q.question_style === 'ox' && saved) {
@@ -224,7 +224,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
 
   const activeQuestions = questions.filter((q) => !q.is_void)
   const effectiveReadingTotal = activeQuestions.length > 0 ? activeQuestions.length : readingTotal
-  const hasSubjective = questions.some((q) => q.question_style === 'subjective')
+  const hasSubjective = activeQuestions.some((q) => q.question_style === 'subjective')
   const showVocab = vocabTotal > 0
   const showExam = readingTotal > 0 || questions.length > 0
 
@@ -530,7 +530,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                 <ExamSheetContent
                   weekId={weekId}
                   row={sheetRow}
-                  questions={questions}
+                  questions={activeQuestions}
                   readingTotal={effectiveReadingTotal}
                   updateRow={updateRow}
                   updateAnswer={updateAnswer}
