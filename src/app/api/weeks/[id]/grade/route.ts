@@ -235,6 +235,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
             ox_selection: oxSelection,
             is_correct,
             needs_review: false,
+            teacher_confirmed: false,
           }
         }
 
@@ -252,6 +253,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
           ox_selection: null,
           is_correct,
           needs_review: false,
+          teacher_confirmed: false,
         }
       })
 
