@@ -268,26 +268,118 @@ async function callClovaOCR(fileData: string, mimeType: string): Promise<string 
   }
 
   const data = await res.json()
-  const fields: { inferText: string; lineBreak: boolean }[] = data.images?.[0]?.fields ?? []
+  type Vertex = { x: number; y: number }
+  type ClovaField = {
+    inferText: string
+    lineBreak: boolean
+    boundingPoly?: { vertices: Vertex[] }
+  }
+  const fields: ClovaField[] = data.images?.[0]?.fields ?? []
 
   if (fields.length === 0) {
     const inferResult = data.images?.[0]?.inferResult
     throw new Error(`CLOVA OCR 결과 없음 (inferResult: ${inferResult})`)
   }
 
-  // lineBreak=true인 필드 이후 줄바꿈으로 라인 복원
-  const lines: string[] = []
-  let currentLine: string[] = []
-  for (const field of fields) {
-    currentLine.push(field.inferText)
-    if (field.lineBreak) {
-      lines.push(currentLine.join(' '))
-      currentLine = []
+  // boundingPoly 없는 필드가 섞여 있으면 좌표 기반 재구성 포기 → 기존 방식
+  const hasCoords = fields.every((f) => f.boundingPoly?.vertices && f.boundingPoly.vertices.length >= 4)
+  if (!hasCoords) {
+    const lines: string[] = []
+    let buf: string[] = []
+    for (const field of fields) {
+      buf.push(field.inferText)
+      if (field.lineBreak) {
+        lines.push(buf.join(' '))
+        buf = []
+      }
+    }
+    if (buf.length > 0) lines.push(buf.join(' '))
+    return lines.join('\n')
+  }
+
+  // ── 각 필드에 중심 좌표/크기 부여 ──────────────────────────────────────
+  type Tok = { text: string; cx: number; cy: number; xMin: number; xMax: number; h: number }
+  const toks: Tok[] = fields.map((f) => {
+    const vs = f.boundingPoly!.vertices
+    const xs = vs.map((v) => v.x ?? 0)
+    const ys = vs.map((v) => v.y ?? 0)
+    const xMin = Math.min(...xs), xMax = Math.max(...xs)
+    const yMin = Math.min(...ys), yMax = Math.max(...ys)
+    return {
+      text: f.inferText,
+      cx: (xMin + xMax) / 2,
+      cy: (yMin + yMax) / 2,
+      xMin,
+      xMax,
+      h: yMax - yMin,
+    }
+  })
+
+  // ── 2단 레이아웃 감지 ────────────────────────────────────────────────
+  // cx 분포에서 정렬 후 연속된 두 cx 사이의 최대 gap을 찾는다.
+  // gap이 전체 x-range의 12% 이상이고, 그 gap 중점이 전체 x-range의 30~70% 구간에 있으면 2단으로 판단.
+  const sortedCx = [...toks.map((t) => t.cx)].sort((a, b) => a - b)
+  const xMinAll = sortedCx[0]
+  const xMaxAll = sortedCx[sortedCx.length - 1]
+  const xRange = xMaxAll - xMinAll
+  let bestGap = 0
+  let bestGapMid = 0
+  for (let i = 1; i < sortedCx.length; i++) {
+    const g = sortedCx[i] - sortedCx[i - 1]
+    if (g > bestGap) {
+      bestGap = g
+      bestGapMid = (sortedCx[i] + sortedCx[i - 1]) / 2
     }
   }
-  if (currentLine.length > 0) lines.push(currentLine.join(' '))
+  const gapRatio = xRange > 0 ? bestGap / xRange : 0
+  const gapPos = xRange > 0 ? (bestGapMid - xMinAll) / xRange : 0
+  const isTwoColumn = gapRatio >= 0.12 && gapPos >= 0.3 && gapPos <= 0.7
 
-  return lines.join('\n')
+  // ── 라인 그룹핑 (컬럼별) ─────────────────────────────────────────────
+  // 같은 y ± (line height * 0.6) 안이면 같은 라인.
+  const medianH = (() => {
+    const hs = [...toks.map((t) => t.h)].sort((a, b) => a - b)
+    return hs[Math.floor(hs.length / 2)] || 20
+  })()
+  const yTol = Math.max(medianH * 0.6, 8)
+
+  function groupIntoLines(list: Tok[]): string[] {
+    if (list.length === 0) return []
+    // cy로 정렬
+    const sorted = [...list].sort((a, b) => a.cy - b.cy)
+    const lineBuckets: Tok[][] = []
+    for (const t of sorted) {
+      const last = lineBuckets[lineBuckets.length - 1]
+      if (last && Math.abs(t.cy - last[last.length - 1].cy) <= yTol) {
+        last.push(t)
+      } else {
+        lineBuckets.push([t])
+      }
+    }
+    // 각 라인 내부 x순 정렬 후 텍스트 조립
+    return lineBuckets.map((bucket) => bucket.sort((a, b) => a.cx - b.cx).map((t) => t.text).join(' '))
+  }
+
+  if (!isTwoColumn) {
+    const lines = groupIntoLines(toks)
+    console.log(`[CLOVA] 1단 레이아웃 감지 (gap=${gapRatio.toFixed(2)}, pos=${gapPos.toFixed(2)}), 라인 ${lines.length}개`)
+    return lines.join('\n')
+  }
+
+  // 2단: gap 중점 기준으로 좌/우 분할
+  const splitX = bestGapMid
+  const leftToks = toks.filter((t) => t.cx < splitX)
+  const rightToks = toks.filter((t) => t.cx >= splitX)
+  const leftLines = groupIntoLines(leftToks)
+  const rightLines = groupIntoLines(rightToks)
+  console.log(`[CLOVA] 2단 레이아웃 감지 (gap=${gapRatio.toFixed(2)}, pos=${gapPos.toFixed(2)}), 좌 ${leftLines.length}줄 / 우 ${rightLines.length}줄`)
+
+  return [
+    '━━━ LEFT COLUMN ━━━',
+    ...leftLines,
+    '━━━ RIGHT COLUMN ━━━',
+    ...rightLines,
+  ].join('\n')
 }
 
 export async function gradeVocabPhoto(
@@ -319,7 +411,7 @@ export async function gradeVocabPhoto(
     const parseRes = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 4096,
-      messages: [{ role: 'user', content: parsePrompt }],
+      messages: [{ role: 'user', content: [fileContent, { type: 'text', text: parsePrompt }] }],
     })
     const parseRaw = parseRes.content[0].type === 'text' ? parseRes.content[0].text : ''
     console.log('[gradeVocabPhoto] 구조 파싱 raw length:', parseRaw.length)
