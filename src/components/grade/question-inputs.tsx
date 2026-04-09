@@ -133,6 +133,17 @@ export const GroupedQuestionRow = memo(function GroupedQuestionRow({
                 onChange={(n) => onChangeAnswer(q.id, n)}
                 disabled={disabled}
               />
+              {hasAnswer && answer?.is_correct !== undefined && (
+                <span className={cn(
+                  'text-xs font-medium px-1.5 py-0.5 rounded-full shrink-0',
+                  answer.is_correct ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-500'
+                )}>
+                  {answer.is_correct ? '✓' : '✗'}
+                </span>
+              )}
+              {q.correct_answer ? (
+                <span className="text-xs text-indigo-400 font-medium shrink-0">{q.correct_answer}번</span>
+              ) : null}
             </div>
           )
         })}
@@ -140,6 +151,39 @@ export const GroupedQuestionRow = memo(function GroupedQuestionRow({
     </div>
   )
 })
+
+// ── 정답 표시 ───────────────────────────────────────────
+function AnswerKey({ q }: { q: ExamQuestion }) {
+  const text = q.question_style === 'objective'
+    ? q.correct_answer ? `${q.correct_answer}번` : null
+    : q.correct_answer_text || null
+  if (!text) return null
+  return (
+    <span className="text-xs text-indigo-400 font-medium">
+      정답: {text}
+    </span>
+  )
+}
+
+// ── 정오 칩 ────────────────────────────────────────────
+function CorrectChip({ isCorrect, needsReview, feedback }: { isCorrect: boolean | undefined; needsReview?: boolean; feedback?: string }) {
+  if (isCorrect === undefined) return null
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {needsReview ? (
+        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 shrink-0">⚠️ 검토 필요</span>
+      ) : (
+        <span className={cn(
+          'text-xs font-medium px-2 py-0.5 rounded-full shrink-0',
+          isCorrect ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-500'
+        )}>
+          {isCorrect ? '✓ 정답' : '✗ 오답'}
+        </span>
+      )}
+      {feedback && <span className="text-xs text-gray-400">{feedback}</span>}
+    </div>
+  )
+}
 
 // ── 문항 행 ────────────────────────────────────────────
 export const QuestionRow = memo(function QuestionRow({
@@ -176,16 +220,20 @@ export const QuestionRow = memo(function QuestionRow({
         </span>
         <StyleBadge style={q.question_style} />
       </div>
-      <div className="flex-1">
+      <div className="flex-1 flex flex-col gap-1.5">
         {q.question_style === 'objective' && (
-          <ObjectiveInput value={answer?.student_answer ?? null} onChange={onChangeAnswer} disabled={disabled} />
+          <>
+            <ObjectiveInput value={answer?.student_answer ?? null} onChange={onChangeAnswer} disabled={disabled} />
+            {hasAnswer && <CorrectChip isCorrect={answer?.is_correct} />}
+            <AnswerKey q={q} />
+          </>
         )}
         {q.question_style === 'ox' && (() => {
           const savedText = answer?.student_answer_text?.trim() ?? ''
           const isAnsweredX = savedText.toUpperCase().startsWith('X')
           const enteredCorrection = isAnsweredX ? savedText.slice(1).trim() : ''
           return (
-            <div className="flex flex-col gap-1.5">
+            <>
               <OXInput textValue={savedText} onChange={onChangeText} disabled={disabled} />
               {savedText && (
                 <div className="flex items-center gap-1.5">
@@ -199,17 +247,22 @@ export const QuestionRow = memo(function QuestionRow({
                   </span>
                 </div>
               )}
-            </div>
+              <AnswerKey q={q} />
+            </>
           )
         })()}
         {q.question_style === 'multi_select' && (
-          <Input
-            value={answer?.student_answer_text ?? ''}
-            onChange={(e) => onChangeText(e.target.value)}
-            disabled={disabled}
-            placeholder={`예: ${q.correct_answer_text ?? '1,3'}`}
-            className="h-8 w-36 text-sm"
-          />
+          <>
+            <Input
+              value={answer?.student_answer_text ?? ''}
+              onChange={(e) => onChangeText(e.target.value)}
+              disabled={disabled}
+              placeholder={`예: ${q.correct_answer_text ?? '1,3'}`}
+              className="h-8 w-36 text-sm"
+            />
+            {hasAnswer && <CorrectChip isCorrect={answer?.is_correct} />}
+            <AnswerKey q={q} />
+          </>
         )}
         {q.question_style === 'subjective' && (() => {
           const isSymbolCorr = !!q.correct_answer_text && /^[a-z]:.+$/i.test(q.correct_answer_text.trim())
@@ -217,54 +270,40 @@ export const QuestionRow = memo(function QuestionRow({
             ? `수정어만 입력 (예: ${q.correct_answer_text!.split(':')[1]?.trim()})`
             : '답안 입력'
           return (
-            <Textarea
-              value={localText}
-              onChange={(e) => setLocalText(e.target.value)}
-              onBlur={() => onChangeText(localText)}
-              disabled={disabled}
-              placeholder={placeholder}
-              rows={2}
-              className="text-sm resize-none"
-            />
+            <>
+              <Textarea
+                value={localText}
+                onChange={(e) => setLocalText(e.target.value)}
+                onBlur={() => onChangeText(localText)}
+                disabled={disabled}
+                placeholder={placeholder}
+                rows={2}
+                className="text-sm resize-none"
+              />
+              {hasAnswer && <CorrectChip isCorrect={answer?.is_correct} needsReview={needsReview} feedback={answer?.ai_feedback} />}
+              <AnswerKey q={q} />
+            </>
           )
         })()}
         {q.question_style === 'find_error' && (() => {
           const correction = q.correct_answer_text?.split(':')[1]?.trim() ?? ''
           return (
-            <Textarea
-              value={localText}
-              onChange={(e) => setLocalText(e.target.value)}
-              onBlur={() => onChangeText(localText)}
-              disabled={disabled}
-              placeholder={correction ? `수정어 입력 (예: ${correction})` : '수정어 입력'}
-              rows={2}
-              className="text-sm resize-none"
-            />
+            <>
+              <Textarea
+                value={localText}
+                onChange={(e) => setLocalText(e.target.value)}
+                onBlur={() => onChangeText(localText)}
+                disabled={disabled}
+                placeholder={correction ? `수정어 입력 (예: ${correction})` : '수정어 입력'}
+                rows={2}
+                className="text-sm resize-none"
+              />
+              {hasAnswer && <CorrectChip isCorrect={answer?.is_correct} needsReview={needsReview} feedback={answer?.ai_feedback} />}
+              <AnswerKey q={q} />
+            </>
           )
         })()}
       </div>
-      {isSubjective && hasAnswer && answer?.is_correct !== undefined && (
-        <div className="flex items-center gap-2 flex-wrap">
-          {needsReview ? (
-            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 shrink-0">
-              ⚠️ 검토 필요
-            </span>
-          ) : (
-            <span className={cn(
-              'text-xs font-medium px-2 py-0.5 rounded-full shrink-0',
-              answer.is_correct ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-500'
-            )}>
-              {answer.is_correct ? '✓ 정답' : '✗ 오답'}
-            </span>
-          )}
-          {answer.ai_feedback && (
-            <span className="text-xs text-gray-400">{answer.ai_feedback}</span>
-          )}
-        </div>
-      )}
-      {!isSubjective && q.correct_answer_text && (
-        <span className="text-xs text-gray-300 shrink-0">정답: {q.correct_answer_text}</span>
-      )}
     </div>
   )
 })
