@@ -127,7 +127,7 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, updateR
 
       {hasSubjective && row.reading_present && (
         <p className="px-4 py-2 text-xs text-amber-600 border-t bg-amber-50/50">
-          서술형(AI 채점) 문항은 저장 시 자동 채점됩니다
+          서술형은 채점 저장 버튼을 눌러야 AI 채점됩니다
         </p>
       )}
     </div>
