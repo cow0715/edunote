@@ -94,6 +94,7 @@ export interface ExamQuestion {
   sub_label: string | null;  // 소문항 (예: 'a', 'b'), null = 소문항 없음
   correct_answer: number;
   correct_answer_text: string | null;
+  extra_correct_answers: number[];
   grading_criteria: string | null;
   explanation: string | null;
   exam_type: 'vocab' | 'reading';

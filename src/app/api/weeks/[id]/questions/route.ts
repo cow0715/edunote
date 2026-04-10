@@ -1,5 +1,140 @@
 import { getAuth, err, ok } from '@/lib/api'
-import { recalcReadingCorrect } from '@/lib/grade-utils'
+import type { SupabaseServerClient } from '@/lib/api'
+import { recalcReadingCorrect, gradeOX, gradeMultiSelect, extractCorrection } from '@/lib/grade-utils'
+
+// 비객관식 문항 재채점 (OX/multi_select/find_error는 코드로 즉시, subjective는 needs_review 플래그)
+// - is_void/all_correct 고정 상태는 건너뜀 (해제 시에만 호출됨)
+// - teacher_confirmed 된 답안은 교사 수동 확정이므로 제외
+async function regradeQuestion(
+  supabase: SupabaseServerClient,
+  questionId: string,
+  regradeScoreIds: Set<string>
+) {
+  const { data: q } = await supabase
+    .from('exam_question')
+    .select('id, week_id, question_number, question_style, correct_answer_text, is_void, all_correct')
+    .eq('id', questionId)
+    .single()
+  if (!q) return
+  if (q.is_void || q.all_correct) return
+
+  const style = q.question_style
+
+  if (style === 'ox') {
+    const { data: answers } = await supabase
+      .from('student_answer')
+      .select('id, week_score_id, ox_selection, student_answer_text, teacher_confirmed')
+      .eq('exam_question_id', questionId)
+    await Promise.all(
+      (answers ?? [])
+        .filter((a) => !a.teacher_confirmed)
+        .map((a) => {
+          const isCorrect = q.correct_answer_text
+            ? gradeOX(q.correct_answer_text, a.ox_selection, a.student_answer_text ?? '')
+            : false
+          regradeScoreIds.add(a.week_score_id)
+          return supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
+        })
+    )
+    return
+  }
+
+  if (style === 'multi_select') {
+    const { data: answers } = await supabase
+      .from('student_answer')
+      .select('id, week_score_id, student_answer_text, teacher_confirmed')
+      .eq('exam_question_id', questionId)
+    await Promise.all(
+      (answers ?? [])
+        .filter((a) => !a.teacher_confirmed)
+        .map((a) => {
+          const isCorrect = q.correct_answer_text && a.student_answer_text
+            ? gradeMultiSelect(q.correct_answer_text, a.student_answer_text)
+            : false
+          regradeScoreIds.add(a.week_score_id)
+          return supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
+        })
+    )
+    return
+  }
+
+  if (style === 'find_error') {
+    // 형제 문항(같은 question_number) 전체를 한 번에 집합 채점 (순서 무관)
+    const { data: siblings } = await supabase
+      .from('exam_question')
+      .select('id, correct_answer_text')
+      .eq('week_id', q.week_id)
+      .eq('question_number', q.question_number)
+      .eq('question_style', 'find_error')
+    const siblingIds = (siblings ?? []).map((s) => s.id)
+    if (siblingIds.length === 0) return
+    const siblingAnswerText = new Map(
+      (siblings ?? []).map((s) => [s.id, s.correct_answer_text ?? ''])
+    )
+
+    const { data: allAnswers } = await supabase
+      .from('student_answer')
+      .select('id, week_score_id, exam_question_id, student_answer_text, teacher_confirmed')
+      .in('exam_question_id', siblingIds)
+
+    type FeAnswer = {
+      id: string
+      week_score_id: string
+      exam_question_id: string
+      student_answer_text: string | null
+      teacher_confirmed: boolean
+    }
+    const grouped = new Map<string, FeAnswer[]>()
+    for (const a of (allAnswers ?? []) as FeAnswer[]) {
+      const arr = grouped.get(a.week_score_id) ?? []
+      arr.push(a)
+      grouped.set(a.week_score_id, arr)
+    }
+
+    for (const [weekScoreId, groupAnswers] of grouped) {
+      const editable = groupAnswers.filter((a) => !a.teacher_confirmed)
+      if (editable.length === 0) continue
+
+      const correctWords = editable.map((a) => extractCorrection(siblingAnswerText.get(a.exam_question_id) ?? ''))
+      const studentWords = editable.map((a) => extractCorrection(a.student_answer_text ?? ''))
+      const remaining = [...correctWords]
+      const matched = editable.map(() => false)
+      for (let i = 0; i < editable.length; i++) {
+        if (!studentWords[i]) continue
+        const idx = remaining.indexOf(studentWords[i])
+        if (idx !== -1) { matched[i] = true; remaining.splice(idx, 1) }
+      }
+      regradeScoreIds.add(weekScoreId)
+      await Promise.all(editable.map((a, i) =>
+        supabase.from('student_answer').update({
+          is_correct: matched[i],
+          ai_feedback: matched[i] ? '' : `정답: ${correctWords[i]}`,
+        }).eq('id', a.id)
+      ))
+    }
+    return
+  }
+
+  if (style === 'subjective') {
+    // 서술형은 AI 자동 호출 비용/대기시간 문제로 즉시 재채점하지 않음
+    // → needs_review 플래그로 표시 → 교사가 채점 페이지에서 "채점 저장"을 눌러 AI 재채점
+    const { data: answers } = await supabase
+      .from('student_answer')
+      .select('id, week_score_id, student_answer_text, teacher_confirmed')
+      .eq('exam_question_id', questionId)
+    await Promise.all(
+      (answers ?? [])
+        .filter((a) => !a.teacher_confirmed && a.student_answer_text?.trim())
+        .map((a) => {
+          regradeScoreIds.add(a.week_score_id)
+          return supabase.from('student_answer').update({
+            needs_review: true,
+            ai_feedback: '모범답안/기준 변경 — 채점 페이지에서 다시 저장해주세요',
+          }).eq('id', a.id)
+        })
+    )
+  }
+}
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
@@ -41,12 +176,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const VALID_STYLES = ['objective', 'subjective', 'ox', 'multi_select', 'find_error']
   const regradeScoreIds = new Set<string>()
+  // 비객관식 재채점 대기열 — 메인 루프 종료 후 일괄 처리 (모든 DB 쓰기 반영 이후)
+  const pendingRegrade = new Set<string>()
 
   for (const { id, concept_tag_ids, question_style, correct_answer, extra_correct_answers, explanation, correct_answer_text_override, grading_criteria, is_void, all_correct } of updates) {
     // 소유 확인
     const { data: q } = await supabase
       .from('exam_question')
-      .select('id, question_style, correct_answer, correct_answer_text')
+      .select('id, question_style, correct_answer, correct_answer_text, extra_correct_answers')
       .eq('id', id)
       .eq('week_id', weekId)
       .single()
@@ -93,10 +230,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         const effectiveStyle = question_style ?? q.question_style
         if (effectiveStyle === 'objective') {
           const primaryAnswer = q.correct_answer
-          const extraAnswers = q.correct_answer_text
-            ? q.correct_answer_text.split(',').map(Number).filter((n: number) => !isNaN(n))
-            : []
-          const accepted = new Set([primaryAnswer, ...extraAnswers])
+          const accepted = new Set([primaryAnswer, ...(q.extra_correct_answers ?? [])])
           await Promise.all(
             (answers ?? []).map((a) => {
               const isCorrect = a.student_answer !== null && accepted.has(a.student_answer)
@@ -104,6 +238,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
               return supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
             })
           )
+        } else {
+          // 비객관식은 메인 루프 종료 후 일괄 재채점
+          pendingRegrade.add(id)
         }
       }
     }
@@ -111,10 +248,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     // 정답 수정 (객관식만, 무효/전원정답 상태가 아닐 때)
     const effectiveStyle = question_style ?? q.question_style
     if (correct_answer !== undefined && effectiveStyle === 'objective') {
-      const extraText = extra_correct_answers?.length ? extra_correct_answers.join(',') : null
       await supabase
         .from('exam_question')
-        .update({ correct_answer, correct_answer_text: extraText })
+        .update({ correct_answer, extra_correct_answers: extra_correct_answers ?? [] })
         .eq('id', id)
 
       // 이 문항의 모든 학생 답안 재채점
@@ -137,11 +273,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     {
       const textUpdate: Record<string, unknown> = {}
       if (explanation !== undefined) textUpdate.explanation = explanation
+      const effectiveStyle2 = question_style ?? q.question_style
       if (correct_answer_text_override !== undefined) {
-        const effectiveStyle2 = question_style ?? q.question_style
-        if (effectiveStyle2 !== 'objective') textUpdate.correct_answer_text = correct_answer_text_override
+        if (effectiveStyle2 !== 'objective') {
+          const prev = q.correct_answer_text ?? null
+          const next = correct_answer_text_override ?? null
+          textUpdate.correct_answer_text = correct_answer_text_override
+          // 값이 실제로 바뀐 경우에만 재채점 대기열에 추가
+          if (prev !== next) pendingRegrade.add(id)
+        }
       }
-      if (grading_criteria !== undefined) textUpdate.grading_criteria = grading_criteria
+      if (grading_criteria !== undefined) {
+        textUpdate.grading_criteria = grading_criteria
+        // 서술형 채점기준이 바뀌면 needs_review 플래그 (AI 재채점 유도)
+        if (effectiveStyle2 === 'subjective') pendingRegrade.add(id)
+      }
       if (Object.keys(textUpdate).length > 0) {
         await supabase.from('exam_question').update(textUpdate).eq('id', id)
       }
@@ -157,7 +303,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
   }
 
-  // 정답 수정된 문항이 있으면 reading_correct 재계산
+  // 비객관식 재채점 일괄 처리 (모범답안/채점기준 변경, 무효·전원정답 해제)
+  for (const qid of pendingRegrade) {
+    await regradeQuestion(supabase, qid, regradeScoreIds)
+  }
+
+  // 정답/모범답안 수정된 문항이 있으면 reading_correct 재계산
   if (regradeScoreIds.size > 0) {
     await recalcReadingCorrect(supabase, [...regradeScoreIds])
   }

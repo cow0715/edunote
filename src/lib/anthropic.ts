@@ -525,12 +525,15 @@ export async function generateVocabExamples(
 
 // ── 서술형 채점 ──────────────────────────────────────────────────────────
 
-export async function gradeSubjectiveAnswers(
+// 이 이하면 단일 호출 (전 문항·전 학생 한 번에 → 일관성 최대, 비용 최소)
+// 초과하면 문항별 분할 (같은 문항 학생끼리 비교 채점 → 문항 내 일관성 유지)
+const SINGLE_CALL_THRESHOLD = 30
+
+// 단일 배치 채점 (내부 전용)
+async function gradeSingleBatch(
   questions: SubjectiveQuestion[],
   answers: SubjectiveStudentAnswer[]
 ): Promise<GradingResult[]> {
-  if (answers.length === 0) return []
-
   const qLabel = (q: { question_number: number; sub_label: string | null }) =>
     `${q.question_number}번${q.sub_label ? ` (${q.sub_label})` : ''}`
 
@@ -563,7 +566,7 @@ ${GRADING_RULES}`
 
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 8096,
+    max_tokens: 4096,
     temperature: 0,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -591,6 +594,70 @@ ${GRADING_RULES}`
       }
     })
     .filter((r): r is GradingResult => r !== null)
+}
+
+// 공개 API — 적응형 배치 분할 + 부분 실패 허용
+// ≤ 30개: 단일 호출 (전 문항·전 학생 → 비용 최소, 교차 비교로 일관성 최대)
+// > 30개: 문항별 분할 (같은 문항 학생끼리 한 호출 → 문항 내 일관성 유지, 출력 잘림 방지)
+export async function gradeSubjectiveAnswers(
+  questions: SubjectiveQuestion[],
+  answers: SubjectiveStudentAnswer[]
+): Promise<GradingResult[]> {
+  if (answers.length === 0) return []
+
+  type Batch = { questions: SubjectiveQuestion[]; answers: SubjectiveStudentAnswer[] }
+  const batches: Batch[] = []
+
+  if (answers.length <= SINGLE_CALL_THRESHOLD) {
+    // 소규모 — 단일 호출
+    batches.push({ questions, answers })
+  } else {
+    // 대규모 — question_number 기준 분할 (같은 번호의 sub_label a,b,c는 한 배치로 묶음)
+    const byQNum = new Map<number, { questions: SubjectiveQuestion[]; answers: SubjectiveStudentAnswer[] }>()
+    for (const q of questions) {
+      const entry = byQNum.get(q.question_number) ?? { questions: [], answers: [] }
+      entry.questions.push(q)
+      byQNum.set(q.question_number, entry)
+    }
+    for (const a of answers) {
+      const entry = byQNum.get(a.question_number)
+      if (entry) entry.answers.push(a)
+    }
+    for (const entry of byQNum.values()) {
+      if (entry.answers.length > 0) {
+        batches.push(entry)
+      }
+    }
+  }
+
+  console.log(`[gradeSubjectiveAnswers] ${answers.length}개 답안 → ${batches.length}개 배치 (threshold=${SINGLE_CALL_THRESHOLD})`)
+
+  // 배치 병렬 처리 (부분 실패 허용)
+  const settled = await Promise.allSettled(
+    batches.map((b) => gradeSingleBatch(b.questions, b.answers))
+  )
+
+  const allResults: GradingResult[] = []
+  for (let i = 0; i < settled.length; i++) {
+    const result = settled[i]
+    if (result.status === 'fulfilled') {
+      allResults.push(...result.value)
+    } else {
+      // 배치 실패 → needs_review 로 표시 (나머지 배치는 정상 반영)
+      console.error(`[gradeSubjectiveAnswers] 배치 ${i} 실패:`, result.reason)
+      for (const a of batches[i].answers) {
+        allResults.push({
+          week_score_id: a.week_score_id,
+          exam_question_id: a.exam_question_id,
+          is_correct: false,
+          needs_review: true,
+          ai_feedback: 'AI 채점 실패 — 수동 확인 필요',
+        })
+      }
+    }
+  }
+
+  return allResults
 }
 
 // ── 기출문제 은행 파싱 ────────────────────────────────────────────────────
