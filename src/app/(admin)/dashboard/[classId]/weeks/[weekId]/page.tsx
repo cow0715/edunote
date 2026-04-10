@@ -213,6 +213,15 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
 
             <TabsContent value="answer-sheet" forceMount className="data-[state=inactive]:hidden pt-4 space-y-0">
               <AnswerSheetUploader weekId={weekId} savedFilePath={week?.answer_sheet_path} />
+              <div className="px-4 py-2">
+                <button
+                  type="button"
+                  onClick={() => window.open(`/api/weeks/${weekId}/answer-sheet-html`, '_blank')}
+                  className="text-xs text-indigo-500 hover:text-indigo-700 underline"
+                >
+                  답안지 표 생성 (한글 붙여넣기용)
+                </button>
+              </div>
               <ExplanationEditor weekId={weekId} />
             </TabsContent>
 

@@ -142,7 +142,9 @@ export const GroupedQuestionRow = memo(function GroupedQuestionRow({
                 </span>
               )}
               {q.correct_answer ? (
-                <span className="text-xs text-indigo-400 font-medium shrink-0">{q.correct_answer}번</span>
+                <span className="text-xs text-indigo-400 font-medium shrink-0">
+                  {[q.correct_answer, ...(q.extra_correct_answers ?? [])].filter((n) => n > 0).join(',')}번
+                </span>
               ) : null}
             </div>
           )
@@ -154,9 +156,16 @@ export const GroupedQuestionRow = memo(function GroupedQuestionRow({
 
 // ── 정답 표시 ───────────────────────────────────────────
 function AnswerKey({ q }: { q: ExamQuestion }) {
-  const text = q.question_style === 'objective'
-    ? q.correct_answer ? `${q.correct_answer}번` : null
-    : q.correct_answer_text || null
+  let text: string | null
+  if (q.question_style === 'objective') {
+    if (!q.correct_answer) { text = null }
+    else {
+      const all = [q.correct_answer, ...(q.extra_correct_answers ?? [])].filter((n) => n > 0)
+      text = all.length > 1 ? all.join(',') + '번' : `${q.correct_answer}번`
+    }
+  } else {
+    text = q.correct_answer_text || null
+  }
   if (!text) return null
   return (
     <span className="text-xs text-indigo-400 font-medium">

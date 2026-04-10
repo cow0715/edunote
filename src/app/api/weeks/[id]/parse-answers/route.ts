@@ -1,5 +1,6 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { parseAnswerSheet, gradeSubjectiveAnswers, SubjectiveStudentAnswer, TagCategory } from '@/lib/anthropic'
+import { gradeOX, gradeMultiSelect, extractCorrection } from '@/lib/grade-utils'
 
 export const maxDuration = 300
 
@@ -64,6 +65,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   // ── 1-1. 후처리: sub_label 순서 정규화 (a,b,c,... 순서로 재부여) ────────
   // AI가 b,c,f 등 원본 기호를 그대로 쓰는 경우 a,b,c 순으로 정규화
+  // ⚠️ find_error는 correct_answer_text에 기호가 박혀 있으므로(예: "c:asked")
+  //    정규화하면 sub_label과 기호가 어긋난다 → 그룹 전체 정규화 제외
   {
     const grouped = new Map<number, typeof parsedAnswers>()
     for (const a of parsedAnswers) {
@@ -74,7 +77,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const normalized: typeof parsedAnswers = []
     for (const [, group] of grouped) {
-      if (group.length === 1) {
+      const hasFindError = group.some((g) => g.question_style === 'find_error')
+      if (group.length === 1 || hasFindError) {
         normalized.push(...group)
       } else {
         // sub_label 기준 정렬 후 a,b,c,... 순서로 재부여
@@ -206,32 +210,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const questionByKey = new Map(questions.map((q) => [`${q.question_number}__${q.sub_label ?? ''}`, q]))
   const questionById = new Map(questions.map((q) => [q.id, q]))
-
-  // oxSelection: 'O' | 'X' | null, correctionText: 수정어만 (X 접두사 없음)
-  function gradeOX(correctAnswerText: string, oxSelection: string | null, correctionText: string): boolean {
-    const correct = correctAnswerText.trim()
-    if (/^O$/i.test(correct)) return oxSelection === 'O'
-    if (oxSelection !== 'X') return false
-    let correction = correct.match(/\((.+)\)/)?.[1]?.trim().toLowerCase() ?? ''
-    if (correction.includes('→')) correction = correction.split('→').pop()?.trim() ?? correction
-    const student = correctionText.trim().toLowerCase()
-    // '/' 구분자로 복수 정답 허용 (예: "in which / where")
-    const alternatives = correction.split('/').map((s) => s.trim()).filter(Boolean)
-    return alternatives.some((alt) => student === alt)
-  }
-
-  function gradeMultiSelect(correctAnswerText: string, studentAnswerText: string): boolean {
-    const normalize = (t: string) => t.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean).sort().join(',')
-    return normalize(correctAnswerText) === normalize(studentAnswerText)
-  }
-
-  function extractCorrection(text: string): string {
-    let s = text.trim()
-    s = s.replace(/^[a-z]\s*:\s*/i, '')
-    s = s.replace(/^\([a-z]\)\s*:?\s*/i, '')
-    if (s.includes('→')) s = s.split('→').pop()!
-    return s.trim().toLowerCase()
-  }
 
   const subjectiveForGrading: SubjectiveStudentAnswer[] = []
 

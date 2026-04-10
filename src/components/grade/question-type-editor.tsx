@@ -62,10 +62,10 @@ export function QuestionTypeEditor({ weekId }: Props) {
       vMap[q.id] = q.is_void ?? false
       acMap[q.id] = q.all_correct ?? false
       if (q.question_style === 'objective') {
-        const extra = q.correct_answer_text
-          ? q.correct_answer_text.split(',').map(Number).filter((n) => !isNaN(n) && n !== q.correct_answer)
-          : []
-        aMap[q.id] = { primary: q.correct_answer ?? null, extra }
+        aMap[q.id] = {
+          primary: q.correct_answer ?? null,
+          extra: (q.extra_correct_answers ?? []).filter((n) => n !== q.correct_answer),
+        }
       } else {
         aMap[q.id] = { primary: null, extra: [] }
       }
