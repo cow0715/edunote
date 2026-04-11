@@ -27,7 +27,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2 } from 'lucide-react'
+import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2, BookOpen } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 // ── 타입 ──────────────────────────────────────────────────────────────────
@@ -58,6 +58,10 @@ type ExamBankQuestion = {
   points: number | null
   correct_rate: number | null
   choice_rates: number[] | null
+  explanation_intent: string | null
+  explanation_translation: string | null
+  explanation_solution: string | null
+  explanation_vocabulary: string | null
   exam_bank?: {
     title: string
     exam_year: number
@@ -317,6 +321,7 @@ function FetchStatsButton({ examId, formType }: { examId: string; formType: stri
 function ExamList() {
   const queryClient = useQueryClient()
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [explanationTarget, setExplanationTarget] = useState<string | null>(null)
 
   const { data: exams, isLoading } = useQuery<ExamBank[]>({
     queryKey: ['exam-bank'],
@@ -371,6 +376,13 @@ function ExamList() {
                 </button>
                 <FetchStatsButton examId={exam.id} formType={exam.form_type || '홀수형'} />
                 <button
+                  onClick={() => setExplanationTarget(exam.id)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                  title="해설 PDF 업로드"
+                >
+                  <BookOpen className="h-4 w-4" />
+                </button>
+                <button
                   onClick={() => { if (confirm('이 시험과 모든 문항을 삭제하시겠습니까?')) deleteMutation.mutate(exam.id) }}
                   className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
                 >
@@ -386,6 +398,10 @@ function ExamList() {
           </div>
         )
       })}
+      <ExplanationUploadDialog
+        examId={explanationTarget}
+        onOpenChange={(open) => { if (!open) setExplanationTarget(null) }}
+      />
     </div>
   )
 }
@@ -471,6 +487,8 @@ function QuestionCard({
   onEdit?: () => void
   onDelete?: () => void
 }) {
+  const [showExplanation, setShowExplanation] = useState(false)
+  const hasExplanation = !!(q.explanation_intent || q.explanation_translation || q.explanation_solution || q.explanation_vocabulary)
   const copyText = useCallback(async () => {
     const plain = [
       `[${q.question_number}번] ${mdToPlain(q.question_text)}`,
@@ -593,6 +611,47 @@ function QuestionCard({
               )
             })}
           </div>
+        )}
+
+        {/* 해설 토글 */}
+        {hasExplanation && (
+          <>
+            <button
+              onClick={() => setShowExplanation(!showExplanation)}
+              className="flex items-center gap-1.5 text-xs font-medium text-amber-600 hover:text-amber-700 transition-colors"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              {showExplanation ? '해설 접기' : '해설 보기'}
+            </button>
+            {showExplanation && (
+              <div className="rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 space-y-2.5">
+                {q.explanation_intent && (
+                  <div>
+                    <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">출제의도</span>
+                    <p className="text-sm text-gray-700 mt-0.5">{q.explanation_intent}</p>
+                  </div>
+                )}
+                {q.explanation_translation && (
+                  <div>
+                    <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">해석</span>
+                    <p className="text-sm text-gray-600 mt-0.5 leading-relaxed whitespace-pre-wrap">{q.explanation_translation}</p>
+                  </div>
+                )}
+                {q.explanation_solution && (
+                  <div>
+                    <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">풀이</span>
+                    <p className="text-sm text-gray-700 mt-0.5 leading-relaxed">{q.explanation_solution}</p>
+                  </div>
+                )}
+                {q.explanation_vocabulary && (
+                  <div>
+                    <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">Words &amp; Phrases</span>
+                    <p className="text-sm text-gray-600 mt-0.5 leading-relaxed">{q.explanation_vocabulary}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -1266,5 +1325,119 @@ function UploadProgress({ step, elapsed }: { step: number; elapsed: number }) {
         />
       </div>
     </div>
+  )
+}
+
+// ── 해설 PDF 업로드 다이얼로그 ──────────────────────────────────────────────
+
+function ExplanationUploadDialog({
+  examId,
+  onOpenChange,
+}: {
+  examId: string | null
+  onOpenChange: (open: boolean) => void
+}) {
+  const queryClient = useQueryClient()
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [fileName, setFileName] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
+
+  const handleUpload = async () => {
+    const file = fileRef.current?.files?.[0]
+    if (!file || !examId) return toast.error('PDF 파일을 선택해주세요')
+
+    setUploading(true)
+    setElapsed(0)
+    const timer = setInterval(() => setElapsed((s) => s + 1), 1000)
+
+    try {
+      const supabase = createClient()
+      const storagePath = `${Date.now()}_explanation_${file.name}`
+      const { error: uploadErr } = await supabase.storage
+        .from('exam-pdf-temp')
+        .upload(storagePath, file, { contentType: file.type || 'application/pdf' })
+      if (uploadErr) throw new Error(`파일 업로드 실패: ${uploadErr.message}`)
+
+      const res = await fetch(`/api/exam-bank/${examId}/upload-explanation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storagePath }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || '해설 파싱 실패')
+
+      toast.success(`${data.updated}/${data.total}개 문항 해설 적용 완료`)
+      queryClient.invalidateQueries({ queryKey: ['exam-bank-questions', examId] })
+      queryClient.invalidateQueries({ queryKey: ['exam-bank-search'] })
+      onOpenChange(false)
+      setFileName('')
+      if (fileRef.current) fileRef.current.value = ''
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '해설 PDF 파싱 실패')
+    } finally {
+      clearInterval(timer)
+      setUploading(false)
+      setElapsed(0)
+    }
+  }
+
+  return (
+    <Dialog open={!!examId} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>해설 PDF 업로드</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-gray-500">
+          해설 PDF를 업로드하면 [출제의도], [해석], [풀이], [Words and Phrases]를 자동으로 추출하여 문항에 연결합니다.
+        </p>
+        <div className="space-y-3">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".pdf"
+            className="hidden"
+            onChange={(e) => setFileName(e.target.files?.[0]?.name ?? '')}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="flex w-full items-center gap-2 rounded-md border border-dashed border-gray-300 px-3 py-2 text-sm text-gray-500 hover:border-gray-400 hover:bg-gray-50 transition-colors"
+          >
+            <File className="h-4 w-4 shrink-0 text-gray-400" />
+            <span className="truncate">{fileName || '해설 PDF 파일 선택'}</span>
+          </button>
+
+          {uploading && (
+            <div className="rounded-lg border bg-amber-50 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-amber-900">해설 추출 중...</p>
+                <span className="text-xs text-amber-600">{elapsed}초</span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-amber-200">
+                <div
+                  className="h-1.5 rounded-full bg-amber-500 transition-all duration-1000"
+                  style={{ width: `${Math.min((elapsed / 30) * 100, 95)}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          <Button className="w-full" onClick={handleUpload} disabled={uploading}>
+            {uploading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                파싱 중... ({elapsed}초)
+              </>
+            ) : (
+              <>
+                <BookOpen className="mr-2 h-4 w-4" />
+                해설 업로드
+              </>
+            )}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
