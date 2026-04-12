@@ -27,7 +27,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2, BookOpen, ChevronRight, Sparkles } from 'lucide-react'
+import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2, BookOpen, ChevronRight, Sparkles, FolderOpen, CheckCircle2, XCircle, Circle } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -253,15 +253,22 @@ const YEARS = Array.from({ length: 10 }, (_, i) => CURRENT_YEAR - i)
 
 export default function ExamBankPage() {
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [bulkOpen, setBulkOpen] = useState(false)
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">기출문제 은행</h1>
-        <Button onClick={() => setUploadOpen(true)}>
-          <Upload className="mr-2 h-4 w-4" />
-          PDF 업로드
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setBulkOpen(true)}>
+            <FolderOpen className="mr-2 h-4 w-4" />
+            일괄 해설
+          </Button>
+          <Button onClick={() => setUploadOpen(true)}>
+            <Upload className="mr-2 h-4 w-4" />
+            PDF 업로드
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="list">
@@ -280,6 +287,7 @@ export default function ExamBankPage() {
       </Tabs>
 
       <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} />
+      <BulkExplanationDialog open={bulkOpen} onOpenChange={setBulkOpen} />
     </div>
   )
 }
@@ -582,6 +590,25 @@ function QuestionCard({
     toast.success('해설 복사 완료')
   }, [buildExplanationText, buildExplanationHtml])
 
+  const buildTranslationText = useCallback(() => {
+    if (!q.explanation_translation) return ''
+    const header = q.exam_bank ? `[${examLabel} 해석]\n` : `[${q.question_number}번 해석]\n`
+    return header + q.explanation_translation
+  }, [q, examLabel])
+
+  const buildTranslationHtml = useCallback(() => {
+    if (!q.explanation_translation) return ''
+    const header = q.exam_bank ? `<p><strong>[${examLabel} 해석]</strong></p>` : `<p><strong>[${q.question_number}번 해석]</strong></p>`
+    return header + `<p>${q.explanation_translation.replace(/\n/g, '<br>')}</p>`
+  }, [q, examLabel])
+
+  const copyQuestionWithTranslation = useCallback(async () => {
+    const plain = buildQuestionText() + (q.explanation_translation ? '\n\n' + buildTranslationText() : '')
+    const html = buildQuestionHtml() + (q.explanation_translation ? buildTranslationHtml() : '')
+    await copyRich(plain, html)
+    toast.success('문제+해석 복사 완료')
+  }, [q, buildQuestionText, buildQuestionHtml, buildTranslationText, buildTranslationHtml])
+
   const copyBoth = useCallback(async () => {
     const plain = buildQuestionText() + '\n\n' + buildExplanationText()
     const html = buildQuestionHtml() + buildExplanationHtml()
@@ -643,6 +670,9 @@ function QuestionCard({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="text-sm">
               <DropdownMenuItem onClick={copyQuestion}>문제만</DropdownMenuItem>
+              <DropdownMenuItem onClick={copyQuestionWithTranslation} disabled={!q.explanation_translation}>
+                문제 + 해석
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={copyExplanation} disabled={!hasExplanation}>
                 해설만
               </DropdownMenuItem>
@@ -692,19 +722,11 @@ function QuestionCard({
                   }`}
                 >
                   <span className="shrink-0 break-words">{c}</span>
-                  {/* 선지별 선택률 바 */}
+                  {/* 선지별 선택률 */}
                   {hasChoiceRates && q.choice_rates?.[i] != null && (
-                    <div className="ml-auto flex items-center gap-1.5 shrink-0">
-                      <div className="w-16 h-1.5 rounded-full bg-gray-200 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${isAnswer ? 'bg-blue-400' : 'bg-gray-300'}`}
-                          style={{ width: `${q.choice_rates[i]}%` }}
-                        />
-                      </div>
-                      <span className={`text-[11px] w-7 text-right ${isAnswer ? 'text-blue-500 font-semibold' : 'text-gray-400'}`}>
-                        {q.choice_rates[i]}%
-                      </span>
-                    </div>
+                    <span className={`ml-auto text-[11px] shrink-0 ${isAnswer ? 'text-blue-500 font-semibold' : 'text-gray-400'}`}>
+                      {q.choice_rates[i]}%
+                    </span>
                   )}
                 </div>
               )
@@ -881,10 +903,51 @@ function QuestionSearch() {
         + (q.explanation_vocabulary ? `<p><strong>[Words and Phrases]</strong><br>${q.explanation_vocabulary}</p>` : '')
     }).join('<hr>')
 
+  const buildAllQWithTransText = (list: ExamBankQuestion[]) =>
+    list.map((q) => {
+      const circled2 = ['①','②','③','④','⑤']
+      const ratesSummary = q.choice_rates?.some((r) => r != null)
+        ? `\n선택률: ${q.choices.map((_, i) => {
+            const r = q.choice_rates?.[i]
+            return r != null ? `${circled2[i]} ${r}%` : null
+          }).filter(Boolean).join('   ')}`
+        : ''
+      const qPart = [
+        `[${getExamLabel(q)}]`,
+        `\n${mdToPlain(q.question_text)}`,
+        q.passage ? `\n${mdToPlain(q.passage)}` : '',
+        q.choices.length > 0 ? `\n${q.choices.map(mdToPlain).join('\n')}` : '',
+        q.answer ? `\n정답: ${q.answer}` : '',
+        ratesSummary,
+      ].join('')
+      const transPart = q.explanation_translation
+        ? `\n\n[${getExamLabel(q)} 해석]\n${q.explanation_translation}`
+        : ''
+      return qPart + transPart
+    }).join('\n\n---\n\n')
+
+  const buildAllQWithTransHtml = (list: ExamBankQuestion[]) =>
+    list.map((q) =>
+      `<p><strong>[${getExamLabel(q)}]</strong></p>`
+      + `<p>${mdToHtml(q.question_text)}</p>`
+      + (q.passage ? `<p>${mdToHtml(q.passage)}</p>` : '')
+      + (q.choices.length > 0 ? `<p>${q.choices.map(mdToHtml).join('<br>')}</p>` : '')
+      + (q.answer ? `<p>정답: ${q.answer}</p>` : '')
+      + (q.explanation_translation
+        ? `<p><strong>[${getExamLabel(q)} 해석]</strong><br>${q.explanation_translation.replace(/\n/g, '<br>')}</p>`
+        : '')
+    ).join('<hr>')
+
   const copyAllQuestions = async () => {
     if (!results?.length) return
     await copyRich(buildAllQText(results), buildAllQHtml(results))
     toast.success(`문제 ${results.length}개 복사됨`)
+  }
+
+  const copyAllWithTranslation = async () => {
+    if (!results?.length) return
+    await copyRich(buildAllQWithTransText(results), buildAllQWithTransHtml(results))
+    toast.success(`문제+해석 ${results.length}개 복사됨`)
   }
 
   const copyAllExplanations = async () => {
@@ -1081,6 +1144,7 @@ function QuestionSearch() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={copyAllQuestions}>문제만</DropdownMenuItem>
+                  <DropdownMenuItem onClick={copyAllWithTranslation}>문제+해석</DropdownMenuItem>
                   <DropdownMenuItem onClick={copyAllExplanations}>해설만</DropdownMenuItem>
                   <DropdownMenuItem onClick={copyAllBoth}>문제+해설</DropdownMenuItem>
                 </DropdownMenuContent>
@@ -1504,6 +1568,44 @@ function ExplanationUploadDialog({
   const [fileName, setFileName] = useState('')
   const [uploading, setUploading] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const [preview, setPreview] = useState<{ rawTextPreview: string; parsed: { question_number: number; intent: string; translation: string; solution: string; vocabulary: string }[]; parsedCount: number } | null>(null)
+
+  const uploadToStorage = async (file: File) => {
+    const supabase = createClient()
+    const storagePath = `${Date.now()}_explanation_${file.name}`
+    const { error: uploadErr } = await supabase.storage
+      .from('exam-pdf-temp')
+      .upload(storagePath, file, { contentType: file.type || 'application/pdf' })
+    if (uploadErr) throw new Error(`파일 업로드 실패: ${uploadErr.message}`)
+    return storagePath
+  }
+
+  const handlePreview = async () => {
+    const file = fileRef.current?.files?.[0]
+    if (!file || !examId) return toast.error('PDF 파일을 선택해주세요')
+
+    setUploading(true)
+    setElapsed(0)
+    const timer = setInterval(() => setElapsed((s) => s + 1), 1000)
+
+    try {
+      const storagePath = await uploadToStorage(file)
+      const res = await fetch(`/api/exam-bank/${examId}/debug-explanation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storagePath }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || '파싱 실패')
+      setPreview(data)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '파싱 미리보기 실패')
+    } finally {
+      clearInterval(timer)
+      setUploading(false)
+      setElapsed(0)
+    }
+  }
 
   const handleUpload = async () => {
     const file = fileRef.current?.files?.[0]
@@ -1514,13 +1616,7 @@ function ExplanationUploadDialog({
     const timer = setInterval(() => setElapsed((s) => s + 1), 1000)
 
     try {
-      const supabase = createClient()
-      const storagePath = `${Date.now()}_explanation_${file.name}`
-      const { error: uploadErr } = await supabase.storage
-        .from('exam-pdf-temp')
-        .upload(storagePath, file, { contentType: file.type || 'application/pdf' })
-      if (uploadErr) throw new Error(`파일 업로드 실패: ${uploadErr.message}`)
-
+      const storagePath = await uploadToStorage(file)
       const res = await fetch(`/api/exam-bank/${examId}/upload-explanation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1529,11 +1625,20 @@ function ExplanationUploadDialog({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || '해설 파싱 실패')
 
-      toast.success(`${data.updated}/${data.total}개 문항 해설 적용 완료`)
+      // PDF 파싱 완료 → AI 해석/어휘 자동 생성 (20~24, 29~42번)
+      const aiRes = await fetch(`/api/exam-bank/${examId}/generate-explanation`, { method: 'POST' })
+      const aiData = await aiRes.json()
+      if (aiRes.ok) {
+        toast.success(`해설 적용 완료 (PDF ${data.updated}문항 + AI ${aiData.updated}문항)`)
+      } else {
+        toast.success(`PDF 해설 ${data.updated}/${data.total}문항 적용 완료`)
+        toast.warning('AI 해석 생성 실패 — 나중에 Sparkles 버튼으로 재시도하세요')
+      }
       queryClient.invalidateQueries({ queryKey: ['exam-bank-questions', examId] })
       queryClient.invalidateQueries({ queryKey: ['exam-bank-search'] })
       onOpenChange(false)
       setFileName('')
+      setPreview(null)
       if (fileRef.current) fileRef.current.value = ''
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '해설 PDF 파싱 실패')
@@ -1545,59 +1650,296 @@ function ExplanationUploadDialog({
   }
 
   return (
-    <Dialog open={!!examId} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
+    <Dialog open={!!examId} onOpenChange={(open) => { if (!open) setPreview(null); onOpenChange(open) }}>
+      <DialogContent className={preview ? 'max-w-2xl' : 'max-w-sm'}>
         <DialogHeader>
           <DialogTitle>해설 PDF 업로드</DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-gray-500">
-          해설 PDF를 업로드하면 [출제의도], [해석], [풀이], [Words and Phrases]를 자동으로 추출하여 문항에 연결합니다.
-        </p>
-        <div className="space-y-3">
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".pdf"
-            className="hidden"
-            onChange={(e) => setFileName(e.target.files?.[0]?.name ?? '')}
-          />
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            className="flex w-full items-center gap-2 rounded-md border border-dashed border-gray-300 px-3 py-2 text-sm text-gray-500 hover:border-gray-400 hover:bg-gray-50 transition-colors"
-          >
-            <File className="h-4 w-4 shrink-0 text-gray-400" />
-            <span className="truncate">{fileName || '해설 PDF 파일 선택'}</span>
-          </button>
 
-          {uploading && (
-            <div className="rounded-lg border bg-amber-50 p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-amber-900">해설 추출 중...</p>
-                <span className="text-xs text-amber-600">{elapsed}초</span>
-              </div>
-              <div className="h-1.5 w-full rounded-full bg-amber-200">
-                <div
-                  className="h-1.5 rounded-full bg-amber-500 transition-all duration-1000"
-                  style={{ width: `${Math.min((elapsed / 30) * 100, 95)}%` }}
-                />
+        {!preview ? (
+          <>
+            <p className="text-sm text-gray-500">
+              해설 PDF를 업로드하면 [출제의도], [해석], [풀이], [Words and Phrases]를 자동으로 추출하여 문항에 연결합니다.
+            </p>
+            <div className="space-y-3">
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".pdf"
+                className="hidden"
+                onChange={(e) => { setFileName(e.target.files?.[0]?.name ?? ''); setPreview(null) }}
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="flex w-full items-center gap-2 rounded-md border border-dashed border-gray-300 px-3 py-2 text-sm text-gray-500 hover:border-gray-400 hover:bg-gray-50 transition-colors"
+              >
+                <File className="h-4 w-4 shrink-0 text-gray-400" />
+                <span className="truncate">{fileName || '해설 PDF 파일 선택'}</span>
+              </button>
+
+              {uploading && (
+                <div className="rounded-lg border bg-amber-50 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-amber-900">파싱 중...</p>
+                    <span className="text-xs text-amber-600">{elapsed}초</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-amber-200">
+                    <div
+                      className="h-1.5 rounded-full bg-amber-500 transition-all duration-1000"
+                      style={{ width: `${Math.min((elapsed / 30) * 100, 95)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={handlePreview} disabled={uploading}>
+                  {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  파싱 미리보기
+                </Button>
+                <Button className="flex-1" onClick={handleUpload} disabled={uploading}>
+                  {uploading ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />저장 중...</>
+                  ) : (
+                    <><BookOpen className="mr-2 h-4 w-4" />해설 저장</>
+                  )}
+                </Button>
               </div>
             </div>
-          )}
+          </>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium text-gray-700">
+                파싱 결과: <span className="text-blue-600 font-semibold">{preview.parsedCount}개 문항</span>
+              </p>
+              <button
+                onClick={() => setPreview(null)}
+                className="text-xs text-gray-400 hover:text-gray-600"
+              >
+                ← 다시 선택
+              </button>
+            </div>
 
-          <Button className="w-full" onClick={handleUpload} disabled={uploading}>
-            {uploading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                파싱 중... ({elapsed}초)
-              </>
-            ) : (
-              <>
-                <BookOpen className="mr-2 h-4 w-4" />
-                해설 업로드
-              </>
-            )}
-          </Button>
+            {/* 원시 텍스트 미리보기 */}
+            <details className="text-xs">
+              <summary className="cursor-pointer text-gray-500 hover:text-gray-700 mb-1">원시 텍스트 (앞 3000자)</summary>
+              <pre className="max-h-40 overflow-auto rounded bg-gray-50 p-2 text-[11px] text-gray-600 whitespace-pre-wrap">
+                {preview.rawTextPreview}
+              </pre>
+            </details>
+
+            {/* 파싱된 문항 목록 */}
+            <div className="max-h-80 overflow-auto space-y-2 pr-1">
+              {preview.parsed.map((p) => (
+                <div key={p.question_number} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs space-y-1">
+                  <p className="font-semibold text-gray-800">{p.question_number}번</p>
+                  {p.intent && <p><span className="text-gray-400">출제의도</span> {p.intent}</p>}
+                  {p.translation && (
+                    <p className="line-clamp-2"><span className="text-gray-400">해석</span> {p.translation}</p>
+                  )}
+                  {!p.translation && <p className="text-red-400">해석 없음</p>}
+                  {p.vocabulary && (
+                    <p className="line-clamp-1"><span className="text-gray-400">어휘</span> {p.vocabulary}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setPreview(null)}>
+                다시 선택
+              </Button>
+              <Button className="flex-1" onClick={handleUpload} disabled={uploading}>
+                {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />저장 중...</> : '이대로 저장'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── 일괄 해설 업로드 다이얼로그 ───────────────────────────────────────────
+// 파일명 규칙: YYYY_MM_G.pdf (예: 2026_06_2.pdf = 2026년 6월 고2)
+
+type BulkItem = {
+  file: File
+  exam: ExamBank | null      // 매칭된 시험
+  status: 'pending' | 'processing' | 'done' | 'error'
+  message: string
+}
+
+function parseBulkFilename(name: string): { year: number; month: number; grade: number } | null {
+  // YYYY_MM_G 또는 YYYY_M_G
+  const m = name.match(/(\d{4})_(\d{1,2})_(\d)/)
+  if (!m) return null
+  return { year: parseInt(m[1]), month: parseInt(m[2]), grade: parseInt(m[3]) }
+}
+
+function BulkExplanationDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [items, setItems] = useState<BulkItem[]>([])
+  const [running, setRunning] = useState(false)
+  const [current, setCurrent] = useState(0)
+
+  const { data: exams } = useQuery<ExamBank[]>({
+    queryKey: ['exam-bank'],
+    queryFn: () => fetch('/api/exam-bank').then((r) => r.json()),
+    enabled: open,
+  })
+
+  const handleFiles = (files: FileList | null) => {
+    if (!files || !exams) return
+    const arr = Array.from(files).filter((f) => f.name.endsWith('.pdf'))
+    const newItems: BulkItem[] = arr.map((file) => {
+      const parsed = parseBulkFilename(file.name)
+      const exam = parsed
+        ? (exams.find(
+            (e) => e.exam_year === parsed.year && e.exam_month === parsed.month && e.grade === parsed.grade,
+          ) ?? null)
+        : null
+      return { file, exam, status: 'pending', message: exam ? `${exam.title}` : '매칭 실패 — 파일명 확인' }
+    })
+    setItems(newItems)
+  }
+
+  const handleRun = async () => {
+    const matched = items.filter((it) => it.exam)
+    if (!matched.length) return toast.error('매칭된 시험이 없습니다')
+
+    setRunning(true)
+    setCurrent(0)
+
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]
+      if (!it.exam) continue
+
+      setCurrent(i + 1)
+      setItems((prev) => prev.map((x, idx) => idx === i ? { ...x, status: 'processing' } : x))
+
+      try {
+        const supabase = createClient()
+        const storagePath = `${Date.now()}_bulk_${it.file.name}`
+        const { error: uploadErr } = await supabase.storage
+          .from('exam-pdf-temp')
+          .upload(storagePath, it.file, { contentType: 'application/pdf' })
+        if (uploadErr) throw new Error(`업로드 실패: ${uploadErr.message}`)
+
+        // PDF 파싱
+        const res = await fetch(`/api/exam-bank/${it.exam.id}/upload-explanation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storagePath }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || '파싱 실패')
+
+        // AI 해석/어휘 생성
+        const aiRes = await fetch(`/api/exam-bank/${it.exam.id}/generate-explanation`, { method: 'POST' })
+        const aiData = await aiRes.json()
+
+        const msg = aiRes.ok
+          ? `완료 — PDF ${data.updated}문항 + AI ${aiData.updated}문항`
+          : `PDF ${data.updated}문항 완료 (AI 실패)`
+
+        setItems((prev) => prev.map((x, idx) => idx === i ? { ...x, status: 'done', message: msg } : x))
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : '오류'
+        setItems((prev) => prev.map((x, idx) => idx === i ? { ...x, status: 'error', message: msg } : x))
+      }
+    }
+
+    setRunning(false)
+    toast.success('일괄 처리 완료')
+  }
+
+  const matchedCount = items.filter((it) => it.exam).length
+  const doneCount = items.filter((it) => it.status === 'done').length
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!running) { onOpenChange(v); if (!v) setItems([]) } }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>일괄 해설 업로드</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700 space-y-1">
+            <p className="font-semibold">파일명 규칙: <code>YYYY_MM_G.pdf</code></p>
+            <p>예시: <code>2026_06_2.pdf</code> → 2026년 6월 고2 / <code>2025_11_3.pdf</code> → 2025년 11월 수능</p>
+          </div>
+
+          <input ref={fileRef} type="file" accept=".pdf" multiple className="hidden"
+            onChange={(e) => handleFiles(e.target.files)} />
+
+          {items.length === 0 ? (
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="flex w-full flex-col items-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-8 text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors"
+            >
+              <FolderOpen className="h-8 w-8" />
+              <span className="text-sm">PDF 파일 여러 개 선택</span>
+            </button>
+          ) : (
+            <>
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>{items.length}개 파일 · 매칭 {matchedCount}개</span>
+                <button onClick={() => { setItems([]); if (fileRef.current) fileRef.current.value = '' }}
+                  className="text-gray-400 hover:text-gray-600">다시 선택</button>
+              </div>
+
+              <div className="max-h-64 overflow-auto space-y-1.5 pr-1">
+                {items.map((it, i) => (
+                  <div key={i} className="flex items-center gap-2.5 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs">
+                    {it.status === 'pending' && (it.exam
+                      ? <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+                      : <XCircle className="h-4 w-4 shrink-0 text-red-400" />
+                    )}
+                    {it.status === 'processing' && <Loader2 className="h-4 w-4 shrink-0 text-blue-500 animate-spin" />}
+                    {it.status === 'done' && <CheckCircle2 className="h-4 w-4 shrink-0 text-blue-600" />}
+                    {it.status === 'error' && <XCircle className="h-4 w-4 shrink-0 text-red-500" />}
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-700 truncate">{it.file.name}</p>
+                      <p className={`truncate ${it.exam ? 'text-gray-400' : 'text-red-400'} ${it.status === 'done' ? 'text-blue-500' : ''} ${it.status === 'error' ? 'text-red-500' : ''}`}>
+                        {it.message}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {running && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>처리 중... ({doneCount}/{matchedCount})</span>
+                    <span>{Math.round((doneCount / matchedCount) * 100)}%</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-gray-200">
+                    <div
+                      className="h-1.5 rounded-full bg-blue-500 transition-all duration-500"
+                      style={{ width: `${(doneCount / matchedCount) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <Button className="w-full" onClick={handleRun} disabled={running || matchedCount === 0}>
+                {running
+                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{current}/{matchedCount} 처리 중...</>
+                  : <><Sparkles className="mr-2 h-4 w-4" />{matchedCount}개 시험 일괄 처리 시작</>
+                }
+              </Button>
+            </>
+          )}
         </div>
       </DialogContent>
     </Dialog>
