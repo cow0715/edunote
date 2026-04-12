@@ -1,0 +1,90 @@
+import { getAuth, getTeacherId, err, ok } from '@/lib/api'
+import { createServiceClient } from '@/lib/supabase/server'
+import { generateExplanations, QuestionForExplanation } from '@/lib/anthropic'
+
+export const maxDuration = 120
+
+// 대상 문항 범위: 20~24, 29~42
+const AI_TARGET_RANGES = [
+  [20, 24],
+  [29, 42],
+] as const
+
+function isAiTarget(n: number): boolean {
+  return AI_TARGET_RANGES.some(([from, to]) => n >= from && n <= to)
+}
+
+export async function POST(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증 필요', 401)
+
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('선생님 정보 없음', 403)
+
+  const { id } = await params
+
+  // 소유권 확인
+  const { data: exam } = await supabase
+    .from('exam_bank')
+    .select('id')
+    .eq('id', id)
+    .eq('teacher_id', teacherId)
+    .single()
+
+  if (!exam) return err('시험을 찾을 수 없습니다', 404)
+
+  // 대상 문항 조회
+  const serviceClient = createServiceClient()
+  const { data: rows, error: fetchErr } = await serviceClient
+    .from('exam_bank_question')
+    .select('id, question_number, passage, question_text, choices, answer')
+    .eq('exam_bank_id', id)
+    .order('question_number')
+
+  if (fetchErr || !rows) {
+    return err(`문항 조회 실패: ${fetchErr?.message}`)
+  }
+
+  const targets: QuestionForExplanation[] = rows
+    .filter((r) => isAiTarget(r.question_number))
+    .map((r) => ({
+      question_number: r.question_number,
+      passage: r.passage ?? '',
+      question_text: r.question_text ?? '',
+      choices: Array.isArray(r.choices) ? r.choices.map(String) : [],
+      answer: r.answer ?? '',
+    }))
+
+  if (targets.length === 0) {
+    return err('AI 생성 대상 문항이 없습니다', 422)
+  }
+
+  // AI 해설 생성
+  let generated
+  try {
+    generated = await generateExplanations(targets)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return err(`AI 해설 생성 실패: ${msg}`, 500)
+  }
+
+  // DB UPDATE
+  let updated = 0
+  for (const g of generated) {
+    const { error } = await serviceClient
+      .from('exam_bank_question')
+      .update({
+        explanation_translation: g.translation,
+        explanation_vocabulary: g.vocabulary,
+      })
+      .eq('exam_bank_id', id)
+      .eq('question_number', g.question_number)
+
+    if (!error) updated++
+  }
+
+  return ok({ updated, total: generated.length })
+}
