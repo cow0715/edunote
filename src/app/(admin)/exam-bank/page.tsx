@@ -249,6 +249,16 @@ const MONTHS = [3, 4, 6, 7, 9, 10, 11]
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: 10 }, (_, i) => CURRENT_YEAR - i)
 
+/** Response가 JSON이 아닐 때도 안전하게 파싱 */
+async function safeJson(res: Response): Promise<{ ok: boolean; data: Record<string, unknown> }> {
+  const text = await res.text()
+  try {
+    return { ok: res.ok, data: JSON.parse(text) }
+  } catch {
+    return { ok: false, data: { error: text.slice(0, 200) || `HTTP ${res.status}` } }
+  }
+}
+
 // ── 메인 페이지 ──────────────────────────────────────────────────────────
 
 export default function ExamBankPage() {
@@ -1590,14 +1600,15 @@ function ExplanationUploadDialog({
 
     try {
       const storagePath = await uploadToStorage(file)
-      const res = await fetch(`/api/exam-bank/${examId}/debug-explanation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storagePath }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || '파싱 실패')
-      setPreview(data)
+      const { ok, data } = await safeJson(
+        await fetch(`/api/exam-bank/${examId}/debug-explanation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storagePath }),
+        })
+      )
+      if (!ok) throw new Error((data.error as string) || '파싱 실패')
+      setPreview(data as Parameters<typeof setPreview>[0])
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '파싱 미리보기 실패')
     } finally {
@@ -1617,18 +1628,20 @@ function ExplanationUploadDialog({
 
     try {
       const storagePath = await uploadToStorage(file)
-      const res = await fetch(`/api/exam-bank/${examId}/upload-explanation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storagePath }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || '해설 파싱 실패')
+      const { ok: pdfOk, data } = await safeJson(
+        await fetch(`/api/exam-bank/${examId}/upload-explanation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storagePath }),
+        })
+      )
+      if (!pdfOk) throw new Error((data.error as string) || '해설 파싱 실패')
 
       // PDF 파싱 완료 → AI 해석/어휘 자동 생성 (20~24, 29~42번)
-      const aiRes = await fetch(`/api/exam-bank/${examId}/generate-explanation`, { method: 'POST' })
-      const aiData = await aiRes.json()
-      if (aiRes.ok) {
+      const { ok: aiOk, data: aiData } = await safeJson(
+        await fetch(`/api/exam-bank/${examId}/generate-explanation`, { method: 'POST' })
+      )
+      if (aiOk) {
         toast.success(`해설 적용 완료 (PDF ${data.updated}문항 + AI ${aiData.updated}문항)`)
       } else {
         toast.success(`PDF 해설 ${data.updated}/${data.total}문항 적용 완료`)
@@ -1835,21 +1848,23 @@ function BulkExplanationDialog({
         if (uploadErr) throw new Error(`업로드 실패: ${uploadErr.message}`)
 
         // PDF 파싱
-        const res = await fetch(`/api/exam-bank/${it.exam.id}/upload-explanation`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ storagePath }),
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || '파싱 실패')
+        const { ok: pdfOk, data } = await safeJson(
+          await fetch(`/api/exam-bank/${it.exam.id}/upload-explanation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ storagePath }),
+          })
+        )
+        if (!pdfOk) throw new Error((data.error as string) || '파싱 실패')
 
         // AI 해석/어휘 생성
-        const aiRes = await fetch(`/api/exam-bank/${it.exam.id}/generate-explanation`, { method: 'POST' })
-        const aiData = await aiRes.json()
+        const { ok: aiOk, data: aiData } = await safeJson(
+          await fetch(`/api/exam-bank/${it.exam.id}/generate-explanation`, { method: 'POST' })
+        )
 
-        const msg = aiRes.ok
+        const msg = aiOk
           ? `완료 — PDF ${data.updated}문항 + AI ${aiData.updated}문항`
-          : `PDF ${data.updated}문항 완료 (AI 실패)`
+          : `PDF ${data.updated}문항 완료 (AI 실패: ${aiData.error ?? ''})`
 
         setItems((prev) => prev.map((x, idx) => idx === i ? { ...x, status: 'done', message: msg } : x))
       } catch (e) {
