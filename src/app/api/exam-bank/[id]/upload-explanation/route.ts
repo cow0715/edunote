@@ -44,16 +44,26 @@ export async function POST(
 
   // PDF → 텍스트 → 정규식 파싱
   const buffer = await fileBlob.arrayBuffer()
+
+  // raw 텍스트 미리 추출 (디버깅용)
+  let rawPreview = ''
+  try {
+    const { extractText, getDocumentProxy } = await import('unpdf')
+    const pdf = await getDocumentProxy(new Uint8Array(buffer))
+    const { text } = await extractText(pdf, { mergePages: true })
+    rawPreview = (text as string).slice(0, 500)
+  } catch { /* 무시 */ }
+
   let explanations
   try {
     explanations = await parseExplanationPdf(buffer)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    return err(`해설 PDF 파싱 실패: ${msg}`, 422)
+    return err(`해설 PDF 파싱 실패: ${msg}\n\n[PDF 앞부분]\n${rawPreview}`, 422)
   }
 
   if (explanations.length === 0) {
-    return err('해설을 추출할 수 없습니다. PDF를 확인해주세요.', 422)
+    return err(`해설을 추출할 수 없습니다. 문항 경계(예: "18. [출제의도]")를 찾지 못했습니다.\n\n[PDF 앞부분]\n${rawPreview}`, 422)
   }
 
   // 문항번호 매칭하여 UPDATE
