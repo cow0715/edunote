@@ -815,7 +815,7 @@ JSON 배열만 출력 (다른 텍스트 없이):
     }
     // 폴백: 개별 JSON 객체 추출 시도
     const objects: GeneratedExplanation[] = []
-    const objRe = /\{\s*"question_number"\s*:\s*(\d+)[^}]*\}/gs
+    const objRe = /\{\s*"question_number"\s*:\s*(\d+)[^}]*\}/g
     let match: RegExpExecArray | null
     while ((match = objRe.exec(cleaned)) !== null) {
       try {
