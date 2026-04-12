@@ -681,9 +681,6 @@ function QuestionCard({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="text-sm">
               <DropdownMenuItem onClick={copyQuestion}>문제만</DropdownMenuItem>
-              <DropdownMenuItem onClick={copyQuestionWithTranslation} disabled={!q.explanation_translation}>
-                문제 + 해석
-              </DropdownMenuItem>
               <DropdownMenuItem onClick={copyExplanation} disabled={!hasExplanation}>
                 해설만
               </DropdownMenuItem>
@@ -1155,7 +1152,6 @@ function QuestionSearch() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={copyAllQuestions}>문제만</DropdownMenuItem>
-                  <DropdownMenuItem onClick={copyAllWithTranslation}>문제+해석</DropdownMenuItem>
                   <DropdownMenuItem onClick={copyAllExplanations}>해설만</DropdownMenuItem>
                   <DropdownMenuItem onClick={copyAllBoth}>문제+해설</DropdownMenuItem>
                 </DropdownMenuContent>
