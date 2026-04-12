@@ -27,7 +27,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2, BookOpen } from 'lucide-react'
+import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2, BookOpen, ChevronRight } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { createClient } from '@/lib/supabase/client'
 
 // ── 타입 ──────────────────────────────────────────────────────────────────
@@ -489,27 +495,75 @@ function QuestionCard({
 }) {
   const [showExplanation, setShowExplanation] = useState(false)
   const hasExplanation = !!(q.explanation_intent || q.explanation_translation || q.explanation_solution || q.explanation_vocabulary)
-  const copyText = useCallback(async () => {
-    const plain = [
-      `[${q.question_number}번] ${mdToPlain(q.question_text)}`,
+
+  // 시험 출처 레이블 (복사 헤더용)
+  const examLabel = q.exam_bank
+    ? `${q.exam_bank.exam_year}년도 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade} ${q.exam_bank.source} ${q.question_number}번`
+    : `${q.question_number}번`
+
+  const buildQuestionText = useCallback(() => {
+    const header = q.exam_bank ? `[${examLabel}]\n` : ''
+    return header + [
+      mdToPlain(q.question_text),
       q.passage ? `\n${mdToPlain(q.passage)}` : '',
       q.choices.length > 0 ? `\n${q.choices.map(mdToPlain).join('\n')}` : '',
       q.answer ? `\n정답: ${q.answer}` : '',
     ].join('')
+  }, [q, examLabel])
 
-    const html = `<p><strong>[${q.question_number}번]</strong> ${mdToHtml(q.question_text)}</p>`
+  const buildQuestionHtml = useCallback(() => {
+    const header = q.exam_bank ? `<p><strong>[${examLabel}]</strong></p>` : ''
+    return header
+      + `<p>${mdToHtml(q.question_text)}</p>`
       + (q.passage ? `<p>${mdToHtml(q.passage)}</p>` : '')
       + (q.choices.length > 0 ? `<p>${q.choices.map(mdToHtml).join('<br>')}</p>` : '')
       + (q.answer ? `<p>정답: ${q.answer}</p>` : '')
+  }, [q, examLabel])
 
+  const buildExplanationText = useCallback(() => {
+    const header = q.exam_bank ? `[${examLabel} 해설]\n` : `[${q.question_number}번 해설]\n`
+    const parts = [
+      q.explanation_intent ? `[출제의도] ${q.explanation_intent}` : '',
+      q.explanation_translation ? `[해석]\n${q.explanation_translation}` : '',
+      q.explanation_solution ? `[풀이]\n${q.explanation_solution}` : '',
+      q.explanation_vocabulary ? `[Words and Phrases]\n${q.explanation_vocabulary}` : '',
+    ].filter(Boolean)
+    return header + parts.join('\n\n')
+  }, [q, examLabel])
+
+  const buildExplanationHtml = useCallback(() => {
+    const header = q.exam_bank ? `<p><strong>[${examLabel} 해설]</strong></p>` : `<p><strong>[${q.question_number}번 해설]</strong></p>`
+    return header
+      + (q.explanation_intent ? `<p><strong>[출제의도]</strong> ${q.explanation_intent}</p>` : '')
+      + (q.explanation_translation ? `<p><strong>[해석]</strong><br>${q.explanation_translation.replace(/\n/g, '<br>')}</p>` : '')
+      + (q.explanation_solution ? `<p><strong>[풀이]</strong><br>${q.explanation_solution}</p>` : '')
+      + (q.explanation_vocabulary ? `<p><strong>[Words and Phrases]</strong><br>${q.explanation_vocabulary}</p>` : '')
+  }, [q, examLabel])
+
+  const copyQuestion = useCallback(async () => {
+    await copyRich(buildQuestionText(), buildQuestionHtml())
+    toast.success('문제 복사 완료')
+  }, [buildQuestionText, buildQuestionHtml])
+
+  const copyExplanation = useCallback(async () => {
+    await copyRich(buildExplanationText(), buildExplanationHtml())
+    toast.success('해설 복사 완료')
+  }, [buildExplanationText, buildExplanationHtml])
+
+  const copyBoth = useCallback(async () => {
+    const plain = buildQuestionText() + '\n\n' + buildExplanationText()
+    const html = buildQuestionHtml() + buildExplanationHtml()
     await copyRich(plain, html)
-    toast.success('복사되었습니다 · 한글 사용 시 Word에 먼저 붙여넣기 후 복사하세요')
-  }, [q])
+    toast.success('문제+해설 복사 완료')
+  }, [buildQuestionText, buildQuestionHtml, buildExplanationText, buildExplanationHtml])
 
   const diffStyle = q.difficulty ? (DIFFICULTY_STYLE[q.difficulty] ?? DIFFICULTY_STYLE['중상']) : null
 
   // 정답 번호 (①→1, ②→2, ...)
   const answerIdx = q.answer ? ['①','②','③','④','⑤'].indexOf(q.answer) : -1
+
+  // 선택률 인라인 표시 여부
+  const hasChoiceRates = q.choice_rates && q.choice_rates.some((r) => r != null)
 
   return (
     <div className="rounded-2xl bg-white shadow-[0px_4px_24px_rgba(0,75,198,0.06)] border border-gray-100/80 overflow-hidden">
@@ -547,9 +601,24 @@ function QuestionCard({
           )}
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
-          <button onClick={copyText} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
-            <Copy className="h-3.5 w-3.5" />
-          </button>
+          {/* 복사 드롭다운 */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex items-center gap-0.5 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+                <Copy className="h-3.5 w-3.5" />
+                <ChevronRight className="h-2.5 w-2.5 rotate-90" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="text-sm">
+              <DropdownMenuItem onClick={copyQuestion}>문제만</DropdownMenuItem>
+              <DropdownMenuItem onClick={copyExplanation} disabled={!hasExplanation}>
+                해설만
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={copyBoth} disabled={!hasExplanation}>
+                문제 + 해설
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {onEdit && (
             <button onClick={onEdit} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
               <Pencil className="h-3.5 w-3.5" />
@@ -586,30 +655,33 @@ function QuestionCard({
               return (
                 <div
                   key={i}
-                  className={`flex items-start gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ${
-                    isAnswer
-                      ? 'bg-blue-50 text-blue-700 font-medium'
-                      : 'text-gray-600'
+                  className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                    isAnswer ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-600'
                   }`}
                 >
-                  <span className="shrink-0">{c}</span>
-                  {/* 선지별 선택률 바 */}
-                  {q.choice_rates && q.choice_rates[i] != null && (
-                    <div className="ml-auto flex items-center gap-1.5 shrink-0">
-                      <div className="w-16 h-1.5 rounded-full bg-gray-200 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${isAnswer ? 'bg-blue-400' : 'bg-gray-300'}`}
-                          style={{ width: `${q.choice_rates[i]}%` }}
-                        />
-                      </div>
-                      <span className={`text-[11px] w-7 text-right ${isAnswer ? 'text-blue-500 font-semibold' : 'text-gray-400'}`}>
-                        {q.choice_rates[i]}%
-                      </span>
-                    </div>
-                  )}
+                  <span className="break-words">{c}</span>
                 </div>
               )
             })}
+            {/* 선택률 인라인 한 줄 표시 */}
+            {hasChoiceRates && (
+              <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 px-1">
+                {q.choices.map((_, i) => {
+                  const rate = q.choice_rates?.[i]
+                  if (rate == null) return null
+                  const isAnswer = i === answerIdx
+                  const circled = ['①','②','③','④','⑤'][i]
+                  return (
+                    <span
+                      key={i}
+                      className={`text-[11px] font-medium ${isAnswer ? 'text-blue-600' : 'text-gray-400'}`}
+                    >
+                      {circled} {rate}%
+                    </span>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -728,18 +800,22 @@ function QuestionSearch() {
 
   const copyAll = async () => {
     if (!results?.length) return
-    const examInfo = (q: ExamBankQuestion) =>
-      q.exam_bank ? `${q.exam_bank.exam_year}년 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade}` : ''
+    const examLabel = (q: ExamBankQuestion) =>
+      q.exam_bank
+        ? `${q.exam_bank.exam_year}년도 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade} ${q.exam_bank.source} ${q.question_number}번`
+        : `${q.question_number}번`
 
     const plain = results.map((q) => [
-      `[${examInfo(q)} ${q.question_number}번] ${mdToPlain(q.question_text)}`,
+      `[${examLabel(q)}]`,
+      `\n${mdToPlain(q.question_text)}`,
       q.passage ? `\n${mdToPlain(q.passage)}` : '',
       q.choices.length > 0 ? `\n${q.choices.map(mdToPlain).join('\n')}` : '',
       q.answer ? `\n정답: ${q.answer}` : '',
     ].join('')).join('\n\n---\n\n')
 
     const html = results.map((q) =>
-      `<p><strong>[${examInfo(q)} ${q.question_number}번]</strong> ${mdToHtml(q.question_text)}</p>`
+      `<p><strong>[${examLabel(q)}]</strong></p>`
+      + `<p>${mdToHtml(q.question_text)}</p>`
       + (q.passage ? `<p>${mdToHtml(q.passage)}</p>` : '')
       + (q.choices.length > 0 ? `<p>${q.choices.map(mdToHtml).join('<br>')}</p>` : '')
       + (q.answer ? `<p>정답: ${q.answer}</p>` : '')
