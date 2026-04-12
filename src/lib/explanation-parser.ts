@@ -99,7 +99,7 @@ export function parseExplanationText(text: string): ParsedExplanation[] {
       intent: cleanText(intent),
       translation: cleanText(translation),
       solution: cleanText(solution),
-      vocabulary: cleanText(vocab),
+      vocabulary: cleanVocabText(vocab),
     })
   }
 
@@ -154,4 +154,12 @@ function cleanText(text: string): string {
     .replace(/\s{2,}\d{1,2}\s{2,}/g, ' ')  // 페이지 번호 제거
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+/**
+ * 어휘 텍스트 정리 — cleanText + unpdf가 이탤릭/볼드 폰트를 *word* 로 변환한 닫는 별표 제거
+ * *단어 (중요도 별표) 형태는 유지, *단어* → *단어
+ */
+function cleanVocabText(text: string): string {
+  return cleanText(text).replace(/([^\s*])\*+/g, '$1')
 }

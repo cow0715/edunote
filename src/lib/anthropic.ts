@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import type { DocumentBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
 import { jsonrepair } from 'jsonrepair'
 import {
   GRADING_SYSTEM, GRADING_RULES,
@@ -9,6 +10,7 @@ import {
   ExamOcrQuestion,
   EXAM_BANK_PARSE_RULES,
 } from './prompts'
+import type { ParsedExplanation } from './explanation-parser'
 
 export type { ExamOcrQuestion }
 
@@ -829,5 +831,75 @@ JSON 배열만 출력 (다른 텍스트 없이):
       return objects
     }
     throw new Error(`JSON 파싱 실패 (${e instanceof Error ? e.message : e}). raw 길이: ${cleaned.length}`)
+  }
+}
+
+/**
+ * Claude Vision API로 해설 PDF를 직접 파싱한다.
+ * unpdf가 한국어 폰트 인코딩을 읽지 못하는 EBS PDF 등에서 fallback으로 사용.
+ */
+export async function parsePdfExplanationsWithClaude(
+  buffer: ArrayBuffer,
+): Promise<ParsedExplanation[]> {
+  const base64 = Buffer.from(buffer).toString('base64')
+
+  const prompt = `이 PDF는 수능/모의고사 영어 해설지입니다. 18번~45번 문항의 해설을 추출해 주세요.
+
+각 문항은 아래 섹션으로 구성되어 있습니다 (없는 섹션은 빈 문자열):
+- [출제의도] 또는 【출제의도】
+- [해석] 또는 【해석】
+- [풀이] 또는 【풀이】
+- [Words and Phrases] 또는 [어휘] 등
+
+장문 문항(예: 41~42번, 43~45번)은 [해석]과 [Words and Phrases]를 공유하므로 각 번호에 동일하게 넣어 주세요.
+
+중요:
+- solution과 vocabulary 값 안에 큰따옴표(")를 절대 사용하지 마세요. 작은따옴표(')나 한국어 따옴표(「」)를 사용하세요.
+- 18번 미만(듣기 영역)은 제외하세요.
+
+JSON 배열만 출력 (다른 텍스트 없이):
+[
+  {
+    "question_number": 18,
+    "intent": "[출제의도] 내용",
+    "translation": "[해석] 내용",
+    "solution": "[풀이] 내용",
+    "vocabulary": "[Words and Phrases] 내용"
+  },
+  ...
+]`
+
+  const res = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 16000,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'document',
+            source: {
+              type: 'base64',
+              media_type: 'application/pdf',
+              data: base64,
+            },
+          } satisfies DocumentBlockParam,
+          { type: 'text', text: prompt } satisfies TextBlockParam,
+        ],
+      },
+    ],
+  })
+
+  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  console.log('[parsePdfExplanationsWithClaude] raw length:', raw.length)
+
+  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
+
+  try {
+    const parsed = JSON.parse(jsonrepair(cleaned)) as ParsedExplanation[]
+    return parsed.filter((e) => e.question_number >= 18)
+  } catch (e) {
+    console.error('[parsePdfExplanationsWithClaude] JSON parse 실패:', e)
+    throw new Error(`Claude Vision PDF 파싱 실패: ${e instanceof Error ? e.message : e}`)
   }
 }

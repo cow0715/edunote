@@ -1,8 +1,9 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parseExplanationText } from '@/lib/explanation-parser'
+import { parsePdfExplanationsWithClaude } from '@/lib/anthropic'
 
-export const maxDuration = 60
+export const maxDuration = 120
 
 export async function POST(
   request: Request,
@@ -66,7 +67,24 @@ export async function POST(
   }
 
   if (explanations.length === 0) {
-    return err(`해설을 추출할 수 없습니다. 문항 경계(예: "18. [출제의도]")를 찾지 못했습니다.\n\n[PDF 앞부분]\n${rawPreview}`, 422)
+    // unpdf 텍스트 추출 실패(폰트 인코딩 문제 등) → Claude Vision fallback
+    console.log('[upload-explanation] 텍스트 파싱 0건 → Claude Vision fallback 시도')
+    try {
+      explanations = await parsePdfExplanationsWithClaude(buffer)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return err(
+        `해설을 추출할 수 없습니다. 텍스트 파싱 실패 후 Claude Vision도 실패했습니다: ${msg}\n\n[PDF 앞부분]\n${rawPreview}`,
+        422,
+      )
+    }
+    if (explanations.length === 0) {
+      return err(
+        `해설을 추출할 수 없습니다. Claude Vision도 문항을 찾지 못했습니다.\n\n[PDF 앞부분]\n${rawPreview}`,
+        422,
+      )
+    }
+    console.log(`[upload-explanation] Claude Vision fallback 성공: ${explanations.length}건`)
   }
 
   // 문항번호 매칭하여 UPDATE
