@@ -22,11 +22,36 @@ export async function parseExplanationPdf(buffer: ArrayBuffer): Promise<ParsedEx
   return parseExplanationText(text as string)
 }
 
+// 섹션 헤더의 모든 변형 (공백, 전각 괄호 등)
+const SECTION_VARIANTS: Record<string, string[]> = {
+  '출제의도': [
+    '[출제의도]', '[출제 의도]', '[출 제 의 도]',
+    '【출제의도】', '【출제 의도】',
+  ],
+  '해석': [
+    '[해석]', '[해 석]',
+    '【해석】', '【해 석】',
+  ],
+  '풀이': [
+    '[풀이]', '[풀 이]',
+    '【풀이】', '【풀 이】',
+  ],
+  '어휘': [
+    '[Words and Phrases]', '[Words & Phrases]',
+    '[Vocabulary]', '[어휘]',
+    '【Words and Phrases】',
+  ],
+}
+
+/** 모든 섹션 헤더 목록 (끝 위치 탐색용) */
+const ALL_SECTION_MARKERS = Object.values(SECTION_VARIANTS).flat()
+
 /** 텍스트 → 문항별 해설 파싱 */
 export function parseExplanationText(text: string): ParsedExplanation[] {
   // 1) 문항 경계 찾기
   //    패턴: "18. [출제의도]", "18. [출제 의도]", "18 . [출제의도]", "41~42] [출제 의도]"
-  const boundaryRe = /(\d{1,2})\s*(?:~\s*\d+\])?\s*\.?\s*\[출제\s*의도\]/g
+  //    전각괄호 포함: "18.【출제의도】"
+  const boundaryRe = /(\d{1,2})\s*(?:~\s*\d+\])?\s*\.?\s*[[\u3010]출제\s*의도[\]\u3011]/g
   const boundaries: { num: number; idx: number }[] = []
   let m: RegExpExecArray | null
 
@@ -48,10 +73,10 @@ export function parseExplanationText(text: string): ParsedExplanation[] {
     const block = text.substring(start, end)
 
     // 장문 묶음 헤더 감지 (예: "41~42]", "43~45]")
-    const bundleMatch = block.match(/(\d+)\s*~\s*(\d+)\]\s*\.?\s*\[출제\s*의도\]/)
+    const bundleMatch = block.match(/(\d+)\s*~\s*(\d+)\]/)
     if (bundleMatch) {
       const translation = extractSection(block, '해석')
-      const vocab = extractSection(block, 'Words and Phrases')
+      const vocab = extractSection(block, '어휘')
       const fromNum = parseInt(bundleMatch[1])
       const toNum = parseInt(bundleMatch[2])
       for (let n = fromNum; n <= toNum; n++) {
@@ -67,7 +92,7 @@ export function parseExplanationText(text: string): ParsedExplanation[] {
     const intent = extractIntent(block)
     const translation = extractSection(block, '해석') || sharedTranslation.get(qNum) || ''
     const solution = extractSection(block, '풀이')
-    const vocab = extractSection(block, 'Words and Phrases') || sharedVocab.get(qNum) || ''
+    const vocab = extractSection(block, '어휘') || sharedVocab.get(qNum) || ''
 
     results.push({
       question_number: qNum,
@@ -83,22 +108,21 @@ export function parseExplanationText(text: string): ParsedExplanation[] {
 
 /** [출제의도] 바로 뒤의 짧은 텍스트 추출 (예: "지칭 대상 파악") */
 function extractIntent(block: string): string {
-  const m = block.match(/\[출제\s*의도\]\s*([^\[]+?)(?:\s*\[|$)/)
+  // 반각/전각 괄호 모두 처리
+  const m = block.match(/[[\u3010]출제\s*의도[\]\u3011]\s*([^\[【]+?)(?:\s*[[\[【]|$)/)
   return m ? m[1] : ''
 }
 
-/** 블록에서 [header] 섹션의 텍스트를 indexOf 기반으로 추출 */
-function extractSection(block: string, header: string): string {
-  // [해석], [풀이], [Words and Phrases] 등 — 공백 변형 허용
-  const markers = header === '출제 의도'
-    ? ['[출제의도]', '[출제 의도]']
-    : [`[${header}]`]
+/** 블록에서 섹션 키의 텍스트를 추출 (변형 헤더 모두 시도) */
+function extractSection(block: string, sectionKey: string): string {
+  const markers = SECTION_VARIANTS[sectionKey] ?? [`[${sectionKey}]`]
 
   let idx = -1
   let markerLen = 0
   for (const marker of markers) {
-    idx = block.indexOf(marker)
-    if (idx !== -1) {
+    const found = block.indexOf(marker)
+    if (found !== -1) {
+      idx = found
       markerLen = marker.length
       break
     }
@@ -106,18 +130,16 @@ function extractSection(block: string, header: string): string {
   if (idx === -1) return ''
 
   const start = idx + markerLen
-
-  // 다음 섹션 헤더까지의 범위를 찾음
-  const nextHeaders = ['[해석]', '[풀이]', '[Words and Phrases]', '[출제의도]', '[출제 의도]']
   let end = block.length
 
-  for (const nh of nextHeaders) {
-    const nhIdx = block.indexOf(nh, start)
+  // 다음 섹션 헤더까지 범위 찾기
+  for (const marker of ALL_SECTION_MARKERS) {
+    const nhIdx = block.indexOf(marker, start)
     if (nhIdx !== -1 && nhIdx < end) end = nhIdx
   }
 
   // 다음 문항 경계도 체크
-  const nextQRe = /\d{1,2}\s*(?:~\s*\d+\])?\s*\.?\s*\[출제\s*의도\]/g
+  const nextQRe = /\d{1,2}\s*(?:~\s*\d+\])?\s*\.?\s*[[\u3010]출제\s*의도[\]\u3011]/g
   nextQRe.lastIndex = start
   const nextQ = nextQRe.exec(block)
   if (nextQ && nextQ.index < end) end = nextQ.index
