@@ -1,6 +1,6 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
-import { parseExplanationPdf } from '@/lib/explanation-parser'
+import { parseExplanationText } from '@/lib/explanation-parser'
 
 export const maxDuration = 60
 
@@ -42,21 +42,24 @@ export async function POST(
   // 처리 후 임시 파일 삭제
   void serviceClient.storage.from('exam-pdf-temp').remove([storagePath])
 
-  // PDF → 텍스트 → 정규식 파싱
+  // PDF → 텍스트 추출 (한 번만)
   const buffer = await fileBlob.arrayBuffer()
-
-  // raw 텍스트 미리 추출 (디버깅용)
-  let rawPreview = ''
+  let rawText = ''
   try {
     const { extractText, getDocumentProxy } = await import('unpdf')
     const pdf = await getDocumentProxy(new Uint8Array(buffer))
     const { text } = await extractText(pdf, { mergePages: true })
-    rawPreview = (text as string).slice(0, 500)
-  } catch { /* 무시 */ }
+    rawText = text as string
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return err(`PDF 텍스트 추출 실패: ${msg}`, 422)
+  }
+
+  const rawPreview = rawText.slice(0, 500)
 
   let explanations
   try {
-    explanations = await parseExplanationPdf(buffer)
+    explanations = parseExplanationText(rawText)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return err(`해설 PDF 파싱 실패: ${msg}\n\n[PDF 앞부분]\n${rawPreview}`, 422)
