@@ -792,7 +792,7 @@ JSON 배열만 출력 (다른 텍스트 없이):
 
   const res = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 4096,  // 5문항 배치 기준 충분
+    max_tokens: 16000,
     messages: [{ role: 'user', content: prompt }],
   })
 
