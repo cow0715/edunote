@@ -80,21 +80,22 @@ type ExamBankQuestion = {
 // ── 마크다운 인라인 렌더러 ────────────────────────────────────────────────
 // **bold**, *italic*, <u>underline</u>을 React 요소로 변환
 
-const MD_TOKEN_RE = /(\*\*[^*]+\*\*|\*[^*]+\*|<u>[^<]+<\/u>)/g
+// 각주 마커(* word, ** word)와 구분: 여는 * 뒤에 공백 없음, 닫는 * 앞에 공백 없음
+const MD_TOKEN_RE = /(\*\*(?!\s)[^*]+(?<!\s)\*\*|\*(?!\s)(?!\*)[^*]+(?<!\s)\*|<u>[^<]+<\/u>)/g
 
 // 마크다운 → HTML (한글/워드 붙여넣기용)
 function mdToHtml(text: string): string {
   return text
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/\*\*(?!\s)([^*]+?)(?<!\s)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(?!\s)(?!\*)([^*]+?)(?<!\s)\*/g, '<em>$1</em>')
     .replace(/\n/g, '<br>')
 }
 
 // 마크다운 기호 제거 (plain text용)
 function mdToPlain(text: string): string {
   return text
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/\*\*(?!\s)([^*]+?)(?<!\s)\*\*/g, '$1')
+    .replace(/\*(?!\s)(?!\*)([^*]+?)(?<!\s)\*/g, '$1')
     .replace(/<u>([^<]+)<\/u>/g, '$1')
 }
 
