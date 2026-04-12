@@ -15,17 +15,11 @@ export type ParsedExplanation = {
 
 /** PDF ArrayBuffer → 문항별 해설 배열 */
 export async function parseExplanationPdf(buffer: ArrayBuffer): Promise<ParsedExplanation[]> {
-  const { getDocument } = await import('pdfjs-dist')
-  const doc = await getDocument({ data: new Uint8Array(buffer) }).promise
-
-  let allText = ''
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i)
-    const content = await page.getTextContent()
-    allText += content.items.map((item) => ('str' in item ? item.str : '')).join(' ') + '\n'
-  }
-
-  return parseExplanationText(allText)
+  // unpdf — serverless 환경용 PDF 텍스트 추출 (worker 불필요)
+  const { extractText, getDocumentProxy } = await import('unpdf')
+  const pdf = await getDocumentProxy(new Uint8Array(buffer))
+  const { text } = await extractText(pdf, { mergePages: true })
+  return parseExplanationText(text as string)
 }
 
 /** 텍스트 → 문항별 해설 파싱 */
