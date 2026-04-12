@@ -27,7 +27,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2, BookOpen, ChevronRight } from 'lucide-react'
+import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2, BookOpen, ChevronRight, Sparkles } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -328,6 +328,7 @@ function ExamList() {
   const queryClient = useQueryClient()
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [explanationTarget, setExplanationTarget] = useState<string | null>(null)
+  const [generatingId, setGeneratingId] = useState<string | null>(null)
 
   const { data: exams, isLoading } = useQuery<ExamBank[]>({
     queryKey: ['exam-bank'],
@@ -387,6 +388,29 @@ function ExamList() {
                   title="해설 PDF 업로드"
                 >
                   <BookOpen className="h-4 w-4" />
+                </button>
+                <button
+                  disabled={generatingId === exam.id}
+                  onClick={async () => {
+                    setGeneratingId(exam.id)
+                    try {
+                      const res = await fetch(`/api/exam-bank/${exam.id}/generate-explanation`, { method: 'POST' })
+                      const json = await res.json()
+                      if (!res.ok) toast.error(json.error ?? 'AI 해설 생성 실패')
+                      else toast.success(`AI 해설 생성 완료 (${json.updated}/${json.total}문항)`)
+                    } catch {
+                      toast.error('AI 해설 생성 실패')
+                    } finally {
+                      setGeneratingId(null)
+                    }
+                  }}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="AI 해석/어휘 생성 (20~24, 29~42번)"
+                >
+                  {generatingId === exam.id
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Sparkles className="h-4 w-4" />
+                  }
                 </button>
                 <button
                   onClick={() => { if (confirm('이 시험과 모든 문항을 삭제하시겠습니까?')) deleteMutation.mutate(exam.id) }}

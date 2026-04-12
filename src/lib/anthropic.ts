@@ -734,3 +734,74 @@ export async function ocrExamAnswers(
     throw e
   }
 }
+
+// ── 기출문제 AI 해설 생성 ─────────────────────────────────────────────────
+// 대상: 20~24번, 29~42번 문항
+// 생성 필드: explanation_translation (해석), explanation_vocabulary (Words & Phrases)
+
+export type GeneratedExplanation = {
+  question_number: number
+  translation: string   // 지문 전체 한국어 해석
+  vocabulary: string    // Words & Phrases (고2~3 수준, 지문 등장 순서)
+}
+
+export type QuestionForExplanation = {
+  question_number: number
+  passage: string
+  question_text: string
+  choices: string[]
+  answer: string
+}
+
+export async function generateExplanations(
+  questions: QuestionForExplanation[],
+): Promise<GeneratedExplanation[]> {
+  if (questions.length === 0) return []
+
+  const prompt = `다음 수능/모의고사 영어 문항들의 해석과 어휘를 생성하세요.
+
+각 문항에 대해 아래 두 가지를 작성하세요:
+
+1. translation (지문 해석)
+   - 지문(passage) 전체를 자연스러운 한국어로 번역
+   - 단락 구분 유지 (\\n 사용)
+   - 번역체 지양, 의미 단위로 자연스럽게
+
+2. vocabulary (Words & Phrases)
+   - 지문에 등장하는 고2~고3 수준의 학습 중요 단어/숙어만 선별
+   - 등장 순서대로 나열
+   - 형식: "단어 뜻" (예: "eliminate 제거하다   gradual 점진적인   be prone to ~하기 쉽다")
+   - 선별 기준:
+     * 포함: 수능/모의고사 빈출 어휘, 고2~3 교과 수준 단어
+     * 제외: the, is, have, said 등 기초 어휘
+     * 제외: obscure, ostensible 등 최상위 어휘 (고3 수준 초과)
+   - 한 줄에 모두 나열 (줄바꿈 없이), 단어 사이 3칸 띄어쓰기
+
+문항 데이터:
+${questions.map((q) => `
+[${q.question_number}번]
+지문: ${q.passage || '(지문 없음)'}
+발문: ${q.question_text}
+선지: ${q.choices.join(' / ')}
+정답: ${q.answer}
+`).join('\n---\n')}
+
+JSON 배열만 출력 (다른 텍스트 없이):
+[{"question_number": 20, "translation": "...", "vocabulary": "word1 뜻1   word2 뜻2"}]`
+
+  const res = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 16384,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  console.log('[generateExplanations] raw length:', raw.length)
+
+  try {
+    return JSON.parse(jsonrepair(raw.replace(/```json\n?|\n?```/g, '').trim()))
+  } catch (e) {
+    console.error('[generateExplanations] JSON parse 실패:', e)
+    throw e
+  }
+}
