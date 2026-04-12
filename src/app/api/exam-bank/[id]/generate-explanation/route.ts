@@ -2,7 +2,7 @@ import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { generateExplanations, QuestionForExplanation } from '@/lib/anthropic'
 
-export const maxDuration = 120
+export const maxDuration = 300
 
 // 대상 문항 범위: 20~24, 29~42
 const AI_TARGET_RANGES = [
@@ -62,7 +62,6 @@ export async function POST(
     return err('AI 생성 대상 문항이 없습니다', 422)
   }
 
-  // AI 해설 생성
   let generated
   try {
     generated = await generateExplanations(targets)
@@ -86,5 +85,5 @@ export async function POST(
     if (!error) updated++
   }
 
-  return ok({ updated, total: generated.length })
+  return ok({ updated, total: targets.length })
 }
