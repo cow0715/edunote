@@ -527,11 +527,19 @@ function QuestionCard({
 
   const buildQuestionText = useCallback(() => {
     const header = q.exam_bank ? `[${examLabel}]\n` : ''
+    const circled = ['①','②','③','④','⑤']
+    const ratesSummary = q.choice_rates?.some((r) => r != null)
+      ? `\n선택률: ${q.choices.map((_, i) => {
+          const r = q.choice_rates?.[i]
+          return r != null ? `${circled[i]} ${r}%` : null
+        }).filter(Boolean).join('   ')}`
+      : ''
     return header + [
       mdToPlain(q.question_text),
       q.passage ? `\n${mdToPlain(q.passage)}` : '',
       q.choices.length > 0 ? `\n${q.choices.map(mdToPlain).join('\n')}` : '',
       q.answer ? `\n정답: ${q.answer}` : '',
+      ratesSummary,
     ].join('')
   }, [q, examLabel])
 
@@ -679,33 +687,28 @@ function QuestionCard({
               return (
                 <div
                   key={i}
-                  className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                  className={`flex items-start gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ${
                     isAnswer ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-600'
                   }`}
                 >
-                  <span className="break-words">{c}</span>
+                  <span className="shrink-0 break-words">{c}</span>
+                  {/* 선지별 선택률 바 */}
+                  {hasChoiceRates && q.choice_rates?.[i] != null && (
+                    <div className="ml-auto flex items-center gap-1.5 shrink-0">
+                      <div className="w-16 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${isAnswer ? 'bg-blue-400' : 'bg-gray-300'}`}
+                          style={{ width: `${q.choice_rates[i]}%` }}
+                        />
+                      </div>
+                      <span className={`text-[11px] w-7 text-right ${isAnswer ? 'text-blue-500 font-semibold' : 'text-gray-400'}`}>
+                        {q.choice_rates[i]}%
+                      </span>
+                    </div>
+                  )}
                 </div>
               )
             })}
-            {/* 선택률 인라인 한 줄 표시 */}
-            {hasChoiceRates && (
-              <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1 px-1">
-                {q.choices.map((_, i) => {
-                  const rate = q.choice_rates?.[i]
-                  if (rate == null) return null
-                  const isAnswer = i === answerIdx
-                  const circled = ['①','②','③','④','⑤'][i]
-                  return (
-                    <span
-                      key={i}
-                      className={`text-[11px] font-medium ${isAnswer ? 'text-blue-600' : 'text-gray-400'}`}
-                    >
-                      {circled} {rate}%
-                    </span>
-                  )
-                })}
-              </div>
-            )}
           </div>
         )}
 
@@ -822,31 +825,80 @@ function QuestionSearch() {
 
   const handleReset = () => setFilters(EMPTY_FILTERS)
 
-  const copyAll = async () => {
-    if (!results?.length) return
-    const examLabel = (q: ExamBankQuestion) =>
-      q.exam_bank
-        ? `${q.exam_bank.exam_year}년도 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade} ${q.exam_bank.source} ${q.question_number}번`
-        : `${q.question_number}번`
+  const getExamLabel = (q: ExamBankQuestion) =>
+    q.exam_bank
+      ? `${q.exam_bank.exam_year}년도 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade} ${q.exam_bank.source} ${q.question_number}번`
+      : `${q.question_number}번`
 
-    const plain = results.map((q) => [
-      `[${examLabel(q)}]`,
-      `\n${mdToPlain(q.question_text)}`,
-      q.passage ? `\n${mdToPlain(q.passage)}` : '',
-      q.choices.length > 0 ? `\n${q.choices.map(mdToPlain).join('\n')}` : '',
-      q.answer ? `\n정답: ${q.answer}` : '',
-    ].join('')).join('\n\n---\n\n')
+  const circled = ['①','②','③','④','⑤']
 
-    const html = results.map((q) =>
-      `<p><strong>[${examLabel(q)}]</strong></p>`
+  const buildAllQText = (list: ExamBankQuestion[]) =>
+    list.map((q) => {
+      const ratesSummary = q.choice_rates?.some((r) => r != null)
+        ? `\n선택률: ${q.choices.map((_, i) => {
+            const r = q.choice_rates?.[i]
+            return r != null ? `${circled[i]} ${r}%` : null
+          }).filter(Boolean).join('   ')}`
+        : ''
+      return [
+        `[${getExamLabel(q)}]`,
+        `\n${mdToPlain(q.question_text)}`,
+        q.passage ? `\n${mdToPlain(q.passage)}` : '',
+        q.choices.length > 0 ? `\n${q.choices.map(mdToPlain).join('\n')}` : '',
+        q.answer ? `\n정답: ${q.answer}` : '',
+        ratesSummary,
+      ].join('')
+    }).join('\n\n---\n\n')
+
+  const buildAllQHtml = (list: ExamBankQuestion[]) =>
+    list.map((q) =>
+      `<p><strong>[${getExamLabel(q)}]</strong></p>`
       + `<p>${mdToHtml(q.question_text)}</p>`
       + (q.passage ? `<p>${mdToHtml(q.passage)}</p>` : '')
       + (q.choices.length > 0 ? `<p>${q.choices.map(mdToHtml).join('<br>')}</p>` : '')
       + (q.answer ? `<p>정답: ${q.answer}</p>` : '')
     ).join('<hr>')
 
+  const buildAllExText = (list: ExamBankQuestion[]) =>
+    list.map((q) => {
+      const label = getExamLabel(q)
+      const parts = [
+        q.explanation_intent ? `[출제의도] ${q.explanation_intent}` : '',
+        q.explanation_translation ? `[해석]\n${q.explanation_translation}` : '',
+        q.explanation_solution ? `[풀이]\n${q.explanation_solution}` : '',
+        q.explanation_vocabulary ? `[Words and Phrases]\n${q.explanation_vocabulary}` : '',
+      ].filter(Boolean)
+      return `[${label} 해설]\n` + parts.join('\n\n')
+    }).join('\n\n---\n\n')
+
+  const buildAllExHtml = (list: ExamBankQuestion[]) =>
+    list.map((q) => {
+      const label = getExamLabel(q)
+      return `<p><strong>[${label} 해설]</strong></p>`
+        + (q.explanation_intent ? `<p><strong>[출제의도]</strong> ${q.explanation_intent}</p>` : '')
+        + (q.explanation_translation ? `<p><strong>[해석]</strong><br>${q.explanation_translation.replace(/\n/g, '<br>')}</p>` : '')
+        + (q.explanation_solution ? `<p><strong>[풀이]</strong><br>${q.explanation_solution}</p>` : '')
+        + (q.explanation_vocabulary ? `<p><strong>[Words and Phrases]</strong><br>${q.explanation_vocabulary}</p>` : '')
+    }).join('<hr>')
+
+  const copyAllQuestions = async () => {
+    if (!results?.length) return
+    await copyRich(buildAllQText(results), buildAllQHtml(results))
+    toast.success(`문제 ${results.length}개 복사됨`)
+  }
+
+  const copyAllExplanations = async () => {
+    if (!results?.length) return
+    await copyRich(buildAllExText(results), buildAllExHtml(results))
+    toast.success(`해설 ${results.length}개 복사됨`)
+  }
+
+  const copyAllBoth = async () => {
+    if (!results?.length) return
+    const plain = buildAllQText(results) + '\n\n' + buildAllExText(results)
+    const html = buildAllQHtml(results) + buildAllExHtml(results)
     await copyRich(plain, html)
-    toast.success(`${results.length}개 문항이 클립보드에 복사되었습니다`)
+    toast.success(`문제+해설 ${results.length}개 복사됨`)
   }
 
   const hasFilter = filters.type || filters.grade || filters.year_from || filters.year_to
@@ -1019,10 +1071,20 @@ function QuestionSearch() {
               {results.length > 0 ? `${results.length}개 문항` : '검색 결과가 없습니다'}
             </p>
             {results.length > 0 && (
-              <Button size="sm" variant="outline" onClick={copyAll}>
-                <Copy className="mr-1.5 h-3.5 w-3.5" />
-                전체 복사 ({results.length})
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="outline">
+                    <Copy className="mr-1.5 h-3.5 w-3.5" />
+                    전체 복사 ({results.length})
+                    <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={copyAllQuestions}>문제만</DropdownMenuItem>
+                  <DropdownMenuItem onClick={copyAllExplanations}>해설만</DropdownMenuItem>
+                  <DropdownMenuItem onClick={copyAllBoth}>문제+해설</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
           {results.length > 0 && (
