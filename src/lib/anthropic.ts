@@ -787,6 +787,8 @@ ${questions.map((q) => `
 정답: ${q.answer}
 `).join('\n---\n')}
 
+중요: solution과 vocabulary 값 안에 큰따옴표(")를 절대 사용하지 마세요. 인용이 필요하면 작은따옴표(')나 한국어 따옴표(「」)를 사용하세요.
+
 JSON 배열만 출력 (다른 텍스트 없이):
 [{"question_number": 20, "solution": "...", "vocabulary": "word1 뜻1   word2 뜻2"}]`
 
@@ -799,10 +801,33 @@ JSON 배열만 출력 (다른 텍스트 없이):
   const raw = res.content[0].type === 'text' ? res.content[0].text : ''
   console.log('[generateExplanations] raw length:', raw.length)
 
+  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
+
   try {
-    return JSON.parse(jsonrepair(raw.replace(/```json\n?|\n?```/g, '').trim()))
+    return JSON.parse(jsonrepair(cleaned))
   } catch (e) {
     console.error('[generateExplanations] JSON parse 실패:', e)
-    throw e
+    // 실패 위치 주변 텍스트 로깅 (디버깅용)
+    const posMatch = String(e instanceof Error ? e.message : e).match(/position (\d+)/)
+    if (posMatch) {
+      const pos = parseInt(posMatch[1])
+      console.error('[generateExplanations] 실패 위치 주변:', JSON.stringify(cleaned.slice(Math.max(0, pos - 80), pos + 80)))
+    }
+    // 폴백: 개별 JSON 객체 추출 시도
+    const objects: GeneratedExplanation[] = []
+    const objRe = /\{\s*"question_number"\s*:\s*(\d+)[^}]*\}/gs
+    let match: RegExpExecArray | null
+    while ((match = objRe.exec(cleaned)) !== null) {
+      try {
+        objects.push(JSON.parse(jsonrepair(match[0])))
+      } catch {
+        // 개별 객체도 파싱 불가 → 스킵
+      }
+    }
+    if (objects.length > 0) {
+      console.warn(`[generateExplanations] 폴백 파싱 성공: ${objects.length}개 추출`)
+      return objects
+    }
+    throw new Error(`JSON 파싱 실패 (${e instanceof Error ? e.message : e}). raw 길이: ${cleaned.length}`)
   }
 }
