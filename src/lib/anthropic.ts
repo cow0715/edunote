@@ -741,7 +741,7 @@ export async function ocrExamAnswers(
 
 export type GeneratedExplanation = {
   question_number: number
-  translation: string   // 지문 전체 한국어 해석
+  solution: string      // 풀이 (정답 근거 + 오답 포인트)
   vocabulary: string    // Words & Phrases (고2~3 수준, 지문 등장 순서)
 }
 
@@ -758,14 +758,15 @@ export async function generateExplanations(
 ): Promise<GeneratedExplanation[]> {
   if (questions.length === 0) return []
 
-  const prompt = `다음 수능/모의고사 영어 문항들의 해석과 어휘를 생성하세요.
+  const prompt = `다음 수능/모의고사 영어 문항들의 풀이와 어휘를 생성하세요.
 
 각 문항에 대해 아래 두 가지를 작성하세요:
 
-1. translation (지문 해석)
-   - 지문(passage) 전체를 자연스러운 한국어로 번역
-   - 단락 구분 유지 (\\n 사용)
-   - 번역체 지양, 의미 단위로 자연스럽게
+1. solution (풀이)
+   - 정답 근거: 지문에서 정답의 단서가 되는 핵심 문장/표현을 한국어로 짚어줄 것
+   - 오답 포인트: 헷갈리기 쉬운 오답 선지가 왜 틀렸는지 간결하게 설명 (1~2개)
+   - 단순 "정답은 ~이다" 수준이 아니라, 학생이 다음에 유사 문항을 맞힐 수 있도록 풀이 전략 중심으로 작성
+   - 2~4문장 이내로 간결하게
 
 2. vocabulary (Words & Phrases)
    - 지문에 등장하는 고2~고3 수준의 학습 중요 단어/숙어만 선별
@@ -787,7 +788,7 @@ ${questions.map((q) => `
 `).join('\n---\n')}
 
 JSON 배열만 출력 (다른 텍스트 없이):
-[{"question_number": 20, "translation": "...", "vocabulary": "word1 뜻1   word2 뜻2"}]`
+[{"question_number": 20, "solution": "...", "vocabulary": "word1 뜻1   word2 뜻2"}]`
 
   const res = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
