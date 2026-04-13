@@ -39,18 +39,34 @@ export async function PATCH(
   const question = await verifyOwner(supabase, teacherId, id, qid)
   if (!question) return err('문항을 찾을 수 없습니다', 404)
 
-  const { question_number, question_type, passage, question_text, choices, answer } = await request.json()
+  const body = await request.json()
+  const {
+    question_number, question_type, passage, question_text, choices, answer,
+    explanation_intent, explanation_translation, explanation_solution, explanation_vocabulary,
+  } = body
+
+  // 해설만 업데이트하는 경우 (explanation_* 키 중 하나라도 있으면)
+  const isExplanationUpdate = 'explanation_intent' in body || 'explanation_solution' in body
+
+  const updateData = isExplanationUpdate
+    ? {
+        explanation_intent: explanation_intent ?? null,
+        explanation_translation: explanation_translation ?? null,
+        explanation_solution: explanation_solution ?? null,
+        explanation_vocabulary: explanation_vocabulary ?? null,
+      }
+    : {
+        question_number,
+        question_type,
+        passage: passage || '',
+        question_text,
+        choices: choices || [],
+        answer: answer || '',
+      }
 
   const { data, error } = await supabase
     .from('exam_bank_question')
-    .update({
-      question_number,
-      question_type,
-      passage: passage || '',
-      question_text,
-      choices: choices || [],
-      answer: answer || '',
-    })
+    .update(updateData)
     .eq('id', qid)
     .select()
     .single()
