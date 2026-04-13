@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
-import { BookOpen, Users, LogOut, GraduationCap, Tag, MessageSquare, TrendingUp, Terminal, LibraryBig } from 'lucide-react'
+import { BookOpen, Users, LogOut, GraduationCap, Tag, MessageSquare, TrendingUp, Terminal, LibraryBig, ScanText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 
@@ -15,6 +15,7 @@ const navItems = [
   { href: '/analysis', label: '학생 현황', icon: TrendingUp },
   { href: '/messages', label: '메시지 내역', icon: MessageSquare },
   { href: '/exam-bank', label: '기출문제 은행', icon: LibraryBig },
+  { href: '/pdf-extract', label: 'PDF 텍스트 추출', icon: ScanText },
 ]
 
 const devItems = [
