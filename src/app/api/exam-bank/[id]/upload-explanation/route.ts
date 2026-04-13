@@ -1,9 +1,8 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parseExplanationText } from '@/lib/explanation-parser'
-import { parsePdfExplanationsWithClaude } from '@/lib/anthropic'
 
-export const maxDuration = 120
+export const maxDuration = 60
 
 export async function POST(
   request: Request,
@@ -45,8 +44,6 @@ export async function POST(
 
   // PDF → 텍스트 추출 (한 번만)
   const buffer = await fileBlob.arrayBuffer()
-  // getDocumentProxy가 내부적으로 ArrayBuffer를 detach하므로 fallback용 복사본 미리 보관
-  const bufferForVision = buffer.slice(0)
   let rawText = ''
   try {
     const { extractText, getDocumentProxy } = await import('unpdf')
@@ -69,24 +66,7 @@ export async function POST(
   }
 
   if (explanations.length === 0) {
-    // unpdf 텍스트 추출 실패(폰트 인코딩 문제 등) → Claude Vision fallback
-    console.log('[upload-explanation] 텍스트 파싱 0건 → Claude Vision fallback 시도')
-    try {
-      explanations = await parsePdfExplanationsWithClaude(bufferForVision)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      return err(
-        `해설을 추출할 수 없습니다. 텍스트 파싱 실패 후 Claude Vision도 실패했습니다: ${msg}\n\n[PDF 앞부분]\n${rawPreview}`,
-        422,
-      )
-    }
-    if (explanations.length === 0) {
-      return err(
-        `해설을 추출할 수 없습니다. Claude Vision도 문항을 찾지 못했습니다.\n\n[PDF 앞부분]\n${rawPreview}`,
-        422,
-      )
-    }
-    console.log(`[upload-explanation] Claude Vision fallback 성공: ${explanations.length}건`)
+    return err(`해설을 추출할 수 없습니다. 문항 경계(예: "18. [출제의도]")를 찾지 못했습니다.\n\n[PDF 앞부분]\n${rawPreview}`, 422)
   }
 
   // 문항번호 매칭하여 UPDATE
