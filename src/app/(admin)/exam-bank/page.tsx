@@ -1822,12 +1822,14 @@ function BulkExplanationDialog({
     setItems(newItems)
   }
 
-  const handleRun = async () => {
+  const handleRun = async (useVision = false) => {
     const matched = items.filter((it) => it.exam)
     if (!matched.length) return toast.error('매칭된 시험이 없습니다')
 
     setRunning(true)
     setCurrent(0)
+
+    const pdfEndpoint = useVision ? 'upload-explanation-vision' : 'upload-explanation'
 
     for (let i = 0; i < items.length; i++) {
       const it = items[i]
@@ -1846,7 +1848,7 @@ function BulkExplanationDialog({
 
         // PDF 파싱
         const { ok: pdfOk, data } = await safeJson(
-          await fetch(`/api/exam-bank/${it.exam.id}/upload-explanation`, {
+          await fetch(`/api/exam-bank/${it.exam.id}/${pdfEndpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ storagePath }),
@@ -1859,9 +1861,10 @@ function BulkExplanationDialog({
           await fetch(`/api/exam-bank/${it.exam.id}/generate-explanation`, { method: 'POST' })
         )
 
+        const label = useVision ? 'Vision' : 'PDF'
         const msg = aiOk
-          ? `완료 — PDF ${data.updated}문항 + AI ${aiData.updated}문항`
-          : `PDF ${data.updated}문항 완료 (AI 실패: ${aiData.error ?? ''})`
+          ? `완료 — ${label} ${data.updated}문항 + AI ${aiData.updated}문항`
+          : `${label} ${data.updated}문항 완료 (AI 실패: ${aiData.error ?? ''})`
 
         setItems((prev) => prev.map((x, idx) => idx === i ? { ...x, status: 'done', message: msg } : x))
       } catch (e) {
@@ -1944,12 +1947,20 @@ function BulkExplanationDialog({
                 </div>
               )}
 
-              <Button className="w-full" onClick={handleRun} disabled={running || matchedCount === 0}>
-                {running
-                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{current}/{matchedCount} 처리 중...</>
-                  : <><Sparkles className="mr-2 h-4 w-4" />{matchedCount}개 시험 일괄 처리 시작</>
-                }
-              </Button>
+              <div className="flex gap-2">
+                <Button className="flex-1" onClick={() => handleRun(false)} disabled={running || matchedCount === 0}>
+                  {running
+                    ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{current}/{matchedCount} 처리 중...</>
+                    : <><Sparkles className="mr-2 h-4 w-4" />일괄 처리</>
+                  }
+                </Button>
+                <Button variant="outline" onClick={() => handleRun(true)} disabled={running || matchedCount === 0} title="텍스트 추출 실패 PDF용 — Claude Vision으로 직접 파싱 (느림)">
+                  {running
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <><Sparkles className="mr-1.5 h-4 w-4 text-purple-500" />Vision</>
+                  }
+                </Button>
+              </div>
             </>
           )}
         </div>

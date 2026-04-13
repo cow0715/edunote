@@ -1,10 +1,11 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
-import { parseExplanationText } from '@/lib/explanation-parser'
 import { parsePdfExplanationsWithClaude } from '@/lib/anthropic'
 
-export const maxDuration = 180
+export const maxDuration = 300
 
+// Claude Vision으로 해설 PDF를 직접 파싱 (unpdf 텍스트 추출 스킵)
+// EBS 폰트 인코딩 문제 등 일반 파싱이 실패하는 PDF용
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -43,50 +44,18 @@ export async function POST(
   // 처리 후 임시 파일 삭제
   void serviceClient.storage.from('exam-pdf-temp').remove([storagePath])
 
-  // PDF → 텍스트 추출 (한 번만)
   const buffer = await fileBlob.arrayBuffer()
-  // getDocumentProxy가 ArrayBuffer를 detach하므로 Vision fallback용 복사본 보관
-  const bufferCopy = buffer.slice(0)
-  let rawText = ''
-  try {
-    const { extractText, getDocumentProxy } = await import('unpdf')
-    const pdf = await getDocumentProxy(new Uint8Array(buffer))
-    const { text } = await extractText(pdf, { mergePages: true })
-    rawText = text as string
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    return err(`PDF 텍스트 추출 실패: ${msg}`, 422)
-  }
-
-  const rawPreview = rawText.slice(0, 500)
 
   let explanations
   try {
-    explanations = parseExplanationText(rawText)
+    explanations = await parsePdfExplanationsWithClaude(buffer)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    return err(`해설 PDF 파싱 실패: ${msg}\n\n[PDF 앞부분]\n${rawPreview}`, 422)
+    return err(`Claude Vision 파싱 실패: ${msg}`, 500)
   }
 
   if (explanations.length === 0) {
-    // 텍스트 파싱 실패 → Claude Vision fallback
-    console.log('[upload-explanation] 텍스트 파싱 0건 → Claude Vision fallback 시도')
-    try {
-      explanations = await parsePdfExplanationsWithClaude(bufferCopy)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      return err(
-        `해설 추출 실패 (텍스트 파싱 + Vision 모두 실패): ${msg}\n\n[PDF 앞부분]\n${rawPreview}`,
-        422,
-      )
-    }
-    if (explanations.length === 0) {
-      return err(
-        `해설 추출 실패 — Vision도 문항을 찾지 못했습니다.\n\n[PDF 앞부분]\n${rawPreview}`,
-        422,
-      )
-    }
-    console.log(`[upload-explanation] Vision fallback 성공: ${explanations.length}건`)
+    return err('Claude Vision이 문항을 찾지 못했습니다', 422)
   }
 
   // 문항번호 매칭하여 UPDATE
