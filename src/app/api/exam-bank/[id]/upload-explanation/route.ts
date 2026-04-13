@@ -45,6 +45,8 @@ export async function POST(
 
   // PDF → 텍스트 추출 (한 번만)
   const buffer = await fileBlob.arrayBuffer()
+  // getDocumentProxy가 내부적으로 ArrayBuffer를 detach하므로 fallback용 복사본 미리 보관
+  const bufferForVision = buffer.slice(0)
   let rawText = ''
   try {
     const { extractText, getDocumentProxy } = await import('unpdf')
@@ -70,7 +72,7 @@ export async function POST(
     // unpdf 텍스트 추출 실패(폰트 인코딩 문제 등) → Claude Vision fallback
     console.log('[upload-explanation] 텍스트 파싱 0건 → Claude Vision fallback 시도')
     try {
-      explanations = await parsePdfExplanationsWithClaude(buffer)
+      explanations = await parsePdfExplanationsWithClaude(bufferForVision)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       return err(
