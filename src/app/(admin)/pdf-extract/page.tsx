@@ -29,12 +29,24 @@ export default function PdfExtractPage() {
     setLoading(true)
     setResult('')
     try {
-      const formData = new FormData()
-      formData.append('file', file)
+      // 1. 서버에서 signed upload URL 발급 (service role, 강사 권한 불필요)
+      const presignRes = await fetch('/api/pdf-extract/presign', { method: 'POST' })
+      if (!presignRes.ok) throw new Error('업로드 URL 발급 실패')
+      const { uploadUrl, path } = await presignRes.json()
 
+      // 2. 브라우저에서 Supabase Storage에 직접 업로드 (Vercel 거치지 않음)
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/pdf' },
+        body: file,
+      })
+      if (!uploadRes.ok) throw new Error('PDF 업로드 실패')
+
+      // 3. 서버에 path만 전달해 추출 요청 (작은 payload)
       const res = await fetch('/api/pdf-extract', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
       })
 
       if (!res.ok) {

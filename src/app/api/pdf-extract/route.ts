@@ -1,7 +1,7 @@
 import { anthropic } from '@/lib/anthropic'
 import { err } from '@/lib/api'
+import { createServiceClient } from '@/lib/supabase/server'
 
-export const runtime = 'edge'
 export const maxDuration = 300
 
 const EXTRACT_PROMPT = `너는 시험지 PDF에서 문제를 추출하는 OCR 및 텍스트 복원 시스템이다.
@@ -85,21 +85,22 @@ const EXTRACT_PROMPT = `너는 시험지 PDF에서 문제를 추출하는 OCR �
 
 export async function POST(request: Request) {
   try {
-    const formData = await request.formData()
-    const file = formData.get('file')
+    const { path } = await request.json()
 
-    if (!(file instanceof File)) {
-      return err('PDF 파일이 필요합니다')
+    if (!path || typeof path !== 'string') {
+      return err('path가 필요합니다')
     }
 
-    if (file.type !== 'application/pdf') {
-      return err('PDF 파일만 업로드 가능합니다')
+    const supabase = createServiceClient()
+
+    // service role로 Storage에서 직접 다운로드 (강사 권한 불필요)
+    const { data, error } = await supabase.storage.from('pdf-temp').download(path)
+    if (error || !data) {
+      return err(`PDF 다운로드 실패: ${error?.message}`)
     }
 
-    const buffer = await file.arrayBuffer()
-    const base64 = btoa(
-      new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-    )
+    const buffer = await data.arrayBuffer()
+    const base64 = Buffer.from(buffer).toString('base64')
 
     const stream = anthropic.messages.stream({
       model: 'claude-sonnet-4-6',
@@ -123,6 +124,9 @@ export async function POST(request: Request) {
       .map((c) => (c.type === 'text' ? c.text : ''))
       .join('\n')
       .trim()
+
+    // 임시 파일 삭제 (실패해도 무시)
+    await supabase.storage.from('pdf-temp').remove([path]).catch(() => {})
 
     return new Response(text, {
       status: 200,
