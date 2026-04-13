@@ -1,6 +1,7 @@
 import { anthropic } from '@/lib/anthropic'
 import { err } from '@/lib/api'
 
+export const runtime = 'edge'
 export const maxDuration = 300
 
 const EXTRACT_PROMPT = `너는 시험지 PDF에서 문제를 추출하는 OCR 및 텍스트 복원 시스템이다.
@@ -96,7 +97,9 @@ export async function POST(request: Request) {
     }
 
     const buffer = await file.arrayBuffer()
-    const base64 = Buffer.from(buffer).toString('base64')
+    const base64 = btoa(
+      new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+    )
 
     const stream = anthropic.messages.stream({
       model: 'claude-sonnet-4-6',
