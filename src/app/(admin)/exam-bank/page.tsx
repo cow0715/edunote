@@ -537,7 +537,50 @@ function QuestionCard({
   onDelete?: () => void
 }) {
   const [showExplanation, setShowExplanation] = useState(false)
+  const [editingExplanation, setEditingExplanation] = useState(false)
+  const [expDraft, setExpDraft] = useState({
+    intent: q.explanation_intent ?? '',
+    translation: q.explanation_translation ?? '',
+    solution: q.explanation_solution ?? '',
+    vocabulary: q.explanation_vocabulary ?? '',
+  })
+  const [expSaving, setExpSaving] = useState(false)
+  const queryClient = useQueryClient()
   const hasExplanation = !!(q.explanation_intent || q.explanation_translation || q.explanation_solution || q.explanation_vocabulary)
+
+  const startEditExplanation = () => {
+    setExpDraft({
+      intent: q.explanation_intent ?? '',
+      translation: q.explanation_translation ?? '',
+      solution: q.explanation_solution ?? '',
+      vocabulary: q.explanation_vocabulary ?? '',
+    })
+    setEditingExplanation(true)
+    setShowExplanation(true)
+  }
+
+  const saveExplanation = async () => {
+    setExpSaving(true)
+    try {
+      const res = await fetch(`/api/exam-bank/${q.exam_bank_id}/questions/${q.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          explanation_intent: expDraft.intent || null,
+          explanation_translation: expDraft.translation || null,
+          explanation_solution: expDraft.solution || null,
+          explanation_vocabulary: expDraft.vocabulary || null,
+        }),
+      })
+      if (!res.ok) throw new Error('저장 실패')
+      await queryClient.invalidateQueries({ queryKey: ['exam-bank-questions', q.exam_bank_id] })
+      setEditingExplanation(false)
+    } catch {
+      toast.error('해설 저장에 실패했습니다')
+    } finally {
+      setExpSaving(false)
+    }
+  }
 
   // 시험 출처 레이블 (복사 헤더용)
   const examLabel = q.exam_bank
@@ -743,8 +786,8 @@ function QuestionCard({
         )}
 
         {/* 해설 토글 */}
-        {hasExplanation && (
-          <>
+        <div className="flex items-center gap-2">
+          {hasExplanation && (
             <button
               onClick={() => setShowExplanation(!showExplanation)}
               className="flex items-center gap-1.5 text-xs font-medium text-amber-600 hover:text-amber-700 transition-colors"
@@ -752,8 +795,57 @@ function QuestionCard({
               <BookOpen className="h-3.5 w-3.5" />
               {showExplanation ? '해설 접기' : '해설 보기'}
             </button>
-            {showExplanation && (
-              <div className="rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 space-y-2.5">
+          )}
+          {!editingExplanation && (
+            <button
+              onClick={startEditExplanation}
+              className="flex items-center gap-1 text-xs text-gray-400 hover:text-amber-600 transition-colors"
+            >
+              <Pencil className="h-3 w-3" />
+              해설 수정
+            </button>
+          )}
+        </div>
+        {showExplanation && (
+          <div className="rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 space-y-2.5">
+            {editingExplanation ? (
+              <>
+                {[
+                  { key: 'intent', label: '출제의도' },
+                  { key: 'translation', label: '해석' },
+                  { key: 'solution', label: '풀이' },
+                  { key: 'vocabulary', label: 'Words & Phrases' },
+                ].map(({ key, label }) => (
+                  <div key={key}>
+                    <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">{label}</span>
+                    <textarea
+                      className="mt-0.5 w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-gray-700 leading-relaxed resize-y focus:outline-none focus:ring-1 focus:ring-amber-400"
+                      rows={key === 'translation' ? 6 : key === 'vocabulary' ? 3 : 3}
+                      value={expDraft[key as keyof typeof expDraft]}
+                      onChange={(e) => setExpDraft((d) => ({ ...d, [key]: e.target.value }))}
+                    />
+                  </div>
+                ))}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={saveExplanation}
+                    disabled={expSaving}
+                    className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50 transition-colors"
+                  >
+                    {expSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                    저장
+                  </button>
+                  <button
+                    onClick={() => setEditingExplanation(false)}
+                    disabled={expSaving}
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 transition-colors"
+                  >
+                    취소
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
                 {q.explanation_intent && (
                   <div>
                     <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">출제의도</span>
@@ -778,9 +870,9 @@ function QuestionCard({
                     <p className="text-sm text-gray-600 mt-0.5 leading-relaxed">{q.explanation_vocabulary}</p>
                   </div>
                 )}
-              </div>
+              </>
             )}
-          </>
+          </div>
         )}
       </div>
     </div>
