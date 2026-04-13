@@ -22,24 +22,29 @@ export async function parseExplanationPdf(buffer: ArrayBuffer): Promise<ParsedEx
   return parseExplanationText(text as string)
 }
 
-// 섹션 헤더의 모든 변형 (공백, 전각 괄호 등)
+// 섹션 헤더의 모든 변형 (공백, 전각 괄호, 괄호 없는 형식 등)
 const SECTION_VARIANTS: Record<string, string[]> = {
   '출제의도': [
     '[출제의도]', '[출제 의도]', '[출 제 의 도]',
     '【출제의도】', '【출제 의도】',
+    '출제의도[ ]', '출제 의도[ ]', '출제의도[]', '출제 의도[]',
   ],
   '해석': [
     '[해석]', '[해 석]',
     '【해석】', '【해 석】',
+    '해석[ ]', '해석[]',
   ],
   '풀이': [
     '[풀이]', '[풀 이]',
     '【풀이】', '【풀 이】',
+    '풀이[ ]', '풀이[]',
   ],
   '어휘': [
     '[Words and Phrases]', '[Words & Phrases]',
     '[Vocabulary]', '[어휘]',
     '【Words and Phrases】',
+    'Words and Phrases[ ]', 'Words and Phrases[]',
+    '어휘[ ]', '어휘[]',
   ],
 }
 
@@ -51,7 +56,9 @@ export function parseExplanationText(text: string): ParsedExplanation[] {
   // 1) 문항 경계 찾기
   //    패턴: "18. [출제의도]", "18. [출제 의도]", "18 . [출제의도]", "41~42] [출제 의도]"
   //    전각괄호 포함: "18.【출제의도】"
-  const boundaryRe = /(\d{1,2})\s*(?:~\s*\d+\])?\s*\.?\s*[[\u3010]출제\s*의도[\]\u3011]/g
+  // 패턴 1: "18. [출제의도]" / "18.【출제의도】"
+  // 패턴 2: "18. 출제 의도" (괄호 없는 형식, 일부 EBS PDF)
+  const boundaryRe = /(\d{1,2})\s*(?:~\s*\d+\])?\s*\.?\s*(?:[[\u3010]출제\s*의도[\]\u3011]|출제\s*의도(?:\s*\[\s*\])?)/g
   const boundaries: { num: number; idx: number }[] = []
   let m: RegExpExecArray | null
 
@@ -108,9 +115,12 @@ export function parseExplanationText(text: string): ParsedExplanation[] {
 
 /** [출제의도] 바로 뒤의 짧은 텍스트 추출 (예: "지칭 대상 파악") */
 function extractIntent(block: string): string {
-  // 반각/전각 괄호 모두 처리
-  const m = block.match(/[[\u3010]출제\s*의도[\]\u3011]\s*([^\[【]+?)(?:\s*[[\[【]|$)/)
-  return m ? m[1] : ''
+  // 반각/전각 괄호 형식: [출제의도] 내용
+  const m1 = block.match(/[[\u3010]출제\s*의도[\]\u3011]\s*([^\[【]+?)(?:\s*[[\[【]|$)/)
+  if (m1) return m1[1]
+  // 괄호 없는 형식: "출제 의도 내용[ ]" 또는 "출제 의도 내용 해석"
+  const m2 = block.match(/출제\s*의도\s+(.+?)(?:\s*\[\s*\]|\s*(?:해석|풀이|Words)|$)/)
+  return m2 ? m2[1] : ''
 }
 
 /** 블록에서 섹션 키의 텍스트를 추출 (변형 헤더 모두 시도) */
