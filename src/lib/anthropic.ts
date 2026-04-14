@@ -30,6 +30,7 @@ export type SubjectiveQuestion = {
   sub_label: string | null
   correct_answer_text: string
   grading_criteria: string | null
+  question_style?: 'subjective' | 'find_error'
 }
 
 export type SubjectiveStudentAnswer = {
@@ -539,11 +540,46 @@ async function gradeSingleBatch(
   const qLabel = (q: { question_number: number; sub_label: string | null }) =>
     `${q.question_number}번${q.sub_label ? ` (${q.sub_label})` : ''}`
 
-  const prompt = `${GRADING_SYSTEM}
+  const hasFindError = questions.some((q) => q.question_style === 'find_error')
+  const findErrorRules = hasFindError ? `
+━━━ find_error(기호 찾아 고치기) 유형 특별 규칙 ━━━
+아래 [find_error] 표시된 문항에만 적용.
 
+1. 모범답안 형식: "번호:수정내용" (예: "1:If human gene editing turns out to be both safe and effective")
+   · 번호 = 지문의 ①~⑤ 중 틀린 문장의 기호
+   · 수정내용 = 그 문장의 올바른 형태
+
+2. 학생이 쓸 수 있는 형식 (모두 허용):
+   (A) "①: turns out" 또는 "1: turns out"
+   (B) "① If human gene editing turns out..." (기호 + 전체 문장)
+   (C) "turns out" (수정어만, 기호 없음)
+   (D) "is turned out → turns out" (before → after)
+   (E) "①" 또는 "1" (기호만, 수정 없음) → 오답
+
+3. 같은 question_number 안의 서로 다른 sub_label 답안은 **순서 무관 집합 매칭**:
+   · 학생의 17(a)가 모범답안 ⑤와, 17(b)가 모범답안 ①과 매칭되어도 정답 가능
+   · 단, 하나의 모범답안은 한 학생 답안에만 매칭 (중복 금지)
+
+4. 매칭 판단 순서:
+   · 학생이 기호를 썼으면 → 기호가 모범답안 번호와 일치해야 매칭
+     기호 다르면 무조건 오답, feedback: "①번이 정답"
+   · 기호 없으면 → 수정어 의미로 매칭 시도
+   · 매칭된 후 correction 의미 비교:
+     예) 모범답안 "1:turns out" →
+       "turns out" / "is turned out → turns out" / "① turns out" / "① If human gene editing turns out to be both safe and effective" 모두 정답
+       "was turned out" / "turn out" (시제·수 일치 어긋남) → 오답
+
+5. 오답 feedback 한국어 20자 이내, 구체적으로:
+   · "①번이 정답 (②번 선택)"
+   · "turns out으로 수정 필요"
+   · 빈칸이면 빈 문자열
+` : ''
+
+  const prompt = `${GRADING_SYSTEM}
+${findErrorRules}
 ## 문제 정보
 ${questions.map((q) => `
-[${qLabel(q)}]
+[${qLabel(q)}]${q.question_style === 'find_error' ? ' [find_error]' : ''}
 모범답안: ${q.correct_answer_text}
 채점 기준: ${q.grading_criteria ?? '모범답안과 의미 및 문법이 일치하는지 확인'}
 `).join('')}

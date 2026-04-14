@@ -38,12 +38,3 @@ export function gradeMultiSelect(correctAnswerText: string, studentAnswerText: s
   const normalize = (t: string) => t.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean).sort().join(',')
   return normalize(correctAnswerText) === normalize(studentAnswerText)
 }
-
-// 학생 답안에서 수정어만 추출 ("e: watching", "watched → watching", "watching" 모두 → "watching")
-export function extractCorrection(text: string): string {
-  let s = text.trim()
-  s = s.replace(/^[a-z]\s*:\s*/i, '')          // "e: watching" → "watching"
-  s = s.replace(/^\([a-z]\)\s*:?\s*/i, '')      // "(e): watching" → "watching"
-  if (s.includes('→')) s = s.split('→').pop()!   // "watched → watching" → "watching"
-  return s.trim().toLowerCase()
-}
