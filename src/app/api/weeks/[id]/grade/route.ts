@@ -1,6 +1,6 @@
 import { getAuth, err, ok } from '@/lib/api'
 import { gradeSubjectiveAnswers, SubjectiveStudentAnswer } from '@/lib/anthropic'
-import { recalcReadingCorrect, gradeOX, gradeMultiSelect, extractCorrection } from '@/lib/grade-utils'
+import { recalcReadingCorrect, gradeOX, gradeMultiSelect } from '@/lib/grade-utils'
 
 // 과제/메모 단순 저장 (AI 채점 없음)
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -122,23 +122,8 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
 
   const questionMap = new Map(allQuestions?.map((q) => [q.id, q]) ?? [])
 
-  // "기호:수정어" 형식 여부 (찾아 고치시오 유형)
-  function isSymbolCorrection(text: string | null): boolean {
-    return !!text && /^[a-z]:.+$/i.test(text.trim())
-  }
-
-  // 서술형 배치 채점용 수집
+  // 서술형/오류교정 배치 채점용 수집 (모두 AI 경로)
   const subjectiveForGrading: SubjectiveStudentAnswer[] = []
-
-  // 기호:수정어 유형 — 코드 레벨 집합 채점용 수집 (빈칸 포함)
-  type SymbolCorrEntry = {
-    week_score_id: string
-    exam_question_id: string
-    question_number: number
-    student_answer_text: string
-    correct_answer_text: string
-  }
-  const symbolCorrForGrading: SymbolCorrEntry[] = []
   const processedScoreIds: string[] = []
 
   for (const row of rows) {
@@ -256,74 +241,25 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         return err(answerError.message, 500)
       }
 
-      // subjective/find_error 채점용 수집 — 기호:수정어 유형은 코드 레벨, 나머지는 AI
+      // subjective/find_error 채점용 수집 — 모두 AI 배치 채점
       for (const a of row.answers) {
         if (a.teacher_confirmed) continue  // 선생님 확정 답안은 재채점 스킵
         const q = questionMap.get(a.exam_question_id)
         if (q?.question_style !== 'subjective' && q?.question_style !== 'find_error') continue
-
-        if (q.question_style === 'find_error' || isSymbolCorrection(q.correct_answer_text)) {
-          // 빈칸 포함해서 수집 (집합 매칭에 필요)
-          symbolCorrForGrading.push({
-            week_score_id: score.id,
-            exam_question_id: a.exam_question_id,
-            question_number: q.question_number,
-            student_answer_text: (a.student_answer_text ?? '').trim(),
-            correct_answer_text: q.correct_answer_text!,
-          })
-        } else if ((a.student_answer_text ?? '').trim()) {
-          subjectiveForGrading.push({
-            week_score_id: score.id,
-            exam_question_id: a.exam_question_id,
-            question_number: q.question_number,
-            sub_label: q.sub_label ?? null,
-            student_name: row.student_name,
-            student_answer_text: a.student_answer_text?.trim() ?? '',
-          })
-        }
+        if (!(a.student_answer_text ?? '').trim()) continue
+        subjectiveForGrading.push({
+          week_score_id: score.id,
+          exam_question_id: a.exam_question_id,
+          question_number: q.question_number,
+          sub_label: q.sub_label ?? null,
+          student_name: row.student_name,
+          student_answer_text: a.student_answer_text?.trim() ?? '',
+        })
       }
     }
   }
 
-  // 기호:수정어 유형 — 코드 레벨 집합 채점 (순서 무관)
-  if (symbolCorrForGrading.length > 0) {
-    // (week_score_id, question_number) 기준으로 그룹핑
-    const scGroups = new Map<string, SymbolCorrEntry[]>()
-    for (const a of symbolCorrForGrading) {
-      const key = `${a.week_score_id}__${a.question_number}`
-      scGroups.set(key, [...(scGroups.get(key) ?? []), a])
-    }
-
-    for (const group of scGroups.values()) {
-      const correctWords = group.map((a) => extractCorrection(a.correct_answer_text))
-      const studentWords = group.map((a) => extractCorrection(a.student_answer_text))
-
-      // 탐욕 집합 매칭
-      const remaining = [...correctWords]
-      const matched = group.map(() => false)
-      for (let i = 0; i < group.length; i++) {
-        if (!studentWords[i]) continue
-        const idx = remaining.indexOf(studentWords[i])
-        if (idx !== -1) {
-          matched[i] = true
-          remaining.splice(idx, 1)
-        }
-      }
-
-      await Promise.all(group.map((a, i) =>
-        supabase.from('student_answer')
-          .update({
-            is_correct: matched[i],
-            needs_review: false,
-            ai_feedback: matched[i] ? '' : `정답: ${correctWords[i]}`,
-          })
-          .eq('week_score_id', a.week_score_id)
-          .eq('exam_question_id', a.exam_question_id)
-      ))
-    }
-  }
-
-  // 서술형 AI 배치 채점 (skip_ai=true이면 건너뜀)
+  // 서술형/오류교정 AI 배치 채점 (skip_ai=true이면 건너뜀)
   if (!skipAI && subjectiveForGrading.length > 0) {
     const uniqueKeys = [...new Set(subjectiveForGrading.map((a) => `${a.question_number}__${a.sub_label ?? ''}`))]
     const subjectiveQuestions = uniqueKeys
@@ -331,12 +267,13 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         const [qNumStr, subLabel] = key.split('__')
         const qNum = Number(qNumStr)
         const sub = subLabel || null
-        const q = allQuestions?.find((q) => q.question_number === qNum && q.sub_label === sub && q.question_style === 'subjective')
+        const q = allQuestions?.find((q) => q.question_number === qNum && q.sub_label === sub && (q.question_style === 'subjective' || q.question_style === 'find_error'))
         return q ? {
           question_number: q.question_number,
           sub_label: q.sub_label ?? null,
           correct_answer_text: q.correct_answer_text ?? '',
           grading_criteria: q.grading_criteria,
+          question_style: q.question_style as 'subjective' | 'find_error',
         } : null
       })
       .filter((q): q is NonNullable<typeof q> => q !== null && q.correct_answer_text !== '')

@@ -1,6 +1,6 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { parseAnswerSheet, gradeSubjectiveAnswers, SubjectiveStudentAnswer, TagCategory } from '@/lib/anthropic'
-import { gradeOX, gradeMultiSelect, extractCorrection } from '@/lib/grade-utils'
+import { gradeOX, gradeMultiSelect } from '@/lib/grade-utils'
 
 export const maxDuration = 300
 
@@ -213,15 +213,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const subjectiveForGrading: SubjectiveStudentAnswer[] = []
 
-  type FindErrorEntry = {
-    answer_id: string
-    week_score_id: string
-    question_number: number
-    student_answer_text: string
-    correct_answer_text: string
-  }
-  const findErrorForGrading: FindErrorEntry[] = []
-
   await Promise.all(
     weekScores.map(async (score) => {
       type AnswerRow = { id: string; exam_question_id: string; student_answer: number | null; student_answer_text: string | null; ox_selection: string | null; is_correct: boolean }
@@ -247,14 +238,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             if (isCorrect !== a.is_correct) {
               await supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', a.id)
             }
-          } else if (q.question_style === 'find_error' && a.student_answer_text !== null) {
-            findErrorForGrading.push({
-              answer_id: a.id,
-              week_score_id: score.id,
-              question_number: q.question_number,
-              student_answer_text: a.student_answer_text ?? '',
-              correct_answer_text: q.correct_answer_text ?? '',
-            })
+          } else if (q.question_style === 'find_error' && a.student_answer_text?.trim()) {
+            // find_error는 AI 채점 필요 → 채점 페이지에서 "채점 저장" 눌러야 확정
+            await supabase.from('student_answer').update({
+              is_correct: false,
+              needs_review: true,
+              ai_feedback: '채점 페이지에서 다시 저장해주세요',
+            }).eq('id', a.id)
           } else if (q.question_style === 'subjective' && a.student_answer_text?.trim()) {
             subjectiveForGrading.push({
               week_score_id: score.id,
@@ -269,32 +259,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       )
     })
   )
-
-  // find_error 코드 레벨 집합 채점 (순서 무관)
-  if (findErrorForGrading.length > 0) {
-    const feGroups = new Map<string, FindErrorEntry[]>()
-    for (const a of findErrorForGrading) {
-      const key = `${a.week_score_id}__${a.question_number}`
-      feGroups.set(key, [...(feGroups.get(key) ?? []), a])
-    }
-    for (const group of feGroups.values()) {
-      const correctWords = group.map((a) => extractCorrection(a.correct_answer_text))
-      const studentWords = group.map((a) => extractCorrection(a.student_answer_text))
-      const remaining = [...correctWords]
-      const matched = group.map(() => false)
-      for (let i = 0; i < group.length; i++) {
-        if (!studentWords[i]) continue
-        const idx = remaining.indexOf(studentWords[i])
-        if (idx !== -1) { matched[i] = true; remaining.splice(idx, 1) }
-      }
-      await Promise.all(group.map((a, i) =>
-        supabase.from('student_answer').update({
-          is_correct: matched[i],
-          ai_feedback: matched[i] ? '' : `정답: ${correctWords[i]}`,
-        }).eq('id', a.answer_id)
-      ))
-    }
-  }
 
   if (subjectiveForGrading.length > 0) {
     const uniqueKeys = [...new Set(subjectiveForGrading.map((a) => `${a.question_number}__${a.sub_label ?? ''}`))]

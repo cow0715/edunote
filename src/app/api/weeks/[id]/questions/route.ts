@@ -1,8 +1,8 @@
 import { getAuth, err, ok } from '@/lib/api'
 import type { SupabaseServerClient } from '@/lib/api'
-import { recalcReadingCorrect, gradeOX, gradeMultiSelect, extractCorrection } from '@/lib/grade-utils'
+import { recalcReadingCorrect, gradeOX, gradeMultiSelect } from '@/lib/grade-utils'
 
-// 비객관식 문항 재채점 (OX/multi_select/find_error는 코드로 즉시, subjective는 needs_review 플래그)
+// 비객관식 문항 재채점 (OX/multi_select는 코드로 즉시, subjective/find_error는 needs_review 플래그)
 // - is_void/all_correct 고정 상태는 건너뜀 (해제 시에만 호출됨)
 // - teacher_confirmed 된 답안은 교사 수동 확정이므로 제외
 async function regradeQuestion(
@@ -58,65 +58,8 @@ async function regradeQuestion(
     return
   }
 
-  if (style === 'find_error') {
-    // 형제 문항(같은 question_number) 전체를 한 번에 집합 채점 (순서 무관)
-    const { data: siblings } = await supabase
-      .from('exam_question')
-      .select('id, correct_answer_text')
-      .eq('week_id', q.week_id)
-      .eq('question_number', q.question_number)
-      .eq('question_style', 'find_error')
-    const siblingIds = (siblings ?? []).map((s) => s.id)
-    if (siblingIds.length === 0) return
-    const siblingAnswerText = new Map(
-      (siblings ?? []).map((s) => [s.id, s.correct_answer_text ?? ''])
-    )
-
-    const { data: allAnswers } = await supabase
-      .from('student_answer')
-      .select('id, week_score_id, exam_question_id, student_answer_text, teacher_confirmed')
-      .in('exam_question_id', siblingIds)
-
-    type FeAnswer = {
-      id: string
-      week_score_id: string
-      exam_question_id: string
-      student_answer_text: string | null
-      teacher_confirmed: boolean
-    }
-    const grouped = new Map<string, FeAnswer[]>()
-    for (const a of (allAnswers ?? []) as FeAnswer[]) {
-      const arr = grouped.get(a.week_score_id) ?? []
-      arr.push(a)
-      grouped.set(a.week_score_id, arr)
-    }
-
-    for (const [weekScoreId, groupAnswers] of grouped) {
-      const editable = groupAnswers.filter((a) => !a.teacher_confirmed)
-      if (editable.length === 0) continue
-
-      const correctWords = editable.map((a) => extractCorrection(siblingAnswerText.get(a.exam_question_id) ?? ''))
-      const studentWords = editable.map((a) => extractCorrection(a.student_answer_text ?? ''))
-      const remaining = [...correctWords]
-      const matched = editable.map(() => false)
-      for (let i = 0; i < editable.length; i++) {
-        if (!studentWords[i]) continue
-        const idx = remaining.indexOf(studentWords[i])
-        if (idx !== -1) { matched[i] = true; remaining.splice(idx, 1) }
-      }
-      regradeScoreIds.add(weekScoreId)
-      await Promise.all(editable.map((a, i) =>
-        supabase.from('student_answer').update({
-          is_correct: matched[i],
-          ai_feedback: matched[i] ? '' : `정답: ${correctWords[i]}`,
-        }).eq('id', a.id)
-      ))
-    }
-    return
-  }
-
-  if (style === 'subjective') {
-    // 서술형은 AI 자동 호출 비용/대기시간 문제로 즉시 재채점하지 않음
+  if (style === 'subjective' || style === 'find_error') {
+    // 서술형/오류교정은 AI 자동 호출 비용/대기시간 문제로 즉시 재채점하지 않음
     // → needs_review 플래그로 표시 → 교사가 채점 페이지에서 "채점 저장"을 눌러 AI 재채점
     const { data: answers } = await supabase
       .from('student_answer')
