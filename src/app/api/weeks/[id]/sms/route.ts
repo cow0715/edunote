@@ -40,6 +40,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   if (!classStudents?.length) return ok({ messages: [] })
 
+  classStudents.sort((a, b) =>
+    ((a.student as { name?: string } | null)?.name ?? '').localeCompare(
+      (b.student as { name?: string } | null)?.name ?? '', 'ko'
+    )
+  )
+
   const studentIds = classStudents.map((cs) => cs.student_id)
   const readingTotal = questions?.length ?? 0
 

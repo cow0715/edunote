@@ -36,7 +36,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (!week) return err('주차 없음', 404)
 
   // 해당 주차 수업일 기준으로 재원 중이었던 학생만 조회
-  let csQuery = supabase.from('class_student').select('student_id, student(*)').eq('class_id', week.class_id).order('joined_at')
+  let csQuery = supabase.from('class_student').select('student_id, student(*)').eq('class_id', week.class_id)
   if (week.start_date) {
     csQuery = csQuery.lte('joined_at', week.start_date).or(`left_at.is.null,left_at.gt.${week.start_date}`)
   } else {
@@ -60,7 +60,13 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     attendance = att ?? []
   }
 
-  return ok({ classStudents, weekScores, questions, attendance, vocabWords })
+  const sortedClassStudents = (classStudents ?? []).slice().sort((a, b) =>
+    ((a.student as { name?: string } | null)?.name ?? '').localeCompare(
+      (b.student as { name?: string } | null)?.name ?? '', 'ko'
+    )
+  )
+
+  return ok({ classStudents: sortedClassStudents, weekScores, questions, attendance, vocabWords })
 }
 
 // 일괄 저장 + 서술형 AI 배치 채점
