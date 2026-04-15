@@ -121,6 +121,11 @@ export function SmsSheet({ weekId, weekNumber, children }: Props) {
     return `${scheduleDate}T${scheduleTime}:00+09:00`
   }
 
+  const isSchedulePast = useMemo(() => {
+    if (!scheduleEnabled || !scheduleDate || !scheduleTime) return false
+    return new Date(`${scheduleDate}T${scheduleTime}:00+09:00`).getTime() <= Date.now()
+  }, [scheduleEnabled, scheduleDate, scheduleTime])
+
   function updateMessage(studentId: string, text: string) {
     setMessages((prev) => prev.map((m) => m.student_id === studentId ? { ...m, message: text } : m))
   }
@@ -180,6 +185,10 @@ export function SmsSheet({ weekId, weekNumber, children }: Props) {
   }
 
   async function sendAll() {
+    if (isSchedulePast) {
+      toast.error('예약 시간은 현재 시간 이후로 설정해주세요')
+      return
+    }
     const pending = messages.filter((m) => (sendStatus[m.student_id] ?? 'idle') !== 'success')
     if (pending.length === 0) return
     const totalTargets = pending.reduce((sum, m) => sum + (selectedRecipients[m.student_id]?.size ?? 0), 0)
@@ -208,6 +217,10 @@ export function SmsSheet({ weekId, weekNumber, children }: Props) {
   }
 
   async function sendOne(m: SmsMessage) {
+    if (isSchedulePast) {
+      toast.error('예약 시간은 현재 시간 이후로 설정해주세요')
+      return
+    }
     const keys = selectedRecipients[m.student_id] ?? new Set()
     const targets = (Array.from(keys) as RecipientKey[])
       .map((k) => {
@@ -272,7 +285,7 @@ export function SmsSheet({ weekId, weekNumber, children }: Props) {
                   <Button size="sm" variant="outline" onClick={copyAll} className="h-8 text-xs">
                     <Copy className="mr-1.5 h-3.5 w-3.5" />전체 복사
                   </Button>
-                  <Button size="sm" onClick={sendAll} disabled={loading || sendingAll} className="h-8 text-xs">
+                  <Button size="sm" onClick={sendAll} disabled={loading || sendingAll || (scheduleEnabled && isSchedulePast)} className="h-8 text-xs">
                     {sendingAll ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
                     전체 발송
                   </Button>
@@ -343,6 +356,9 @@ export function SmsSheet({ weekId, weekNumber, children }: Props) {
                   {TIME_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
+            )}
+            {scheduleEnabled && isSchedulePast && (
+              <p className="ml-6 text-xs text-red-500">현재 시간 이후로 설정해주세요</p>
             )}
           </div>
         )}
@@ -458,7 +474,7 @@ export function SmsSheet({ weekId, weekNumber, children }: Props) {
                         <Button
                           size="sm"
                           onClick={() => sendOne(m)}
-                          disabled={keys.size === 0 || status === 'sending' || status === 'success' || (scheduleEnabled && (!scheduleDate || !scheduleTime))}
+                          disabled={keys.size === 0 || status === 'sending' || status === 'success' || (scheduleEnabled && (!scheduleDate || !scheduleTime || isSchedulePast))}
                           className={`h-7 text-xs ${status === 'success' ? 'bg-green-500 hover:bg-green-500 text-white' : ''}`}
                         >
                           {status === 'sending' && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
