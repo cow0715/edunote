@@ -1,0 +1,306 @@
+// 성적표 데이터 집계 유틸리티
+// 서버/클라이언트 공용 순수 함수
+
+export type PeriodType = 'monthly' | 'quarterly' | 'semester'
+
+export interface ReportCard {
+  id: string
+  teacher_id: string
+  student_id: string
+  period_type: PeriodType
+  period_start: string
+  period_end: string
+  period_label: string
+  overall_grade: string | null
+  teacher_comment: string | null
+  next_focus: string | null
+  highlighted_wrong_ids: string[]
+  status: 'draft' | 'published'
+  generated_at: string
+  published_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ── 기간 계산 ─────────────────────────────────────────────────────────────
+export function getMonthlyPeriod(year: number, month: number): { start: string; end: string; label: string } {
+  const start = new Date(year, month - 1, 1)
+  const end = new Date(year, month, 0)
+  return {
+    start: toDateStr(start),
+    end: toDateStr(end),
+    label: `${year}년 ${month}월`,
+  }
+}
+
+export function getQuarterlyPeriod(year: number, quarter: 1 | 2 | 3 | 4): { start: string; end: string; label: string } {
+  const startMonth = (quarter - 1) * 3 + 1
+  const start = new Date(year, startMonth - 1, 1)
+  const end = new Date(year, startMonth + 2, 0)
+  return {
+    start: toDateStr(start),
+    end: toDateStr(end),
+    label: `${year}년 ${quarter}분기`,
+  }
+}
+
+// 학기: 1학기 = 3월~8월, 2학기 = 9월~다음해 2월
+export function getSemesterPeriod(year: number, semester: 1 | 2): { start: string; end: string; label: string } {
+  if (semester === 1) {
+    return {
+      start: toDateStr(new Date(year, 2, 1)),       // 3월 1일
+      end: toDateStr(new Date(year, 7, 31)),        // 8월 31일
+      label: `${year}년 1학기`,
+    }
+  }
+  return {
+    start: toDateStr(new Date(year, 8, 1)),          // 9월 1일
+    end: toDateStr(new Date(year + 1, 1, 28 + (isLeap(year + 1) ? 1 : 0))), // 다음해 2월 말
+    label: `${year}년 2학기`,
+  }
+}
+
+function toDateStr(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function isLeap(y: number): boolean {
+  return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0
+}
+
+// ── 지표 계산 ─────────────────────────────────────────────────────────────
+export interface WeekRow {
+  week_id: string
+  week_number: number
+  start_date: string | null
+  class_name: string
+  reading_rate: number | null
+  vocab_rate: number | null
+  homework_rate: number | null
+  reading_correct: number | null
+  reading_total: number
+  vocab_correct: number | null
+  vocab_total: number
+  homework_done: number | null
+  homework_total: number
+}
+
+export interface CategoryStat {
+  category_id: string | null
+  name: string
+  correct: number
+  total: number
+  rate: number
+}
+
+export interface WrongItem {
+  answer_id: string
+  week_number: number
+  question_number: number
+  sub_label: string | null
+  exam_type: 'reading' | 'vocab' | null
+  question_style: string
+  question_text: string | null
+  my_answer: string
+  correct_answer: string
+  explanation: string | null
+  tags: string[]
+}
+
+export interface ReportMetrics {
+  weekRows: WeekRow[]
+  avgReading: number | null
+  avgVocab: number | null
+  avgHomework: number | null
+  overallAvg: number | null
+  attendancePresent: number
+  attendanceTotal: number
+  strengths: CategoryStat[]     // top 3
+  weaknesses: CategoryStat[]    // bottom 3
+  wrongItems: WrongItem[]
+  totalQuestions: number
+  totalCorrect: number
+}
+
+type WeekLite = {
+  id: string
+  class_id: string
+  week_number: number
+  start_date: string | null
+  reading_total: number
+  vocab_total: number
+  homework_total: number
+}
+type ScoreLite = {
+  id: string
+  week_id: string
+  reading_correct: number | null
+  vocab_correct: number | null
+  homework_done: number | null
+}
+type AnswerLite = {
+  id: string
+  week_score_id: string
+  is_correct: boolean
+  student_answer: number | null
+  student_answer_text: string | null
+  exam_question: {
+    id: string
+    week_id: string
+    question_number: number
+    sub_label: string | null
+    exam_type: 'reading' | 'vocab' | null
+    question_style: string
+    correct_answer: number | null
+    correct_answer_text: string | null
+    explanation: string | null
+    question_text: string | null
+    exam_question_tag: { concept_tag: { id: string; name: string; category_id: string | null; category_name: string | null } | null }[]
+  } | null
+}
+
+const CIRCLE = ['①', '②', '③', '④', '⑤']
+
+function rate(correct: number | null, total: number): number | null {
+  if (correct === null || total === 0) return null
+  return Math.round((correct / total) * 100)
+}
+
+export function computeMetrics(
+  weeks: WeekLite[],
+  scores: ScoreLite[],
+  answers: AnswerLite[],
+  attendance: { status: 'present' | 'late' | 'absent' }[],
+  classNameById: Map<string, string>,
+): ReportMetrics {
+  const scoreByWeek = new Map(scores.map((s) => [s.week_id, s]))
+  const scoreById = new Map(scores.map((s) => [s.id, s]))
+
+  const weekRows: WeekRow[] = weeks
+    .sort((a, b) => a.week_number - b.week_number)
+    .map((w) => {
+      const s = scoreByWeek.get(w.id)
+      return {
+        week_id: w.id,
+        week_number: w.week_number,
+        start_date: w.start_date,
+        class_name: classNameById.get(w.class_id) ?? '',
+        reading_rate: s ? rate(s.reading_correct, w.reading_total) : null,
+        vocab_rate: s ? rate(s.vocab_correct, w.vocab_total) : null,
+        homework_rate: s ? rate(s.homework_done, w.homework_total) : null,
+        reading_correct: s?.reading_correct ?? null,
+        reading_total: w.reading_total,
+        vocab_correct: s?.vocab_correct ?? null,
+        vocab_total: w.vocab_total,
+        homework_done: s?.homework_done ?? null,
+        homework_total: w.homework_total,
+      }
+    })
+
+  const avg = (arr: (number | null)[]): number | null => {
+    const nums = arr.filter((v): v is number => v !== null)
+    if (nums.length === 0) return null
+    return Math.round(nums.reduce((a, b) => a + b, 0) / nums.length)
+  }
+
+  const avgReading = avg(weekRows.map((r) => r.reading_rate))
+  const avgVocab = avg(weekRows.map((r) => r.vocab_rate))
+  const avgHomework = avg(weekRows.map((r) => r.homework_rate))
+  const overallAvg = avg([avgReading, avgVocab, avgHomework])
+
+  const attendancePresent = attendance.filter((a) => a.status !== 'absent').length
+  const attendanceTotal = attendance.length
+
+  // 카테고리별 정답률 (reading만 집계 — 개념 태그가 있는 건 reading 위주)
+  const catMap = new Map<string, CategoryStat>()
+  let totalQuestions = 0
+  let totalCorrect = 0
+  for (const a of answers) {
+    const q = a.exam_question
+    if (!q) continue
+    totalQuestions++
+    if (a.is_correct) totalCorrect++
+    if (q.exam_type !== 'reading') continue
+    for (const t of q.exam_question_tag ?? []) {
+      const tag = t.concept_tag
+      if (!tag?.category_name) continue
+      const key = tag.category_id ?? tag.category_name
+      const entry = catMap.get(key) ?? {
+        category_id: tag.category_id,
+        name: tag.category_name,
+        correct: 0,
+        total: 0,
+        rate: 0,
+      }
+      entry.total++
+      if (a.is_correct) entry.correct++
+      catMap.set(key, entry)
+    }
+  }
+  const cats = [...catMap.values()]
+    .map((c) => ({ ...c, rate: c.total > 0 ? Math.round((c.correct / c.total) * 100) : 0 }))
+    .filter((c) => c.total >= 2)
+
+  const strengths = [...cats].sort((a, b) => b.rate - a.rate).slice(0, 3)
+  const weaknesses = [...cats].sort((a, b) => a.rate - b.rate).slice(0, 3)
+
+  const weekById = new Map(weeks.map((w) => [w.id, w]))
+  const wrongItems: WrongItem[] = answers
+    .filter((a) => !a.is_correct && a.exam_question)
+    .map((a): WrongItem => {
+      const q = a.exam_question!
+      const score = scoreById.get(a.week_score_id)
+      const w = score ? weekById.get(score.week_id) : undefined
+      const myAnswer =
+        q.question_style === 'objective'
+          ? a.student_answer !== null ? (CIRCLE[a.student_answer - 1] ?? String(a.student_answer)) : '미작성'
+          : (a.student_answer_text?.trim() || '미작성')
+      const correctAnswer =
+        q.question_style === 'objective'
+          ? q.correct_answer !== null ? (CIRCLE[q.correct_answer - 1] ?? String(q.correct_answer)) : '?'
+          : (q.correct_answer_text ?? '?')
+      return {
+        answer_id: a.id,
+        week_number: w?.week_number ?? 0,
+        question_number: q.question_number,
+        sub_label: q.sub_label,
+        exam_type: q.exam_type,
+        question_style: q.question_style,
+        question_text: q.question_text,
+        my_answer: myAnswer,
+        correct_answer: correctAnswer,
+        explanation: q.explanation,
+        tags: (q.exam_question_tag ?? [])
+          .map((t) => t.concept_tag?.name)
+          .filter((n): n is string => !!n),
+      }
+    })
+    .sort((a, b) => a.week_number - b.week_number || a.question_number - b.question_number)
+
+  return {
+    weekRows,
+    avgReading,
+    avgVocab,
+    avgHomework,
+    overallAvg,
+    attendancePresent,
+    attendanceTotal,
+    strengths,
+    weaknesses,
+    wrongItems,
+    totalQuestions,
+    totalCorrect,
+  }
+}
+
+// ── 등급 자동 제안 ────────────────────────────────────────────────────────
+export function suggestGrade(overallAvg: number | null): string {
+  if (overallAvg === null) return '-'
+  if (overallAvg >= 90) return 'A'
+  if (overallAvg >= 80) return 'B'
+  if (overallAvg >= 70) return 'C'
+  return 'D'
+}
