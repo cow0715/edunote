@@ -40,6 +40,17 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     grouped.set(q.question_number, arr)
   }
 
+  // 한 페이지에 맞게 행 높이 동적 조정 (문항 수가 많을수록 작게)
+  const qCount = grouped.size
+  const rowH = qCount <= 7 ? 52 : qCount <= 10 ? 40 : qCount <= 14 ? 30 : 24
+  const tallH = qCount <= 7 ? 68 : qCount <= 10 ? 52 : qCount <= 14 ? 40 : 32
+
+  const tdAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:6px 8px;font-size:13px;vertical-align:middle;"`
+  const qnumAttr = `${tdAttr.replace('padding:6px 8px', 'padding:4px;width:48px;text-align:center;font-weight:bold;background:#fde3c4')}`
+  const subHdrAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:4px;font-size:12px;width:28px;text-align:center;font-weight:bold;background:#f5f5f5;vertical-align:middle;"`
+  const subCellAttr = (h: number) => `border="1" bordercolor="#000000" style="border:1px solid #000;padding:4px;font-size:12px;height:${h}px;vertical-align:middle;"`
+  const answerAttr = (h: number) => `border="1" bordercolor="#000000" style="border:1px solid #000;padding:6px 8px;font-size:13px;height:${h}px;vertical-align:middle;"`
+
   // 테이블 행 생성
   const rows: string[] = []
   for (const [qNum, group] of grouped) {
@@ -48,47 +59,28 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     const hasSub = group.length > 1 || first.sub_label !== null
 
     if (style === 'objective' && !hasSub) {
-      // 객관식 단일
-      rows.push(`<tr>
-        <td class="qnum">${qNum}번</td>
-        <td class="answer">① &nbsp; ② &nbsp; ③ &nbsp; ④ &nbsp; ⑤</td>
-      </tr>`)
+      rows.push(`<tr><td ${qnumAttr}>${qNum}</td><td ${answerAttr(rowH)} colspan="6">① &nbsp; ② &nbsp; ③ &nbsp; ④ &nbsp; ⑤</td></tr>`)
     } else if (style === 'objective' && hasSub) {
-      // 객관식 소문항 (a,b,c 각각 ①~⑤)
       const cells = group.map((q) =>
-        `<td class="sub-header">(${q.sub_label})</td><td class="sub-answer">① ② ③ ④ ⑤</td>`
+        `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr(rowH)}>① ② ③ ④ ⑤</td>`
       ).join('')
-      rows.push(`<tr>
-        <td class="qnum" rowspan="1">${qNum}번</td>
-        ${cells}
-      </tr>`)
+      rows.push(`<tr><td ${qnumAttr}>${qNum}</td>${cells}</tr>`)
     } else if (style === 'ox') {
-      rows.push(`<tr>
-        <td class="qnum">${qNum}번</td>
-        <td class="answer">O &nbsp;/&nbsp; X &nbsp;&nbsp; 수정어: </td>
-      </tr>`)
+      rows.push(`<tr><td ${qnumAttr}>${qNum}</td><td ${answerAttr(rowH)} colspan="6">O &nbsp;/&nbsp; X &nbsp;&nbsp; 수정어: </td></tr>`)
     } else if (style === 'multi_select') {
-      rows.push(`<tr>
-        <td class="qnum">${qNum}번</td>
-        <td class="answer">&nbsp;</td>
-      </tr>`)
+      rows.push(`<tr><td ${qnumAttr}>${qNum}</td><td ${answerAttr(rowH)} colspan="6">&nbsp;</td></tr>`)
     } else if ((style === 'find_error' || style === 'subjective') && hasSub) {
-      // 소문항이 있는 서술형/오류교정 → 기호별 칸
       const cells = group.map((q) =>
-        `<td class="sub-header">(${q.sub_label})</td><td class="sub-blank">&nbsp;</td>`
+        `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr(rowH)}>&nbsp;</td>`
       ).join('')
-      rows.push(`<tr>
-        <td class="qnum">${qNum}번</td>
-        ${cells}
-      </tr>`)
+      rows.push(`<tr><td ${qnumAttr}>${qNum}</td>${cells}</tr>`)
     } else {
-      // 서술형 단일 (넓은 빈칸)
-      rows.push(`<tr>
-        <td class="qnum">${qNum}번</td>
-        <td class="answer tall">&nbsp;</td>
-      </tr>`)
+      rows.push(`<tr><td ${qnumAttr}>${qNum}</td><td ${answerAttr(tallH)} colspan="6">&nbsp;</td></tr>`)
     }
   }
+
+  const headerAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:6px 8px;font-size:14px;font-weight:bold;background:#fde3c4;text-align:center;"`
+  const infoAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:6px 8px;font-size:12px;"`
 
   const html = `<!DOCTYPE html>
 <html lang="ko">
@@ -96,25 +88,22 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 <meta charset="utf-8">
 <title>${title}</title>
 <style>
-  body { font-family: '맑은 고딕', 'Malgun Gothic', sans-serif; margin: 20px; }
-  h2 { font-size: 16px; margin-bottom: 4px; }
-  p.info { font-size: 12px; color: #666; margin-bottom: 12px; }
-  table { border-collapse: collapse; width: 100%; }
-  td { border: 1px solid #000; padding: 6px 8px; font-size: 13px; vertical-align: middle; }
-  .qnum { width: 50px; text-align: center; font-weight: bold; background: #f9f9f9; }
-  .answer { min-width: 200px; height: 32px; }
-  .answer.tall { height: 48px; }
-  .sub-header { width: 32px; text-align: center; font-weight: bold; background: #f9f9f9; }
-  .sub-answer { min-width: 80px; height: 32px; font-size: 11px; }
-  .sub-blank { min-width: 60px; height: 32px; }
-  .name-row td { height: 28px; }
-  @media print { body { margin: 10px; } }
+  @page { size: A4; margin: 10mm; }
+  body { font-family: '맑은 고딕', 'Malgun Gothic', sans-serif; margin: 12px; }
+  p.guide { font-size: 11px; color: #666; margin: 0 0 8px 0; }
+  table.sheet { border-collapse: collapse; width: 100%; border: 2px solid #000; }
 </style>
 </head>
 <body>
-<h2>${title}</h2>
-<p class="info">이름: ________________ &nbsp;&nbsp; Ctrl+A → Ctrl+C 로 한글에 붙여넣기</p>
-<table>
+<p class="guide">Ctrl+A → Ctrl+C 로 복사해서 한글에 붙여넣기</p>
+<table class="sheet" border="1" bordercolor="#000000" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;border:2px solid #000;">
+<tr>
+  <td ${headerAttr} colspan="7">${title}</td>
+</tr>
+<tr>
+  <td ${infoAttr} colspan="3">학급: ${className}</td>
+  <td ${infoAttr} colspan="4">이름:</td>
+</tr>
 ${rows.join('\n')}
 </table>
 </body>
