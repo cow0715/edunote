@@ -128,7 +128,7 @@ export function useClassStudents(classId: string) {
       const res = await fetch(`/api/classes/${classId}/students`)
       if (!res.ok) throw new Error('수업 학생 조회 실패')
       const data = await res.json()
-      return (data as { student?: { name?: string } | null }[]).slice().sort((a, b) =>
+      return (data as { student_id: string; student?: { name?: string } | null }[]).slice().sort((a, b) =>
         (a.student?.name ?? '').localeCompare(b.student?.name ?? '', 'ko')
       )
     },
