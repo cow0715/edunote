@@ -79,9 +79,6 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     }
   }
 
-  const headerAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:6px 8px;font-size:14px;font-weight:bold;background:#fde3c4;text-align:center;"`
-  const infoAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:6px 8px;font-size:12px;"`
-
   const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head>
 <meta charset="utf-8">
@@ -100,13 +97,6 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 <body>
 <div class="Section1">
 <table border="1" bordercolor="#000000" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;border:2px solid #000;">
-<tr>
-  <td ${headerAttr} colspan="7">${title}</td>
-</tr>
-<tr>
-  <td ${infoAttr} colspan="3">학급: ${className}</td>
-  <td ${infoAttr} colspan="4">이름:</td>
-</tr>
 ${rows.join('\n')}
 </table>
 </div>
