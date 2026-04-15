@@ -194,7 +194,16 @@ export function BroadcastDialog() {
     return `${scheduleDate}T${scheduleTime}:00+09:00`
   }
 
+  const isSchedulePast = useMemo(() => {
+    if (!scheduleEnabled || !scheduleDate || !scheduleTime) return false
+    return new Date(`${scheduleDate}T${scheduleTime}:00+09:00`).getTime() <= Date.now()
+  }, [scheduleEnabled, scheduleDate, scheduleTime])
+
   async function send() {
+    if (isSchedulePast) {
+      toast.error('예약 시간은 현재 시간 이후로 설정해주세요')
+      return
+    }
     setSending(true)
     try {
       const targets = selectedRecipients.map((r) => {
@@ -455,6 +464,9 @@ export function BroadcastDialog() {
                     </select>
                   </div>
                 )}
+                {scheduleEnabled && isSchedulePast && (
+                  <p className="ml-6 text-xs text-red-500">현재 시간 이후로 설정해주세요</p>
+                )}
               </div>
             </div>
 
@@ -464,7 +476,7 @@ export function BroadcastDialog() {
               </Button>
               <Button
                 onClick={send}
-                disabled={!message.trim() || sending || (scheduleEnabled && (!scheduleDate || !scheduleTime))}
+                disabled={!message.trim() || sending || (scheduleEnabled && (!scheduleDate || !scheduleTime || isSchedulePast))}
                 size="sm"
               >
                 {sending
