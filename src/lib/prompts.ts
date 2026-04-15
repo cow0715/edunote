@@ -410,6 +410,7 @@ const EXAM_OCR_RULES = `규칙:
 - sub_label 있는 문항: (a)(b) 표기 찾아 분리. 표기 없으면 첫 번째 sub_label에 전체 텍스트, 나머지는 제외
 - 이미지에 보이지 않는 문항(뒷면 등)은 결과에서 제외
 - 빈 답안은 결과에서 제외
+- 캐럿(^ 또는 ∧) 삽입 기호: 학생이 문장 중간에 빠진 단어를 끼워넣을 때 쓰는 교정 표기입니다. 캐럿 위치의 위/아래 여백에 적힌 단어를 해당 위치에 삽입한 최종 문장으로 student_answer_text를 구성하세요. 예: "making it easier ^ for viruses" + 캐럿 위에 "even" → "making it easier even for viruses". 줄이 그어져 지운 단어는 제외하고 삽입된 단어만 반영
 
 JSON 배열만 출력:
 [{"question_number":1,"sub_label":null,"student_answer":3},{"question_number":2,"sub_label":null,"student_answer_text":"The experiment was conducted"},{"question_number":3,"sub_label":"a","student_answer_text":"enough"},{"question_number":3,"sub_label":"b","student_answer_text":"greenhouse"}]`
