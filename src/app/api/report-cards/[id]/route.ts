@@ -1,5 +1,5 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
-import { computeMetrics } from '@/lib/report-card'
+import { computeMetrics, getPreviousPeriod, type PeriodComparison, type PeriodType } from '@/lib/report-card'
 
 // GET /api/report-cards/[id] — 성적표 1건 + 계산된 지표
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -143,7 +143,37 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     classNameById,
   )
 
-  return ok({ card, student, metrics })
+  // 전 기간 비교 지표 (점수 평균만 가볍게)
+  const prevRange = getPreviousPeriod(card.period_type as PeriodType, card.period_start)
+  const prevWeeks = (weeks ?? []).filter((w: { start_date: string | null; created_at: string }) => {
+    const ref = w.start_date ?? w.created_at.slice(0, 10)
+    return ref >= prevRange.start && ref <= prevRange.end
+  })
+  const prevWeekIds = prevWeeks.map((w: { id: string }) => w.id)
+  const { data: prevScores } = prevWeekIds.length > 0
+    ? await supabase
+        .from('week_score')
+        .select('id, week_id, reading_correct, vocab_correct, homework_done')
+        .in('week_id', prevWeekIds)
+        .eq('student_id', student.id)
+    : { data: [] }
+
+  const prevMetrics = computeMetrics(
+    prevWeeks as Parameters<typeof computeMetrics>[0],
+    (prevScores ?? []) as Parameters<typeof computeMetrics>[1],
+    [],
+    [],
+    classNameById,
+  )
+  const previous: PeriodComparison | null = prevMetrics.weekRows.length > 0 ? {
+    label: prevRange.label,
+    overallAvg: prevMetrics.overallAvg,
+    avgReading: prevMetrics.avgReading,
+    avgVocab: prevMetrics.avgVocab,
+    avgHomework: prevMetrics.avgHomework,
+  } : null
+
+  return ok({ card, student, metrics, previous })
 }
 
 // PATCH /api/report-cards/[id] — 편집 (코멘트, 등급, 오답 선별, 상태)
@@ -159,6 +189,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     overall_grade?: string | null
     teacher_comment?: string | null
     next_focus?: string | null
+    summary_text?: string | null
     highlighted_wrong_ids?: string[]
     status?: 'draft' | 'published'
   }
@@ -167,6 +198,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if ('overall_grade' in body) patch.overall_grade = body.overall_grade
   if ('teacher_comment' in body) patch.teacher_comment = body.teacher_comment
   if ('next_focus' in body) patch.next_focus = body.next_focus
+  if ('summary_text' in body) patch.summary_text = body.summary_text
   if ('highlighted_wrong_ids' in body) patch.highlighted_wrong_ids = body.highlighted_wrong_ids
   if ('status' in body) {
     patch.status = body.status
