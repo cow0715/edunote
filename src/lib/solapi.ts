@@ -28,18 +28,21 @@ export async function sendMessages(targets: SendTarget[]): Promise<SendResult[]>
 
   const settled = await Promise.allSettled(
     targets.map((t) =>
-      service.sendOne({
-        from: sender,
-        to: t.phone.replace(/-/g, ''),
-        text: t.message,
-        ...(t.scheduledDate ? { scheduledDate: t.scheduledDate } : {}),
-      })
+      service.send(
+        [{ from: sender, to: t.phone.replace(/-/g, ''), text: t.message }],
+        t.scheduledDate ? { scheduledDate: t.scheduledDate } : undefined
+      )
     )
   )
 
   return targets.map((t, i) => {
     const result = settled[i]
     if (result.status === 'fulfilled') {
+      const failed = result.value.failedMessageList ?? []
+      if (failed.length > 0) {
+        const f = failed[0] as { statusMessage?: string; reason?: string }
+        return { ...t, success: false, error: f.statusMessage ?? f.reason ?? '발송 실패' }
+      }
       return { ...t, success: true }
     }
     const msg = result.reason instanceof Error ? result.reason.message : '발송 실패'
