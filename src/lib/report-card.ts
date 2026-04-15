@@ -14,6 +14,7 @@ export interface ReportCard {
   overall_grade: string | null
   teacher_comment: string | null
   next_focus: string | null
+  summary_text: string | null
   highlighted_wrong_ids: string[]
   status: 'draft' | 'published'
   generated_at: string
@@ -42,6 +43,26 @@ export function getQuarterlyPeriod(year: number, quarter: 1 | 2 | 3 | 4): { star
     end: toDateStr(end),
     label: `${year}년 ${quarter}분기`,
   }
+}
+
+// 이전 기간 범위 계산 (비교용)
+export function getPreviousPeriod(periodType: PeriodType, periodStart: string): { start: string; end: string; label: string } {
+  const [y, m] = periodStart.split('-').map(Number)
+  if (periodType === 'monthly') {
+    const prevMonth = m - 1 === 0 ? 12 : m - 1
+    const prevYear = m - 1 === 0 ? y - 1 : y
+    return getMonthlyPeriod(prevYear, prevMonth)
+  }
+  if (periodType === 'quarterly') {
+    const quarter = Math.floor((m - 1) / 3) + 1
+    const prevQ = quarter === 1 ? 4 : (quarter - 1) as 1 | 2 | 3 | 4
+    const prevY = quarter === 1 ? y - 1 : y
+    return getQuarterlyPeriod(prevY, prevQ as 1 | 2 | 3 | 4)
+  }
+  // semester
+  const semester = m >= 3 && m <= 8 ? 1 : 2
+  if (semester === 1) return getSemesterPeriod(y - 1, 2)
+  return getSemesterPeriod(y, 1)
 }
 
 // 학기: 1학기 = 3월~8월, 2학기 = 9월~다음해 2월
@@ -89,11 +110,26 @@ export interface WeekRow {
 }
 
 export interface CategoryStat {
-  category_id: string | null
+  tag_id: string | null
   name: string
+  category_name: string | null
   correct: number
   total: number
+  wrong: number
   rate: number
+}
+
+export interface BestWeek {
+  week_number: number
+  overall_rate: number
+}
+
+export interface PeriodComparison {
+  label: string
+  overallAvg: number | null
+  avgReading: number | null
+  avgVocab: number | null
+  avgHomework: number | null
 }
 
 export interface WrongItem {
@@ -118,11 +154,12 @@ export interface ReportMetrics {
   overallAvg: number | null
   attendancePresent: number
   attendanceTotal: number
-  strengths: CategoryStat[]     // top 3
-  weaknesses: CategoryStat[]    // bottom 3
+  strengths: CategoryStat[]     // top 3 (소분류 태그 기준)
+  weaknesses: CategoryStat[]    // bottom 3 (소분류 태그 기준, wrong 포함)
   wrongItems: WrongItem[]
   totalQuestions: number
   totalCorrect: number
+  bestWeek: BestWeek | null
 }
 
 type WeekLite = {
@@ -214,8 +251,8 @@ export function computeMetrics(
   const attendancePresent = attendance.filter((a) => a.status !== 'absent').length
   const attendanceTotal = attendance.length
 
-  // 카테고리별 정답률 (reading만 집계 — 개념 태그가 있는 건 reading 위주)
-  const catMap = new Map<string, CategoryStat>()
+  // 태그별(소분류) 정답률 집계 — reading 위주
+  const tagMap = new Map<string, CategoryStat>()
   let totalQuestions = 0
   let totalCorrect = 0
   for (const a of answers) {
@@ -226,26 +263,41 @@ export function computeMetrics(
     if (q.exam_type !== 'reading') continue
     for (const t of q.exam_question_tag ?? []) {
       const tag = t.concept_tag
-      if (!tag?.category_name) continue
-      const key = tag.category_id ?? tag.category_name
-      const entry = catMap.get(key) ?? {
-        category_id: tag.category_id,
-        name: tag.category_name,
+      if (!tag?.name) continue
+      const key = tag.id ?? tag.name
+      const entry = tagMap.get(key) ?? {
+        tag_id: tag.id,
+        name: tag.name,
+        category_name: tag.category_name,
         correct: 0,
         total: 0,
+        wrong: 0,
         rate: 0,
       }
       entry.total++
       if (a.is_correct) entry.correct++
-      catMap.set(key, entry)
+      else entry.wrong++
+      tagMap.set(key, entry)
     }
   }
-  const cats = [...catMap.values()]
+  const tags = [...tagMap.values()]
     .map((c) => ({ ...c, rate: c.total > 0 ? Math.round((c.correct / c.total) * 100) : 0 }))
-    .filter((c) => c.total >= 2)
+    .filter((c) => c.total >= 3)
 
-  const strengths = [...cats].sort((a, b) => b.rate - a.rate).slice(0, 3)
-  const weaknesses = [...cats].sort((a, b) => a.rate - b.rate).slice(0, 3)
+  const strengths = [...tags].sort((a, b) => b.rate - a.rate || b.total - a.total).slice(0, 3)
+  const weaknesses = [...tags].filter((c) => c.wrong > 0).sort((a, b) => a.rate - b.rate || b.wrong - a.wrong).slice(0, 3)
+
+  // 최고 주차 (3영역 평균 기준)
+  const weekScored = weekRows
+    .map((r) => {
+      const vals = [r.reading_rate, r.vocab_rate, r.homework_rate].filter((v): v is number => v !== null)
+      if (vals.length === 0) return null
+      return { week_number: r.week_number, overall_rate: Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) }
+    })
+    .filter((v): v is BestWeek => v !== null)
+  const bestWeek = weekScored.length > 0
+    ? weekScored.reduce((best, cur) => (cur.overall_rate > best.overall_rate ? cur : best))
+    : null
 
   const weekById = new Map(weeks.map((w) => [w.id, w]))
   const wrongItems: WrongItem[] = answers
@@ -293,7 +345,44 @@ export function computeMetrics(
     wrongItems,
     totalQuestions,
     totalCorrect,
+    bestWeek,
   }
+}
+
+// ── 자동 요약 문장 생성 ───────────────────────────────────────────────────
+export function buildAutoSummary(
+  studentName: string,
+  metrics: ReportMetrics,
+  previous: PeriodComparison | null,
+): string {
+  const parts: string[] = []
+
+  if (metrics.overallAvg !== null && previous?.overallAvg !== null && previous) {
+    const diff = metrics.overallAvg - (previous.overallAvg ?? 0)
+    if (Math.abs(diff) >= 3) {
+      parts.push(`전 기간 대비 평균 정답률이 ${diff > 0 ? '+' : ''}${diff}점 ${diff > 0 ? '상승했습니다' : '하락했습니다'}.`)
+    } else {
+      parts.push(`전 기간과 비슷한 수준을 유지했습니다.`)
+    }
+  } else if (metrics.overallAvg !== null) {
+    parts.push(`이번 기간 평균 정답률은 ${metrics.overallAvg}%입니다.`)
+  }
+
+  if (metrics.strengths[0]) {
+    parts.push(`${metrics.strengths[0].name} 영역에서 강점을 보였고`)
+  }
+  if (metrics.weaknesses[0]) {
+    parts.push(`${metrics.weaknesses[0].name} 영역은 추가 연습이 필요합니다.`)
+  }
+
+  const attendRate = metrics.attendanceTotal > 0
+    ? Math.round((metrics.attendancePresent / metrics.attendanceTotal) * 100)
+    : null
+  if (attendRate !== null && attendRate < 80) {
+    parts.push(`출석률 ${attendRate}%로 꾸준한 참여가 필요합니다.`)
+  }
+
+  return parts.length > 0 ? `${studentName} 학생은 ${parts.join(' ')}` : ''
 }
 
 // ── 등급 자동 제안 ────────────────────────────────────────────────────────

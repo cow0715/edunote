@@ -2,19 +2,19 @@
 
 import { use, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Printer, Save, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, Printer, Save, CheckCircle2, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { useReportCard, useUpdateReportCard } from '@/hooks/use-report-cards'
-import { suggestGrade } from '@/lib/report-card'
+import { suggestGrade, buildAutoSummary } from '@/lib/report-card'
 import { ReportCardPreview } from '@/components/report-cards/report-card-preview'
 import { toast } from 'sonner'
 
 export default function ReportCardDetailPage({ params }: { params: Promise<{ studentId: string; reportId: string }> }) {
-  const { studentId, reportId } = use(params)
+  const { reportId } = use(params)
   const router = useRouter()
   const { data, isLoading, error } = useReportCard(reportId)
   const update = useUpdateReportCard()
@@ -22,7 +22,7 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
   const [grade, setGrade] = useState('')
   const [comment, setComment] = useState('')
   const [nextFocus, setNextFocus] = useState('')
-  const [highlighted, setHighlighted] = useState<string[]>([])
+  const [summary, setSummary] = useState('')
   const [dirty, setDirty] = useState(false)
 
   useEffect(() => {
@@ -30,7 +30,7 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
     setGrade(data.card.overall_grade ?? '')
     setComment(data.card.teacher_comment ?? '')
     setNextFocus(data.card.next_focus ?? '')
-    setHighlighted(data.card.highlighted_wrong_ids ?? [])
+    setSummary(data.card.summary_text ?? '')
     setDirty(false)
   }, [data])
 
@@ -41,15 +41,8 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
     return <div className="p-6 text-sm text-red-500">성적표를 불러올 수 없습니다</div>
   }
 
-  const { card, student, metrics } = data
+  const { card, student, metrics, previous } = data
   const suggestedGrade = suggestGrade(metrics.overallAvg)
-
-  function toggleHighlight(answerId: string) {
-    setHighlighted((prev) =>
-      prev.includes(answerId) ? prev.filter((id) => id !== answerId) : [...prev, answerId]
-    )
-    setDirty(true)
-  }
 
   async function handleSave() {
     await update.mutateAsync({
@@ -57,7 +50,7 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
       overall_grade: grade || null,
       teacher_comment: comment || null,
       next_focus: nextFocus || null,
-      highlighted_wrong_ids: highlighted,
+      summary_text: summary || null,
     })
     setDirty(false)
     toast.success('저장되었습니다')
@@ -69,7 +62,7 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
       overall_grade: grade || null,
       teacher_comment: comment || null,
       next_focus: nextFocus || null,
-      highlighted_wrong_ids: highlighted,
+      summary_text: summary || null,
       status: 'published',
     })
     setDirty(false)
@@ -80,11 +73,14 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
     window.print()
   }
 
-  const selectedWrongs = metrics.wrongItems.filter((w) => highlighted.includes(w.answer_id))
+  function handleAutoSummary() {
+    const auto = buildAutoSummary(student.name, metrics, previous)
+    setSummary(auto)
+    setDirty(true)
+  }
 
   return (
     <div className="report-card-root">
-      {/* 상단 바 — 인쇄 시 숨김 */}
       <div className="print:hidden sticky top-0 z-10 -mx-4 -mt-4 md:-mx-6 md:-mt-6 mb-4 border-b bg-white px-4 md:px-6 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <Button variant="ghost" size="sm" onClick={() => router.push('/students')}>
@@ -123,17 +119,21 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_360px] print:block">
-        {/* 성적표 미리보기 (인쇄 대상) */}
         <div className="print-area">
           <ReportCardPreview
             student={student}
-            card={{ ...card, overall_grade: grade || null, teacher_comment: comment || null, next_focus: nextFocus || null }}
+            card={{
+              ...card,
+              overall_grade: grade || null,
+              teacher_comment: comment || null,
+              next_focus: nextFocus || null,
+              summary_text: summary || null,
+            }}
             metrics={metrics}
-            highlightedWrongs={selectedWrongs}
+            previous={previous}
           />
         </div>
 
-        {/* 편집 사이드 패널 — 인쇄 시 숨김 */}
         <aside className="print:hidden space-y-4">
           <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
             <h3 className="text-sm font-semibold text-gray-900">종합 평가</h3>
@@ -167,6 +167,27 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-900">한 줄 요약</h3>
+              <Button type="button" variant="ghost" size="sm" className="text-xs" onClick={handleAutoSummary}>
+                <Sparkles className="mr-1 h-3.5 w-3.5" />
+                자동 생성
+              </Button>
+            </div>
+            <Textarea
+              value={summary}
+              onChange={(e) => { setSummary(e.target.value); setDirty(true) }}
+              rows={3}
+              placeholder="자동 생성 후 학부모 언어로 다듬어주세요"
+            />
+            {previous && (
+              <p className="text-xs text-gray-400">
+                전 기간({previous.label}) 평균 {previous.overallAvg ?? '-'}% → 이번 {metrics.overallAvg ?? '-'}%
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
             <h3 className="text-sm font-semibold text-gray-900">선생님 코멘트</h3>
             <Textarea
               value={comment}
@@ -177,61 +198,14 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-gray-900">다음 기간 학습 권장</h3>
+            <h3 className="text-sm font-semibold text-gray-900">다음 기간 학습 목표</h3>
             <Textarea
               value={nextFocus}
               onChange={(e) => { setNextFocus(e.target.value); setDirty(true) }}
-              rows={4}
-              placeholder="다음 달 집중할 영역이나 학습 방향"
+              rows={5}
+              placeholder="한 줄에 한 개씩 (체크리스트로 표시됩니다)&#10;예: 어휘 추론 주 3회 훈련&#10;긴 지문 읽기 속도 개선"
             />
-          </div>
-
-          <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-gray-900">
-              핵심 오답 선별 ({highlighted.length}개)
-            </h3>
-            <p className="text-xs text-gray-400">
-              성적표에 실을 오답을 선택하세요 (3~5개 권장)
-            </p>
-            {metrics.wrongItems.length === 0 ? (
-              <p className="text-xs text-gray-400 py-4 text-center">
-                이 기간에 오답이 없습니다
-              </p>
-            ) : (
-              <div className="space-y-1.5 max-h-80 overflow-y-auto">
-                {metrics.wrongItems.map((w) => {
-                  const on = highlighted.includes(w.answer_id)
-                  return (
-                    <button
-                      key={w.answer_id}
-                      type="button"
-                      onClick={() => toggleHighlight(w.answer_id)}
-                      className={`w-full text-left rounded-md border px-2.5 py-2 text-xs transition ${
-                        on
-                          ? 'border-primary bg-primary/5'
-                          : 'border-gray-200 bg-white hover:border-gray-300'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium text-gray-900">
-                          {w.week_number}주 · {w.exam_type === 'vocab' ? '단어' : '독해'} {w.question_number}{w.sub_label ?? ''}번
-                        </span>
-                        <span className="text-[10px] text-gray-400">
-                          {w.my_answer} → {w.correct_answer}
-                        </span>
-                      </div>
-                      {w.tags.length > 0 && (
-                        <div className="mt-0.5 flex flex-wrap gap-1">
-                          {w.tags.slice(0, 3).map((t, i) => (
-                            <span key={i} className="text-[10px] text-gray-500">#{t}</span>
-                          ))}
-                        </div>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
+            <p className="text-xs text-gray-400">엔터로 구분한 각 줄이 체크박스 항목이 됩니다</p>
           </div>
         </aside>
       </div>

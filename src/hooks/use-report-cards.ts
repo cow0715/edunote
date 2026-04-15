@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { ReportCard, ReportMetrics, PeriodType } from '@/lib/report-card'
+import type { ReportCard, ReportMetrics, PeriodType, PeriodComparison } from '@/lib/report-card'
 
 export type ReportCardListItem = ReportCard
 
@@ -8,6 +8,7 @@ export interface ReportCardDetail {
   card: ReportCard
   student: { id: string; name: string; school: string | null; grade: string | null }
   metrics: ReportMetrics
+  previous: PeriodComparison | null
 }
 
 export function useReportCards(studentId: string | undefined) {
@@ -68,6 +69,7 @@ export function useUpdateReportCard() {
       overall_grade?: string | null
       teacher_comment?: string | null
       next_focus?: string | null
+      summary_text?: string | null
       highlighted_wrong_ids?: string[]
       status?: 'draft' | 'published'
     }): Promise<ReportCard> => {
