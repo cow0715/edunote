@@ -1,14 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { ReportCard, ReportMetrics, PeriodType, PeriodComparison } from '@/lib/report-card'
+import type { ReportCard, ReportMetrics, PeriodType, PeriodComparison, ClassContext, AcademyProfile } from '@/lib/report-card'
 
 export type ReportCardListItem = ReportCard
 
 export interface ReportCardDetail {
   card: ReportCard
-  student: { id: string; name: string; school: string | null; grade: string | null }
+  student: { id: string; name: string; school: string | null; grade: string | null; student_code: string | null }
   metrics: ReportMetrics
   previous: PeriodComparison | null
+  academy: AcademyProfile
+  classContext: ClassContext | null
 }
 
 export function useReportCards(studentId: string | undefined) {

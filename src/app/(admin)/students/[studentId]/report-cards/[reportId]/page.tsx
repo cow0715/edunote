@@ -41,7 +41,7 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
     return <div className="p-6 text-sm text-red-500">성적표를 불러올 수 없습니다</div>
   }
 
-  const { card, student, metrics, previous } = data
+  const { card, student, metrics, previous, academy, classContext } = data
   const suggestedGrade = suggestGrade(metrics.overallAvg)
 
   async function handleSave() {
@@ -131,6 +131,8 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
             }}
             metrics={metrics}
             previous={previous}
+            academy={academy}
+            classContext={classContext}
           />
         </div>
 
