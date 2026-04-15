@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Plus, Users, Pencil, Trash2, ExternalLink, Search, Download, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { Plus, Users, Pencil, Trash2, ExternalLink, Search, Download, ChevronUp, ChevronDown, ChevronsUpDown, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { StudentFormDialog } from '@/components/students/student-form-dialog'
+import { ReportCardListDialog } from '@/components/report-cards/report-card-list-dialog'
 import { useStudents, useDeleteStudent, useClassStudents } from '@/hooks/use-students'
 import { useClasses } from '@/hooks/use-classes'
 import { Student, StudentWithEnrollments } from '@/lib/types'
@@ -62,6 +63,7 @@ export default function StudentsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Student | undefined>()
+  const [reportCardTarget, setReportCardTarget] = useState<Student | null>(null)
   const [searchName, setSearchName] = useState('')
   const [searchGrade, setSearchGrade] = useState('')
   const [searchClass, setSearchClass] = useState('')
@@ -414,6 +416,15 @@ export default function StudentsPage() {
                           <Button
                             size="sm"
                             variant="outline"
+                            className="h-7 px-2 text-gray-600 hover:text-primary"
+                            onClick={() => setReportCardTarget(s)}
+                            title="성적표"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
                             className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity"
                             onClick={() => handleEdit(s)}
                           >
@@ -440,6 +451,14 @@ export default function StudentsPage() {
       </div>
 
       <StudentFormDialog open={dialogOpen} onClose={() => setDialogOpen(false)} editTarget={editTarget} />
+      {reportCardTarget && (
+        <ReportCardListDialog
+          open={!!reportCardTarget}
+          onClose={() => setReportCardTarget(null)}
+          studentId={reportCardTarget.id}
+          studentName={reportCardTarget.name}
+        />
+      )}
     </div>
   )
 }
