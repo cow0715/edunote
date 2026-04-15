@@ -82,21 +82,24 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const headerAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:6px 8px;font-size:14px;font-weight:bold;background:#fde3c4;text-align:center;"`
   const infoAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:6px 8px;font-size:12px;"`
 
-  const html = `<!DOCTYPE html>
-<html lang="ko">
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <title>${title}</title>
+<!--[if gte mso 9]><xml>
+<w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument>
+</xml><![endif]-->
 <style>
-  @page { size: A4; margin: 10mm; }
-  body { font-family: '맑은 고딕', 'Malgun Gothic', sans-serif; margin: 12px; }
-  p.guide { font-size: 11px; color: #666; margin: 0 0 8px 0; }
-  table.sheet { border-collapse: collapse; width: 100%; border: 2px solid #000; }
+  @page Section1 { size: 210mm 297mm; margin: 10mm 10mm 10mm 10mm; }
+  div.Section1 { page: Section1; }
+  body { font-family: '맑은 고딕', 'Malgun Gothic', sans-serif; }
+  table { border-collapse: collapse; }
 </style>
 </head>
 <body>
-<p class="guide">Ctrl+A → Ctrl+C 로 복사해서 한글에 붙여넣기</p>
-<table class="sheet" border="1" bordercolor="#000000" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;border:2px solid #000;">
+<div class="Section1">
+<table border="1" bordercolor="#000000" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;border:2px solid #000;">
 <tr>
   <td ${headerAttr} colspan="7">${title}</td>
 </tr>
@@ -106,10 +109,16 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 </tr>
 ${rows.join('\n')}
 </table>
+</div>
 </body>
 </html>`
 
+  const filename = `${title}.doc`
+  const encoded = encodeURIComponent(filename)
   return new Response(html, {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    headers: {
+      'Content-Type': 'application/msword; charset=utf-8',
+      'Content-Disposition': `attachment; filename="answer-sheet.doc"; filename*=UTF-8''${encoded}`,
+    },
   })
 }
