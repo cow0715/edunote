@@ -1,5 +1,5 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
-import { computeMetrics, getPreviousPeriod, type PeriodComparison, type PeriodType } from '@/lib/report-card'
+import { computeMetrics, getPreviousPeriod, type PeriodComparison, type PeriodType, type ClassContext, type AcademyProfile } from '@/lib/report-card'
 
 // GET /api/report-cards/[id] — 성적표 1건 + 계산된 지표
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -23,9 +23,24 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   // 학생 정보
   const { data: student } = await supabase
     .from('student')
-    .select('id, name, school, grade')
+    .select('id, name, school, grade, student_code')
     .eq('id', card.student_id)
     .single()
+
+  // 학원 프로필 (강사 레코드에서)
+  const { data: teacherRow } = await supabase
+    .from('teacher')
+    .select('name, academy_name, academy_english_name, academy_address, academy_phone, director_name')
+    .eq('id', teacherId)
+    .single()
+  const academy: AcademyProfile = {
+    name: teacherRow?.academy_name ?? null,
+    english_name: teacherRow?.academy_english_name ?? null,
+    address: teacherRow?.academy_address ?? null,
+    phone: teacherRow?.academy_phone ?? null,
+    director_name: teacherRow?.director_name ?? null,
+    teacher_name: teacherRow?.name ?? null,
+  }
 
   if (!student) return err('학생 정보 없음', 404)
 
@@ -173,7 +188,84 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     avgHomework: prevMetrics.avgHomework,
   } : null
 
-  return ok({ card, student, metrics, previous })
+  // 반 평균 / 석차 계산 — 같은 반(들)에 속한 다른 학생 대비
+  let classContext: ClassContext | null = null
+  if (classIds.length > 0 && weekIds.length > 0) {
+    const { data: classmates } = await supabase
+      .from('class_student')
+      .select('student_id')
+      .in('class_id', classIds)
+    const classmateIds = [...new Set((classmates ?? []).map((c: { student_id: string }) => c.student_id))]
+
+    if (classmateIds.length > 0) {
+      const { data: allScores } = await supabase
+        .from('week_score')
+        .select('student_id, week_id, reading_correct, vocab_correct, homework_done')
+        .in('week_id', weekIds)
+        .in('student_id', classmateIds)
+
+      // 주차별 totals (동일 주차 공유)
+      const weekTotalsById = new Map<string, { r: number; v: number; h: number }>()
+      for (const w of inPeriod) {
+        const ww = w as { id: string; reading_total: number; vocab_total: number; homework_total: number }
+        weekTotalsById.set(ww.id, { r: ww.reading_total, v: ww.vocab_total, h: ww.homework_total })
+      }
+
+      const round = (n: number) => Math.round(n)
+      const avg = (arr: (number | null)[]): number | null => {
+        const ns = arr.filter((v): v is number => v !== null)
+        return ns.length === 0 ? null : round(ns.reduce((a, b) => a + b, 0) / ns.length)
+      }
+
+      const byStudent = new Map<string, { reading: number[]; vocab: number[]; homework: number[] }>()
+      for (const s of (allScores ?? []) as { student_id: string; week_id: string; reading_correct: number | null; vocab_correct: number | null; homework_done: number | null }[]) {
+        const tot = weekTotalsById.get(s.week_id)
+        if (!tot) continue
+        const entry = byStudent.get(s.student_id) ?? { reading: [], vocab: [], homework: [] }
+        if (s.reading_correct !== null && tot.r > 0) entry.reading.push((s.reading_correct / tot.r) * 100)
+        if (s.vocab_correct !== null && tot.v > 0) entry.vocab.push((s.vocab_correct / tot.v) * 100)
+        if (s.homework_done !== null && tot.h > 0) entry.homework.push((s.homework_done / tot.h) * 100)
+        byStudent.set(s.student_id, entry)
+      }
+
+      const aggregates = [...byStudent.entries()].map(([sid, e]) => {
+        const r = e.reading.length ? round(e.reading.reduce((a, b) => a + b, 0) / e.reading.length) : null
+        const v = e.vocab.length ? round(e.vocab.reduce((a, b) => a + b, 0) / e.vocab.length) : null
+        const h = e.homework.length ? round(e.homework.reduce((a, b) => a + b, 0) / e.homework.length) : null
+        const o = avg([r, v, h])
+        return { sid, reading: r, vocab: v, homework: h, overall: o }
+      })
+
+      const allOverall = aggregates.map((a) => a.overall)
+      const classAvgOverall = avg(allOverall)
+      const classAvgReading = avg(aggregates.map((a) => a.reading))
+      const classAvgVocab = avg(aggregates.map((a) => a.vocab))
+      const classAvgHomework = avg(aggregates.map((a) => a.homework))
+
+      const me = aggregates.find((a) => a.sid === student.id)
+      const ranked = aggregates
+        .filter((a) => a.overall !== null)
+        .sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0))
+      const classTotalStudents = ranked.length
+      const myIdx = me && me.overall !== null ? ranked.findIndex((a) => a.sid === me.sid) : -1
+      const classRank = myIdx >= 0 ? myIdx + 1 : null
+      const classPercentile = classRank && classTotalStudents > 0
+        ? Math.round((classRank / classTotalStudents) * 100)
+        : null
+
+      classContext = {
+        classAvgOverall,
+        classAvgReading,
+        classAvgVocab,
+        classAvgHomework,
+        classTotalStudents,
+        classRank,
+        classPercentile,
+      }
+    }
+  }
+
+  return ok({ card, student, metrics, previous, academy, classContext })
 }
 
 // PATCH /api/report-cards/[id] — 편집 (코멘트, 등급, 오답 선별, 상태)

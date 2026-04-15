@@ -132,6 +132,43 @@ export interface PeriodComparison {
   avgHomework: number | null
 }
 
+export interface ClassContext {
+  classAvgOverall: number | null
+  classAvgReading: number | null
+  classAvgVocab: number | null
+  classAvgHomework: number | null
+  classTotalStudents: number
+  classRank: number | null           // 1-based; null if not computable
+  classPercentile: number | null     // 상위 몇 %
+}
+
+export interface AcademyProfile {
+  name: string | null
+  english_name: string | null
+  address: string | null
+  phone: string | null
+  director_name: string | null
+  teacher_name: string | null
+}
+
+// 정성 라벨
+export function qualitativeLabel(rate: number | null): string {
+  if (rate === null) return '-'
+  if (rate >= 95) return '최우수'
+  if (rate >= 85) return '우수'
+  if (rate >= 70) return '양호'
+  if (rate >= 55) return '보통'
+  return '노력'
+}
+
+export function qualitativeColor(rate: number | null): string {
+  if (rate === null) return '#9CA3AF'
+  if (rate >= 85) return '#2463EB'
+  if (rate >= 70) return '#10B981'
+  if (rate >= 55) return '#F59E0B'
+  return '#EF4444'
+}
+
 export interface WrongItem {
   answer_id: string
   week_number: number
