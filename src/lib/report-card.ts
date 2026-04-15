@@ -152,7 +152,9 @@ export interface ReportMetrics {
   avgVocab: number | null
   avgHomework: number | null
   overallAvg: number | null
-  attendancePresent: number
+  attendancePresent: number   // 출석(present)만
+  attendanceLate: number
+  attendanceAbsent: number
   attendanceTotal: number
   strengths: CategoryStat[]     // top 3 (소분류 태그 기준)
   weaknesses: CategoryStat[]    // bottom 3 (소분류 태그 기준, wrong 포함)
@@ -160,6 +162,7 @@ export interface ReportMetrics {
   totalQuestions: number
   totalCorrect: number
   bestWeek: BestWeek | null
+  achievements: string[]        // 이 기간의 성취 내러티브 배지
 }
 
 type WeekLite = {
@@ -248,7 +251,9 @@ export function computeMetrics(
   const avgHomework = avg(weekRows.map((r) => r.homework_rate))
   const overallAvg = avg([avgReading, avgVocab, avgHomework])
 
-  const attendancePresent = attendance.filter((a) => a.status !== 'absent').length
+  const attendancePresent = attendance.filter((a) => a.status === 'present').length
+  const attendanceLate = attendance.filter((a) => a.status === 'late').length
+  const attendanceAbsent = attendance.filter((a) => a.status === 'absent').length
   const attendanceTotal = attendance.length
 
   // 태그별(소분류) 정답률 집계 — reading 위주
@@ -332,6 +337,38 @@ export function computeMetrics(
     })
     .sort((a, b) => a.week_number - b.week_number || a.question_number - b.question_number)
 
+  // 성취 배지 (내러티브)
+  const achievements: string[] = []
+  if (weekScored.length >= 2) {
+    let curRun = 1
+    let maxRun = 1
+    for (let i = 1; i < weekScored.length; i++) {
+      if (weekScored[i].overall_rate > weekScored[i - 1].overall_rate) {
+        curRun++
+        if (curRun > maxRun) maxRun = curRun
+      } else {
+        curRun = 1
+      }
+    }
+    if (maxRun >= 3) achievements.push(`${maxRun}주 연속 점수 상승`)
+  }
+  if (bestWeek && bestWeek.overall_rate >= 90) {
+    achievements.push(`최고 주차 ${bestWeek.overall_rate}% 달성`)
+  }
+  if (attendanceTotal > 0 && attendanceAbsent === 0 && attendanceLate === 0) {
+    achievements.push(`개근 (${attendanceTotal}회 전체 출석)`)
+  }
+  if (totalQuestions >= 100) {
+    achievements.push(`${totalQuestions}문항 풀이 완료`)
+  }
+  if (totalQuestions >= 20) {
+    const r = Math.round((totalCorrect / totalQuestions) * 100)
+    if (r >= 85) achievements.push(`평균 정답률 ${r}%`)
+  }
+  if (overallAvg !== null && overallAvg >= 95) {
+    achievements.push('종합 평균 95% 이상')
+  }
+
   return {
     weekRows,
     avgReading,
@@ -339,6 +376,8 @@ export function computeMetrics(
     avgHomework,
     overallAvg,
     attendancePresent,
+    attendanceLate,
+    attendanceAbsent,
     attendanceTotal,
     strengths,
     weaknesses,
@@ -346,6 +385,7 @@ export function computeMetrics(
     totalQuestions,
     totalCorrect,
     bestWeek,
+    achievements,
   }
 }
 
@@ -375,8 +415,9 @@ export function buildAutoSummary(
     parts.push(`${metrics.weaknesses[0].name} 영역은 추가 연습이 필요합니다.`)
   }
 
+  const attended = metrics.attendancePresent + metrics.attendanceLate
   const attendRate = metrics.attendanceTotal > 0
-    ? Math.round((metrics.attendancePresent / metrics.attendanceTotal) * 100)
+    ? Math.round((attended / metrics.attendanceTotal) * 100)
     : null
   if (attendRate !== null && attendRate < 80) {
     parts.push(`출석률 ${attendRate}%로 꾸준한 참여가 필요합니다.`)
