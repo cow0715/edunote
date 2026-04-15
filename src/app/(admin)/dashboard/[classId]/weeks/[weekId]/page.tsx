@@ -219,7 +219,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
                   onClick={() => window.open(`/api/weeks/${weekId}/answer-sheet-html`, '_blank')}
                   className="text-xs text-indigo-500 hover:text-indigo-700 underline"
                 >
-                  답안지 표 생성 (한글 붙여넣기용)
+                  답안지 표 다운로드 (한글로 열기)
                 </button>
               </div>
               <ExplanationEditor weekId={weekId} />
