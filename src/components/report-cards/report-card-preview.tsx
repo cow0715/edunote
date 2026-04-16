@@ -429,20 +429,18 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
 
       {/* 오답 문항 */}
       {wrongItems.length > 0 && (() => {
-        // 태그 빈도 계산 → 2회 이상 오답 태그에 속한 문항 우선, 없으면 최근 순
-        const tagCount: Record<string, number> = {}
-        wrongItems.forEach((w) => w.tags.forEach((t) => { tagCount[t] = (tagCount[t] ?? 0) + 1 }))
-        const hasRepeat = Object.values(tagCount).some((c) => c >= 2)
-        const filtered = hasRepeat
-          ? wrongItems.filter((w) => w.tags.some((t) => tagCount[t] >= 2))
-          : wrongItems
-        const displayed: WrongItem[] = [...filtered]
+        // 약점 Top 3 태그에 속한 문항 우선, 없으면 전체에서 최근 5건
+        const weakTagNames = new Set(weaknesses.map((w) => w.name))
+        const fromWeak = weakTagNames.size > 0
+          ? wrongItems.filter((w) => w.tags.some((t) => weakTagNames.has(t)))
+          : []
+        const displayed: WrongItem[] = (fromWeak.length > 0 ? fromWeak : wrongItems)
           .sort((a, b) => b.week_number - a.week_number)
           .slice(0, 5)
         return (
           <section className="mt-4">
             <h2 className="text-sm font-bold text-gray-900 mb-2">
-              오답 문항 {hasRepeat ? '(반복 오답 우선)' : '(최근 5건)'}
+              오답 문항 {fromWeak.length > 0 ? '(약점 태그 기준)' : '(최근 5건)'}
             </h2>
             <div className="rounded-xl border border-gray-100 overflow-hidden">
               <table className="w-full text-xs">
