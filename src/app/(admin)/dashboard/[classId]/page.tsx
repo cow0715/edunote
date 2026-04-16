@@ -225,7 +225,7 @@ function ClassCalendar({
               <div key={d} className="flex items-center justify-center py-0.5">
                 <div
                   data-date={dateStr}
-                  className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] transition-all select-none pointer-events-none
+                  className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] transition-all select-none
                     ${draggingWeekId
                       ? isDropTarget
                         ? 'bg-emerald-500 text-white scale-110 font-semibold'
