@@ -131,6 +131,70 @@ function WeeklyChart({ rows, classAvgReading, classAvgVocab, classAvgHomework }:
   )
 }
 
+function RadarChart({ axes, student, classAvg }: {
+  axes: { label: string; value: number | null; classValue?: number | null }[]
+  student?: string  // unused, for future label
+  classAvg?: boolean
+}) {
+  const SIZE = 120
+  const cx = SIZE / 2, cy = SIZE / 2
+  const R = 44  // outer radius
+  const n = axes.length
+  const angleOf = (i: number) => (2 * Math.PI * i / n) - Math.PI / 2
+  const ptOf = (i: number, val: number) => {
+    const a = angleOf(i)
+    const r = R * Math.max(0, Math.min(100, val)) / 100
+    return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) }
+  }
+  const labelPtOf = (i: number) => {
+    const a = angleOf(i)
+    return { x: cx + (R + 14) * Math.cos(a), y: cy + (R + 14) * Math.sin(a) }
+  }
+
+  const gridLevels = [25, 50, 75, 100]
+  const studentPoly = axes.map((ax, i) => ptOf(i, ax.value ?? 0))
+  const classPoly = axes.map((ax, i) => ptOf(i, ax.classValue ?? 0))
+  const toPath = (pts: { x: number; y: number }[]) =>
+    pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') + 'Z'
+
+  return (
+    <svg viewBox={`0 0 ${SIZE} ${SIZE}`} width={SIZE} height={SIZE} style={{ display: 'block', margin: '0 auto' }}>
+      {/* grid polygons */}
+      {gridLevels.map((lv) => {
+        const pts = axes.map((_, i) => ptOf(i, lv))
+        return <path key={lv} d={toPath(pts)} fill="none" stroke="#E5E7EB" strokeWidth="0.5" />
+      })}
+      {/* axis lines */}
+      {axes.map((_, i) => {
+        const p = ptOf(i, 100)
+        return <line key={i} x1={cx} y1={cy} x2={p.x.toFixed(1)} y2={p.y.toFixed(1)} stroke="#E5E7EB" strokeWidth="0.5" />
+      })}
+      {/* class avg polygon */}
+      {classAvg && axes.some((ax) => ax.classValue != null) && (
+        <path d={toPath(classPoly)} fill="#94A3B8" fillOpacity="0.12" stroke="#94A3B8" strokeWidth="1" />
+      )}
+      {/* student polygon */}
+      <path d={toPath(studentPoly)} fill={BLUE} fillOpacity="0.15" stroke={BLUE} strokeWidth="1.5" />
+      {/* student dots */}
+      {studentPoly.map((p, i) => (
+        axes[i].value !== null && <circle key={i} cx={p.x} cy={p.y} r="2" fill={BLUE} />
+      ))}
+      {/* labels */}
+      {axes.map((ax, i) => {
+        const lp = labelPtOf(i)
+        return (
+          <text key={i} x={lp.x.toFixed(1)} y={lp.y.toFixed(1)}
+            fontSize="7" fill="#374151" textAnchor="middle" dominantBaseline="middle">
+            {ax.label}
+          </text>
+        )
+      })}
+      {/* center 50% label */}
+      <text x={cx} y={cy + R * 0.5 + 2} fontSize="5.5" fill="#D1D5DB" textAnchor="middle">50</text>
+    </svg>
+  )
+}
+
 function PrevCompareBar({ label, current, previous, color }: {
   label: string; current: number | null; previous: number | null; color: string
 }) {
@@ -342,7 +406,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         </div>
       </section>
 
-      {/* 주차별 성적 추이 + 이전 기간 비교 */}
+      {/* 주차별 성적 추이 + 레이더 차트 */}
       {weekRows.length > 0 && (
         <section className="mt-4 grid grid-cols-[2fr_1fr] gap-3">
           <div className="rounded-xl border border-gray-100 p-3">
@@ -354,17 +418,36 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
               classAvgHomework={classContext?.classAvgHomework}
             />
           </div>
-          <div className="rounded-xl border border-gray-100 p-3">
-            <h2 className="text-xs font-bold text-gray-900 mb-3">이전 기간 비교</h2>
-            {previous ? (
-              <div className="space-y-3">
+          <div className="rounded-xl border border-gray-100 p-3 flex flex-col items-center">
+            <h2 className="text-xs font-bold text-gray-900 mb-1 self-start">영역별 균형</h2>
+            <RadarChart
+              axes={[
+                { label: '독해', value: avgReading, classValue: classContext?.classAvgReading },
+                { label: '어휘', value: avgVocab, classValue: classContext?.classAvgVocab },
+                { label: '과제', value: avgHomework, classValue: classContext?.classAvgHomework },
+                { label: '출석', value: attendRate, classValue: null },
+              ]}
+              classAvg={!!classContext}
+            />
+            {classContext && (
+              <div className="flex gap-3 mt-1">
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full" style={{ background: BLUE }} />
+                  <span className="text-[9px] text-gray-500">본인</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-slate-400" />
+                  <span className="text-[9px] text-gray-500">반 평균</span>
+                </div>
+              </div>
+            )}
+            {previous && (
+              <div className="mt-2 w-full space-y-1.5">
+                <p className="text-[9px] text-gray-400 font-medium">이전 기간 대비</p>
                 <PrevCompareBar label="독해" current={avgReading} previous={previous.avgReading} color="#2463EB" />
                 <PrevCompareBar label="어휘" current={avgVocab} previous={previous.avgVocab} color="#10B981" />
                 <PrevCompareBar label="과제" current={avgHomework} previous={previous.avgHomework} color="#F59E0B" />
-                <PrevCompareBar label="종합" current={overallAvg} previous={previous.overallAvg} color="#8B5CF6" />
               </div>
-            ) : (
-              <p className="text-[10px] text-gray-400">이전 기간 데이터 없음</p>
             )}
           </div>
         </section>
