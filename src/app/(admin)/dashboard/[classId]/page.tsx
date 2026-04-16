@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useState } from 'react'
+import { use, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, UserPlus, UserMinus, RefreshCw, Link as LinkIcon, AlertTriangle } from 'lucide-react'
@@ -40,7 +40,7 @@ function todayLocalStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-// ── 달력 컴포넌트 (드래그 방식) ───────────────────────────────────────────────
+// ── 달력 컴포넌트 (pointer events 드래그) ─────────────────────────────────────
 function ClassCalendar({
   classStartDate,
   classEndDate,
@@ -51,8 +51,8 @@ function ClassCalendar({
 }: {
   classStartDate: string
   classEndDate: string
-  dateWeekMap: Map<string, string>       // date → weekId
-  weekNumberMap: Map<string, number>     // weekId → week_number
+  dateWeekMap: Map<string, string>
+  weekNumberMap: Map<string, number>
   onDateClick: (weekId: string) => void
   onDrop: (weekId: string, newDate: string) => void
 }) {
@@ -70,6 +70,10 @@ function ClassCalendar({
     if (today >= s && today <= e) return new Date().getMonth() + 1
     return parseInt(classStartDate.slice(5, 7), 10)
   })
+
+  // 드래그 상태: ref로 관리 (리렌더 최소화) + state로 UI 반영
+  const draggingRef = useRef<string | null>(null)
+  const pointerDownPos = useRef<{ x: number; y: number } | null>(null)
   const [draggingWeekId, setDraggingWeekId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
 
@@ -104,12 +108,59 @@ function ClassCalendar({
   const rangeStart = classStartDate.slice(0, 10)
   const rangeEnd = classEndDate.slice(0, 10)
 
+  // pointer move 중 드롭 대상 찾기
+  function handlePointerMove(e: React.PointerEvent) {
+    if (!draggingRef.current) return
+    // 드래그로 간주할 최소 이동 거리
+    if (pointerDownPos.current) {
+      const dx = e.clientX - pointerDownPos.current.x
+      const dy = e.clientY - pointerDownPos.current.y
+      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return
+      pointerDownPos.current = null // 이후부터는 드래그 모드
+      setDraggingWeekId(draggingRef.current)
+    }
+    // 현재 포인터 아래 data-date 요소 찾기
+    const el = document.elementFromPoint(e.clientX, e.clientY)
+    const dateEl = el?.closest('[data-date]')
+    setDropTarget(dateEl?.getAttribute('data-date') ?? null)
+  }
+
+  function handlePointerUp(e: React.PointerEvent, weekId: string) {
+    const wasDragging = draggingRef.current && !pointerDownPos.current
+    draggingRef.current = null
+    pointerDownPos.current = null
+
+    if (wasDragging) {
+      // 드래그 완료 → 드롭 처리
+      const el = document.elementFromPoint(e.clientX, e.clientY)
+      const dateEl = el?.closest('[data-date]')
+      const newDate = dateEl?.getAttribute('data-date')
+      if (newDate) onDrop(weekId, newDate)
+    } else {
+      // 클릭으로 처리
+      onDateClick(weekId)
+    }
+    setDraggingWeekId(null)
+    setDropTarget(null)
+  }
+
+  function cancelDrag() {
+    draggingRef.current = null
+    pointerDownPos.current = null
+    setDraggingWeekId(null)
+    setDropTarget(null)
+  }
+
   return (
-    <div>
+    <div
+      onPointerMove={handlePointerMove}
+      onPointerLeave={cancelDrag}
+      style={{ touchAction: 'none' }}
+    >
       {/* 드래그 안내 */}
       {draggingWeekId && (
-        <div className="mb-3 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-600 text-center">
-          {weekNumberMap.get(draggingWeekId)}주차를 이동할 날짜에 놓으세요
+        <div className="mb-3 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-600 text-center select-none">
+          {weekNumberMap.get(draggingWeekId)}주차 — 이동할 날짜에서 손을 떼세요
         </div>
       )}
 
@@ -149,19 +200,18 @@ function ClassCalendar({
             return (
               <div key={d} className="flex items-center justify-center py-0.5">
                 <div
-                  draggable
-                  onClick={() => !draggingWeekId && onDateClick(weekId)}
-                  onDragStart={(e) => {
-                    e.dataTransfer.effectAllowed = 'move'
-                    e.dataTransfer.setData('weekId', weekId)
-                    setDraggingWeekId(weekId)
+                  data-weekid={weekId}
+                  onPointerDown={(e) => {
+                    e.currentTarget.setPointerCapture(e.pointerId)
+                    draggingRef.current = weekId
+                    pointerDownPos.current = { x: e.clientX, y: e.clientY }
                   }}
-                  onDragEnd={() => { setDraggingWeekId(null); setDropTarget(null) }}
-                  title={`${weekNumberMap.get(weekId)}주차 — 드래그해서 날짜 변경`}
+                  onPointerUp={(e) => handlePointerUp(e, weekId)}
+                  title={`${weekNumberMap.get(weekId)}주차`}
                   className={`flex h-7 w-7 cursor-grab items-center justify-center rounded-full text-[11px] font-semibold transition-all select-none
                     bg-primary text-white
-                    ${isDragging ? 'opacity-40 scale-90' : 'hover:bg-primary/80 active:cursor-grabbing'}
-                    ${isToday ? 'ring-2 ring-primary ring-offset-1' : ''}`}
+                    ${isDragging ? 'opacity-40 scale-90' : 'hover:bg-primary/80'}
+                    ${isToday && !isDragging ? 'ring-2 ring-primary ring-offset-1' : ''}`}
                 >
                   {d}
                 </div>
@@ -174,16 +224,8 @@ function ClassCalendar({
             return (
               <div key={d} className="flex items-center justify-center py-0.5">
                 <div
-                  onDragOver={(e) => { if (draggingWeekId) { e.preventDefault(); setDropTarget(dateStr) } }}
-                  onDragLeave={() => setDropTarget(null)}
-                  onDrop={(e) => {
-                    e.preventDefault()
-                    const wId = e.dataTransfer.getData('weekId')
-                    if (wId) onDrop(wId, dateStr)
-                    setDraggingWeekId(null)
-                    setDropTarget(null)
-                  }}
-                  className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] transition-all
+                  data-date={dateStr}
+                  className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] transition-all select-none pointer-events-none
                     ${draggingWeekId
                       ? isDropTarget
                         ? 'bg-emerald-500 text-white scale-110 font-semibold'
