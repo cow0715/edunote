@@ -9,21 +9,37 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   // 1. start_date 순으로 정렬 (null은 맨 뒤)
   const { data: weeks, error: fetchError } = await supabase
     .from('week')
-    .select('id, start_date')
+    .select('id, week_number, start_date')
     .eq('class_id', classId)
     .order('start_date', { ascending: true, nullsFirst: false })
 
   if (fetchError) return err(fetchError.message, 500)
   if (!weeks || weeks.length === 0) return ok({ updated: 0 })
 
-  // 2. 순서대로 week_number 부여
-  const updates = weeks.map((w, i) => ({ id: w.id, week_number: i + 1 }))
+  // 2. 변경이 필요한 주차만 추림
+  const needUpdate = weeks
+    .map((w, i) => ({ id: w.id, target: i + 1, current: w.week_number as number }))
+    .filter((w) => w.current !== w.target)
 
-  const { error: updateError } = await supabase
-    .from('week')
-    .upsert(updates, { onConflict: 'id' })
+  if (needUpdate.length === 0) return ok({ updated: 0 })
 
-  if (updateError) return err(updateError.message, 500)
+  // 3. Pass 1: 모두 임시 음수로 (unique(class_id, week_number) 제약 회피)
+  for (let i = 0; i < needUpdate.length; i++) {
+    const { error } = await supabase
+      .from('week')
+      .update({ week_number: -(10000 + i) })
+      .eq('id', needUpdate[i].id)
+    if (error) return err(error.message, 500)
+  }
 
-  return ok({ updated: updates.length })
+  // 4. Pass 2: 최종 값 할당
+  for (const w of needUpdate) {
+    const { error } = await supabase
+      .from('week')
+      .update({ week_number: w.target })
+      .eq('id', w.id)
+    if (error) return err(error.message, 500)
+  }
+
+  return ok({ updated: needUpdate.length })
 }
