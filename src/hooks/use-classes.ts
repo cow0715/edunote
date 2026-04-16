@@ -27,19 +27,38 @@ export function useClass(classId: string) {
 export function useSyncWeeks(classId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (force: boolean) => {
+    mutationFn: async () => {
       const res = await fetch(`/api/classes/${classId}/weeks/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force }),
       })
+      if (!res.ok) throw new Error((await res.json()).error)
       return res.json()
     },
     onSuccess: (data) => {
-      if (!data.warning) {
-        qc.invalidateQueries({ queryKey: ['weeks', classId] })
-        toast.success(`주차 동기화 완료 (총 ${data.total}회)`)
-      }
+      qc.invalidateQueries({ queryKey: ['weeks', classId] })
+      toast.success(`주차가 생성되었습니다 (총 ${data.total}회)`)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
+export function useExtendWeeks(classId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (count: number) => {
+      const res = await fetch(`/api/classes/${classId}/weeks/extend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      return res.json()
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['weeks', classId] })
+      qc.invalidateQueries({ queryKey: ['class', classId] })
+      toast.success(`${data.added}회 추가되었습니다`)
     },
     onError: (e: Error) => toast.error(e.message),
   })
