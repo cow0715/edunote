@@ -278,7 +278,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
   const {
     weekRows, avgReading, avgVocab, avgHomework, overallAvg,
     attendancePresent, attendanceLate, attendanceAbsent, attendanceTotal,
-    strengths, weaknesses, totalQuestions, totalCorrect, achievements,
+    strengths, weaknesses, categoryStats, totalQuestions, totalCorrect, achievements,
     wrongItems,
   } = metrics
 
@@ -510,114 +510,109 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         </div>
       </section>
 
-      {/* 오답 문항 — 반 정답률 기준 분류 */}
-      {wrongItems.length > 0 && (() => {
+      {/* 오답 분석 + 중분류별 정답률 */}
+      {(wrongItems.length > 0 || categoryStats.length > 0) && (() => {
         const qAcc = classContext?.questionAccuracy ?? {}
+        const hasClassData = Object.keys(qAcc).length > 0
+
         const classify = (w: WrongItem): 'solo' | 'hard' | 'common' => {
           const acc = qAcc[w.exam_question_id]
           if (!acc || acc.total === 0) return 'common'
-          const rate = (acc.correct / acc.total) * 100
-          if (rate >= 70) return 'solo'   // 반은 잘 맞췄는데 나만 틀림
-          if (rate < 50) return 'hard'    // 반 전체가 어려웠던 문항
+          const pct = (acc.correct / acc.total) * 100
+          if (pct >= 70) return 'solo'
+          if (pct < 50) return 'hard'
           return 'common'
         }
-        const weakTagNames = new Set(weaknesses.map((w) => w.name))
-        const fromWeak = weakTagNames.size > 0
-          ? wrongItems.filter((w) => w.tags.some((t) => weakTagNames.has(t)))
-          : wrongItems
-        const displayed = (fromWeak.length > 0 ? fromWeak : wrongItems)
-          .sort((a, b) => b.week_number - a.week_number)
-          .slice(0, 5)
-          .map((w) => ({ ...w, kind: classify(w) }))
 
-        const WrongTable = ({ items }: { items: typeof displayed }) => (
-          <table className="w-full text-xs">
-            <thead className="bg-gray-50 text-gray-500">
-              <tr>
-                <th className="px-3 py-2 text-left font-medium w-10">주차</th>
-                <th className="px-3 py-2 text-left font-medium w-12">유형</th>
-                <th className="px-3 py-2 text-left font-medium">문항 내용</th>
-                <th className="px-3 py-2 text-center font-medium w-14">내 답안</th>
-                <th className="px-3 py-2 text-center font-medium w-14">정답</th>
-                {Object.keys(qAcc).length > 0 && <th className="px-3 py-2 text-center font-medium w-14">반 정답률</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((w) => {
-                const acc = qAcc[w.exam_question_id]
-                const classRate = acc && acc.total > 0 ? Math.round((acc.correct / acc.total) * 100) : null
-                return (
-                  <tr key={w.answer_id} className="border-t border-gray-100">
-                    <td className="px-3 py-2 text-gray-500">{w.week_number}주</td>
-                    <td className="px-3 py-2">
-                      <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
-                        {w.exam_type === 'reading' ? '독해' : w.exam_type === 'vocab' ? '어휘' : '-'}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-gray-800">
-                      <div className="truncate max-w-[180px]">{w.question_text ?? `${w.question_number}번`}</div>
-                      {w.tags.length > 0 && (
-                        <div className="text-[10px] text-gray-400 mt-0.5 truncate">
-                          {w.tags.slice(0, 2).join(', ')}{w.tags.length > 2 && ` +${w.tags.length - 2}`}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-center font-medium text-red-500">{w.my_answer}</td>
-                    <td className="px-3 py-2 text-center font-medium" style={{ color: BLUE }}>{w.correct_answer}</td>
-                    {Object.keys(qAcc).length > 0 && (
-                      <td className="px-3 py-2 text-center text-[10px] tabular-nums text-gray-500">
-                        {classRate !== null ? `${classRate}%` : '-'}
-                      </td>
-                    )}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )
+        const classified = wrongItems.map((w) => ({ ...w, kind: classify(w) }))
+        const soloItems = classified.filter((w) => w.kind === 'solo')
+        const hardItems = classified.filter((w) => w.kind === 'hard')
 
-        const soloItems = displayed.filter((w) => w.kind === 'solo')
-        const hardItems = displayed.filter((w) => w.kind === 'hard')
-        const commonItems = displayed.filter((w) => w.kind === 'common')
-        const hasClassData = Object.keys(qAcc).length > 0
+        // 소분류 태그를 종합해서 각 그룹별 대표 태그 추출
+        const topTags = (items: typeof classified, n = 4) => {
+          const freq: Record<string, number> = {}
+          items.forEach((w) => w.tags.forEach((t) => { freq[t] = (freq[t] ?? 0) + 1 }))
+          return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, n).map(([t]) => t)
+        }
 
         return (
           <section className="mt-4">
-            <h2 className="text-sm font-bold text-gray-900 mb-2">오답 문항 분석</h2>
-            {hasClassData ? (
-              <div className="space-y-3">
-                {soloItems.length > 0 && (
-                  <div className="rounded-xl overflow-hidden border border-red-100">
-                    <div className="px-3 py-2 bg-red-50 flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-red-600 px-1.5 py-0.5 rounded bg-red-100">나만 틀린 문항</span>
-                      <span className="text-[10px] text-red-400">반 정답률 70% 이상 — 개인 집중 학습 필요</span>
+            <h2 className="text-sm font-bold text-gray-900 mb-2">오답 분석</h2>
+            <div className="grid grid-cols-[1fr_1fr] gap-3">
+              {/* 왼쪽: 오답 카드 */}
+              <div className="space-y-2">
+                {hasClassData ? (
+                  <>
+                    <div className="rounded-xl border border-red-100 bg-red-50/60 p-3">
+                      <div className="flex items-baseline gap-2 mb-1.5">
+                        <span className="text-2xl font-extrabold tabular-nums text-red-500">{soloItems.length}</span>
+                        <span className="text-xs font-bold text-red-500">개</span>
+                        <span className="text-[10px] text-red-400 ml-1">나만 틀린 문항</span>
+                      </div>
+                      <p className="text-[9px] text-red-400 mb-2">반 정답률 70% 이상 — 개인 집중 학습 필요</p>
+                      {soloItems.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {topTags(soloItems).map((t) => (
+                            <span key={t} className="text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-600">{t}</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <WrongTable items={soloItems} />
-                  </div>
-                )}
-                {hardItems.length > 0 && (
-                  <div className="rounded-xl overflow-hidden border border-amber-100">
-                    <div className="px-3 py-2 bg-amber-50 flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-amber-700 px-1.5 py-0.5 rounded bg-amber-100">반 전체 어려운 문항</span>
-                      <span className="text-[10px] text-amber-500">반 정답률 50% 미만 — 수업에서 함께 다룰 예정</span>
+                    <div className="rounded-xl border border-amber-100 bg-amber-50/60 p-3">
+                      <div className="flex items-baseline gap-2 mb-1.5">
+                        <span className="text-2xl font-extrabold tabular-nums text-amber-500">{hardItems.length}</span>
+                        <span className="text-xs font-bold text-amber-500">개</span>
+                        <span className="text-[10px] text-amber-500 ml-1">반 전체 어려운 문항</span>
+                      </div>
+                      <p className="text-[9px] text-amber-400 mb-2">반 정답률 50% 미만 — 수업에서 함께 복습 예정</p>
+                      {hardItems.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {topTags(hardItems).map((t) => (
+                            <span key={t} className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">{t}</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <WrongTable items={hardItems} />
-                  </div>
-                )}
-                {commonItems.length > 0 && (
-                  <div className="rounded-xl overflow-hidden border border-gray-100">
-                    <div className="px-3 py-2 bg-gray-50">
-                      <span className="text-[10px] font-semibold text-gray-500">기타 오답</span>
+                  </>
+                ) : (
+                  <div className="rounded-xl border border-gray-100 p-3">
+                    <div className="flex items-baseline gap-2 mb-1">
+                      <span className="text-2xl font-extrabold tabular-nums text-gray-700">{wrongItems.length}</span>
+                      <span className="text-xs font-bold text-gray-500">개 오답</span>
                     </div>
-                    <WrongTable items={commonItems} />
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {topTags(classified).map((t) => (
+                        <span key={t} className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{t}</span>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
-            ) : (
-              <div className="rounded-xl border border-gray-100 overflow-hidden">
-                <WrongTable items={displayed} />
-              </div>
-            )}
+
+              {/* 오른쪽: 중분류별 정답률 가로 막대 차트 */}
+              {categoryStats.length > 0 && (
+                <div className="rounded-xl border border-gray-100 p-3">
+                  <h3 className="text-[10px] font-bold text-gray-500 mb-2">유형별 정답률</h3>
+                  <div className="space-y-2">
+                    {categoryStats.map((c) => {
+                      const barColor = c.rate >= 80 ? '#10B981' : c.rate >= 60 ? '#F59E0B' : '#EF4444'
+                      return (
+                        <div key={c.name}>
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-[10px] text-gray-700 truncate max-w-[100px]">{c.name}</span>
+                            <span className="text-[10px] font-bold tabular-nums ml-1" style={{ color: barColor }}>{c.rate}%</span>
+                          </div>
+                          <div className="relative h-1.5 rounded-full bg-gray-100">
+                            <div className="absolute left-0 top-0 h-full rounded-full transition-all"
+                              style={{ width: `${c.rate}%`, background: barColor }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </section>
         )
       })()}

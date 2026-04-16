@@ -198,6 +198,7 @@ export interface ReportMetrics {
   attendanceTotal: number
   strengths: CategoryStat[]     // top 3 (소분류 태그 기준)
   weaknesses: CategoryStat[]    // bottom 3 (소분류 태그 기준, wrong 포함)
+  categoryStats: CategoryStat[] // 중분류별 정답률 (오름차순)
   wrongItems: WrongItem[]
   totalQuestions: number
   totalCorrect: number
@@ -332,6 +333,24 @@ export function computeMetrics(
   const strengths = [...tags].sort((a, b) => b.rate - a.rate || b.total - a.total).slice(0, 3)
   const weaknesses = [...tags].filter((c) => c.wrong > 0).sort((a, b) => a.rate - b.rate || b.wrong - a.wrong).slice(0, 3)
 
+  // 중분류별 정답률 집계
+  const categoryMap = new Map<string, CategoryStat>()
+  for (const tag of tagMap.values()) {
+    if (!tag.category_name) continue
+    const entry = categoryMap.get(tag.category_name) ?? {
+      tag_id: null, name: tag.category_name, category_name: null,
+      correct: 0, total: 0, wrong: 0, rate: 0,
+    }
+    entry.correct += tag.correct
+    entry.total += tag.total
+    entry.wrong += tag.wrong
+    categoryMap.set(tag.category_name, entry)
+  }
+  const categoryStats: CategoryStat[] = [...categoryMap.values()]
+    .map((c) => ({ ...c, rate: c.total > 0 ? Math.round((c.correct / c.total) * 100) : 0 }))
+    .filter((c) => c.total >= 2)
+    .sort((a, b) => a.rate - b.rate)
+
   // 최고 주차 (3영역 평균 기준)
   const weekScored = weekRows
     .map((r) => {
@@ -422,6 +441,7 @@ export function computeMetrics(
     attendanceTotal,
     strengths,
     weaknesses,
+    categoryStats,
     wrongItems,
     totalQuestions,
     totalCorrect,
