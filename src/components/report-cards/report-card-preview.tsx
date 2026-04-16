@@ -1,7 +1,7 @@
 'use client'
 
 import { Award, Minus, Square, BookOpen, BookText, ClipboardCheck } from 'lucide-react'
-import type { ReportCard, ReportMetrics, PeriodComparison, ClassContext, AcademyProfile, WeekRow } from '@/lib/report-card'
+import type { ReportCard, ReportMetrics, PeriodComparison, ClassContext, AcademyProfile, WeekRow, WrongItem } from '@/lib/report-card'
 import { qualitativeLabel, qualitativeColor } from '@/lib/report-card'
 
 interface Props {
@@ -68,6 +68,102 @@ function MetricCard({ label, primary, secondary, color = BLUE }: {
   )
 }
 
+function WeeklyChart({ rows, classAvgReading, classAvgVocab, classAvgHomework }: {
+  rows: WeekRow[]
+  classAvgReading?: number | null
+  classAvgVocab?: number | null
+  classAvgHomework?: number | null
+}) {
+  if (rows.length === 0) return null
+  const W = 480, H = 80, PAD_L = 28, PAD_R = 8, PAD_T = 6, PAD_B = 18
+  const cW = W - PAD_L - PAD_R
+  const cH = H - PAD_T - PAD_B
+  const n = rows.length
+  const xOf = (i: number) => PAD_L + (n === 1 ? cW / 2 : (i / (n - 1)) * cW)
+  const yOf = (v: number) => PAD_T + cH - (Math.max(0, Math.min(100, v)) / 100) * cH
+  const linePath = (vals: (number | null)[]) => {
+    const pts = vals.map((v, i) => v === null ? null : { x: xOf(i), y: yOf(v) }).filter((p): p is { x: number; y: number } => p !== null)
+    return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+  }
+  const avgLine = (val: number | null | undefined, color: string) => {
+    if (val === null || val === undefined) return null
+    const y = yOf(val).toFixed(1)
+    return <line x1={PAD_L} y1={y} x2={W - PAD_R} y2={y} stroke={color} strokeWidth="0.8" strokeDasharray="3,2" opacity="0.5" />
+  }
+  const COLORS = { r: '#2463EB', v: '#10B981', h: '#F59E0B' }
+  const readingVals = rows.map(r => r.reading_rate)
+  const vocabVals = rows.map(r => r.vocab_rate)
+  const homeworkVals = rows.map(r => r.homework_rate)
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
+      {/* y-grid */}
+      {[0, 25, 50, 75, 100].map(v => (
+        <g key={v}>
+          <line x1={PAD_L} y1={yOf(v)} x2={W - PAD_R} y2={yOf(v)} stroke="#E5E7EB" strokeWidth="0.5" />
+          <text x={PAD_L - 3} y={yOf(v) + 3} fontSize="6" fill="#9CA3AF" textAnchor="end">{v}</text>
+        </g>
+      ))}
+      {/* class avg lines */}
+      {avgLine(classAvgReading, COLORS.r)}
+      {avgLine(classAvgVocab, COLORS.v)}
+      {avgLine(classAvgHomework, COLORS.h)}
+      {/* data lines */}
+      <path d={linePath(readingVals)} fill="none" stroke={COLORS.r} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      <path d={linePath(vocabVals)} fill="none" stroke={COLORS.v} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      <path d={linePath(homeworkVals)} fill="none" stroke={COLORS.h} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      {/* dots + x labels */}
+      {rows.map((row, i) => (
+        <g key={row.week_id}>
+          {row.reading_rate !== null && <circle cx={xOf(i)} cy={yOf(row.reading_rate)} r="2" fill={COLORS.r} />}
+          {row.vocab_rate !== null && <circle cx={xOf(i)} cy={yOf(row.vocab_rate)} r="2" fill={COLORS.v} />}
+          {row.homework_rate !== null && <circle cx={xOf(i)} cy={yOf(row.homework_rate)} r="2" fill={COLORS.h} />}
+          <text x={xOf(i)} y={H - 3} fontSize="6" fill="#9CA3AF" textAnchor="middle">{row.week_number}주</text>
+        </g>
+      ))}
+      {/* legend */}
+      {[['독해', COLORS.r], ['어휘', COLORS.v], ['과제', COLORS.h]].map(([label, color], i) => (
+        <g key={label} transform={`translate(${PAD_L + i * 42},${PAD_T - 2})`}>
+          <line x1="0" y1="3" x2="8" y2="3" stroke={color} strokeWidth="1.5" />
+          <text x="10" y="6" fontSize="6.5" fill={color as string}>{label}</text>
+        </g>
+      ))}
+    </svg>
+  )
+}
+
+function PrevCompareBar({ label, current, previous, color }: {
+  label: string; current: number | null; previous: number | null; color: string
+}) {
+  if (current === null) return null
+  const delta = previous !== null ? current - previous : null
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-0.5">
+        <span className="text-[10px] text-gray-500">{label}</span>
+        <div className="flex items-center gap-1">
+          {delta !== null && (
+            <span className="text-[10px] font-semibold" style={{ color: delta >= 0 ? '#10B981' : '#EF4444' }}>
+              {delta >= 0 ? '▲' : '▼'}{Math.abs(delta)}%
+            </span>
+          )}
+          <span className="text-[10px] font-bold tabular-nums" style={{ color }}>{current}%</span>
+        </div>
+      </div>
+      <div className="relative h-1.5 rounded-full bg-gray-100">
+        {previous !== null && (
+          <div className="absolute left-0 top-0 h-full rounded-full bg-gray-300"
+            style={{ width: `${Math.max(0, Math.min(100, previous))}%` }} />
+        )}
+        <div className="absolute left-0 top-0 h-full rounded-full transition-all"
+          style={{ width: `${Math.max(0, Math.min(100, current))}%`, background: color }} />
+      </div>
+      {previous !== null && (
+        <p className="text-[9px] text-gray-400 mt-0.5">이전 기간 {previous}%</p>
+      )}
+    </div>
+  )
+}
+
 function DomainRow({ icon: Icon, title, rate, classAvg, series }: {
   icon: React.ComponentType<{ className?: string }>
   title: string
@@ -119,6 +215,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
     weekRows, avgReading, avgVocab, avgHomework, overallAvg,
     attendancePresent, attendanceLate, attendanceAbsent, attendanceTotal,
     strengths, weaknesses, totalQuestions, totalCorrect, achievements,
+    wrongItems,
   } = metrics
 
   const readingSeries = weekRows.map((r: WeekRow) => r.reading_rate)
@@ -148,12 +245,12 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
       <header className="pb-4 border-b border-gray-200">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-xl font-extrabold tracking-tight">{academy.name ?? '학원 정보 설정 필요'}</h1>
-            {academy.english_name && (
-              <p className="text-xs text-gray-500 mt-0.5">
-                {academy.english_name}{academy.address ? ` · ${academy.address}` : ''}
-              </p>
-            )}
+            <h1 className="text-xl font-extrabold tracking-tight">{student.name}</h1>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {academy.name ?? '학원 정보 설정 필요'}
+              {academy.english_name ? ` · ${academy.english_name}` : ''}
+              {academy.address ? ` · ${academy.address}` : ''}
+            </p>
           </div>
           <div className="text-right">
             <p className="text-sm font-bold text-gray-900">학업 성적표</p>
@@ -245,6 +342,34 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         </div>
       </section>
 
+      {/* 주차별 성적 추이 + 이전 기간 비교 */}
+      {weekRows.length > 0 && (
+        <section className="mt-4 grid grid-cols-[2fr_1fr] gap-3">
+          <div className="rounded-xl border border-gray-100 p-3">
+            <h2 className="text-xs font-bold text-gray-900 mb-2">주차별 성적 추이</h2>
+            <WeeklyChart
+              rows={weekRows}
+              classAvgReading={classContext?.classAvgReading}
+              classAvgVocab={classContext?.classAvgVocab}
+              classAvgHomework={classContext?.classAvgHomework}
+            />
+          </div>
+          <div className="rounded-xl border border-gray-100 p-3">
+            <h2 className="text-xs font-bold text-gray-900 mb-3">이전 기간 비교</h2>
+            {previous ? (
+              <div className="space-y-3">
+                <PrevCompareBar label="독해" current={avgReading} previous={previous.avgReading} color="#2463EB" />
+                <PrevCompareBar label="어휘" current={avgVocab} previous={previous.avgVocab} color="#10B981" />
+                <PrevCompareBar label="과제" current={avgHomework} previous={previous.avgHomework} color="#F59E0B" />
+                <PrevCompareBar label="종합" current={overallAvg} previous={previous.overallAvg} color="#8B5CF6" />
+              </div>
+            ) : (
+              <p className="text-[10px] text-gray-400">이전 기간 데이터 없음</p>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* 강점 / 약점 + 성취 */}
       <section className="mt-4 grid grid-cols-[1fr_1fr_1fr] gap-3">
         <div className="rounded-xl border border-gray-100 p-3">
@@ -301,6 +426,63 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
           )}
         </div>
       </section>
+
+      {/* 오답 문항 */}
+      {wrongItems.length > 0 && (() => {
+        // 태그 빈도 계산 → 2회 이상 오답 태그에 속한 문항 우선, 없으면 최근 순
+        const tagCount: Record<string, number> = {}
+        wrongItems.forEach((w) => w.tags.forEach((t) => { tagCount[t] = (tagCount[t] ?? 0) + 1 }))
+        const hasRepeat = Object.values(tagCount).some((c) => c >= 2)
+        const filtered = hasRepeat
+          ? wrongItems.filter((w) => w.tags.some((t) => tagCount[t] >= 2))
+          : wrongItems
+        const displayed: WrongItem[] = [...filtered]
+          .sort((a, b) => b.week_number - a.week_number)
+          .slice(0, 5)
+        return (
+          <section className="mt-4">
+            <h2 className="text-sm font-bold text-gray-900 mb-2">
+              오답 문항 {hasRepeat ? '(반복 오답 우선)' : '(최근 5건)'}
+            </h2>
+            <div className="rounded-xl border border-gray-100 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 text-gray-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium w-10">주차</th>
+                    <th className="px-3 py-2 text-left font-medium w-12">유형</th>
+                    <th className="px-3 py-2 text-left font-medium">문항 내용</th>
+                    <th className="px-3 py-2 text-center font-medium w-14">내 답안</th>
+                    <th className="px-3 py-2 text-center font-medium w-14">정답</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayed.map((w) => (
+                    <tr key={w.answer_id} className="border-t border-gray-100">
+                      <td className="px-3 py-2 text-gray-500">{w.week_number}주</td>
+                      <td className="px-3 py-2">
+                        <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+                          {w.exam_type === 'reading' ? '독해' : w.exam_type === 'vocab' ? '어휘' : '-'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-gray-800">
+                        <div className="truncate max-w-[200px]">{w.question_text ?? `${w.question_number}번`}</div>
+                        {w.tags.length > 0 && (
+                          <div className="text-[10px] text-gray-400 mt-0.5 truncate">
+                            {w.tags.slice(0, 2).join(', ')}
+                            {w.tags.length > 2 && ` +${w.tags.length - 2}`}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-center font-medium text-red-500">{w.my_answer}</td>
+                      <td className="px-3 py-2 text-center font-medium" style={{ color: BLUE }}>{w.correct_answer}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )
+      })()}
 
       {/* 한 줄 요약 */}
       {card.summary_text && (
