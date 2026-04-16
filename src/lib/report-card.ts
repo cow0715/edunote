@@ -137,6 +137,7 @@ export interface ClassContext {
   classAvgReading: number | null
   classAvgVocab: number | null
   classAvgHomework: number | null
+  classAvgWriting: number | null     // 독해 서술형(작문) 반 평균
   classTotalStudents: number
   classRank: number | null           // 1-based; null if not computable
   classPercentile: number | null     // 상위 몇 %
@@ -465,36 +466,82 @@ export function buildAutoSummary(
   studentName: string,
   metrics: ReportMetrics,
   previous: PeriodComparison | null,
+  classContext?: ClassContext | null,
 ): string {
   const parts: string[] = []
+  const weeks = metrics.weekRows.length
 
-  if (metrics.overallAvg !== null && previous?.overallAvg !== null && previous) {
-    const diff = metrics.overallAvg - (previous.overallAvg ?? 0)
-    if (Math.abs(diff) >= 3) {
-      parts.push(`전 기간 대비 평균 정답률이 ${diff > 0 ? '+' : ''}${diff}점 ${diff > 0 ? '상승했습니다' : '하락했습니다'}.`)
+  // 1. 종합 성적 + 전 기간 비교
+  if (metrics.overallAvg !== null) {
+    const delta = previous?.overallAvg != null ? metrics.overallAvg - previous.overallAvg : null
+    if (delta !== null && Math.abs(delta) >= 2) {
+      const dir = delta > 0 ? `${delta}점 상승` : `${Math.abs(delta)}점 하락`
+      parts.push(`이번 기간(${weeks > 0 ? `${weeks}주` : '이번 기간'}) ${studentName} 학생의 종합 평균은 ${metrics.overallAvg}%로, 지난 기간(${previous!.overallAvg}%)보다 ${dir}했습니다.`)
     } else {
-      parts.push(`전 기간과 비슷한 수준을 유지했습니다.`)
+      parts.push(`이번 기간(${weeks > 0 ? `${weeks}주` : '이번 기간'}) ${studentName} 학생의 종합 평균은 ${metrics.overallAvg}%입니다.`)
     }
-  } else if (metrics.overallAvg !== null) {
-    parts.push(`이번 기간 평균 정답률은 ${metrics.overallAvg}%입니다.`)
   }
 
-  if (metrics.strengths[0]) {
-    parts.push(`${metrics.strengths[0].name} 영역에서 강점을 보였고`)
-  }
-  if (metrics.weaknesses[0]) {
-    parts.push(`${metrics.weaknesses[0].name} 영역은 추가 연습이 필요합니다.`)
+  // 2. 영역별 강점/약점 (구체적 수치 포함)
+  type D = { name: string; rate: number | null; classAvg: number | null | undefined }
+  const domains: D[] = [
+    { name: '독해', rate: metrics.avgReading, classAvg: classContext?.classAvgReading },
+    ...(metrics.avgWriting !== null ? [{ name: '작문', rate: metrics.avgWriting, classAvg: classContext?.classAvgWriting }] : []),
+    { name: '어휘', rate: metrics.avgVocab, classAvg: classContext?.classAvgVocab },
+    { name: '과제', rate: metrics.avgHomework, classAvg: classContext?.classAvgHomework },
+  ]
+  const scored = domains.filter(d => d.rate !== null).sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0))
+
+  if (scored.length > 0) {
+    const best = scored[0]
+    const worst = scored[scored.length - 1]
+
+    if ((best.rate ?? 0) >= 75) {
+      const aboveClass = best.classAvg != null ? (best.rate ?? 0) - best.classAvg : null
+      if (aboveClass !== null && aboveClass >= 3) {
+        parts.push(`특히 ${best.name} 영역에서 ${best.rate}%를 기록해 반 평균(${best.classAvg}%)보다 ${aboveClass}점 높은 성과를 보였습니다.`)
+      } else if (scored.length >= 2 && (scored[1].rate ?? 0) >= 75) {
+        parts.push(`${best.name}(${best.rate}%)과 ${scored[1].name}(${scored[1].rate}%)이 강점 영역입니다.`)
+      } else {
+        parts.push(`${best.name}(${best.rate}%)이 가장 높은 성과를 보인 영역입니다.`)
+      }
+    }
+
+    if (worst.name !== best.name && (worst.rate ?? 100) < 75) {
+      const aboveClass = worst.classAvg != null ? (worst.rate ?? 0) - worst.classAvg : null
+      if (aboveClass !== null && aboveClass < -5) {
+        parts.push(`${worst.name}(${worst.rate}%)은 반 평균(${worst.classAvg}%)보다 ${Math.abs(aboveClass)}점 낮아 집중적인 보완이 필요합니다.`)
+      } else {
+        parts.push(`${worst.name}(${worst.rate}%)은 상대적으로 더 연습이 필요한 영역입니다.`)
+      }
+    }
   }
 
+  // 3. 반 석차
+  if (classContext?.classRank && classContext.classTotalStudents) {
+    const streak = metrics.achievements.find(a => /\d+주 연속 점수 상승/.test(a))
+    if (streak) {
+      parts.push(`${streak}을 이어가며 반 ${classContext.classTotalStudents}명 중 ${classContext.classRank}위를 기록했습니다.`)
+    } else {
+      parts.push(`현재 반 ${classContext.classTotalStudents}명 중 ${classContext.classRank}위입니다.`)
+    }
+  } else if (metrics.achievements.length > 0) {
+    const streak = metrics.achievements.find(a => /\d+주 연속 점수 상승/.test(a))
+    if (streak) parts.push(`${streak}을 이어가고 있습니다.`)
+  }
+
+  // 4. 출석 (주목할 만한 경우만)
   const attended = metrics.attendancePresent + metrics.attendanceLate
   const attendRate = metrics.attendanceTotal > 0
     ? Math.round((attended / metrics.attendanceTotal) * 100)
     : null
-  if (attendRate !== null && attendRate < 80) {
-    parts.push(`출석률 ${attendRate}%로 꾸준한 참여가 필요합니다.`)
+  if (attendRate !== null && attendRate === 100) {
+    parts.push(`이번 기간 개근하며 꾸준히 수업에 참여한 점이 돋보입니다.`)
+  } else if (attendRate !== null && attendRate < 80) {
+    parts.push(`출석률이 ${attendRate}%로, 더 꾸준한 참여가 학습 성과 향상에 도움이 될 것입니다.`)
   }
 
-  return parts.length > 0 ? `${studentName} 학생은 ${parts.join(' ')}` : ''
+  return parts.join(' ')
 }
 
 // ── 등급 자동 제안 ────────────────────────────────────────────────────────
