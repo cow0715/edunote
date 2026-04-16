@@ -156,9 +156,9 @@ function ClassCalendar({
                 <button
                   onClick={() => onEmptyDateClick(dateStr)}
                   title="수업 추가"
-                  className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] transition-colors
-                    text-gray-400 hover:bg-primary/10 hover:text-primary
-                    ${isToday ? 'border border-primary/30 text-primary/50 font-medium' : ''}`}
+                  className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-[11px] transition-colors
+                    text-gray-400 hover:bg-primary hover:text-white
+                    ${isToday ? 'border border-primary/40 text-primary font-medium' : ''}`}
                 >
                   {d}
                 </button>
