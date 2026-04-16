@@ -24,6 +24,101 @@ function reportNumber(cardId: string, generatedAt: string): string {
   return `RC-${yymmdd}-${cardId.slice(0, 6).toUpperCase()}`
 }
 
+// ── 핵심 인사이트 문장 생성 ────────────────────────────────────────────────
+function buildInsightLines(
+  avgReading: number | null,
+  avgWriting: number | null,
+  avgVocab: number | null,
+  avgHomework: number | null,
+  overallAvg: number | null,
+  previous: PeriodComparison | null,
+  classContext: ClassContext | null,
+  achievements: string[],
+): { color: string; text: string }[] {
+  const lines: { color: string; text: string }[] = []
+
+  type Domain = { name: string; rate: number; classAvg: number | null }
+  const all: Domain[] = []
+  if (avgReading !== null) all.push({ name: '독해', rate: avgReading, classAvg: classContext?.classAvgReading ?? null })
+  if (avgWriting !== null) all.push({ name: '작문', rate: avgWriting, classAvg: null })
+  if (avgVocab !== null) all.push({ name: '어휘', rate: avgVocab, classAvg: classContext?.classAvgVocab ?? null })
+  if (avgHomework !== null) all.push({ name: '과제', rate: avgHomework, classAvg: classContext?.classAvgHomework ?? null })
+  if (all.length === 0) return lines
+
+  const sortedByRate = [...all].sort((a, b) => b.rate - a.rate)
+  const best = sortedByRate[0]
+  const worst = sortedByRate[sortedByRate.length - 1]
+
+  // ── 강점 라인 (녹색) ──
+  if (classContext) {
+    const aboveAvg = all.filter((d) => d.classAvg !== null && d.rate > d.classAvg)
+    if (aboveAvg.length >= 2) {
+      const names = aboveAvg.map((d) => `${d.name}(${d.rate}%)`).join('·')
+      lines.push({ color: GREEN, text: `${names}가 이 반에서 평균 이상을 기록하고 있습니다. 꾸준한 학습 습관이 성과로 이어지고 있습니다.` })
+    } else if (aboveAvg.length === 1) {
+      const d = aboveAvg[0]
+      const diff = d.rate - (d.classAvg ?? 0)
+      lines.push({ color: GREEN, text: `${d.name}(${d.rate}%)이 반 평균보다 ${diff}점 높습니다. ${diff >= 10 ? '확실한 강점 영역입니다.' : '반에서 상위권을 유지하고 있습니다.'}` })
+    } else {
+      lines.push({ color: GREEN, text: `${best.name}(${best.rate}%)이 이번 기간 가장 높은 영역입니다.` })
+    }
+  } else {
+    if (sortedByRate.length >= 2 && best.rate >= 75) {
+      const second = sortedByRate[1]
+      lines.push({ color: GREEN, text: `${best.name}(${best.rate}%)${best.rate >= 90 ? '에서 우수한 성과를 보였습니다' : '이 이번 기간 강점 영역입니다'}. ${second.name}(${second.rate}%)도 안정적입니다.` })
+    } else {
+      lines.push({ color: GREEN, text: `${best.name} 정답률 ${best.rate}%로 이번 기간 가장 높은 영역입니다.` })
+    }
+  }
+
+  // ── 보완 라인 (주황) ──
+  const WEAK = 75
+  const weak = [...all].filter((d) => d.rate < WEAK).sort((a, b) => a.rate - b.rate)
+  if (weak.length > 0) {
+    const primary = weak[0]
+    let text = `${primary.name}이(가) ${primary.rate}%로 ${WEAK}점 아래입니다.`
+    if (weak.length > 1) {
+      text += ` ${weak.slice(1).map((d) => `${d.name}(${d.rate}%)`).join('·')}도 집중 연습이 필요합니다.`
+    } else if (overallAvg !== null && overallAvg >= 70 && overallAvg < 90) {
+      const next = Math.ceil(overallAvg / 10) * 10
+      text += ` 이 부분이 보완되면 전체 평균 ${next}점 돌파가 가능합니다.`
+    }
+    lines.push({ color: ORANGE, text })
+  } else if (worst.rate < 85) {
+    lines.push({ color: ORANGE, text: `전 영역 ${WEAK}점 이상이지만, ${worst.name}(${worst.rate}%)이 상대적으로 더 연습이 필요합니다. ${85 - worst.rate}점만 더 올리면 전 영역 85% 달성입니다.` })
+  }
+
+  // ── 성장 트렌드 라인 (파랑) ──
+  const overallDelta = overallAvg !== null && previous?.overallAvg != null ? overallAvg - previous.overallAvg : null
+  const streakMatch = achievements.find((a) => /\d+주 연속 점수 상승/.test(a))
+  const vsClass = overallAvg !== null && classContext?.classAvgOverall != null ? overallAvg - classContext.classAvgOverall : null
+
+  if (overallDelta !== null) {
+    const absD = Math.abs(overallDelta)
+    let text: string
+    if (overallDelta > 0) {
+      text = streakMatch
+        ? `${streakMatch.replace('점수 상승', '연속 상승세')}로, 지난 기간보다 ${absD}점 올랐습니다(${previous!.overallAvg}점 → ${overallAvg}점).`
+        : `지난 기간 대비 ${absD}점 상승했습니다(${previous!.overallAvg}점 → ${overallAvg}점).`
+      if (vsClass !== null && vsClass > 0) text += ` 현재 반 평균(${classContext!.classAvgOverall}점)보다 ${vsClass}점 높은 수준입니다.`
+    } else if (overallDelta < 0) {
+      text = `지난 기간보다 ${absD}점 하락했습니다(${previous!.overallAvg}점 → ${overallAvg}점). 다음 기간 회복을 기대합니다.`
+    } else {
+      text = `지난 기간과 같은 수준을 유지했습니다(${overallAvg}점).`
+      if (vsClass !== null) text += ` 반 평균 대비 ${vsClass >= 0 ? '+' : ''}${vsClass}점입니다.`
+    }
+    lines.push({ color: BLUE, text })
+  } else if (streakMatch) {
+    let text = `${streakMatch.replace('점수 상승', '연속 상승세')}를 이어가고 있습니다.`
+    if (vsClass !== null) text += ` 반 평균 대비 ${vsClass >= 0 ? '+' : ''}${vsClass}점 수준을 유지 중입니다.`
+    lines.push({ color: BLUE, text })
+  } else if (vsClass !== null && overallAvg !== null) {
+    lines.push({ color: BLUE, text: `반 평균(${classContext!.classAvgOverall}점) 대비 ${vsClass >= 0 ? '+' : ''}${vsClass}점입니다. ${vsClass > 0 ? '꾸준한 성장을 유지하고 있습니다.' : '반 평균 수준 도달을 목표로 함께 노력해봅시다.'}` })
+  }
+
+  return lines
+}
+
 function Sparkline({ values, color = BLUE }: { values: (number | null)[]; color?: string }) {
   const nums = values.map((v) => (v === null ? null : Math.max(0, Math.min(100, v))))
   if (nums.filter((v): v is number => v !== null).length < 2) return null
@@ -173,7 +268,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
   const {
     weekRows, avgReading, avgWriting, avgVocab, avgHomework, overallAvg,
     attendancePresent, attendanceLate, attendanceAbsent, attendanceTotal,
-    strengths, weaknesses, categoryStats, totalQuestions, totalCorrect, achievements,
+    categoryStats, totalQuestions, totalCorrect, achievements,
     wrongItems,
   } = metrics
 
@@ -190,6 +285,11 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
 
   const overallDelta = overallAvg !== null && previous?.overallAvg != null ? overallAvg - previous.overallAvg : null
   const vsClassAvg = overallAvg !== null && classContext?.classAvgOverall != null ? overallAvg - classContext.classAvgOverall : null
+
+  const insightLines = buildInsightLines(
+    avgReading, avgWriting, avgVocab, avgHomework,
+    overallAvg, previous, classContext, achievements,
+  )
 
   return (
     <div
@@ -238,10 +338,10 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         </div>
       </header>
 
-      {/* ── 요약 3카드 ───────────────────────────────────────── */}
+      {/* ── 요약 3카드 ─── 한눈에 ──────────────────────────────── */}
       <section className="mt-4 grid grid-cols-3 gap-3">
         <div className="rounded-xl bg-gray-50 px-4 py-3.5">
-          <p className="text-[10px] text-gray-400">지난달 대비</p>
+          <p className="text-[10px] text-gray-400">지난 기간 대비</p>
           {overallDelta !== null ? (
             <>
               <p className="mt-1 text-2xl font-extrabold tabular-nums" style={{ color: overallDelta >= 0 ? GREEN : RED }}>
@@ -274,7 +374,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         </div>
       </section>
 
-      {/* ── 영역별 카드 (독해/작문/어휘/과제) ─────────────────── */}
+      {/* ── 영역별 카드 ──────────────────────────────────────────── */}
       <section className="mt-5">
         <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">영역별 성적 — 내 점수 vs 반 평균</p>
         <div className={`grid gap-2.5 ${avgWriting !== null ? 'grid-cols-2' : 'grid-cols-3'}`}>
@@ -306,7 +406,22 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         </p>
       </section>
 
-      {/* ── 성장 추이 + 레이더 ─────────────────────────────────── */}
+      {/* ── 이달의 핵심 인사이트 — 내러티브 ───────────────────────── */}
+      {insightLines.length > 0 && (
+        <section className="mt-5">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">이달의 핵심 인사이트</p>
+          <div className="rounded-xl border border-gray-100 divide-y divide-gray-50">
+            {insightLines.map((line, i) => (
+              <div key={i} className="flex gap-3 px-4 py-3.5">
+                <span className="mt-[5px] w-2 h-2 rounded-full shrink-0" style={{ background: line.color }} />
+                <p className="text-sm text-gray-700 leading-relaxed">{line.text}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── 성장 추이 ─────────────────────────────────────────────── */}
       {weekRows.length > 0 && (
         <section className="mt-5">
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">성장 추이</p>
@@ -342,83 +457,12 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
                   </div>
                 </div>
               )}
-              {previous && (
-                <div className="w-full border-t border-gray-100 pt-2 space-y-1.5">
-                  <p className="text-[9px] text-gray-400 font-medium">이전 기간 대비</p>
-                  {[
-                    { label: '독해', cur: avgReading, prev: previous.avgReading, color: BLUE },
-                    { label: '어휘', cur: avgVocab, prev: previous.avgVocab, color: GREEN },
-                    { label: '과제', cur: avgHomework, prev: previous.avgHomework, color: '#F59E0B' },
-                  ].map(({ label, cur, prev, color }) => {
-                    if (cur === null) return null
-                    const d = prev != null ? cur - prev : null
-                    return (
-                      <div key={label}>
-                        <div className="flex justify-between mb-0.5">
-                          <span className="text-[10px] text-gray-500">{label}</span>
-                          <div className="flex gap-1">
-                            {d !== null && <span className="text-[10px] font-semibold" style={{ color: d >= 0 ? GREEN : RED }}>{d >= 0 ? '▲' : '▼'}{Math.abs(d)}%</span>}
-                            <span className="text-[10px] font-bold tabular-nums" style={{ color }}>{cur}%</span>
-                          </div>
-                        </div>
-                        <div className="relative h-1 rounded-full bg-gray-100">
-                          {prev != null && <div className="absolute left-0 top-0 h-full rounded-full bg-gray-200" style={{ width: `${Math.max(0, Math.min(100, prev))}%` }} />}
-                          <div className="absolute left-0 top-0 h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, cur))}%`, background: color }} />
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
             </div>
           </div>
         </section>
       )}
 
-      {/* ── 핵심 인사이트 ──────────────────────────────────────── */}
-      {(strengths.length > 0 || weaknesses.length > 0 || achievements.length > 0) && (
-        <section className="mt-5">
-          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">이달의 핵심 인사이트</p>
-          <div className="rounded-xl border border-gray-100 p-4 space-y-2.5">
-            {strengths.length > 0 && (
-              <div className="flex gap-3">
-                <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: GREEN }} />
-                <p className="text-sm text-gray-700 leading-relaxed">
-                  <span className="font-semibold text-gray-900">잘하는 것 · </span>
-                  {strengths.map((s) => `${s.name} ${s.rate}%`).join(' · ')}
-                </p>
-              </div>
-            )}
-            {weaknesses.length > 0 && (
-              <div className="flex gap-3">
-                <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: ORANGE }} />
-                <p className="text-sm text-gray-700 leading-relaxed">
-                  <span className="font-semibold text-gray-900">보완할 것 · </span>
-                  {weaknesses.map((w) => `${w.name} ${w.rate}%`).join(' · ')}
-                </p>
-              </div>
-            )}
-            {achievements.length > 0 && (
-              <div className="flex gap-3">
-                <span className="mt-1 w-2 h-2 rounded-full shrink-0" style={{ background: BLUE }} />
-                <p className="text-sm text-gray-700 leading-relaxed">
-                  <span className="font-semibold text-gray-900">성장 속도 · </span>
-                  {achievements.join(' · ')}
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
-      {/* ── 한 줄 요약 ─────────────────────────────────────────── */}
-      {card.summary_text && (
-        <section className="mt-4 rounded-xl p-4" style={{ background: '#EBF3FF' }}>
-          <p className="text-sm leading-relaxed text-gray-800">{card.summary_text}</p>
-        </section>
-      )}
-
-      {/* ── 오답 분석 + 유형별 정답률 ──────────────────────────── */}
+      {/* ── 오답 분석 ─────────────────────────────────────────────── */}
       {(wrongItems.length > 0 || categoryStats.length > 0) && (() => {
         const qAcc = classContext?.questionAccuracy ?? {}
         const hasClassData = Object.keys(qAcc).length > 0
@@ -502,8 +546,8 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         )
       })()}
 
-      {/* ── 선생님 코멘트 ─────────────────────────────────────── */}
-      {card.teacher_comment && (
+      {/* ── 선생님 메시지 (summary_text + teacher_comment 통합) ───── */}
+      {(card.summary_text || card.teacher_comment) && (
         <section className="mt-5 rounded-xl border border-gray-100 p-4">
           <div className="flex items-center gap-2.5 mb-3">
             <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
@@ -511,15 +555,20 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
               {(academy.teacher_name ?? 'T').slice(0, 2)}
             </div>
             <div>
-              <p className="text-xs font-bold text-gray-900">{academy.teacher_name ?? '담당 강사'} 선생님 코멘트</p>
+              <p className="text-xs font-bold text-gray-900">{academy.teacher_name ?? '담당 강사'} 선생님 메시지</p>
               <p className="text-[9px] text-gray-400">{academy.name}</p>
             </div>
           </div>
-          <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{card.teacher_comment}</p>
+          {card.summary_text && (
+            <p className="text-sm text-gray-500 italic border-l-2 border-gray-200 pl-3 mb-3 leading-relaxed">{card.summary_text}</p>
+          )}
+          {card.teacher_comment && (
+            <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{card.teacher_comment}</p>
+          )}
         </section>
       )}
 
-      {/* ── 다음 기간 목표 ─────────────────────────────────────── */}
+      {/* ── 다음 기간 목표 ─────────────────────────────────────────── */}
       {focusItems.length > 0 && (
         <section className="mt-4">
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">다음 달 목표</p>
