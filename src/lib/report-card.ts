@@ -140,6 +140,8 @@ export interface ClassContext {
   classTotalStudents: number
   classRank: number | null           // 1-based; null if not computable
   classPercentile: number | null     // 상위 몇 %
+  // 문항별 반 정답률: key = exam_question_id
+  questionAccuracy: Record<string, { correct: number; total: number }>
 }
 
 export interface AcademyProfile {
@@ -171,6 +173,7 @@ export function qualitativeColor(rate: number | null): string {
 
 export interface WrongItem {
   answer_id: string
+  exam_question_id: string
   week_number: number
   question_number: number
   sub_label: string | null
@@ -358,6 +361,7 @@ export function computeMetrics(
           : (q.correct_answer_text ?? '?')
       return {
         answer_id: a.id,
+        exam_question_id: q.id,
         week_number: w?.week_number ?? 0,
         question_number: q.question_number,
         sub_label: q.sub_label,
