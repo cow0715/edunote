@@ -438,14 +438,22 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
             )}
           </div>
         ) : (
-          <ClassCalendar
-            classStartDate={cls.start_date}
-            classEndDate={cls.end_date}
-            dateWeekMap={dateWeekMap}
-            weekNumberMap={weekNumberMap}
-            onDateClick={(weekId) => router.push(`/dashboard/${classId}/weeks/${weekId}`)}
-            onDrop={(weekId, newDate) => moveWeekDate.mutate({ weekId, date: newDate })}
-          />
+          <div className="relative">
+            <ClassCalendar
+              classStartDate={cls.start_date}
+              classEndDate={cls.end_date}
+              dateWeekMap={dateWeekMap}
+              weekNumberMap={weekNumberMap}
+              onDateClick={(weekId) => router.push(`/dashboard/${classId}/weeks/${weekId}`)}
+              onDrop={(weekId, newDate) => moveWeekDate.mutate({ weekId, date: newDate })}
+            />
+            {moveWeekDate.isPending && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center rounded-lg bg-white/80 backdrop-blur-[2px]">
+                <RefreshCw className="h-5 w-5 animate-spin text-primary" />
+                <p className="mt-2 text-xs font-medium text-gray-500">주차 재정렬 중...</p>
+              </div>
+            )}
+          </div>
         )}
 
         {weeks.length > 0 && (
