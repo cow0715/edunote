@@ -11,7 +11,7 @@ import { Class, ClassStudent, Student, Week } from '@/lib/types'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useClassStudents, useStudents, useAddClassStudent, useRemoveClassStudent } from '@/hooks/use-students'
-import { useWeeks } from '@/hooks/use-weeks'
+import { useWeeks, useAddWeekAtDate, useMoveWeekDate } from '@/hooks/use-weeks'
 import { useSyncWeeks } from '@/hooks/use-classes'
 
 const DAY_LABEL: Record<string, string> = {
@@ -40,17 +40,25 @@ function todayLocalStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+function formatKorDate(dateStr: string) {
+  const d = new Date(dateStr + 'T00:00:00')
+  const dow = ['일', '월', '화', '수', '목', '금', '토'][d.getDay()]
+  return `${d.getMonth() + 1}월 ${d.getDate()}일 (${dow})`
+}
+
 // ── 달력 컴포넌트 ─────────────────────────────────────────────────────────────
 function ClassCalendar({
   classStartDate,
   classEndDate,
   dateWeekMap,
   onDateClick,
+  onEmptyDateClick,
 }: {
   classStartDate: string
   classEndDate: string
   dateWeekMap: Map<string, string>
   onDateClick: (weekId: string) => void
+  onEmptyDateClick: (dateStr: string) => void
 }) {
   const [year, setYear] = useState(() => {
     const today = todayLocalStr()
@@ -121,6 +129,7 @@ function ClassCalendar({
           const dateStr = toDateStr(d)
           const weekId = dateWeekMap.get(dateStr)
           const isToday = dateStr === today
+          const isInRange = dateStr >= classStartDate && dateStr <= classEndDate
 
           if (weekId) {
             return (
@@ -137,10 +146,26 @@ function ClassCalendar({
             )
           }
 
+          if (isInRange) {
+            return (
+              <div key={d} className="flex items-center justify-center py-0.5">
+                <button
+                  onClick={() => onEmptyDateClick(dateStr)}
+                  title="수업 추가"
+                  className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] transition-colors
+                    text-gray-400 hover:bg-primary/10 hover:text-primary
+                    ${isToday ? 'border border-primary/30 text-primary/50 font-medium' : ''}`}
+                >
+                  {d}
+                </button>
+              </div>
+            )
+          }
+
           return (
             <div key={d} className="flex items-center justify-center py-0.5">
               <span className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px]
-                ${isToday ? 'border border-primary text-primary font-semibold' : 'text-gray-300'}`}>
+                ${isToday ? 'border border-primary text-primary font-semibold' : 'text-gray-200'}`}>
                 {d}
               </span>
             </div>
@@ -159,6 +184,9 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   const [addStep, setAddStep] = useState<{ studentId: string; name: string; joinedAt: string } | null>(null)
   const [removeTarget, setRemoveTarget] = useState<{ studentId: string; name: string; leftAt: string } | null>(null)
   const [syncWarning, setSyncWarning] = useState<{ message: string; affected_weeks: number[] } | null>(null)
+  const [dateDialogDate, setDateDialogDate] = useState<string | null>(null)
+  const [dateDialogMode, setDateDialogMode] = useState<'new' | 'move'>('new')
+  const [moveTargetWeekId, setMoveTargetWeekId] = useState('')
 
   const { data: cls, isLoading: classLoading } = useQuery({
     queryKey: ['class', classId],
@@ -170,6 +198,8 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   const addStudent = useAddClassStudent(classId)
   const removeStudent = useRemoveClassStudent(classId)
   const syncWeeks = useSyncWeeks(classId)
+  const addWeekAtDate = useAddWeekAtDate(classId)
+  const moveWeekDate = useMoveWeekDate(classId)
 
   const enrolledIds = new Set((classStudents as ClassStudent[]).map((cs) => cs.student_id))
   const unenrolled = (allStudents as Student[]).filter((s) => !enrolledIds.has(s.id))
@@ -189,6 +219,23 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     addStudent.mutate({ student_id: addStep.studentId, joined_at: addStep.joinedAt })
     setAddStep(null)
     setAddOpen(false)
+  }
+
+  function openDateDialog(dateStr: string) {
+    setDateDialogDate(dateStr)
+    setDateDialogMode('new')
+    setMoveTargetWeekId('')
+  }
+
+  async function handleDateDialogConfirm() {
+    if (!dateDialogDate) return
+    if (dateDialogMode === 'new') {
+      await addWeekAtDate.mutateAsync(dateDialogDate)
+    } else {
+      if (!moveTargetWeekId) return
+      await moveWeekDate.mutateAsync({ weekId: moveTargetWeekId, date: dateDialogDate })
+    }
+    setDateDialogDate(null)
   }
 
   async function handleSync(force = false) {
@@ -336,13 +383,20 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
             classEndDate={cls.end_date}
             dateWeekMap={dateWeekMap}
             onDateClick={(weekId) => router.push(`/dashboard/${classId}/weeks/${weekId}`)}
+            onEmptyDateClick={openDateDialog}
           />
         )}
 
         {weeks.length > 0 && (
-          <div className="mt-3 flex items-center gap-2 pt-3 border-t">
-            <span className="flex h-5 w-5 rounded-full bg-primary" />
-            <span className="text-[11px] text-gray-400">수업일 (클릭하면 채점/설정으로 이동)</span>
+          <div className="mt-3 flex items-center gap-4 pt-3 border-t">
+            <div className="flex items-center gap-1.5">
+              <span className="flex h-4 w-4 rounded-full bg-primary" />
+              <span className="text-[11px] text-gray-400">수업일</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="flex h-4 w-4 rounded-full border border-dashed border-gray-300" />
+              <span className="text-[11px] text-gray-400">클릭하면 수업 추가</span>
+            </div>
           </div>
         )}
       </div>
@@ -393,6 +447,67 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
               ))}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* 수업일 추가/변경 다이얼로그 */}
+      <Dialog open={!!dateDialogDate} onOpenChange={(v) => { if (!v) setDateDialogDate(null) }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {dateDialogDate ? formatKorDate(dateDialogDate) : ''} 수업 추가
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <button
+              onClick={() => setDateDialogMode('new')}
+              className={`w-full rounded-lg border p-3 text-left transition-colors ${dateDialogMode === 'new' ? 'border-primary bg-primary/5' : 'hover:bg-gray-50'}`}
+            >
+              <p className="text-sm font-medium text-gray-900">새 주차로 추가</p>
+              <p className="mt-0.5 text-xs text-gray-400">새 주차를 만들고 이 날을 수업일로 설정합니다</p>
+            </button>
+            <div>
+              <button
+                onClick={() => setDateDialogMode('move')}
+                className={`w-full rounded-lg border p-3 text-left transition-colors ${dateDialogMode === 'move' ? 'border-primary bg-primary/5' : 'hover:bg-gray-50'}`}
+              >
+                <p className="text-sm font-medium text-gray-900">기존 주차 날짜 변경</p>
+                <p className="mt-0.5 text-xs text-gray-400">기존 수업일을 이 날로 이동합니다 (시험기간 등)</p>
+              </button>
+              {dateDialogMode === 'move' && (
+                <select
+                  className="mt-2 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-primary"
+                  value={moveTargetWeekId}
+                  onChange={(e) => setMoveTargetWeekId(e.target.value)}
+                >
+                  <option value="">주차 선택...</option>
+                  {(weeks as Week[]).map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.week_number}주차
+                      {w.start_date
+                        ? ` (${new Date(w.start_date + 'T00:00:00').toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', weekday: 'short' })})`
+                        : ' (날짜 미설정)'}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={() => setDateDialogDate(null)}>취소</Button>
+              <Button
+                onClick={handleDateDialogConfirm}
+                disabled={
+                  (dateDialogMode === 'move' && !moveTargetWeekId) ||
+                  addWeekAtDate.isPending ||
+                  moveWeekDate.isPending
+                }
+              >
+                {addWeekAtDate.isPending || moveWeekDate.isPending
+                  ? '처리 중...'
+                  : dateDialogMode === 'new' ? '추가' : '변경'}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
