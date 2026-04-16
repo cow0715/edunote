@@ -188,7 +188,8 @@ export interface WrongItem {
 
 export interface ReportMetrics {
   weekRows: WeekRow[]
-  avgReading: number | null
+  avgReading: number | null   // 독해 객관식
+  avgWriting: number | null   // 독해 서술형(작문)
   avgVocab: number | null
   avgHomework: number | null
   overallAvg: number | null
@@ -291,6 +292,14 @@ export function computeMetrics(
   const avgVocab = avg(weekRows.map((r) => r.vocab_rate))
   const avgHomework = avg(weekRows.map((r) => r.homework_rate))
   const overallAvg = avg([avgReading, avgVocab, avgHomework])
+
+  // 작문(서술형 독해) 별도 집계 — answer 레벨에서 question_style='subjective' 필터
+  const writingAnswers = answers.filter(
+    (a) => a.exam_question?.exam_type === 'reading' && a.exam_question?.question_style === 'subjective'
+  )
+  const avgWriting: number | null = writingAnswers.length >= 1
+    ? Math.round(writingAnswers.filter((a) => a.is_correct).length / writingAnswers.length * 100)
+    : null
 
   const attendancePresent = attendance.filter((a) => a.status === 'present').length
   const attendanceLate = attendance.filter((a) => a.status === 'late').length
@@ -432,6 +441,7 @@ export function computeMetrics(
   return {
     weekRows,
     avgReading,
+    avgWriting,
     avgVocab,
     avgHomework,
     overallAvg,
