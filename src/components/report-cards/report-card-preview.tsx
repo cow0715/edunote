@@ -427,57 +427,114 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         </div>
       </section>
 
-      {/* 오답 문항 */}
+      {/* 오답 문항 — 반 정답률 기준 분류 */}
       {wrongItems.length > 0 && (() => {
-        // 약점 Top 3 태그에 속한 문항 우선, 없으면 전체에서 최근 5건
+        const qAcc = classContext?.questionAccuracy ?? {}
+        const classify = (w: WrongItem): 'solo' | 'hard' | 'common' => {
+          const acc = qAcc[w.exam_question_id]
+          if (!acc || acc.total === 0) return 'common'
+          const rate = (acc.correct / acc.total) * 100
+          if (rate >= 70) return 'solo'   // 반은 잘 맞췄는데 나만 틀림
+          if (rate < 50) return 'hard'    // 반 전체가 어려웠던 문항
+          return 'common'
+        }
         const weakTagNames = new Set(weaknesses.map((w) => w.name))
         const fromWeak = weakTagNames.size > 0
           ? wrongItems.filter((w) => w.tags.some((t) => weakTagNames.has(t)))
-          : []
-        const displayed: WrongItem[] = (fromWeak.length > 0 ? fromWeak : wrongItems)
+          : wrongItems
+        const displayed = (fromWeak.length > 0 ? fromWeak : wrongItems)
           .sort((a, b) => b.week_number - a.week_number)
           .slice(0, 5)
+          .map((w) => ({ ...w, kind: classify(w) }))
+
+        const WrongTable = ({ items }: { items: typeof displayed }) => (
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 text-gray-500">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium w-10">주차</th>
+                <th className="px-3 py-2 text-left font-medium w-12">유형</th>
+                <th className="px-3 py-2 text-left font-medium">문항 내용</th>
+                <th className="px-3 py-2 text-center font-medium w-14">내 답안</th>
+                <th className="px-3 py-2 text-center font-medium w-14">정답</th>
+                {Object.keys(qAcc).length > 0 && <th className="px-3 py-2 text-center font-medium w-14">반 정답률</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((w) => {
+                const acc = qAcc[w.exam_question_id]
+                const classRate = acc && acc.total > 0 ? Math.round((acc.correct / acc.total) * 100) : null
+                return (
+                  <tr key={w.answer_id} className="border-t border-gray-100">
+                    <td className="px-3 py-2 text-gray-500">{w.week_number}주</td>
+                    <td className="px-3 py-2">
+                      <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+                        {w.exam_type === 'reading' ? '독해' : w.exam_type === 'vocab' ? '어휘' : '-'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-gray-800">
+                      <div className="truncate max-w-[180px]">{w.question_text ?? `${w.question_number}번`}</div>
+                      {w.tags.length > 0 && (
+                        <div className="text-[10px] text-gray-400 mt-0.5 truncate">
+                          {w.tags.slice(0, 2).join(', ')}{w.tags.length > 2 && ` +${w.tags.length - 2}`}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-center font-medium text-red-500">{w.my_answer}</td>
+                    <td className="px-3 py-2 text-center font-medium" style={{ color: BLUE }}>{w.correct_answer}</td>
+                    {Object.keys(qAcc).length > 0 && (
+                      <td className="px-3 py-2 text-center text-[10px] tabular-nums text-gray-500">
+                        {classRate !== null ? `${classRate}%` : '-'}
+                      </td>
+                    )}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )
+
+        const soloItems = displayed.filter((w) => w.kind === 'solo')
+        const hardItems = displayed.filter((w) => w.kind === 'hard')
+        const commonItems = displayed.filter((w) => w.kind === 'common')
+        const hasClassData = Object.keys(qAcc).length > 0
+
         return (
           <section className="mt-4">
-            <h2 className="text-sm font-bold text-gray-900 mb-2">
-              오답 문항 {fromWeak.length > 0 ? '(약점 태그 기준)' : '(최근 5건)'}
-            </h2>
-            <div className="rounded-xl border border-gray-100 overflow-hidden">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50 text-gray-500">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-medium w-10">주차</th>
-                    <th className="px-3 py-2 text-left font-medium w-12">유형</th>
-                    <th className="px-3 py-2 text-left font-medium">문항 내용</th>
-                    <th className="px-3 py-2 text-center font-medium w-14">내 답안</th>
-                    <th className="px-3 py-2 text-center font-medium w-14">정답</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayed.map((w) => (
-                    <tr key={w.answer_id} className="border-t border-gray-100">
-                      <td className="px-3 py-2 text-gray-500">{w.week_number}주</td>
-                      <td className="px-3 py-2">
-                        <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
-                          {w.exam_type === 'reading' ? '독해' : w.exam_type === 'vocab' ? '어휘' : '-'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-gray-800">
-                        <div className="truncate max-w-[200px]">{w.question_text ?? `${w.question_number}번`}</div>
-                        {w.tags.length > 0 && (
-                          <div className="text-[10px] text-gray-400 mt-0.5 truncate">
-                            {w.tags.slice(0, 2).join(', ')}
-                            {w.tags.length > 2 && ` +${w.tags.length - 2}`}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-center font-medium text-red-500">{w.my_answer}</td>
-                      <td className="px-3 py-2 text-center font-medium" style={{ color: BLUE }}>{w.correct_answer}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <h2 className="text-sm font-bold text-gray-900 mb-2">오답 문항 분석</h2>
+            {hasClassData ? (
+              <div className="space-y-3">
+                {soloItems.length > 0 && (
+                  <div className="rounded-xl overflow-hidden border border-red-100">
+                    <div className="px-3 py-2 bg-red-50 flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-red-600 px-1.5 py-0.5 rounded bg-red-100">나만 틀린 문항</span>
+                      <span className="text-[10px] text-red-400">반 정답률 70% 이상 — 개인 집중 학습 필요</span>
+                    </div>
+                    <WrongTable items={soloItems} />
+                  </div>
+                )}
+                {hardItems.length > 0 && (
+                  <div className="rounded-xl overflow-hidden border border-amber-100">
+                    <div className="px-3 py-2 bg-amber-50 flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-amber-700 px-1.5 py-0.5 rounded bg-amber-100">반 전체 어려운 문항</span>
+                      <span className="text-[10px] text-amber-500">반 정답률 50% 미만 — 수업에서 함께 다룰 예정</span>
+                    </div>
+                    <WrongTable items={hardItems} />
+                  </div>
+                )}
+                {commonItems.length > 0 && (
+                  <div className="rounded-xl overflow-hidden border border-gray-100">
+                    <div className="px-3 py-2 bg-gray-50">
+                      <span className="text-[10px] font-semibold text-gray-500">기타 오답</span>
+                    </div>
+                    <WrongTable items={commonItems} />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-100 overflow-hidden">
+                <WrongTable items={displayed} />
+              </div>
+            )}
           </section>
         )
       })()}

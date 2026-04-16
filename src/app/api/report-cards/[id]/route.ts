@@ -200,7 +200,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     if (classmateIds.length > 0) {
       const { data: allScores } = await supabase
         .from('week_score')
-        .select('student_id, week_id, reading_correct, vocab_correct, homework_done')
+        .select('id, student_id, week_id, reading_correct, vocab_correct, homework_done')
         .in('week_id', weekIds)
         .in('student_id', classmateIds)
 
@@ -253,6 +253,24 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
         ? Math.round((classRank / classTotalStudents) * 100)
         : null
 
+      // 문항별 반 정답률
+      const allScoreIds = (allScores ?? []).map((s: { id: string }) => s.id)
+      const { data: classAnswers } = allScoreIds.length > 0
+        ? await supabase
+            .from('student_answer')
+            .select('exam_question_id, is_correct')
+            .in('week_score_id', allScoreIds)
+        : { data: [] }
+
+      const questionAccuracy: Record<string, { correct: number; total: number }> = {}
+      for (const ca of (classAnswers ?? []) as { exam_question_id: string; is_correct: boolean }[]) {
+        const qid = ca.exam_question_id
+        if (!qid) continue
+        if (!questionAccuracy[qid]) questionAccuracy[qid] = { correct: 0, total: 0 }
+        questionAccuracy[qid].total++
+        if (ca.is_correct) questionAccuracy[qid].correct++
+      }
+
       classContext = {
         classAvgOverall,
         classAvgReading,
@@ -261,6 +279,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
         classTotalStudents,
         classRank,
         classPercentile,
+        questionAccuracy,
       }
     }
   }
