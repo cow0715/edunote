@@ -24,11 +24,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params
   if (!user) return err('인증 필요', 401)
 
-  const { start_date, vocab_total, reading_total, homework_total } = await request.json()
+  const body = await request.json()
+  const updates: Record<string, unknown> = {}
+  if (body.start_date !== undefined) updates.start_date = body.start_date
+  if (body.vocab_total !== undefined) updates.vocab_total = body.vocab_total
+  if (body.reading_total !== undefined) updates.reading_total = body.reading_total
+  if (body.homework_total !== undefined) updates.homework_total = body.homework_total
 
   const { data, error } = await supabase
     .from('week')
-    .update({ start_date, vocab_total, reading_total, homework_total })
+    .update(updates)
     .eq('id', id)
     .select()
     .single()

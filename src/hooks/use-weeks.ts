@@ -29,6 +29,46 @@ export function useCreateWeek(classId: string) {
   })
 }
 
+export function useAddWeekAtDate(classId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (date: string) => {
+      const res = await fetch(`/api/classes/${classId}/weeks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start_date: date }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      return res.json()
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['weeks', classId] })
+      toast.success('수업이 추가되었습니다')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
+export function useMoveWeekDate(classId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ weekId, date }: { weekId: string; date: string }) => {
+      const res = await fetch(`/api/weeks/${weekId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start_date: date }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      return res.json()
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['weeks', classId] })
+      toast.success('수업일이 변경되었습니다')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
 export function useWeek(weekId: string) {
   return useQuery<Week>({
     queryKey: ['week', weekId],
