@@ -62,19 +62,21 @@ function ClassCalendar({
 }) {
   const [year, setYear] = useState(() => {
     const today = todayLocalStr()
-    if (today >= classStartDate && today <= classEndDate) return new Date().getFullYear()
-    return parseInt(classStartDate.slice(0, 4))
+    if (today >= classStartDate.slice(0, 10) && today <= classEndDate.slice(0, 10)) return new Date().getFullYear()
+    return parseInt(classStartDate.slice(0, 4), 10)
   })
   const [month, setMonth] = useState(() => {
     const today = todayLocalStr()
-    if (today >= classStartDate && today <= classEndDate) return new Date().getMonth() + 1
-    return parseInt(classStartDate.slice(5, 7))
+    const s = classStartDate.slice(0, 10)
+    const e = classEndDate.slice(0, 10)
+    if (today >= s && today <= e) return new Date().getMonth() + 1
+    return parseInt(classStartDate.slice(5, 7), 10)
   })
 
-  const minYear = parseInt(classStartDate.slice(0, 4))
-  const minMonth = parseInt(classStartDate.slice(5, 7))
-  const maxYear = parseInt(classEndDate.slice(0, 4))
-  const maxMonth = parseInt(classEndDate.slice(5, 7))
+  const minYear = parseInt(classStartDate.slice(0, 4), 10)
+  const minMonth = parseInt(classStartDate.slice(5, 7), 10)
+  const maxYear = parseInt(classEndDate.slice(0, 4), 10)
+  const maxMonth = parseInt(classEndDate.slice(5, 7), 10)
 
   const canPrev = year > minYear || (year === minYear && month > minMonth)
   const canNext = year < maxYear || (year === maxYear && month < maxMonth)
@@ -99,6 +101,8 @@ function ClassCalendar({
     `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 
   const today = todayLocalStr()
+  const rangeStart = classStartDate.slice(0, 10)
+  const rangeEnd = classEndDate.slice(0, 10)
 
   return (
     <div>
@@ -129,7 +133,7 @@ function ClassCalendar({
           const dateStr = toDateStr(d)
           const weekId = dateWeekMap.get(dateStr)
           const isToday = dateStr === today
-          const isInRange = dateStr >= classStartDate && dateStr <= classEndDate
+          const isInRange = dateStr >= rangeStart && dateStr <= rangeEnd
 
           if (weekId) {
             return (
