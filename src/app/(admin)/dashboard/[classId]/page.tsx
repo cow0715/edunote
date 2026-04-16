@@ -3,16 +3,17 @@
 import { use, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, UserPlus, UserMinus, RefreshCw, Link as LinkIcon, AlertTriangle } from 'lucide-react'
+import { ChevronLeft, ChevronRight, UserPlus, UserMinus, RefreshCw, Link as LinkIcon, Plus } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Class, ClassStudent, Student, Week } from '@/lib/types'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useClassStudents, useStudents, useAddClassStudent, useRemoveClassStudent } from '@/hooks/use-students'
 import { useWeeks, useMoveWeekDate } from '@/hooks/use-weeks'
-import { useSyncWeeks } from '@/hooks/use-classes'
+import { useSyncWeeks, useExtendWeeks } from '@/hooks/use-classes'
 
 const DAY_LABEL: Record<string, string> = {
   mon: '월', tue: '화', wed: '수', thu: '목', fri: '금', sat: '토', sun: '일',
@@ -263,7 +264,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   const [addOpen, setAddOpen] = useState(false)
   const [addStep, setAddStep] = useState<{ studentId: string; name: string; joinedAt: string } | null>(null)
   const [removeTarget, setRemoveTarget] = useState<{ studentId: string; name: string; leftAt: string } | null>(null)
-  const [syncWarning, setSyncWarning] = useState<{ message: string; affected_weeks: number[] } | null>(null)
+  const [extendCount, setExtendCount] = useState('4')
 
   const { data: cls, isLoading: classLoading } = useQuery({
     queryKey: ['class', classId],
@@ -275,6 +276,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   const addStudent = useAddClassStudent(classId)
   const removeStudent = useRemoveClassStudent(classId)
   const syncWeeks = useSyncWeeks(classId)
+  const extendWeeks = useExtendWeeks(classId)
   const moveWeekDate = useMoveWeekDate(classId)
 
   const enrolledIds = new Set((classStudents as ClassStudent[]).map((cs) => cs.student_id))
@@ -297,14 +299,6 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     setAddOpen(false)
   }
 
-  async function handleSync(force = false) {
-    const result = await syncWeeks.mutateAsync(force)
-    if (result?.warning) {
-      setSyncWarning({ message: result.message, affected_weeks: result.affected_weeks })
-    } else {
-      setSyncWarning(null)
-    }
-  }
 
   if (classLoading) return <div className="h-8 w-48 rounded bg-gray-100 animate-pulse" />
   if (!cls) return <p className="text-sm text-gray-500">수업을 찾을 수 없습니다</p>
@@ -389,41 +383,32 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
       <div className="rounded-xl border bg-white p-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-gray-800">수업 일정</h2>
-          {scheduleDays.length > 0 && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleSync(false)}
-              disabled={syncWeeks.isPending}
-            >
-              <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncWeeks.isPending ? 'animate-spin' : ''}`} />
-              주차 재생성
-            </Button>
+          {scheduleDays.length > 0 && weeks.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <Select value={extendCount} onValueChange={setExtendCount}>
+                <SelectTrigger size="sm" className="h-8 w-[84px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[1, 2, 4, 8, 12, 16].map((n) => (
+                    <SelectItem key={n} value={String(n)}>{n}회</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => extendWeeks.mutate(parseInt(extendCount, 10))}
+                disabled={extendWeeks.isPending}
+              >
+                {extendWeeks.isPending
+                  ? <RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  : <Plus className="mr-1.5 h-3.5 w-3.5" />}
+                추가
+              </Button>
+            </div>
           )}
         </div>
-
-        {/* 주차 재생성 경고 */}
-        {syncWarning && (
-          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600 shrink-0" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-amber-800">{syncWarning.message}</p>
-                <p className="mt-1 text-xs text-amber-600">
-                  영향받는 주차: {syncWarning.affected_weeks.join(', ')}주차
-                </p>
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" variant="destructive" onClick={() => handleSync(true)}>
-                    삭제하고 재생성
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setSyncWarning(null)}>
-                    취소
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {weeks.length === 0 ? (
           <div className="py-8 text-center">
@@ -432,7 +417,8 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
               <p className="mt-1 text-xs text-gray-400">수업 수정에서 요일을 설정하면 자동으로 생성됩니다</p>
             )}
             {scheduleDays.length > 0 && (
-              <Button variant="outline" size="sm" className="mt-3" onClick={() => handleSync(false)} disabled={syncWeeks.isPending}>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => syncWeeks.mutate()} disabled={syncWeeks.isPending}>
+                {syncWeeks.isPending && <RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                 주차 생성하기
               </Button>
             )}
