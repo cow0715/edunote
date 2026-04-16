@@ -103,6 +103,7 @@ function ClassCalendar({
   const today = todayLocalStr()
   const rangeStart = classStartDate.slice(0, 10)
   const rangeEnd = classEndDate.slice(0, 10)
+  console.log('[Calendar] rangeStart:', rangeStart, 'rangeEnd:', rangeEnd, 'today:', today)
 
   return (
     <div>
@@ -154,11 +155,11 @@ function ClassCalendar({
             return (
               <div key={d} className="flex items-center justify-center py-0.5">
                 <button
-                  onClick={() => onEmptyDateClick(dateStr)}
+                  onClick={() => { console.log('[Calendar] empty date clicked:', dateStr); onEmptyDateClick(dateStr) }}
                   title="수업 추가"
                   className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-[11px] transition-colors
-                    text-gray-400 hover:bg-primary hover:text-white
-                    ${isToday ? 'border border-primary/40 text-primary font-medium' : ''}`}
+                    border border-dashed border-gray-300 text-gray-400 hover:border-primary hover:bg-primary hover:text-white
+                    ${isToday ? 'border-primary/40 text-primary font-medium' : ''}`}
                 >
                   {d}
                 </button>
