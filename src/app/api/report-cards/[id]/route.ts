@@ -244,10 +244,10 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
       const me = aggregates.find((a) => a.sid === student.id)
       const ranked = aggregates
-        .filter((a) => a.overall !== null)
-        .sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0))
+        .filter((a) => a.reading !== null)
+        .sort((a, b) => (b.reading ?? 0) - (a.reading ?? 0))
       const classTotalStudents = ranked.length
-      const myIdx = me && me.overall !== null ? ranked.findIndex((a) => a.sid === me.sid) : -1
+      const myIdx = me && me.reading !== null ? ranked.findIndex((a) => a.sid === me.sid) : -1
       const classRank = myIdx >= 0 ? myIdx + 1 : null
       const classPercentile = classRank && classTotalStudents > 0
         ? Math.round((classRank / classTotalStudents) * 100)
