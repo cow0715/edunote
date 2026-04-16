@@ -18,6 +18,14 @@ const GREEN = '#10B981'
 const ORANGE = '#F97316'
 const RED = '#EF4444'
 
+function gradeColor(grade: string): string {
+  const g = (grade ?? '').toUpperCase()[0]
+  if (g === 'A') return GREEN
+  if (g === 'B') return BLUE
+  if (g === 'C') return '#F59E0B'
+  return RED
+}
+
 function reportNumber(cardId: string, generatedAt: string): string {
   const d = new Date(generatedAt)
   const yymmdd = `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
@@ -40,7 +48,7 @@ function buildInsightLines(
   type Domain = { name: string; rate: number; classAvg: number | null }
   const all: Domain[] = []
   if (avgReading !== null) all.push({ name: '독해', rate: avgReading, classAvg: classContext?.classAvgReading ?? null })
-  if (avgWriting !== null) all.push({ name: '작문', rate: avgWriting, classAvg: null })
+  if (avgWriting !== null) all.push({ name: '작문', rate: avgWriting, classAvg: classContext?.classAvgWriting ?? null })
   if (avgVocab !== null) all.push({ name: '어휘', rate: avgVocab, classAvg: classContext?.classAvgVocab ?? null })
   if (avgHomework !== null) all.push({ name: '과제', rate: avgHomework, classAvg: classContext?.classAvgHomework ?? null })
   if (all.length === 0) return lines
@@ -49,7 +57,7 @@ function buildInsightLines(
   const best = sortedByRate[0]
   const worst = sortedByRate[sortedByRate.length - 1]
 
-  // ── 강점 라인 (녹색) ──
+  // ── 강점 (녹색) ──
   if (classContext) {
     const aboveAvg = all.filter((d) => d.classAvg !== null && d.rate > d.classAvg)
     if (aboveAvg.length >= 2) {
@@ -71,7 +79,7 @@ function buildInsightLines(
     }
   }
 
-  // ── 보완 라인 (주황) ──
+  // ── 보완 (주황) ──
   const WEAK = 75
   const weak = [...all].filter((d) => d.rate < WEAK).sort((a, b) => a.rate - b.rate)
   if (weak.length > 0) {
@@ -88,7 +96,7 @@ function buildInsightLines(
     lines.push({ color: ORANGE, text: `전 영역 ${WEAK}점 이상이지만, ${worst.name}(${worst.rate}%)이 상대적으로 더 연습이 필요합니다. ${85 - worst.rate}점만 더 올리면 전 영역 85% 달성입니다.` })
   }
 
-  // ── 성장 트렌드 라인 (파랑) ──
+  // ── 트렌드 (파랑) ──
   const overallDelta = overallAvg !== null && previous?.overallAvg != null ? overallAvg - previous.overallAvg : null
   const streakMatch = achievements.find((a) => /\d+주 연속 점수 상승/.test(a))
   const vsClass = overallAvg !== null && classContext?.classAvgOverall != null ? overallAvg - classContext.classAvgOverall : null
@@ -119,24 +127,6 @@ function buildInsightLines(
   return lines
 }
 
-function Sparkline({ values, color = BLUE }: { values: (number | null)[]; color?: string }) {
-  const nums = values.map((v) => (v === null ? null : Math.max(0, Math.min(100, v))))
-  if (nums.filter((v): v is number => v !== null).length < 2) return null
-  const w = 56, h = 16, n = nums.length
-  const points: { x: number; y: number }[] = []
-  nums.forEach((v, i) => {
-    if (v === null) return
-    points.push({ x: n > 1 ? (i / (n - 1)) * w : w / 2, y: h - (v / 100) * (h - 2) - 1 })
-  })
-  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} preserveAspectRatio="none">
-      <path d={path} fill="none" stroke={color} strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />
-      {points.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="1.4" fill={color} />)}
-    </svg>
-  )
-}
-
 function WeeklyChart({ rows, classAvgReading, classAvgVocab, classAvgHomework }: {
   rows: WeekRow[]
   classAvgReading?: number | null
@@ -144,7 +134,7 @@ function WeeklyChart({ rows, classAvgReading, classAvgVocab, classAvgHomework }:
   classAvgHomework?: number | null
 }) {
   if (rows.length === 0) return null
-  const W = 480, H = 88, PAD_L = 26, PAD_R = 8, PAD_T = 8, PAD_B = 18
+  const W = 480, H = 128, PAD_L = 26, PAD_R = 8, PAD_T = 8, PAD_B = 18
   const cW = W - PAD_L - PAD_R, cH = H - PAD_T - PAD_B, n = rows.length
   const xOf = (i: number) => PAD_L + (n === 1 ? cW / 2 : (i / (n - 1)) * cW)
   const yOf = (v: number) => PAD_T + cH - (Math.max(0, Math.min(100, v)) / 100) * cH
@@ -159,7 +149,7 @@ function WeeklyChart({ rows, classAvgReading, classAvgVocab, classAvgHomework }:
   }
   const C = { r: BLUE, v: GREEN, h: '#F59E0B' }
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display: 'block' }}>
       {[0, 25, 50, 75, 100].map(v => (
         <g key={v}>
           <line x1={PAD_L} y1={yOf(v)} x2={W - PAD_R} y2={yOf(v)} stroke="#F3F4F6" strokeWidth="0.8" />
@@ -192,7 +182,7 @@ function RadarChart({ axes, classAvg }: {
   axes: { label: string; value: number | null; classValue?: number | null }[]
   classAvg?: boolean
 }) {
-  const SIZE = 130, cx = 65, cy = 65, R = 48, n = axes.length
+  const SIZE = 140, cx = 70, cy = 70, R = 52, n = axes.length
   const angle = (i: number) => (2 * Math.PI * i / n) - Math.PI / 2
   const pt = (i: number, val: number) => { const a = angle(i), r = R * Math.max(0, Math.min(100, val)) / 100; return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) } }
   const lpt = (i: number) => { const a = angle(i); return { x: cx + (R + 16) * Math.cos(a), y: cy + (R + 16) * Math.sin(a) } }
@@ -211,13 +201,12 @@ function RadarChart({ axes, classAvg }: {
   )
 }
 
-function DomainCard({ icon: Icon, title, rate, classAvg, prevRate, series }: {
+function DomainCard({ icon: Icon, title, rate, classAvg, prevRate }: {
   icon: React.ComponentType<{ className?: string }>
   title: string
   rate: number | null
   classAvg?: number | null
   prevRate?: number | null
-  series: (number | null)[]
 }) {
   const diff = rate !== null && classAvg != null ? rate - classAvg : null
   const prevDelta = rate !== null && prevRate != null ? rate - prevRate : null
@@ -252,14 +241,11 @@ function DomainCard({ icon: Icon, title, rate, classAvg, prevRate, series }: {
             style={{ left: `${Math.max(0, Math.min(100, classAvg))}%` }} />
         )}
       </div>
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] text-gray-400">
-          {classAvg != null ? (
-            <>반 평균 {classAvg}%{diff !== null && <span className="ml-1 font-semibold" style={{ color: diff >= 0 ? GREEN : ORANGE }}>{diff >= 0 ? `+${diff}` : diff}</span>}</>
-          ) : qualitativeLabel(rate)}
-        </p>
-        <Sparkline values={series} color={barColor} />
-      </div>
+      <p className="text-[10px] text-gray-400">
+        {classAvg != null ? (
+          <>반 평균 {classAvg}%{diff !== null && <span className="ml-1 font-semibold" style={{ color: diff >= 0 ? GREEN : ORANGE }}>{diff >= 0 ? `+${diff}` : diff}</span>}</>
+        ) : qualitativeLabel(rate)}
+      </p>
     </div>
   )
 }
@@ -271,10 +257,6 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
     categoryStats, totalQuestions, totalCorrect, achievements,
     wrongItems,
   } = metrics
-
-  const readingSeries = weekRows.map((r: WeekRow) => r.reading_rate)
-  const vocabSeries = weekRows.map((r: WeekRow) => r.vocab_rate)
-  const homeworkSeries = weekRows.map((r: WeekRow) => r.homework_rate)
 
   const attendedCount = attendancePresent + attendanceLate
   const attendRate = attendanceTotal > 0 ? Math.round((attendedCount / attendanceTotal) * 100) : null
@@ -290,6 +272,13 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
     avgReading, avgWriting, avgVocab, avgHomework,
     overallAvg, previous, classContext, achievements,
   )
+
+  const radarAxes = [
+    { label: '독해', value: avgReading, classValue: classContext?.classAvgReading ?? null },
+    ...(avgWriting !== null ? [{ label: '작문', value: avgWriting, classValue: classContext?.classAvgWriting ?? null }] : []),
+    { label: '어휘', value: avgVocab, classValue: classContext?.classAvgVocab ?? null },
+    { label: '과제', value: avgHomework, classValue: classContext?.classAvgHomework ?? null },
+  ]
 
   return (
     <div
@@ -309,36 +298,44 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
             </p>
             <p className="text-[10px] text-gray-400 mt-1">{card.period_label} · 발급 {new Date(card.generated_at).toLocaleDateString('ko-KR')} · {reportNumber(card.id, card.generated_at)}</p>
           </div>
-          <div className="text-right shrink-0">
-            <div className="flex items-end justify-end gap-1.5">
-              <span className="text-5xl font-extrabold tabular-nums leading-none" style={{ color: BLUE }}>{overallAvg ?? '-'}</span>
-              <div className="pb-0.5">
-                <p className="text-sm text-gray-400">/ 100</p>
-                {overallDelta !== null && (
-                  <p className="text-xs font-bold text-right" style={{ color: overallDelta >= 0 ? GREEN : RED }}>
-                    {overallDelta >= 0 ? '▲' : '▼'}{Math.abs(overallDelta)}점
-                  </p>
-                )}
+          <div className="flex items-center gap-3 shrink-0">
+            {/* 종합 등급 — 눈에 띄게 */}
+            {card.overall_grade && (
+              <div className="flex flex-col items-center gap-0.5">
+                <div
+                  className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl font-black"
+                  style={{ background: gradeColor(card.overall_grade) + '18', color: gradeColor(card.overall_grade) }}
+                >
+                  {card.overall_grade}
+                </div>
+                <span className="text-[9px] text-gray-400">종합 등급</span>
               </div>
-            </div>
-            <div className="flex items-center justify-end gap-1.5 mt-2 flex-wrap">
+            )}
+            <div className="text-right">
+              <div className="flex items-end justify-end gap-1.5">
+                <span className="text-5xl font-extrabold tabular-nums leading-none" style={{ color: BLUE }}>{overallAvg ?? '-'}</span>
+                <div className="pb-0.5">
+                  <p className="text-sm text-gray-400">/ 100</p>
+                  {overallDelta !== null && (
+                    <p className="text-xs font-bold text-right" style={{ color: overallDelta >= 0 ? GREEN : RED }}>
+                      {overallDelta >= 0 ? '▲' : '▼'}{Math.abs(overallDelta)}점
+                    </p>
+                  )}
+                </div>
+              </div>
               {classContext?.classRank && (
-                <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: '#EBF3FF', color: BLUE }}>
-                  반 {classContext.classRank}위 / {classContext.classTotalStudents}명
-                </span>
-              )}
-              {classContext?.classPercentile && (
-                <span className="text-[10px] text-gray-400">상위 {classContext.classPercentile}%</span>
-              )}
-              {card.overall_grade && (
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{card.overall_grade}</span>
+                <div className="flex items-center justify-end mt-2">
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: '#EBF3FF', color: BLUE }}>
+                    반 {classContext.classRank}위 / {classContext.classTotalStudents}명
+                  </span>
+                </div>
               )}
             </div>
           </div>
         </div>
       </header>
 
-      {/* ── 요약 3카드 ─── 한눈에 ──────────────────────────────── */}
+      {/* ── 요약 3카드 ───────────────────────────────────────── */}
       <section className="mt-4 grid grid-cols-3 gap-3">
         <div className="rounded-xl bg-gray-50 px-4 py-3.5">
           <p className="text-[10px] text-gray-400">지난 기간 대비</p>
@@ -374,31 +371,31 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         </div>
       </section>
 
-      {/* ── 영역별 카드 ──────────────────────────────────────────── */}
+      {/* ── 영역별 카드 (스파크라인 제거) ────────────────────────── */}
       <section className="mt-5">
         <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">영역별 성적 — 내 점수 vs 반 평균</p>
         <div className={`grid gap-2.5 ${avgWriting !== null ? 'grid-cols-2' : 'grid-cols-3'}`}>
           <DomainCard
             icon={BookOpen} title="독해"
             rate={avgReading} classAvg={classContext?.classAvgReading}
-            prevRate={previous?.avgReading} series={readingSeries}
+            prevRate={previous?.avgReading}
           />
           {avgWriting !== null && (
             <DomainCard
               icon={PenLine} title="작문"
-              rate={avgWriting} classAvg={null}
-              prevRate={null} series={[]}
+              rate={avgWriting} classAvg={classContext?.classAvgWriting ?? null}
+              prevRate={null}
             />
           )}
           <DomainCard
             icon={BookText} title="어휘"
             rate={avgVocab} classAvg={classContext?.classAvgVocab}
-            prevRate={previous?.avgVocab} series={vocabSeries}
+            prevRate={previous?.avgVocab}
           />
           <DomainCard
             icon={ClipboardCheck} title="과제"
             rate={avgHomework} classAvg={classContext?.classAvgHomework}
-            prevRate={previous?.avgHomework} series={homeworkSeries}
+            prevRate={previous?.avgHomework}
           />
         </div>
         <p className="text-[10px] text-gray-400 mt-1.5 text-right">
@@ -406,7 +403,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         </p>
       </section>
 
-      {/* ── 이달의 핵심 인사이트 — 내러티브 ───────────────────────── */}
+      {/* ── 이달의 핵심 인사이트 ────────────────────────────────── */}
       {insightLines.length > 0 && (
         <section className="mt-5">
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">이달의 핵심 인사이트</p>
@@ -421,12 +418,13 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         </section>
       )}
 
-      {/* ── 성장 추이 ─────────────────────────────────────────────── */}
+      {/* ── 성장 추이 + 역량 레이더 (높이 정렬) ─────────────────── */}
       {weekRows.length > 0 && (
         <section className="mt-5">
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">성장 추이</p>
-          <div className="grid grid-cols-[2fr_1fr] gap-3">
-            <div className="rounded-xl border border-gray-100 p-3.5">
+          <div className="grid grid-cols-[2fr_1fr] gap-3 items-stretch">
+            {/* 좌: 주간 라인 차트 */}
+            <div className="rounded-xl border border-gray-100 p-3.5 flex items-center">
               <WeeklyChart
                 rows={weekRows}
                 classAvgReading={classContext?.classAvgReading}
@@ -434,19 +432,12 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
                 classAvgHomework={classContext?.classAvgHomework}
               />
             </div>
-            <div className="rounded-xl border border-gray-100 p-3 flex flex-col items-center justify-center gap-2">
-              <p className="text-[10px] font-semibold text-gray-400 self-start">영역별 균형</p>
-              <RadarChart
-                axes={[
-                  { label: '독해', value: avgReading, classValue: classContext?.classAvgReading },
-                  { label: '어휘', value: avgVocab, classValue: classContext?.classAvgVocab },
-                  { label: '과제', value: avgHomework, classValue: classContext?.classAvgHomework },
-                  { label: '출석', value: attendRate },
-                ]}
-                classAvg={!!classContext}
-              />
+            {/* 우: 레이더 차트 */}
+            <div className="rounded-xl border border-gray-100 p-3 flex flex-col items-center justify-between">
+              <p className="text-[10px] font-semibold text-gray-400 self-start">역량 지도</p>
+              <RadarChart axes={radarAxes} classAvg={!!classContext} />
               {classContext && (
-                <div className="flex gap-3">
+                <div className="flex gap-3 mt-1">
                   <div className="flex items-center gap-1">
                     <div className="w-2 h-2 rounded-full" style={{ background: BLUE }} />
                     <span className="text-[9px] text-gray-400">본인</span>
@@ -546,7 +537,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         )
       })()}
 
-      {/* ── 선생님 메시지 (summary_text + teacher_comment 통합) ───── */}
+      {/* ── 선생님 메시지 ─────────────────────────────────────────── */}
       {(card.summary_text || card.teacher_comment) && (
         <section className="mt-5 rounded-xl border border-gray-100 p-4">
           <div className="flex items-center gap-2.5 mb-3">

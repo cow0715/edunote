@@ -271,11 +271,27 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
         if (ca.is_correct) questionAccuracy[qid].correct++
       }
 
+      // 작문(서술형 독해) 반 평균 — 학생 문항 데이터로 writing ID 추출 후 반 전체 정답률 계산
+      const writingQIds = new Set<string>()
+      for (const a of rawAnswers ?? []) {
+        const eq = (Array.isArray(a.exam_question) ? a.exam_question[0] : a.exam_question) as { id?: string; exam_type?: string; question_style?: string } | null
+        if (eq?.id && eq.exam_type === 'reading' && eq.question_style === 'subjective') {
+          writingQIds.add(eq.id)
+        }
+      }
+      const classWritingAnswers = (classAnswers ?? []).filter(
+        (ca: { exam_question_id: string }) => writingQIds.has(ca.exam_question_id)
+      ) as { is_correct: boolean }[]
+      const classAvgWriting: number | null = classWritingAnswers.length >= 2
+        ? Math.round(classWritingAnswers.filter(ca => ca.is_correct).length / classWritingAnswers.length * 100)
+        : null
+
       classContext = {
         classAvgOverall,
         classAvgReading,
         classAvgVocab,
         classAvgHomework,
+        classAvgWriting,
         classTotalStudents,
         classRank,
         classPercentile,

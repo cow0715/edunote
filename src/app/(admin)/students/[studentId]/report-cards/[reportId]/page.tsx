@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Printer, Save, CheckCircle2, Sparkles } from 'lucide-react'
+import { ArrowLeft, Printer, Save, CheckCircle2, Sparkles, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -21,28 +21,30 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
 
   const [grade, setGrade] = useState('')
   const [comment, setComment] = useState('')
-  const [nextFocus, setNextFocus] = useState('')
   const [summary, setSummary] = useState('')
+  const [goalItems, setGoalItems] = useState<string[]>([''])
   const [dirty, setDirty] = useState(false)
+
+  // next_focus string derived from goalItems
+  const nextFocus = goalItems.filter(Boolean).join('\n')
 
   useEffect(() => {
     if (!data) return
     setGrade(data.card.overall_grade ?? '')
     setComment(data.card.teacher_comment ?? '')
-    setNextFocus(data.card.next_focus ?? '')
     setSummary(data.card.summary_text ?? '')
+    const loaded = (data.card.next_focus ?? '').split('\n').map((s) => s.trim()).filter(Boolean)
+    setGoalItems(loaded.length > 0 ? [...loaded, ''] : [''])
     setDirty(false)
   }, [data])
 
-  if (isLoading) {
-    return <div className="p-6 text-sm text-gray-500">불러오는 중...</div>
-  }
-  if (error || !data) {
-    return <div className="p-6 text-sm text-red-500">성적표를 불러올 수 없습니다</div>
-  }
+  if (isLoading) return <div className="p-6 text-sm text-gray-500">불러오는 중...</div>
+  if (error || !data) return <div className="p-6 text-sm text-red-500">성적표를 불러올 수 없습니다</div>
 
   const { card, student, metrics, previous, academy, classContext } = data
   const suggestedGrade = suggestGrade(metrics.overallAvg)
+
+  function markDirty() { setDirty(true) }
 
   async function handleSave() {
     await update.mutateAsync({
@@ -69,18 +71,32 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
     toast.success('성적표가 발급되었습니다')
   }
 
-  function handlePrint() {
-    window.print()
-  }
-
   function handleAutoSummary() {
-    const auto = buildAutoSummary(student.name, metrics, previous)
+    const auto = buildAutoSummary(student.name, metrics, previous, classContext)
     setSummary(auto)
     setDirty(true)
   }
 
+  function updateGoalItem(index: number, value: string) {
+    const next = [...goalItems]
+    next[index] = value
+    setGoalItems(next)
+    setDirty(true)
+  }
+
+  function removeGoalItem(index: number) {
+    const next = goalItems.filter((_, i) => i !== index)
+    setGoalItems(next.length > 0 ? next : [''])
+    setDirty(true)
+  }
+
+  function addGoalItem() {
+    setGoalItems([...goalItems, ''])
+  }
+
   return (
     <div className="report-card-root">
+      {/* 상단 툴바 */}
       <div className="print:hidden sticky top-0 z-10 -mx-4 -mt-4 md:-mx-6 md:-mt-6 mb-4 border-b bg-white px-4 md:px-6 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <Button variant="ghost" size="sm" onClick={() => router.push('/students')}>
@@ -111,9 +127,9 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
               발급 확정
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={handlePrint}>
+          <Button variant="outline" size="sm" onClick={() => window.print()}>
             <Printer className="mr-1.5 h-4 w-4" />
-            PDF 저장 / 인쇄
+            PDF / 인쇄
           </Button>
         </div>
       </div>
@@ -137,102 +153,135 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
         </div>
 
         <aside className="print:hidden space-y-4">
+
+          {/* ── 종합 등급 ── */}
           <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-gray-900">종합 평가</h3>
-            <div className="space-y-2">
-              <Label htmlFor="grade" className="text-xs">등급</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="grade"
-                  value={grade}
-                  onChange={(e) => { setGrade(e.target.value); setDirty(true) }}
-                  placeholder="A / B / C / D"
-                  maxLength={4}
-                  className="w-28"
-                />
-                {!grade && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs text-primary"
-                    onClick={() => { setGrade(suggestedGrade); setDirty(true) }}
-                  >
-                    추천: {suggestedGrade}
-                  </Button>
-                )}
-              </div>
-              <p className="text-xs text-gray-400">
-                평균 정답률 {metrics.overallAvg ?? '-'}% 기준 자동 추천: {suggestedGrade}
-              </p>
+            <h3 className="text-sm font-semibold text-gray-900">종합 등급</h3>
+            <div className="flex items-center gap-2">
+              <Input
+                value={grade}
+                onChange={(e) => { setGrade(e.target.value); markDirty() }}
+                placeholder="A / B / C / D"
+                maxLength={4}
+                className="w-24 text-center text-lg font-bold"
+              />
+              {!grade && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-primary"
+                  onClick={() => { setGrade(suggestedGrade); markDirty() }}
+                >
+                  추천: {suggestedGrade}
+                </Button>
+              )}
             </div>
+            <p className="text-xs text-gray-400">
+              평균 {metrics.overallAvg ?? '-'}% 기준 자동 추천: <span className="font-semibold">{suggestedGrade}</span>
+            </p>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
+          {/* ── 선생님 메시지 (요약 + 코멘트 통합) ── */}
+          <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-900">한 줄 요약</h3>
-              <Button type="button" variant="ghost" size="sm" className="text-xs" onClick={handleAutoSummary}>
-                <Sparkles className="mr-1 h-3.5 w-3.5" />
+              <h3 className="text-sm font-semibold text-gray-900">선생님 메시지</h3>
+              <Button type="button" variant="ghost" size="sm" className="text-xs h-7 gap-1" onClick={handleAutoSummary}>
+                <Sparkles className="h-3.5 w-3.5" />
                 자동 생성
               </Button>
             </div>
-            <Textarea
-              value={summary}
-              onChange={(e) => { setSummary(e.target.value); setDirty(true) }}
-              rows={3}
-              placeholder="자동 생성 후 학부모 언어로 다듬어주세요"
-            />
-            {previous && (
-              <p className="text-xs text-gray-400">
-                전 기간({previous.label}) 평균 {previous.overallAvg ?? '-'}% → 이번 {metrics.overallAvg ?? '-'}%
-              </p>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-gray-500">핵심 요약 <span className="text-gray-400 font-normal">(학부모용 · 자동 생성 후 다듬기)</span></Label>
+              <Textarea
+                value={summary}
+                onChange={(e) => { setSummary(e.target.value); markDirty() }}
+                rows={4}
+                placeholder="자동 생성 버튼을 눌러 초안을 만들어보세요"
+                className="text-sm resize-none"
+              />
+              {previous && (
+                <p className="text-xs text-gray-400">
+                  {previous.label} {previous.overallAvg ?? '-'}% → 이번 {metrics.overallAvg ?? '-'}%
+                </p>
+              )}
+            </div>
+
+            <div className="border-t border-gray-100 pt-4 space-y-1.5">
+              <Label className="text-xs text-gray-500">상세 코멘트 <span className="text-gray-400 font-normal">(선택)</span></Label>
+              <Textarea
+                value={comment}
+                onChange={(e) => { setComment(e.target.value); markDirty() }}
+                rows={4}
+                placeholder="수업 태도, 특이사항, 격려 메시지 등을 자유롭게 작성하세요"
+                className="text-sm resize-none"
+              />
+            </div>
+          </div>
+
+          {/* ── 다음 기간 목표 — 개별 입력 ── */}
+          <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-900">다음 달 목표</h3>
+              <span className="text-[10px] text-gray-400">{goalItems.filter(Boolean).length}개 설정됨</span>
+            </div>
+
+            <div className="space-y-2">
+              {goalItems.map((item, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-300 w-4 text-right shrink-0">{i + 1}</span>
+                  <Input
+                    value={item}
+                    onChange={(e) => updateGoalItem(i, e.target.value)}
+                    placeholder={
+                      i === 0 ? '목표 점수 (예: 독해 90점 이상)' :
+                      i === 1 ? '집중 영역 (예: 어휘 추론 훈련)' :
+                      i === 2 ? '추가 과제 (예: 주 3회 단어 암기)' :
+                      `목표 ${i + 1}`
+                    }
+                    className="text-sm h-8"
+                  />
+                  {goalItems.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-gray-300 hover:text-gray-500 shrink-0"
+                      onClick={() => removeGoalItem(i)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {goalItems.length < 6 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full text-xs text-gray-400 border border-dashed border-gray-200 h-8"
+                onClick={addGoalItem}
+              >
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                항목 추가
+              </Button>
             )}
+            <p className="text-xs text-gray-400">입력한 항목이 성적표에 목표로 표시됩니다</p>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-gray-900">선생님 코멘트</h3>
-            <Textarea
-              value={comment}
-              onChange={(e) => { setComment(e.target.value); setDirty(true) }}
-              rows={5}
-              placeholder="기간 전반에 대한 종합 의견을 작성하세요"
-            />
-          </div>
-
-          <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-gray-900">다음 기간 학습 목표</h3>
-            <Textarea
-              value={nextFocus}
-              onChange={(e) => { setNextFocus(e.target.value); setDirty(true) }}
-              rows={5}
-              placeholder="한 줄에 한 개씩 (체크리스트로 표시됩니다)&#10;예: 어휘 추론 주 3회 훈련&#10;긴 지문 읽기 속도 개선"
-            />
-            <p className="text-xs text-gray-400">엔터로 구분한 각 줄이 체크박스 항목이 됩니다</p>
-          </div>
         </aside>
       </div>
 
       <style jsx global>{`
         @media print {
-          @page {
-            size: A4;
-            margin: 12mm 12mm 12mm 12mm;
-          }
-          html, body {
-            background: white !important;
-          }
-          body * {
-            visibility: hidden;
-          }
-          .print-area, .print-area * {
-            visibility: visible;
-          }
-          .print-area {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-          }
+          @page { size: A4; margin: 12mm; }
+          html, body { background: white !important; }
+          body * { visibility: hidden; }
+          .print-area, .print-area * { visibility: visible; }
+          .print-area { position: absolute; left: 0; top: 0; width: 100%; }
         }
       `}</style>
     </div>
