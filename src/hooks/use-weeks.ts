@@ -53,13 +53,19 @@ export function useMoveWeekDate(classId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ weekId, date }: { weekId: string; date: string }) => {
-      const res = await fetch(`/api/weeks/${weekId}`, {
+      // 1. 날짜 변경
+      const moveRes = await fetch(`/api/weeks/${weekId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ start_date: date }),
       })
-      if (!res.ok) throw new Error((await res.json()).error)
-      return res.json()
+      if (!moveRes.ok) throw new Error((await moveRes.json()).error)
+
+      // 2. 주차 번호 재정렬 (start_date 순)
+      const reorderRes = await fetch(`/api/classes/${classId}/weeks/reorder`, { method: 'POST' })
+      if (!reorderRes.ok) throw new Error((await reorderRes.json()).error)
+
+      return reorderRes.json()
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['weeks', classId] })
