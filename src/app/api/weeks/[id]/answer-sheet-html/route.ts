@@ -40,10 +40,12 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     grouped.set(q.question_number, arr)
   }
 
-  // 한 페이지에 맞게 행 높이 동적 조정 (문항 수가 많을수록 작게)
+  // 페이지 높이에서 마진·제목 영역을 빼고 남은 공간을 행 수로 나눔
   const qCount = grouped.size
-  const rowH = qCount <= 7 ? 52 : qCount <= 10 ? 40 : qCount <= 14 ? 30 : 24
-  const tallH = qCount <= 7 ? 68 : qCount <= 10 ? 52 : qCount <= 14 ? 40 : 32
+  const pageBodyMm = 297 - 20 - 30 // 페이지 - 상하마진 - 제목/이름 영역
+  const rowMm = Math.floor(pageBodyMm / qCount)
+  const rowH = Math.max(rowMm * 3.78, 24) // mm → px 근사, 최소 24px
+  const tallH = rowH
 
   const tdAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:6px 8px;font-size:13px;vertical-align:middle;"`
   const qnumAttr = `${tdAttr.replace('padding:6px 8px', 'padding:4px;width:48px;text-align:center;font-weight:bold;background:#fde3c4')}`
@@ -96,9 +98,9 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 </head>
 <body>
 <div class="Section1">
-<p style="text-align:center;font-size:22px;font-weight:bold;margin:0 0 8px 0;">Week${weekNum} 진단평가 답안지</p>
-<p style="text-align:center;font-size:14px;margin:0 0 16px 0;">학교: ______________&nbsp;&nbsp;&nbsp;&nbsp;이름: ______________</p>
-<table border="1" bordercolor="#000000" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;border:2px solid #000;">
+<p style="text-align:center;font-size:22px;font-weight:bold;margin:40px 0 8px 0;">Week${weekNum} 진단평가 답안지</p>
+<p style="text-align:right;font-size:14px;margin:0 0 16px 0;">학교: ______________&nbsp;&nbsp;&nbsp;&nbsp;이름: ______________</p>
+<table border="1" bordercolor="#000000" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;border:2px solid #000;margin:8px 0;">
 ${rows.join('\n')}
 </table>
 </div>
