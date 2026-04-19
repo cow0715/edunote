@@ -108,9 +108,15 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
     setSending(true)
     try {
       const html2canvas = (await import('html2canvas-pro')).default
+
+      const rect = node.getBoundingClientRect()
+      const MAX_W = 1500
+      const MAX_H = 1440
+      const scale = Math.min(1.5, MAX_W / rect.width, MAX_H / rect.height)
+
       const canvas = await html2canvas(node, {
         backgroundColor: '#ffffff',
-        scale: 1.2,
+        scale,
         useCORS: true,
       })
 
