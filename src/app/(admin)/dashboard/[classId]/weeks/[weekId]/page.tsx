@@ -239,7 +239,13 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
                 classStudents={classStudents as ClassStudent[]}
                 defaultDate={week.start_date ?? undefined}
                 scheduledDates={cls && (cls.schedule_days?.length ?? 0) > 0
-                  ? generateSessionDates(cls.start_date, cls.end_date, cls.schedule_days)
+                  ? (() => {
+                      const base = generateSessionDates(cls.start_date, cls.end_date, cls.schedule_days)
+                      if (week.start_date && !base.includes(week.start_date)) {
+                        return [...base, week.start_date].sort()
+                      }
+                      return base
+                    })()
                   : undefined}
               />
             </TabsContent>
