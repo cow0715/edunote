@@ -146,7 +146,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   }
 
   function weekRate(score: (typeof weekScores)[number], week: (typeof weeks)[number], field: 'reading' | 'vocab' | 'homework'): number | null {
-    if (field === 'reading') return week.reading_total > 0 && hasReadingData(week.id, score.id) ? Math.round(score.reading_correct / week.reading_total * 100) : null
+    if (field === 'reading') return week.reading_total > 0 && score.reading_correct !== null && hasReadingData(week.id, score.id) ? Math.round(score.reading_correct / week.reading_total * 100) : null
     if (field === 'vocab') return week.vocab_total > 0 && score.vocab_correct !== null ? Math.round(score.vocab_correct / week.vocab_total * 100) : null
     if (field === 'homework') return week.homework_total > 0 && score.homework_done !== null ? Math.round(score.homework_done / week.homework_total * 100) : null
     return null
