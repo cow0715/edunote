@@ -96,6 +96,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 </head>
 <body>
 <div class="Section1">
+<p style="text-align:center;font-size:22px;font-weight:bold;margin:0 0 8px 0;">Week${weekNum} 진단평가 답안지</p>
+<p style="text-align:center;font-size:14px;margin:0 0 16px 0;">학교: ______________&nbsp;&nbsp;&nbsp;&nbsp;이름: ______________</p>
 <table border="1" bordercolor="#000000" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;border:2px solid #000;">
 ${rows.join('\n')}
 </table>
