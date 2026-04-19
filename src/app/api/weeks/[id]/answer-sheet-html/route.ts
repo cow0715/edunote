@@ -40,13 +40,26 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     grouped.set(q.question_number, arr)
   }
 
-  // A4(297mm) - 상하마진(20mm) - 제목+이름(18mm) = 259mm → pt 변환 (1mm ≈ 2.835pt)
-  const qCount = grouped.size
-  const availPt = Math.floor(259 * 2.835)
-  const rowPt = Math.floor(availPt / qCount)
+  // 객관식/서술형 분류 후 높이 배분
+  type RowInfo = { qNum: number; group: Q[]; isShort: boolean }
+  const rowInfos: RowInfo[] = []
+  for (const [qNum, group] of grouped) {
+    const s = group[0].question_style
+    const isShort = s === 'objective' || s === 'ox' || s === 'multi_select'
+    rowInfos.push({ qNum, group, isShort })
+  }
+  const shortCount = rowInfos.filter(r => r.isShort).length
+  const tallCount = rowInfos.length - shortCount
+
+  // A4(297mm) - 상하마진(20mm) - 제목영역(20mm) - 여유(7mm) = 250mm
+  // 서술형 1칸 = 객관식 2칸 비율로 배분
+  const availMm = 250
+  const units = shortCount + tallCount * 2
+  const unitMm = availMm / units
+  const shortPt = Math.floor(unitMm * 2.835)
+  const tallPt = Math.floor(unitMm * 2 * 2.835)
 
   const trStyle = (h: number) => `style="height:${h}pt;mso-height-rule:exactly;"`
-  const tdBase = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:2pt 4pt;font-size:13px;vertical-align:middle;"`
   const qnumAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:2pt;width:36pt;text-align:center;font-weight:bold;background:#fde3c4;vertical-align:middle;"`
   const subHdrAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:2pt;font-size:12px;width:22pt;text-align:center;font-weight:bold;background:#f5f5f5;vertical-align:middle;"`
   const subCellAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:2pt;font-size:12px;vertical-align:middle;"`
@@ -54,17 +67,17 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   // 테이블 행 생성
   const rows: string[] = []
-  for (const [qNum, group] of grouped) {
+  for (const { qNum, group, isShort } of rowInfos) {
     const first = group[0]
     const style = first.question_style
     const hasSub = group.length > 1 || first.sub_label !== null
+    const tr = trStyle(isShort ? shortPt : tallPt)
 
-    const tr = trStyle(rowPt)
     if (style === 'objective' && !hasSub) {
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="6"><span style="font-size:18px;">① &nbsp; ② &nbsp; ③ &nbsp; ④ &nbsp; ⑤</span></td></tr>`)
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="6"><span style="font-size:16px;">① &nbsp; ② &nbsp; ③ &nbsp; ④ &nbsp; ⑤</span></td></tr>`)
     } else if (style === 'objective' && hasSub) {
       const cells = group.map((q) =>
-        `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}><span style="font-size:16px;">① ② ③ ④ ⑤</span></td>`
+        `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}><span style="font-size:14px;">① ② ③ ④ ⑤</span></td>`
       ).join('')
       rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td>${cells}</tr>`)
     } else if (style === 'ox') {
