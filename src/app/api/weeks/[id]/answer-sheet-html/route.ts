@@ -40,11 +40,10 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     grouped.set(q.question_number, arr)
   }
 
-  // 페이지 높이에서 마진·제목 영역을 빼고 남은 공간을 행 수로 나눔
+  // A4(297mm) - 상하마진(20mm) - 제목+이름(25mm) - 테이블마진(5mm) = 247mm 사용 가능
   const qCount = grouped.size
-  const pageBodyMm = 297 - 20 - 30 // 페이지 - 상하마진 - 제목/이름 영역
-  const rowMm = Math.floor(pageBodyMm / qCount)
-  const rowH = Math.max(rowMm * 3.78, 24) // mm → px 근사, 최소 24px
+  const availPx = 247 * 3.78 // mm → px
+  const rowH = Math.floor(availPx / qCount)
   const tallH = rowH
 
   const tdAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:6px 8px;font-size:13px;vertical-align:middle;"`
@@ -61,10 +60,10 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     const hasSub = group.length > 1 || first.sub_label !== null
 
     if (style === 'objective' && !hasSub) {
-      rows.push(`<tr><td ${qnumAttr}>${qNum}</td><td ${answerAttr(rowH)} colspan="6">① &nbsp; ② &nbsp; ③ &nbsp; ④ &nbsp; ⑤</td></tr>`)
+      rows.push(`<tr><td ${qnumAttr}>${qNum}</td><td ${answerAttr(rowH)} colspan="6"><span style="font-size:18px;">① &nbsp; ② &nbsp; ③ &nbsp; ④ &nbsp; ⑤</span></td></tr>`)
     } else if (style === 'objective' && hasSub) {
       const cells = group.map((q) =>
-        `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr(rowH)}>① ② ③ ④ ⑤</td>`
+        `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr(rowH)}><span style="font-size:16px;">① ② ③ ④ ⑤</span></td>`
       ).join('')
       rows.push(`<tr><td ${qnumAttr}>${qNum}</td>${cells}</tr>`)
     } else if (style === 'ox') {
@@ -98,7 +97,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 </head>
 <body>
 <div class="Section1">
-<p style="text-align:center;font-size:22px;font-weight:bold;margin:40px 0 8px 0;">Week${weekNum} 진단평가 답안지</p>
+<p style="text-align:center;font-size:22px;font-weight:bold;margin:24px 0 6px 0;">Week${weekNum} 진단평가 답안지</p>
 <p style="text-align:right;font-size:14px;margin:0 0 16px 0;">학교: ______________&nbsp;&nbsp;&nbsp;&nbsp;이름: ______________</p>
 <table border="1" bordercolor="#000000" cellspacing="0" cellpadding="6" style="border-collapse:collapse;width:100%;border:2px solid #000;margin:8px 0;">
 ${rows.join('\n')}
