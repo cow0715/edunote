@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Printer, Save, CheckCircle2, Sparkles, Plus, X } from 'lucide-react'
+import { ArrowLeft, Printer, Save, CheckCircle2, Sparkles, Plus, X, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,6 +24,7 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
   const [summary, setSummary] = useState('')
   const [goalItems, setGoalItems] = useState<string[]>([''])
   const [dirty, setDirty] = useState(false)
+  const [sending, setSending] = useState(false)
 
   // next_focus string derived from goalItems
   const nextFocus = goalItems.filter(Boolean).join('\n')
@@ -94,6 +95,68 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
     setGoalItems([...goalItems, ''])
   }
 
+  async function handleSendMms() {
+    const phone = window.prompt('테스트로 받을 전화번호를 입력하세요 (예: 010-1234-5678)')
+    if (!phone) return
+
+    const node = document.querySelector<HTMLElement>('.print-area')
+    if (!node) {
+      toast.error('성적표 영역을 찾을 수 없습니다')
+      return
+    }
+
+    setSending(true)
+    try {
+      const html2canvas = (await import('html2canvas')).default
+      const canvas = await html2canvas(node, {
+        backgroundColor: '#ffffff',
+        scale: 1.2,
+        useCORS: true,
+      })
+
+      let dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+      let sizeKB = Math.round((dataUrl.length * 3) / 4 / 1024)
+
+      let quality = 0.85
+      while (sizeKB > 195 && quality > 0.4) {
+        quality -= 0.1
+        dataUrl = canvas.toDataURL('image/jpeg', quality)
+        sizeKB = Math.round((dataUrl.length * 3) / 4 / 1024)
+      }
+
+      if (sizeKB > 195) {
+        toast.error(`이미지가 너무 큽니다 (${sizeKB}KB). MMS 200KB 제한 초과`)
+        return
+      }
+
+      toast.info(`이미지 ${sizeKB}KB 발송 중...`)
+
+      const res = await fetch('/api/sms/send-report-mms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId: student.id,
+          phone,
+          recipientLabel: '테스트',
+          image: dataUrl,
+          subject: `${student.name} ${card.period_label} 성적표`,
+          text: `${student.name} 학생 ${card.period_label} 성적표입니다.`,
+        }),
+      })
+
+      const result = await res.json()
+      if (!res.ok || result.success === false) {
+        toast.error(`발송 실패: ${result.error ?? '알 수 없는 오류'}`)
+      } else {
+        toast.success(`${phone}로 발송 완료`)
+      }
+    } catch (e) {
+      toast.error(`오류: ${e instanceof Error ? e.message : '알 수 없는 오류'}`)
+    } finally {
+      setSending(false)
+    }
+  }
+
   return (
     <div className="report-card-root">
       {/* 상단 툴바 */}
@@ -130,6 +193,10 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
           <Button variant="outline" size="sm" onClick={() => window.print()}>
             <Printer className="mr-1.5 h-4 w-4" />
             PDF / 인쇄
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleSendMms} disabled={sending}>
+            <Send className="mr-1.5 h-4 w-4" />
+            {sending ? '발송 중...' : '문자 테스트'}
           </Button>
         </div>
       </div>

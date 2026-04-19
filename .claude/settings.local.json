@@ -34,7 +34,8 @@
       "Read(//c/Users/user/Desktop/edunote/src/app/api/$f/**)",
       "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
       "Bash(wc -l \"C:\\\\Users\\\\user\\\\Desktop\\\\edunote/src/components/grade/grade-grid.tsx\" \"C:\\\\Users\\\\user\\\\Desktop\\\\edunote/src/components/grade/answer-sheet-uploader.tsx\" \"C:\\\\Users\\\\user\\\\Desktop\\\\edunote/src/app/\\(admin\\)/dashboard/[classId]/weeks/[weekId]/grade/page.tsx\")",
-      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js\\)$\")"
+      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js\\)$\")",
+      "Bash(npm install *)"
     ]
   },
   "enableAllProjectMcpServers": true,
