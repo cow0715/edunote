@@ -52,12 +52,12 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const tallCount = rowInfos.length - shortCount
 
   // A4(297mm) - 상하마진(20mm) - 제목+학교/이름(16mm) - 여유(6mm) = 255mm
-  // 서술형 1칸 = 객관식 3칸 비율로 배분 (객관식은 줄이고 서술형은 키움)
+  // 객관식은 고정 높이, 서술형은 남은 공간을 균등 분배
   const availMm = 255
-  const units = shortCount + tallCount * 3
-  const unitMm = availMm / units
-  const shortPt = Math.floor(unitMm * 2.835)
-  const tallPt = Math.floor(unitMm * 3 * 2.835)
+  const shortPt = 28
+  const shortMm = shortPt / 2.835
+  const remainingMm = Math.max(0, availMm - shortCount * shortMm)
+  const tallPt = tallCount > 0 ? Math.floor((remainingMm / tallCount) * 2.835) : 0
 
   // 모든 행에 걸쳐 필요한 최대 컬럼 수 계산 (소문항 수 * 2)
   const maxSubs = Math.max(1, ...rowInfos.map(r => r.group.length))
