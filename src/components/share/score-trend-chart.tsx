@@ -44,7 +44,7 @@ function CustomTooltip({ active, payload, label, isDark }: {
         const isClass = ALL_SERIES.some((s) => s.classKey === p.dataKey)
         return (
           <div key={p.dataKey} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 2 }}>
-            <span style={{ fontSize: 11, color: sub }}>{isClass ? `반평균 ${s?.label}` : s?.label}</span>
+            <span style={{ fontSize: 11, color: sub }}>{isClass ? `반평균 ${s?.label}` : '내 점수'}</span>
             <span style={{ fontSize: 11, fontWeight: 600, color: p.color }}>{p.value}%</span>
           </div>
         )
@@ -108,7 +108,7 @@ export function ScoreTrendChart({ data, isDark, series }: { data: TrendItem[]; i
             <div key={s.key} className="flex items-center gap-3">
               <div className="flex items-center gap-1.5">
                 <div className="h-2 w-2 rounded-full" style={{ backgroundColor: solid }} />
-                <span className="text-xs text-gray-500 dark:text-gray-400">{s.label}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">내 점수</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <svg width="16" height="8"><line x1="0" y1="4" x2="16" y2="4" stroke={dash} strokeWidth="1.5" strokeDasharray="4 3" /></svg>
