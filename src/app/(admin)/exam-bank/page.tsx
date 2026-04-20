@@ -532,11 +532,17 @@ function QuestionCard({
   showExamInfo,
   onEdit,
   onDelete,
+  selectable,
+  selected,
+  onToggleSelect,
 }: {
   question: ExamBankQuestion
   showExamInfo?: boolean
   onEdit?: () => void
   onDelete?: () => void
+  selectable?: boolean
+  selected?: boolean
+  onToggleSelect?: () => void
 }) {
   const [showExplanation, setShowExplanation] = useState(false)
   const [editingExplanation, setEditingExplanation] = useState(false)
@@ -685,6 +691,15 @@ function QuestionCard({
       {/* 헤더 */}
       <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
         <div className="flex items-center gap-2 flex-wrap">
+          {/* 선택 체크박스 */}
+          {selectable && (
+            <Checkbox
+              checked={!!selected}
+              onCheckedChange={() => onToggleSelect?.()}
+              aria-label="선택"
+              className="shrink-0"
+            />
+          )}
           {/* 문항번호 */}
           <span className="flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-bold shrink-0">
             {q.question_number}
@@ -960,6 +975,8 @@ function QuestionSearch() {
   }, [filters])
 
   const filterKey = useMemo(() => buildFilterParams(debouncedFilters).toString(), [debouncedFilters])
+  const liveFilterKey = useMemo(() => buildFilterParams(filters).toString(), [filters])
+  const isDebouncing = liveFilterKey !== filterKey
 
   // URL 동기화 (filters 확정 후)
   useEffect(() => {
@@ -1213,15 +1230,20 @@ function QuestionSearch() {
             placeholder="지문/발문에서 키워드 검색 (예: vaccine effective)"
             className="pl-9 pr-9 h-9"
           />
-          {filters.q && (
-            <button
-              onClick={() => setFilters((f) => ({ ...f, q: '' }))}
-              className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-              aria-label="검색어 지우기"
-            >
-              <XCircle className="h-3.5 w-3.5" />
-            </button>
-          )}
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            {(isDebouncing || (isFetching && !isFetchingNextPage)) && (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
+            )}
+            {filters.q && (
+              <button
+                onClick={() => setFilters((f) => ({ ...f, q: '' }))}
+                className="h-6 w-6 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                aria-label="검색어 지우기"
+              >
+                <XCircle className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-x-6 gap-y-3 items-end">
@@ -1383,10 +1405,13 @@ function QuestionSearch() {
       {!searching && (
         <>
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 flex items-center gap-1.5">
               {total > 0
                 ? `${results.length} / ${total}개 문항 표시${selectedIds.size > 0 ? ` · ${selectedIds.size}개 선택` : ''}`
                 : '검색 결과가 없습니다'}
+              {(isDebouncing || (isFetching && !isFetchingNextPage)) && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
+              )}
             </p>
             {total > 0 && (
               <div className="flex items-center gap-2">
@@ -1434,19 +1459,20 @@ function QuestionSearch() {
           </div>
           {results.length > 0 && (
             <>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <div
+                className={`grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 transition-opacity ${
+                  isDebouncing || (isFetching && !isFetchingNextPage) ? 'opacity-60' : ''
+                }`}
+              >
                 {results.map((q) => (
-                  <div key={q.id} className="relative">
-                    <div className="absolute top-3 left-3 z-10">
-                      <Checkbox
-                        checked={selectedIds.has(q.id)}
-                        onCheckedChange={() => toggleSelect(q.id)}
-                        aria-label="선택"
-                        className="bg-white shadow-sm"
-                      />
-                    </div>
-                    <QuestionCard question={q} showExamInfo />
-                  </div>
+                  <QuestionCard
+                    key={q.id}
+                    question={q}
+                    showExamInfo
+                    selectable
+                    selected={selectedIds.has(q.id)}
+                    onToggleSelect={() => toggleSelect(q.id)}
+                  />
                 ))}
               </div>
               <div ref={sentinelRef} className="h-8" />
