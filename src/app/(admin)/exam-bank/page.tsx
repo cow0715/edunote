@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
@@ -894,11 +894,27 @@ const EMPTY_FILTERS = {
   max_correct_rate: '',
 }
 
+const PAGE_SIZE = 50
+
+function buildFilterParams(f: typeof EMPTY_FILTERS) {
+  const params = new URLSearchParams()
+  if (f.type) params.set('type', f.type)
+  if (f.grade) params.set('grade', f.grade)
+  if (f.year_from) params.set('year_from', f.year_from)
+  if (f.year_to) params.set('year_to', f.year_to)
+  if (f.month) params.set('month', f.month)
+  if (f.kind === '수능') params.set('source', '수능')
+  else if (f.kind === '모의고사') params.set('source', '모의고사')
+  if (f.points) params.set('points', f.points)
+  if (f.difficulties.length) params.set('difficulty', f.difficulties.join(','))
+  if (f.max_correct_rate) params.set('max_correct_rate', f.max_correct_rate)
+  return params
+}
+
 function QuestionSearch() {
   const [filters, setFilters] = useState(EMPTY_FILTERS)
-  const [results, setResults] = useState<ExamBankQuestion[] | null>(null)
-  const [searching, setSearching] = useState(false)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [debouncedFilters, setDebouncedFilters] = useState(EMPTY_FILTERS)
+  const [copyingAll, setCopyingAll] = useState(false)
 
   const set = (key: keyof typeof EMPTY_FILTERS) => (v: string) =>
     setFilters((f) => ({ ...f, [key]: v === 'all' ? '' : v }))
@@ -911,41 +927,66 @@ function QuestionSearch() {
         : [...f.difficulties, d],
     }))
 
-  const doSearch = async (f: typeof EMPTY_FILTERS) => {
-    setSearching(true)
-    try {
-      const params = new URLSearchParams()
-      if (f.type) params.set('type', f.type)
-      if (f.grade) params.set('grade', f.grade)
-      if (f.year_from) params.set('year_from', f.year_from)
-      if (f.year_to) params.set('year_to', f.year_to)
-      if (f.month) params.set('month', f.month)
-      if (f.kind === '수능') params.set('source', '수능')
-      else if (f.kind === '모의고사') params.set('source', '모의고사')
-      if (f.points) params.set('points', f.points)
-      if (f.difficulties.length) params.set('difficulty', f.difficulties.join(','))
-      if (f.max_correct_rate) params.set('max_correct_rate', f.max_correct_rate)
-
-      const res = await fetch(`/api/exam-bank/questions?${params}`)
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      setResults(data)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '검색 실패')
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  // 필터 변경 시 debounce 자동 검색
+  // 필터 변경 debounce
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => doSearch(filters), 400)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    const t = setTimeout(() => setDebouncedFilters(filters), 400)
+    return () => clearTimeout(t)
   }, [filters])
 
+  const filterKey = useMemo(() => buildFilterParams(debouncedFilters).toString(), [debouncedFilters])
+
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+    isFetching,
+  } = useInfiniteQuery({
+    queryKey: ['exam-bank-question-search', filterKey],
+    queryFn: async ({ pageParam = 0 }) => {
+      const params = new URLSearchParams(filterKey)
+      params.set('page', String(pageParam))
+      params.set('limit', String(PAGE_SIZE))
+      const res = await fetch(`/api/exam-bank/questions?${params}`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || '검색 실패')
+      return json as { data: ExamBankQuestion[]; total: number; page: number; hasMore: boolean }
+    },
+    initialPageParam: 0,
+    getNextPageParam: (last) => (last.hasMore ? last.page + 1 : undefined),
+    placeholderData: keepPreviousData,
+  })
+
+  const results = useMemo(() => data?.pages.flatMap((p) => p.data) ?? [], [data])
+  const total = data?.pages[0]?.total ?? 0
+  const searching = isLoading || (isFetching && !isFetchingNextPage && results.length === 0)
+
+  // 무한 스크롤 sentinel
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || !hasNextPage) return
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !isFetchingNextPage) fetchNextPage()
+      },
+      { rootMargin: '400px 0px' },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+
   const handleReset = () => setFilters(EMPTY_FILTERS)
+
+  const fetchAll = async () => {
+    const params = new URLSearchParams(filterKey)
+    params.set('all', '1')
+    const res = await fetch(`/api/exam-bank/questions?${params}`)
+    const json = await res.json()
+    if (!res.ok) throw new Error(json.error || '전체 조회 실패')
+    return (json.data ?? []) as ExamBankQuestion[]
+  }
 
   const getExamLabel = (q: ExamBankQuestion) =>
     q.exam_bank
@@ -1038,31 +1079,45 @@ function QuestionSearch() {
         : '')
     ).join('<hr>')
 
-  const copyAllQuestions = async () => {
-    if (!results?.length) return
-    await copyRich(buildAllQText(results), buildAllQHtml(results))
-    toast.success(`문제 ${results.length}개 복사됨`)
+  const runCopyAll = async (
+    label: string,
+    build: (list: ExamBankQuestion[]) => { plain: string; html: string },
+  ) => {
+    if (total === 0 || copyingAll) return
+    setCopyingAll(true)
+    try {
+      const all = await fetchAll()
+      if (!all.length) {
+        toast.error('복사할 문항이 없습니다')
+        return
+      }
+      const { plain, html } = build(all)
+      await copyRich(plain, html)
+      toast.success(`${label} ${all.length}개 복사됨`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '복사 실패')
+    } finally {
+      setCopyingAll(false)
+    }
   }
 
-  const copyAllWithTranslation = async () => {
-    if (!results?.length) return
-    await copyRich(buildAllQWithTransText(results), buildAllQWithTransHtml(results))
-    toast.success(`문제+해석 ${results.length}개 복사됨`)
-  }
+  const copyAllQuestions = () =>
+    runCopyAll('문제', (list) => ({ plain: buildAllQText(list), html: buildAllQHtml(list) }))
 
-  const copyAllExplanations = async () => {
-    if (!results?.length) return
-    await copyRich(buildAllExText(results), buildAllExHtml(results))
-    toast.success(`해설 ${results.length}개 복사됨`)
-  }
+  const copyAllWithTranslation = () =>
+    runCopyAll('문제+해석', (list) => ({
+      plain: buildAllQWithTransText(list),
+      html: buildAllQWithTransHtml(list),
+    }))
 
-  const copyAllBoth = async () => {
-    if (!results?.length) return
-    const plain = buildAllQText(results) + '\n\n' + buildAllExText(results)
-    const html = buildAllQHtml(results) + buildAllExHtml(results)
-    await copyRich(plain, html)
-    toast.success(`문제+해설 ${results.length}개 복사됨`)
-  }
+  const copyAllExplanations = () =>
+    runCopyAll('해설', (list) => ({ plain: buildAllExText(list), html: buildAllExHtml(list) }))
+
+  const copyAllBoth = () =>
+    runCopyAll('문제+해설', (list) => ({
+      plain: buildAllQText(list) + '\n\n' + buildAllExText(list),
+      html: buildAllQHtml(list) + buildAllExHtml(list),
+    }))
 
   const hasFilter = filters.type || filters.grade || filters.year_from || filters.year_to
     || filters.kind || filters.month || filters.points || filters.difficulties.length || filters.max_correct_rate
@@ -1227,18 +1282,24 @@ function QuestionSearch() {
         </div>
       )}
 
-      {!searching && results !== null && (
+      {!searching && (
         <>
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-500">
-              {results.length > 0 ? `${results.length}개 문항` : '검색 결과가 없습니다'}
+              {total > 0
+                ? `${results.length} / ${total}개 문항 표시`
+                : '검색 결과가 없습니다'}
             </p>
-            {results.length > 0 && (
+            {total > 0 && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="outline">
-                    <Copy className="mr-1.5 h-3.5 w-3.5" />
-                    전체 복사 ({results.length})
+                  <Button size="sm" variant="outline" disabled={copyingAll}>
+                    {copyingAll ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Copy className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    전체 복사 ({total})
                     <ChevronDown className="ml-1 h-3.5 w-3.5" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -1251,9 +1312,22 @@ function QuestionSearch() {
             )}
           </div>
           {results.length > 0 && (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {results.map((q) => <QuestionCard key={q.id} question={q} showExamInfo />)}
-            </div>
+            <>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {results.map((q) => <QuestionCard key={q.id} question={q} showExamInfo />)}
+              </div>
+              <div ref={sentinelRef} className="h-8" />
+              {isFetchingNextPage && (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+                </div>
+              )}
+              {!hasNextPage && total > PAGE_SIZE && (
+                <p className="text-center text-xs text-gray-400 py-4">
+                  모든 문항을 불러왔습니다
+                </p>
+              )}
+            </>
           )}
         </>
       )}
