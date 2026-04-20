@@ -7,17 +7,26 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url)
   const studentId = searchParams.get('student_id')
+  const limitParam = searchParams.get('limit')
+  const offsetParam = searchParams.get('offset')
 
   let query = supabase
     .from('message_log')
-    .select('*, student(id, name, mother_phone, father_phone, phone), week(id, week_number, class_id, class(id, name))')
+    .select('*, student(id, name, mother_phone, father_phone, phone), week(id, week_number, class_id, class(id, name))', { count: 'exact' })
     .order('sent_at', { ascending: false })
 
   if (studentId) query = query.eq('student_id', studentId)
 
-  const { data, error } = await query
+  if (limitParam) {
+    const limit = parseInt(limitParam)
+    const offset = parseInt(offsetParam ?? '0')
+    query = query.range(offset, offset + limit - 1)
+  }
+
+  const { data, error, count } = await query
   if (error) return err(error.message, 500)
 
+  if (limitParam) return ok({ logs: data, total: count ?? 0 })
   return ok(data)
 }
 

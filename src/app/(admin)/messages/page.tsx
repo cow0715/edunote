@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
-import { MessageSquare, Search, BookOpen } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { MessageSquare, Search, BookOpen, ChevronDown } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { useMessageLogs, MessageLog } from '@/hooks/use-message-logs'
+import { Button } from '@/components/ui/button'
+import { useInfiniteMessageLogs, MessageLog } from '@/hooks/use-message-logs'
 import { BroadcastDialog } from '@/components/messages/broadcast-dialog'
 import { SmsSheet } from '@/components/grade/sms-sheet'
 import { useQuery } from '@tanstack/react-query'
@@ -16,10 +17,35 @@ type TodayWeek = {
   class: { id: string; name: string; teacher_id: string }
 }
 
-function formatDate(dateStr: string) {
+function formatRelative(dateStr: string) {
+  const now = new Date()
   const d = new Date(dateStr)
-  return d.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' }) +
-    ' ' + d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+  const diffMs = now.getTime() - d.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  const diffHour = Math.floor(diffMs / 3600000)
+  const diffDay = Math.floor(diffMs / 86400000)
+
+  if (diffMin < 60) return `${diffMin}분 전`
+  if (diffHour < 24) return `${diffHour}시간 전`
+  if (diffDay === 1) return '어제'
+  if (diffDay < 7) return `${diffDay}일 전`
+  return d.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })
+}
+
+function getDateGroupKey(dateStr: string) {
+  const now = new Date()
+  const d = new Date(dateStr)
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const yesterdayStart = new Date(todayStart.getTime() - 86400000)
+  const weekStart = new Date(todayStart.getTime() - todayStart.getDay() * 86400000)
+  const lastWeekStart = new Date(weekStart.getTime() - 7 * 86400000)
+  const itemDate = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+
+  if (itemDate >= todayStart) return '오늘'
+  if (itemDate >= yesterdayStart) return '어제'
+  if (itemDate >= weekStart) return '이번 주'
+  if (itemDate >= lastWeekStart) return '지난 주'
+  return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' })
 }
 
 function TodayClasses() {
@@ -58,29 +84,75 @@ function TodayClasses() {
   )
 }
 
-export default function MessagesPage() {
-  const { data: logs = [], isLoading } = useMessageLogs()
-  const [search, setSearch] = useState('')
+function MessageItem({ log }: { log: MessageLog }) {
+  return (
+    <div className="rounded-xl border bg-white px-5 py-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+          {log.student?.name[0]}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+            <span className="font-medium text-gray-900 text-sm">{log.student?.name}</span>
+            {log.week ? (
+              <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                {log.week.class?.name} {log.week.week_number}주차
+              </span>
+            ) : (
+              <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600">
+                공지
+              </span>
+            )}
+            <span className="text-xs text-gray-400 ml-auto">{formatRelative(log.sent_at)}</span>
+          </div>
+          <p className="whitespace-pre-wrap text-sm text-gray-600 leading-relaxed">{log.message}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
 
-  const filtered = logs.filter((log) => {
-    if (!search) return true
-    const s = search.toLowerCase()
-    return (
-      log.student?.name.toLowerCase().includes(s) ||
-      log.week?.class?.name.toLowerCase().includes(s) ||
-      log.message.toLowerCase().includes(s)
-    )
+export default function MessagesPage() {
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteMessageLogs()
+  const [search, setSearch] = useState('')
+  const [classFilter, setClassFilter] = useState('')
+
+  const allLogs = data?.pages.flatMap((p) => p.logs) ?? []
+
+  const classNames = useMemo(() => {
+    const names = new Set<string>()
+    allLogs.forEach((log) => {
+      if (log.week?.class?.name) names.add(log.week.class.name)
+    })
+    return Array.from(names).sort()
+  }, [allLogs])
+
+  const filtered = allLogs.filter((log) => {
+    if (search) {
+      const s = search.toLowerCase()
+      if (
+        !log.student?.name.toLowerCase().includes(s) &&
+        !log.week?.class?.name.toLowerCase().includes(s) &&
+        !log.message.toLowerCase().includes(s)
+      ) return false
+    }
+    if (classFilter && log.week?.class?.name !== classFilter) return false
+    return true
   })
 
-  const grouped = filtered.reduce<Record<string, { student: MessageLog['student']; logs: MessageLog[] }>>(
-    (acc, log) => {
-      const sid = log.student_id
-      if (!acc[sid]) acc[sid] = { student: log.student, logs: [] }
-      acc[sid].logs.push(log)
-      return acc
-    },
-    {}
-  )
+  const grouped = useMemo(() => {
+    const keyOrder: string[] = []
+    const groupMap = new Map<string, MessageLog[]>()
+    for (const log of filtered) {
+      const key = getDateGroupKey(log.sent_at)
+      if (!groupMap.has(key)) {
+        groupMap.set(key, [])
+        keyOrder.push(key)
+      }
+      groupMap.get(key)!.push(log)
+    }
+    return keyOrder.map((key) => ({ key, logs: groupMap.get(key)! }))
+  }, [filtered])
 
   return (
     <div>
@@ -98,61 +170,66 @@ export default function MessagesPage() {
         <TodayClasses />
       </div>
 
-      {/* 검색 */}
-      <div className="relative mb-6 max-w-sm">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-        <Input
-          placeholder="학생명, 수업명 검색"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
+      {/* 검색 + 필터 */}
+      <div className="mb-6 flex gap-2">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Input
+            placeholder="학생명, 수업명, 내용 검색"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        {classNames.length > 0 && (
+          <select
+            value={classFilter}
+            onChange={(e) => setClassFilter(e.target.value)}
+            className="rounded-lg border border-input bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">전체 반</option>
+            {classNames.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {isLoading ? (
-        <div className="space-y-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-32 animate-pulse rounded-xl bg-gray-100" />
+        <div className="space-y-3">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-20 animate-pulse rounded-xl bg-gray-100" />
           ))}
         </div>
-      ) : Object.keys(grouped).length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 py-16 text-gray-400">
           <MessageSquare className="h-10 w-10 text-gray-200" />
           <p className="text-sm">전송 완료된 메시지가 없습니다</p>
         </div>
       ) : (
-        <div className="space-y-6">
-          {Object.entries(grouped).map(([, group]) => (
-            <div key={group.student?.id} className="rounded-xl border bg-white">
-              <div className="flex items-center gap-3 border-b px-5 py-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                  {group.student?.name[0]}
-                </div>
-                <span className="font-medium text-gray-900">{group.student?.name}</span>
-                <span className="text-xs text-gray-400">{group.logs.length}건</span>
-              </div>
-
-              <div className="divide-y">
-                {group.logs.map((log) => (
-                  <div key={log.id} className="px-5 py-4">
-                    <div className="mb-2 flex items-center gap-2">
-                      {log.week ? (
-                        <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                          {log.week.class?.name} {log.week.week_number}주차
-                        </span>
-                      ) : (
-                        <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600">
-                          공지
-                        </span>
-                      )}
-                      <span className="text-xs text-gray-400">{formatDate(log.sent_at)}</span>
-                    </div>
-                    <p className="whitespace-pre-wrap text-sm text-gray-700 leading-relaxed">{log.message}</p>
-                  </div>
-                ))}
+        <div className="space-y-8">
+          {grouped.map(({ key, logs }) => (
+            <div key={key}>
+              <p className="mb-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">{key}</p>
+              <div className="space-y-2">
+                {logs.map((log) => <MessageItem key={log.id} log={log} />)}
               </div>
             </div>
           ))}
+
+          {hasNextPage && (
+            <div className="flex justify-center pt-2 pb-4">
+              <Button
+                variant="outline"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+                className="gap-2"
+              >
+                <ChevronDown className="h-4 w-4" />
+                {isFetchingNextPage ? '불러오는 중...' : '더 보기'}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
