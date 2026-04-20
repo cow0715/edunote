@@ -15,13 +15,19 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('exam_bank')
-    .select('*, exam_bank_question(count)')
+    .select('*')
     .eq('teacher_id', teacherId)
     .order('exam_year', { ascending: false })
     .order('exam_month', { ascending: false })
 
   if (error) return err(error.message)
-  return ok(data)
+
+  // 클라이언트 호환: exam_bank_question: [{ count }] shape 유지
+  const shaped = (data ?? []).map((row) => ({
+    ...row,
+    exam_bank_question: [{ count: row.question_count ?? 0 }],
+  }))
+  return ok(shaped)
 }
 
 // POST — 기출 시험 생성 + PDF 파싱
