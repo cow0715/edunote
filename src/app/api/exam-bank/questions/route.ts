@@ -21,6 +21,12 @@ export async function GET(request: Request) {
   const difficulty = url.searchParams.get('difficulty') // 쉼표 구분 다중값
   const maxCorrectRate = url.searchParams.get('max_correct_rate')
 
+  // 페이지네이션 (limit=0 또는 all=1 이면 전체 반환 — 전체 복사용)
+  const page = Math.max(0, Number(url.searchParams.get('page') ?? 0))
+  const limitParam = url.searchParams.get('limit')
+  const all = url.searchParams.get('all') === '1'
+  const limit = all ? 0 : Math.min(200, Math.max(1, Number(limitParam ?? 50)))
+
   // 소유한 exam_bank id 목록 조회
   let examQuery = supabase
     .from('exam_bank')
@@ -35,15 +41,16 @@ export async function GET(request: Request) {
 
   const { data: exams, error: examError } = await examQuery
   if (examError) return err(examError.message)
-  if (!exams || exams.length === 0) return ok([])
+  if (!exams || exams.length === 0) return ok({ data: [], total: 0, page, limit, hasMore: false })
 
   const examIds = exams.map((e) => e.id)
 
   // 문항 조회
   let qQuery = supabase
     .from('exam_bank_question')
-    .select('*, exam_bank!inner(title, exam_year, exam_month, grade, source)')
+    .select('*, exam_bank!inner(title, exam_year, exam_month, grade, source)', { count: 'exact' })
     .in('exam_bank_id', examIds)
+    .order('exam_bank_id', { ascending: false })
     .order('question_number')
 
   if (type) qQuery = qQuery.eq('question_type', type)
@@ -55,7 +62,18 @@ export async function GET(request: Request) {
   }
   if (maxCorrectRate) qQuery = qQuery.lte('correct_rate', Number(maxCorrectRate))
 
-  const { data, error } = await qQuery
+  if (!all) {
+    const from = page * limit
+    const to = from + limit - 1
+    qQuery = qQuery.range(from, to)
+  }
+
+  const { data, error, count } = await qQuery
   if (error) return err(error.message)
-  return ok(data)
+
+  const total = count ?? data?.length ?? 0
+  const loaded = (page + 1) * limit
+  const hasMore = !all && total > loaded
+
+  return ok({ data: data ?? [], total, page, limit, hasMore })
 }
