@@ -20,6 +20,7 @@ export async function GET(request: Request) {
   const points = url.searchParams.get('points')
   const difficulty = url.searchParams.get('difficulty') // 쉼표 구분 다중값
   const maxCorrectRate = url.searchParams.get('max_correct_rate')
+  const q = url.searchParams.get('q')?.trim() || ''
 
   // 페이지네이션 (limit=0 또는 all=1 이면 전체 반환 — 전체 복사용)
   const page = Math.max(0, Number(url.searchParams.get('page') ?? 0))
@@ -45,13 +46,20 @@ export async function GET(request: Request) {
 
   const examIds = exams.map((e) => e.id)
 
-  // 문항 조회
+  // 문항 조회 — 첫 페이지에서만 정확한 count, 이후엔 생략
+  const wantCount = all || page === 0
   let qQuery = supabase
     .from('exam_bank_question')
-    .select('*, exam_bank!inner(title, exam_year, exam_month, grade, source)', { count: 'exact' })
+    .select(
+      '*, exam_bank!inner(title, exam_year, exam_month, grade, source)',
+      wantCount ? { count: 'exact' } : undefined,
+    )
     .in('exam_bank_id', examIds)
-    .order('exam_bank_id', { ascending: false })
-    .order('question_number')
+    // 최신 시험 우선 → 같은 시험 내 문항번호 순
+    .order('exam_year', { foreignTable: 'exam_bank', ascending: false })
+    .order('exam_month', { foreignTable: 'exam_bank', ascending: false })
+    .order('exam_bank_id', { ascending: true })
+    .order('question_number', { ascending: true })
 
   if (type) qQuery = qQuery.eq('question_type', type)
   if (points) qQuery = qQuery.eq('points', Number(points))
@@ -61,6 +69,18 @@ export async function GET(request: Request) {
     else if (values.length > 1) qQuery = qQuery.in('difficulty', values)
   }
   if (maxCorrectRate) qQuery = qQuery.lte('correct_rate', Number(maxCorrectRate))
+  if (q) {
+    // 단어들을 AND 로 묶어서 풀텍스트 검색 (simple config)
+    const tsQuery = q
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w) => w.replace(/[\\&|!:()'"]/g, ''))
+      .filter(Boolean)
+      .join(' & ')
+    if (tsQuery) {
+      qQuery = qQuery.textSearch('tsv', tsQuery, { config: 'simple' })
+    }
+  }
 
   if (!all) {
     const from = page * limit
@@ -71,9 +91,13 @@ export async function GET(request: Request) {
   const { data, error, count } = await qQuery
   if (error) return err(error.message)
 
-  const total = count ?? data?.length ?? 0
-  const loaded = (page + 1) * limit
-  const hasMore = !all && total > loaded
+  const rows = data ?? []
+  const total = wantCount ? (count ?? rows.length) : undefined
+  const hasMore = all
+    ? false
+    : wantCount
+      ? (count ?? 0) > (page + 1) * limit
+      : rows.length === limit
 
-  return ok({ data: data ?? [], total, page, limit, hasMore })
+  return ok({ data: rows, total, page, limit, hasMore })
 }

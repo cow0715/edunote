@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
@@ -11,6 +12,7 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -883,6 +885,7 @@ function QuestionCard({
 
 const DIFFICULTY_OPTIONS = ['하', '중하', '중', '중상', '최상'] as const
 const EMPTY_FILTERS = {
+  q: '',
   type: '',
   grade: '',
   year_from: '',
@@ -898,6 +901,7 @@ const PAGE_SIZE = 50
 
 function buildFilterParams(f: typeof EMPTY_FILTERS) {
   const params = new URLSearchParams()
+  if (f.q) params.set('q', f.q)
   if (f.type) params.set('type', f.type)
   if (f.grade) params.set('grade', f.grade)
   if (f.year_from) params.set('year_from', f.year_from)
@@ -911,10 +915,32 @@ function buildFilterParams(f: typeof EMPTY_FILTERS) {
   return params
 }
 
+function filtersFromParams(sp: URLSearchParams): typeof EMPTY_FILTERS {
+  const src = sp.get('source')
+  return {
+    q: sp.get('q') ?? '',
+    type: sp.get('type') ?? '',
+    grade: sp.get('grade') ?? '',
+    year_from: sp.get('year_from') ?? '',
+    year_to: sp.get('year_to') ?? '',
+    kind: src === '수능' ? '수능' : src === '모의고사' ? '모의고사' : '',
+    month: sp.get('month') ?? '',
+    points: sp.get('points') ?? '',
+    difficulties: (sp.get('difficulty') ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+    max_correct_rate: sp.get('max_correct_rate') ?? '',
+  }
+}
+
 function QuestionSearch() {
-  const [filters, setFilters] = useState(EMPTY_FILTERS)
-  const [debouncedFilters, setDebouncedFilters] = useState(EMPTY_FILTERS)
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  // 초기 필터: URL 쿼리에서 복원
+  const [filters, setFilters] = useState(() => filtersFromParams(new URLSearchParams(searchParams?.toString() ?? '')))
+  const [debouncedFilters, setDebouncedFilters] = useState(filters)
   const [copyingAll, setCopyingAll] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const set = (key: keyof typeof EMPTY_FILTERS) => (v: string) =>
     setFilters((f) => ({ ...f, [key]: v === 'all' ? '' : v }))
@@ -934,6 +960,22 @@ function QuestionSearch() {
   }, [filters])
 
   const filterKey = useMemo(() => buildFilterParams(debouncedFilters).toString(), [debouncedFilters])
+
+  // URL 동기화 (filters 확정 후)
+  useEffect(() => {
+    const newQuery = filterKey
+    const currentQuery = searchParams?.toString() ?? ''
+    if (newQuery !== currentQuery) {
+      router.replace(newQuery ? `${pathname}?${newQuery}` : pathname, { scroll: false })
+    }
+    // searchParams는 의존성에서 제외 (외부 변경 시 라우팅 충돌 방지)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey, pathname, router])
+
+  // 필터 변경 시 선택 초기화
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [filterKey])
 
   const {
     data,
@@ -1101,6 +1143,41 @@ function QuestionSearch() {
     }
   }
 
+  const toggleSelect = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const clearSelection = () => setSelectedIds(new Set())
+
+  const selectedQuestions = useMemo(
+    () => results.filter((q) => selectedIds.has(q.id)),
+    [results, selectedIds],
+  )
+
+  const runCopySelected = async (
+    label: string,
+    build: (list: ExamBankQuestion[]) => { plain: string; html: string },
+  ) => {
+    if (selectedQuestions.length === 0) return
+    const { plain, html } = build(selectedQuestions)
+    await copyRich(plain, html)
+    toast.success(`${label} ${selectedQuestions.length}개 복사됨`)
+  }
+
+  const copySelectedQuestions = () =>
+    runCopySelected('문제', (list) => ({ plain: buildAllQText(list), html: buildAllQHtml(list) }))
+  const copySelectedExplanations = () =>
+    runCopySelected('해설', (list) => ({ plain: buildAllExText(list), html: buildAllExHtml(list) }))
+  const copySelectedBoth = () =>
+    runCopySelected('문제+해설', (list) => ({
+      plain: buildAllQText(list) + '\n\n' + buildAllExText(list),
+      html: buildAllQHtml(list) + buildAllExHtml(list),
+    }))
+
   const copyAllQuestions = () =>
     runCopyAll('문제', (list) => ({ plain: buildAllQText(list), html: buildAllQHtml(list) }))
 
@@ -1125,7 +1202,28 @@ function QuestionSearch() {
   return (
     <div className="space-y-4">
       {/* ── 상단 필터 패널 ── */}
-      <div className="rounded-2xl bg-white shadow-[0px_4px_24px_rgba(0,75,198,0.06)] border border-gray-100/80 p-4 sticky top-4 z-10">
+      <div className="rounded-2xl bg-white shadow-[0px_4px_24px_rgba(0,75,198,0.06)] border border-gray-100/80 p-4 sticky top-4 z-10 space-y-3">
+
+        {/* 키워드 검색 */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+          <Input
+            value={filters.q}
+            onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
+            placeholder="지문/발문에서 키워드 검색 (예: vaccine effective)"
+            className="pl-9 pr-9 h-9"
+          />
+          {filters.q && (
+            <button
+              onClick={() => setFilters((f) => ({ ...f, q: '' }))}
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+              aria-label="검색어 지우기"
+            >
+              <XCircle className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
         <div className="flex flex-wrap gap-x-6 gap-y-3 items-end">
 
           {/* 유형 */}
@@ -1284,37 +1382,72 @@ function QuestionSearch() {
 
       {!searching && (
         <>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
             <p className="text-sm text-gray-500">
               {total > 0
-                ? `${results.length} / ${total}개 문항 표시`
+                ? `${results.length} / ${total}개 문항 표시${selectedIds.size > 0 ? ` · ${selectedIds.size}개 선택` : ''}`
                 : '검색 결과가 없습니다'}
             </p>
             {total > 0 && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="outline" disabled={copyingAll}>
-                    {copyingAll ? (
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Copy className="mr-1.5 h-3.5 w-3.5" />
-                    )}
-                    전체 복사 ({total})
-                    <ChevronDown className="ml-1 h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={copyAllQuestions}>문제만</DropdownMenuItem>
-                  <DropdownMenuItem onClick={copyAllExplanations}>해설만</DropdownMenuItem>
-                  <DropdownMenuItem onClick={copyAllBoth}>문제+해설</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <div className="flex items-center gap-2">
+                {selectedIds.size > 0 && (
+                  <>
+                    <Button size="sm" variant="ghost" onClick={clearSelection}>
+                      선택 해제
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm">
+                          <Copy className="mr-1.5 h-3.5 w-3.5" />
+                          선택 복사 ({selectedIds.size})
+                          <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={copySelectedQuestions}>문제만</DropdownMenuItem>
+                        <DropdownMenuItem onClick={copySelectedExplanations}>해설만</DropdownMenuItem>
+                        <DropdownMenuItem onClick={copySelectedBoth}>문제+해설</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline" disabled={copyingAll}>
+                      {copyingAll ? (
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Copy className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      전체 복사 ({total})
+                      <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={copyAllQuestions}>문제만</DropdownMenuItem>
+                    <DropdownMenuItem onClick={copyAllExplanations}>해설만</DropdownMenuItem>
+                    <DropdownMenuItem onClick={copyAllBoth}>문제+해설</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             )}
           </div>
           {results.length > 0 && (
             <>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {results.map((q) => <QuestionCard key={q.id} question={q} showExamInfo />)}
+                {results.map((q) => (
+                  <div key={q.id} className="relative">
+                    <div className="absolute top-3 left-3 z-10">
+                      <Checkbox
+                        checked={selectedIds.has(q.id)}
+                        onCheckedChange={() => toggleSelect(q.id)}
+                        aria-label="선택"
+                        className="bg-white shadow-sm"
+                      />
+                    </div>
+                    <QuestionCard question={q} showExamInfo />
+                  </div>
+                ))}
               </div>
               <div ref={sentinelRef} className="h-8" />
               {isFetchingNextPage && (
