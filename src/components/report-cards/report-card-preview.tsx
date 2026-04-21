@@ -165,10 +165,10 @@ function RadarChart({ axes, classAvg }: {
   axes: { label: string; value: number | null; classValue?: number | null }[]
   classAvg?: boolean
 }) {
-  const SIZE = 220, cx = 110, cy = 110, R = 68, n = axes.length
+  const SIZE = 260, cx = 130, cy = 130, R = 76, n = axes.length
   const angle = (i: number) => (2 * Math.PI * i / n) - Math.PI / 2
   const pt = (i: number, val: number) => { const a = angle(i), r = R * Math.max(0, Math.min(100, val)) / 100; return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) } }
-  const lpt = (i: number) => { const a = angle(i); return { x: cx + (R + 28) * Math.cos(a), y: cy + (R + 28) * Math.sin(a) } }
+  const lpt = (i: number) => { const a = angle(i); return { x: cx + (R + 34) * Math.cos(a), y: cy + (R + 34) * Math.sin(a) } }
   const poly = (pts: { x: number; y: number }[]) => pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') + 'Z'
   const sp = axes.map((ax, i) => pt(i, ax.value ?? 0))
   const cp = axes.map((ax, i) => pt(i, ax.classValue ?? 0))
@@ -458,7 +458,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         if (lines.length === 0 && !isEditable) return null
         return (
           <section className="mt-5">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">이달의 핵심 인사이트</p>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">이번 달 학습 포인트</p>
             <div className="rounded-xl border border-gray-100 divide-y divide-gray-50">
               {lines.map((line, i) => (
                 <div key={i} className="flex gap-3 px-4 py-3.5 group">
@@ -498,17 +498,16 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
         )
       })()}
 
-      {/* ── 성장 추이 (영역별 미니 카드 + 레이더) ─────────────────── */}
+      {/* ── 성장 추이 (영역별 미니 카드 + 역량 지도) ─────────────────── */}
       {weekRows.length > 0 && (
         <section className="mt-5">
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">성장 추이</p>
-          <div className="grid grid-cols-[1fr_auto] gap-3 items-start">
-            <GrowthTrendCards rows={weekRows} classContext={classContext} />
-            <div className="rounded-xl border border-gray-100 p-3 flex flex-col items-center">
-              <p className="text-[10px] font-semibold text-gray-400 self-start mb-1">역량 지도</p>
-              <RadarChart axes={radarAxes} classAvg={!!classContext} />
+          <GrowthTrendCards rows={weekRows} classContext={classContext} />
+          <div className="mt-2.5 rounded-xl border border-gray-100 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] font-semibold text-gray-400">역량 지도</p>
               {classContext && (
-                <div className="flex gap-3 mt-1">
+                <div className="flex gap-3">
                   <div className="flex items-center gap-1">
                     <div className="w-2 h-2 rounded-full" style={{ background: BLUE }} />
                     <span className="text-[9px] text-gray-400">본인</span>
@@ -519,6 +518,9 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
                   </div>
                 </div>
               )}
+            </div>
+            <div className="flex justify-center">
+              <RadarChart axes={radarAxes} classAvg={!!classContext} />
             </div>
           </div>
         </section>
