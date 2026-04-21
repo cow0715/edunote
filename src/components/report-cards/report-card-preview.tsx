@@ -1,6 +1,6 @@
 'use client'
 
-import { Minus, Square, BookOpen, BookText, ClipboardCheck, PenLine } from 'lucide-react'
+import { Minus, Square, BookOpen, BookText, ClipboardCheck, PenLine, X as XIcon, Plus } from 'lucide-react'
 import type { ReportCard, ReportMetrics, PeriodComparison, ClassContext, AcademyProfile, WeekRow, WrongItem } from '@/lib/report-card'
 import { qualitativeColor, qualitativeLabel } from '@/lib/report-card'
 
@@ -11,6 +11,10 @@ interface Props {
   previous: PeriodComparison | null
   academy: AcademyProfile
   classContext: ClassContext | null
+  editableInsights?: { color: string; text: string }[] | null
+  onInsightChange?: (index: number, text: string) => void
+  onInsightDelete?: (index: number) => void
+  onInsightAdd?: () => void
 }
 
 const BLUE = '#2463EB'
@@ -33,7 +37,7 @@ function reportNumber(cardId: string, generatedAt: string): string {
 }
 
 // ── 핵심 인사이트 문장 생성 ────────────────────────────────────────────────
-function buildInsightLines(
+export function buildInsightLines(
   avgReading: number | null,
   avgWriting: number | null,
   avgVocab: number | null,
@@ -48,7 +52,7 @@ function buildInsightLines(
   type Domain = { name: string; rate: number; classAvg: number | null }
   const all: Domain[] = []
   if (avgReading !== null) all.push({ name: '독해', rate: avgReading, classAvg: classContext?.classAvgReading ?? null })
-  if (avgWriting !== null) all.push({ name: '작문', rate: avgWriting, classAvg: classContext?.classAvgWriting ?? null })
+  if (avgWriting !== null) all.push({ name: '서술형', rate: avgWriting, classAvg: classContext?.classAvgWriting ?? null })
   if (avgVocab !== null) all.push({ name: '어휘', rate: avgVocab, classAvg: classContext?.classAvgVocab ?? null })
   if (avgHomework !== null) all.push({ name: '과제', rate: avgHomework, classAvg: classContext?.classAvgHomework ?? null })
   if (all.length === 0) return lines
@@ -127,77 +131,96 @@ function buildInsightLines(
   return lines
 }
 
-function WeeklyChart({ rows, classAvgReading, classAvgVocab, classAvgHomework }: {
-  rows: WeekRow[]
-  classAvgReading?: number | null
-  classAvgVocab?: number | null
-  classAvgHomework?: number | null
-}) {
-  if (rows.length === 0) return null
-  const W = 480, H = 128, PAD_L = 26, PAD_R = 8, PAD_T = 8, PAD_B = 18
-  const cW = W - PAD_L - PAD_R, cH = H - PAD_T - PAD_B, n = rows.length
-  const xOf = (i: number) => PAD_L + (n === 1 ? cW / 2 : (i / (n - 1)) * cW)
-  const yOf = (v: number) => PAD_T + cH - (Math.max(0, Math.min(100, v)) / 100) * cH
-  const linePath = (vals: (number | null)[]) =>
-    vals.map((v, i) => v === null ? null : { x: xOf(i), y: yOf(v) })
-      .filter((p): p is { x: number; y: number } => p !== null)
-      .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
-  const avgLine = (val: number | null | undefined, color: string) => {
-    if (val == null) return null
-    const y = yOf(val).toFixed(1)
-    return <line x1={PAD_L} y1={y} x2={W - PAD_R} y2={y} stroke={color} strokeWidth="0.8" strokeDasharray="3,2" opacity="0.4" />
+function MiniSparkline({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) return null
+  const W = 80, H = 28, pad = 2
+  const min = Math.min(...values), max = Math.max(...values)
+  const range = max - min || 1
+  const xOf = (i: number) => pad + (i / (values.length - 1)) * (W - pad * 2)
+  const yOf = (v: number) => pad + (1 - (v - min) / range) * (H - pad * 2)
+  const pts = values.map((v, i) => ({ x: xOf(i), y: yOf(v) }))
+  let d = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`
+  for (let i = 1; i < pts.length; i++) {
+    const cpx = (pts[i - 1].x + pts[i].x) / 2
+    d += ` C${cpx.toFixed(1)},${pts[i - 1].y.toFixed(1)} ${cpx.toFixed(1)},${pts[i].y.toFixed(1)} ${pts[i].x.toFixed(1)},${pts[i].y.toFixed(1)}`
   }
-  const C = { r: BLUE, v: GREEN, h: '#F59E0B' }
+  const areaD = `${d} L${pts[pts.length - 1].x.toFixed(1)},${H} L${pts[0].x.toFixed(1)},${H} Z`
+  const gId = `spark-${color.replace('#', '')}`
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display: 'block' }}>
-      {[0, 25, 50, 75, 100].map(v => (
-        <g key={v}>
-          <line x1={PAD_L} y1={yOf(v)} x2={W - PAD_R} y2={yOf(v)} stroke="#F3F4F6" strokeWidth="0.8" />
-          <text x={PAD_L - 3} y={yOf(v) + 3} fontSize="6" fill="#D1D5DB" textAnchor="end">{v}</text>
-        </g>
-      ))}
-      {avgLine(classAvgReading, C.r)} {avgLine(classAvgVocab, C.v)} {avgLine(classAvgHomework, C.h)}
-      <path d={linePath(rows.map(r => r.reading_rate))} fill="none" stroke={C.r} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
-      <path d={linePath(rows.map(r => r.vocab_rate))} fill="none" stroke={C.v} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
-      <path d={linePath(rows.map(r => r.homework_rate))} fill="none" stroke={C.h} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
-      {rows.map((row, i) => (
-        <g key={row.week_id}>
-          {row.reading_rate !== null && <circle cx={xOf(i)} cy={yOf(row.reading_rate)} r="2.5" fill={C.r} />}
-          {row.vocab_rate !== null && <circle cx={xOf(i)} cy={yOf(row.vocab_rate)} r="2.5" fill={C.v} />}
-          {row.homework_rate !== null && <circle cx={xOf(i)} cy={yOf(row.homework_rate)} r="2.5" fill={C.h} />}
-          <text x={xOf(i)} y={H - 3} fontSize="6.5" fill="#9CA3AF" textAnchor="middle">{row.week_number}주</text>
-        </g>
-      ))}
-      {[['독해', C.r], ['어휘', C.v], ['과제', C.h]].map(([label, color], i) => (
-        <g key={label} transform={`translate(${PAD_L + i * 46},${PAD_T - 3})`}>
-          <line x1="0" y1="3" x2="9" y2="3" stroke={color} strokeWidth="1.8" />
-          <text x="11" y="6" fontSize="6.5" fill={color as string}>{label}</text>
-        </g>
-      ))}
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ display: 'block' }}>
+      <defs>
+        <linearGradient id={gId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.18" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={areaD} fill={`url(#${gId})`} />
+      <path d={d} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx={pts[pts.length - 1].x} cy={pts[pts.length - 1].y} r="2.5" fill="white" stroke={color} strokeWidth="1.5" />
     </svg>
   )
 }
 
-function RadarChart({ axes, classAvg }: {
-  axes: { label: string; value: number | null; classValue?: number | null }[]
-  classAvg?: boolean
+function GrowthTrendCards({ rows, classContext }: {
+  rows: WeekRow[]
+  classContext: ClassContext | null
 }) {
-  const SIZE = 140, cx = 70, cy = 70, R = 52, n = axes.length
-  const angle = (i: number) => (2 * Math.PI * i / n) - Math.PI / 2
-  const pt = (i: number, val: number) => { const a = angle(i), r = R * Math.max(0, Math.min(100, val)) / 100; return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) } }
-  const lpt = (i: number) => { const a = angle(i); return { x: cx + (R + 16) * Math.cos(a), y: cy + (R + 16) * Math.sin(a) } }
-  const path = (pts: { x: number; y: number }[]) => pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') + 'Z'
-  const sp = axes.map((ax, i) => pt(i, ax.value ?? 0))
-  const cp = axes.map((ax, i) => pt(i, ax.classValue ?? 0))
+  if (rows.length === 0) return null
+
+  const domains: {
+    key: string; label: string
+    icon: React.ComponentType<{ className?: string }>
+    color: string
+    getValue: (r: WeekRow) => number | null
+    classAvg: number | null
+  }[] = [
+    { key: 'reading', label: '독해', icon: BookOpen, color: BLUE, getValue: (r) => r.reading_rate, classAvg: classContext?.classAvgReading ?? null },
+    { key: 'vocab', label: '어휘', icon: BookText, color: GREEN, getValue: (r) => r.vocab_rate, classAvg: classContext?.classAvgVocab ?? null },
+    { key: 'homework', label: '과제', icon: ClipboardCheck, color: '#F59E0B', getValue: (r) => r.homework_rate, classAvg: classContext?.classAvgHomework ?? null },
+  ]
+
   return (
-    <svg viewBox={`0 0 ${SIZE} ${SIZE}`} width={SIZE} height={SIZE} style={{ display: 'block', margin: '0 auto' }}>
-      {[25, 50, 75, 100].map((lv) => <path key={lv} d={path(axes.map((_, i) => pt(i, lv)))} fill="none" stroke="#F3F4F6" strokeWidth="0.8" />)}
-      {axes.map((_, i) => { const p = pt(i, 100); return <line key={i} x1={cx} y1={cy} x2={p.x.toFixed(1)} y2={p.y.toFixed(1)} stroke="#F3F4F6" strokeWidth="0.8" /> })}
-      {classAvg && axes.some((ax) => ax.classValue != null) && <path d={path(cp)} fill="#94A3B8" fillOpacity="0.1" stroke="#94A3B8" strokeWidth="1" />}
-      <path d={path(sp)} fill={BLUE} fillOpacity="0.12" stroke={BLUE} strokeWidth="1.5" />
-      {sp.map((p, i) => axes[i].value !== null && <circle key={i} cx={p.x} cy={p.y} r="2.5" fill={BLUE} />)}
-      {axes.map((ax, i) => { const l = lpt(i); return <text key={i} x={l.x.toFixed(1)} y={l.y.toFixed(1)} fontSize="7.5" fill="#374151" textAnchor="middle" dominantBaseline="middle">{ax.label}</text> })}
-    </svg>
+    <div className="grid grid-cols-3 gap-2.5">
+      {domains.map(({ key, label, icon: Icon, color, getValue, classAvg }) => {
+        const vals = rows.map(getValue).filter((v): v is number => v !== null)
+        if (vals.length === 0) return null
+        const first = vals[0]
+        const last = vals[vals.length - 1]
+        const delta = vals.length >= 2 ? last - first : 0
+        const best = Math.max(...vals)
+        const worst = Math.min(...vals)
+
+        return (
+          <div key={key} className="rounded-xl border border-gray-100 p-3.5">
+            <div className="flex items-center gap-1.5 mb-2.5">
+              <span style={{ color }}><Icon className="h-3.5 w-3.5" /></span>
+              <span className="text-xs font-semibold text-gray-700">{label}</span>
+            </div>
+            <div className="flex items-end justify-between mb-2">
+              <div>
+                <span className="text-2xl font-extrabold tabular-nums leading-none" style={{ color }}>{last}</span>
+                <span className="text-[10px] text-gray-400 ml-0.5">%</span>
+              </div>
+              {vals.length >= 2 && (
+                <span className="text-xs font-bold tabular-nums" style={{ color: delta > 0 ? GREEN : delta < 0 ? RED : '#9CA3AF' }}>
+                  {delta > 0 ? '▲' : delta < 0 ? '▼' : '—'}{delta !== 0 ? Math.abs(delta) : ''}
+                </span>
+              )}
+            </div>
+            <MiniSparkline values={vals} color={color} />
+            <div className="mt-2 flex items-center justify-between">
+              <span className="text-[9px] text-gray-400">최고 {best} · 최저 {worst}</span>
+              {classAvg !== null && <span className="text-[9px] text-gray-400">반 {classAvg}%</span>}
+            </div>
+            {vals.length >= 2 && (
+              <div className="mt-1 text-[9px] text-gray-400">
+                {rows[0].week_number}주 {first}% → {rows[rows.length - 1].week_number}주 {last}%
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -250,7 +273,7 @@ function DomainCard({ icon: Icon, title, rate, classAvg, prevRate }: {
   )
 }
 
-export function ReportCardPreview({ student, card, metrics, previous, academy, classContext }: Props) {
+export function ReportCardPreview({ student, card, metrics, previous, academy, classContext, editableInsights, onInsightChange, onInsightDelete, onInsightAdd }: Props) {
   const {
     weekRows, avgReading, avgWriting, avgVocab, avgHomework, overallAvg,
     attendancePresent, attendanceLate, attendanceAbsent, attendanceTotal,
@@ -272,13 +295,6 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
     avgReading, avgWriting, avgVocab, avgHomework,
     overallAvg, previous, classContext, achievements,
   )
-
-  const radarAxes = [
-    { label: '독해', value: avgReading, classValue: classContext?.classAvgReading ?? null },
-    ...(avgWriting !== null ? [{ label: '작문', value: avgWriting, classValue: classContext?.classAvgWriting ?? null }] : []),
-    { label: '어휘', value: avgVocab, classValue: classContext?.classAvgVocab ?? null },
-    { label: '과제', value: avgHomework, classValue: classContext?.classAvgHomework ?? null },
-  ]
 
   return (
     <div
@@ -382,7 +398,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
           />
           {avgWriting !== null && (
             <DomainCard
-              icon={PenLine} title="작문"
+              icon={PenLine} title="서술형"
               rate={avgWriting} classAvg={classContext?.classAvgWriting ?? null}
               prevRate={null}
             />
@@ -404,52 +420,57 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
       </section>
 
       {/* ── 이달의 핵심 인사이트 ────────────────────────────────── */}
-      {insightLines.length > 0 && (
-        <section className="mt-5">
-          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">이달의 핵심 인사이트</p>
-          <div className="rounded-xl border border-gray-100 divide-y divide-gray-50">
-            {insightLines.map((line, i) => (
-              <div key={i} className="flex gap-3 px-4 py-3.5">
-                <span className="mt-[5px] w-2 h-2 rounded-full shrink-0" style={{ background: line.color }} />
-                <p className="text-sm text-gray-700 leading-relaxed">{line.text}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      {(() => {
+        const lines = editableInsights ?? insightLines
+        const isEditable = !!onInsightChange
+        if (lines.length === 0 && !isEditable) return null
+        return (
+          <section className="mt-5">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">이달의 핵심 인사이트</p>
+            <div className="rounded-xl border border-gray-100 divide-y divide-gray-50">
+              {lines.map((line, i) => (
+                <div key={i} className="flex gap-3 px-4 py-3.5 group">
+                  <span className="mt-[5px] w-2 h-2 rounded-full shrink-0" style={{ background: line.color }} />
+                  {isEditable ? (
+                    <div className="flex-1 flex items-start gap-1.5">
+                      <textarea
+                        value={line.text}
+                        onChange={(e) => onInsightChange!(i, e.target.value)}
+                        className="flex-1 text-sm text-gray-700 leading-relaxed bg-transparent border-none outline-none resize-none p-0 min-h-[20px] print:appearance-none"
+                        rows={2}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onInsightDelete?.(i)}
+                        className="mt-0.5 p-0.5 rounded text-gray-300 hover:text-red-400 hover:bg-red-50 print:hidden opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <XIcon className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-700 leading-relaxed">{line.text}</p>
+                  )}
+                </div>
+              ))}
+              {isEditable && (
+                <button
+                  type="button"
+                  onClick={onInsightAdd}
+                  className="flex items-center gap-2 px-4 py-2.5 text-xs text-gray-400 hover:text-blue-500 hover:bg-blue-50/50 w-full transition-colors print:hidden"
+                >
+                  <Plus className="h-3 w-3" /> 인사이트 추가
+                </button>
+              )}
+            </div>
+          </section>
+        )
+      })()}
 
-      {/* ── 성장 추이 + 역량 레이더 (높이 정렬) ─────────────────── */}
+      {/* ── 성장 추이 (영역별 미니 카드) ─────────────────── */}
       {weekRows.length > 0 && (
         <section className="mt-5">
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">성장 추이</p>
-          <div className="grid grid-cols-[2fr_1fr] gap-3 items-stretch">
-            {/* 좌: 주간 라인 차트 */}
-            <div className="rounded-xl border border-gray-100 p-3.5 flex items-center">
-              <WeeklyChart
-                rows={weekRows}
-                classAvgReading={classContext?.classAvgReading}
-                classAvgVocab={classContext?.classAvgVocab}
-                classAvgHomework={classContext?.classAvgHomework}
-              />
-            </div>
-            {/* 우: 레이더 차트 */}
-            <div className="rounded-xl border border-gray-100 p-3 flex flex-col items-center justify-between">
-              <p className="text-[10px] font-semibold text-gray-400 self-start">역량 지도</p>
-              <RadarChart axes={radarAxes} classAvg={!!classContext} />
-              {classContext && (
-                <div className="flex gap-3 mt-1">
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full" style={{ background: BLUE }} />
-                    <span className="text-[9px] text-gray-400">본인</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-slate-300" />
-                    <span className="text-[9px] text-gray-400">반 평균</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+          <GrowthTrendCards rows={weekRows} classContext={classContext} />
         </section>
       )}
 
@@ -464,67 +485,72 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
           return pct >= 70 ? 'solo' : pct < 50 ? 'hard' : 'common'
         }
         const classified = wrongItems.map((w) => ({ ...w, kind: classify(w) }))
-        const soloItems = classified.filter((w) => w.kind === 'solo')
-        const hardItems = classified.filter((w) => w.kind === 'hard')
-        const topTags = (items: typeof classified, n = 4) => {
+        const soloCount = classified.filter((w) => w.kind === 'solo').length
+        const hardCount = classified.filter((w) => w.kind === 'hard').length
+        const commonCount = classified.filter((w) => w.kind === 'common').length
+        const total = wrongItems.length
+        const topTags = (items: typeof classified, n = 5) => {
           const freq: Record<string, number> = {}
           items.forEach((w) => w.tags.forEach((t) => { freq[t] = (freq[t] ?? 0) + 1 }))
-          return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, n).map(([t]) => t)
+          return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, n).map(([t, c]) => ({ tag: t, count: c }))
         }
+        const allTags = topTags(classified)
+
         return (
           <section className="mt-5">
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">오답 분석</p>
-            <div className="grid grid-cols-[1fr_1fr] gap-3">
-              <div className="space-y-2">
-                {hasClassData ? (
-                  <>
-                    <div className="rounded-xl border border-red-100 bg-red-50/50 p-3.5">
-                      <div className="flex items-baseline gap-1.5 mb-1">
-                        <span className="text-2xl font-extrabold tabular-nums text-red-500">{soloItems.length}개</span>
-                        <span className="text-xs text-red-400">나만 틀린 문항</span>
-                      </div>
-                      <p className="text-[9px] text-red-400 mb-2">반 정답률 70%↑ · 개인 집중 학습 필요</p>
-                      <div className="flex flex-wrap gap-1">
-                        {topTags(soloItems).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-600">{t}</span>)}
-                      </div>
+            <div className="rounded-xl border border-gray-100 p-4">
+              {/* 요약 바 */}
+              <div className="flex items-center gap-4 mb-3">
+                <div>
+                  <span className="text-2xl font-extrabold tabular-nums text-gray-900">{total}</span>
+                  <span className="text-xs text-gray-400 ml-1">문항</span>
+                </div>
+                {hasClassData && total > 0 && (
+                  <div className="flex-1">
+                    <div className="flex h-2.5 rounded-full overflow-hidden bg-gray-100">
+                      {soloCount > 0 && <div className="h-full" style={{ width: `${(soloCount / total) * 100}%`, background: RED }} />}
+                      {commonCount > 0 && <div className="h-full" style={{ width: `${(commonCount / total) * 100}%`, background: '#F59E0B' }} />}
+                      {hardCount > 0 && <div className="h-full" style={{ width: `${(hardCount / total) * 100}%`, background: '#94A3B8' }} />}
                     </div>
-                    <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-3.5">
-                      <div className="flex items-baseline gap-1.5 mb-1">
-                        <span className="text-2xl font-extrabold tabular-nums text-amber-500">{hardItems.length}개</span>
-                        <span className="text-xs text-amber-500">반 전체 어려운 문항</span>
-                      </div>
-                      <p className="text-[9px] text-amber-400 mb-2">반 정답률 50%↓ · 수업에서 함께 복습 예정</p>
-                      <div className="flex flex-wrap gap-1">
-                        {topTags(hardItems).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">{t}</span>)}
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="rounded-xl border border-gray-100 p-3.5">
-                    <div className="flex items-baseline gap-1.5 mb-1">
-                      <span className="text-2xl font-extrabold tabular-nums text-gray-700">{wrongItems.length}개</span>
-                      <span className="text-xs text-gray-500">오답</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {topTags(classified).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{t}</span>)}
+                    <div className="flex gap-3 mt-1.5">
+                      {soloCount > 0 && <span className="text-[9px] text-gray-500"><span className="inline-block w-1.5 h-1.5 rounded-full mr-0.5" style={{ background: RED }} /> 나만 틀림 {soloCount}</span>}
+                      {commonCount > 0 && <span className="text-[9px] text-gray-500"><span className="inline-block w-1.5 h-1.5 rounded-full mr-0.5" style={{ background: '#F59E0B' }} /> 일반 오답 {commonCount}</span>}
+                      {hardCount > 0 && <span className="text-[9px] text-gray-500"><span className="inline-block w-1.5 h-1.5 rounded-full mr-0.5" style={{ background: '#94A3B8' }} /> 반 전체 어려움 {hardCount}</span>}
                     </div>
                   </div>
                 )}
               </div>
+
+              {/* 자주 틀린 개념 태그 */}
+              {allTags.length > 0 && (
+                <div className="mb-3 pb-3 border-b border-gray-50">
+                  <p className="text-[10px] text-gray-400 mb-1.5">자주 틀린 개념</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {allTags.map(({ tag, count }) => (
+                      <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
+                        {tag} <span className="text-gray-400">×{count}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 유형별 정답률 */}
               {categoryStats.length > 0 && (
-                <div className="rounded-xl border border-gray-100 p-3.5">
-                  <p className="text-[10px] font-semibold text-gray-400 mb-2.5">유형별 정답률</p>
-                  <div className="space-y-2.5">
+                <div>
+                  <p className="text-[10px] text-gray-400 mb-2">유형별 정답률</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                     {categoryStats.map((c) => {
                       const barColor = c.rate >= 80 ? GREEN : c.rate >= 60 ? '#F59E0B' : RED
                       return (
                         <div key={c.name}>
                           <div className="flex items-center justify-between mb-0.5">
-                            <span className="text-[10px] text-gray-700 truncate max-w-[100px]">{c.name}</span>
+                            <span className="text-[10px] text-gray-700 truncate max-w-[120px]">{c.name}</span>
                             <span className="text-[10px] font-bold tabular-nums ml-1" style={{ color: barColor }}>{c.rate}%</span>
                           </div>
                           <div className="relative h-1.5 rounded-full bg-gray-100">
-                            <div className="absolute left-0 top-0 h-full rounded-full" style={{ width: `${c.rate}%`, background: barColor }} />
+                            <div className="absolute left-0 top-0 h-full rounded-full transition-all" style={{ width: `${c.rate}%`, background: barColor }} />
                           </div>
                         </div>
                       )
@@ -603,16 +629,11 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
             {academy.address && <p className="mt-0.5 truncate">{academy.address}</p>}
             {academy.phone && <p className="mt-0.5">Tel. {academy.phone}</p>}
           </div>
-          <div className="flex gap-8 shrink-0">
+          <div className="shrink-0">
             <div className="text-center">
               <div className="w-24 h-9 border-b border-gray-300" />
               <p className="text-[10px] text-gray-400 mt-1">담당 강사</p>
               {academy.teacher_name && <p className="text-[10px] text-gray-500">{academy.teacher_name}</p>}
-            </div>
-            <div className="text-center">
-              <div className="w-24 h-9 border-b border-gray-300" />
-              <p className="text-[10px] text-gray-400 mt-1">원장</p>
-              {academy.director_name && <p className="text-[10px] text-gray-500">{academy.director_name}</p>}
             </div>
           </div>
         </div>

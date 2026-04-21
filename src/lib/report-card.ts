@@ -486,7 +486,7 @@ export function buildAutoSummary(
   type D = { name: string; rate: number | null; classAvg: number | null | undefined }
   const domains: D[] = [
     { name: '독해', rate: metrics.avgReading, classAvg: classContext?.classAvgReading },
-    ...(metrics.avgWriting !== null ? [{ name: '작문', rate: metrics.avgWriting, classAvg: classContext?.classAvgWriting }] : []),
+    ...(metrics.avgWriting !== null ? [{ name: '서술형', rate: metrics.avgWriting, classAvg: classContext?.classAvgWriting }] : []),
     { name: '어휘', rate: metrics.avgVocab, classAvg: classContext?.classAvgVocab },
     { name: '과제', rate: metrics.avgHomework, classAvg: classContext?.classAvgHomework },
   ]
