@@ -34,7 +34,11 @@ async function fetchExamSeq(grade: number, examYear: number, examMonth: number):
   const buf = await res.arrayBuffer()
   const html = new TextDecoder('euc-kr').decode(buf)
   const monthStr = String(examMonth).padStart(2, '0')
-  const re = new RegExp(`fncSelExamSeq\\((\\d+),'\\d+',\\d+\\)[^>]*>\\s*${megastudyYear}\\.${monthStr}`)
+  const examType = monthToExamType(examMonth)
+  // 수능(11월)은 코로나 연도 등 실제 시행일이 12월일 수 있어 월 대신 "수능" 키워드로 매칭
+  const re = examType === 1
+    ? new RegExp(`fncSelExamSeq\\((\\d+),'\\d+',\\d+\\)[^>]*>\\s*${megastudyYear}\\.[^<]*수능`)
+    : new RegExp(`fncSelExamSeq\\((\\d+),'\\d+',\\d+\\)[^>]*>\\s*${megastudyYear}\\.${monthStr}`)
   const m = html.match(re)
   return m ? parseInt(m[1]) : null
 }

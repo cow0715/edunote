@@ -1703,7 +1703,8 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
     try {
       // PDF를 Supabase Storage에 직접 업로드 (Vercel 4.5MB body 한도 우회)
       const supabase = createClient()
-      const storagePath = `${Date.now()}_${file.name}`
+      const safeFileName = file.name.replace(/[^\w.\-]/g, '_')
+      const storagePath = `${Date.now()}_${safeFileName}`
       const { error: uploadErr } = await supabase.storage
         .from('exam-pdf-temp')
         .upload(storagePath, file, { contentType: file.type || 'application/pdf' })
@@ -1904,7 +1905,8 @@ function ExplanationUploadDialog({
 
   const uploadToStorage = async (file: File) => {
     const supabase = createClient()
-    const storagePath = `${Date.now()}_explanation_${file.name}`
+    const safeFileName = file.name.replace(/[^\w.\-]/g, '_')
+    const storagePath = `${Date.now()}_explanation_${safeFileName}`
     const { error: uploadErr } = await supabase.storage
       .from('exam-pdf-temp')
       .upload(storagePath, file, { contentType: file.type || 'application/pdf' })
@@ -2165,7 +2167,8 @@ function BulkExplanationDialog({
 
       try {
         const supabase = createClient()
-        const storagePath = `${Date.now()}_bulk_${it.file.name}`
+        const safeFileName = it.file.name.replace(/[^\w.\-]/g, '_')
+        const storagePath = `${Date.now()}_bulk_${safeFileName}`
         const { error: uploadErr } = await supabase.storage
           .from('exam-pdf-temp')
           .upload(storagePath, it.file, { contentType: 'application/pdf' })
