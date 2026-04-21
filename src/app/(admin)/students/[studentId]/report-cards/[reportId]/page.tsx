@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { useReportCard, useUpdateReportCard } from '@/hooks/use-report-cards'
 import { suggestGrade, buildAutoSummary } from '@/lib/report-card'
-import { ReportCardPreview } from '@/components/report-cards/report-card-preview'
+import { ReportCardPreview, buildInsightLines } from '@/components/report-cards/report-card-preview'
 import { toast } from 'sonner'
 
 export default function ReportCardDetailPage({ params }: { params: Promise<{ studentId: string; reportId: string }> }) {
@@ -25,6 +25,7 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
   const [goalItems, setGoalItems] = useState<string[]>([''])
   const [dirty, setDirty] = useState(false)
   const [sending, setSending] = useState(false)
+  const [insights, setInsights] = useState<{ color: string; text: string }[] | null>(null)
 
   // next_focus string derived from goalItems
   const nextFocus = goalItems.filter(Boolean).join('\n')
@@ -36,6 +37,11 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
     setSummary(data.card.summary_text ?? '')
     const loaded = (data.card.next_focus ?? '').split('\n').map((s) => s.trim()).filter(Boolean)
     setGoalItems(loaded.length > 0 ? [...loaded, ''] : [''])
+    const autoInsights = buildInsightLines(
+      data.metrics.avgReading, data.metrics.avgWriting, data.metrics.avgVocab, data.metrics.avgHomework,
+      data.metrics.overallAvg, data.previous, data.classContext, data.metrics.achievements,
+    )
+    setInsights(autoInsights)
     setDirty(false)
   }, [data])
 
@@ -222,6 +228,19 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
             previous={previous}
             academy={academy}
             classContext={classContext}
+            editableInsights={insights}
+            onInsightChange={(i, text) => {
+              setInsights(prev => prev ? prev.map((line, idx) => idx === i ? { ...line, text } : line) : prev)
+              setDirty(true)
+            }}
+            onInsightDelete={(i) => {
+              setInsights(prev => prev ? prev.filter((_, idx) => idx !== i) : prev)
+              setDirty(true)
+            }}
+            onInsightAdd={() => {
+              setInsights(prev => [...(prev ?? []), { color: '#2463EB', text: '' }])
+              setDirty(true)
+            }}
           />
         </div>
 
