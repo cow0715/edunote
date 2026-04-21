@@ -165,10 +165,10 @@ function RadarChart({ axes, classAvg }: {
   axes: { label: string; value: number | null; classValue?: number | null }[]
   classAvg?: boolean
 }) {
-  const SIZE = 170, cx = 85, cy = 85, R = 52, n = axes.length
+  const SIZE = 220, cx = 110, cy = 110, R = 68, n = axes.length
   const angle = (i: number) => (2 * Math.PI * i / n) - Math.PI / 2
   const pt = (i: number, val: number) => { const a = angle(i), r = R * Math.max(0, Math.min(100, val)) / 100; return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) } }
-  const lpt = (i: number) => { const a = angle(i); return { x: cx + (R + 22) * Math.cos(a), y: cy + (R + 22) * Math.sin(a) } }
+  const lpt = (i: number) => { const a = angle(i); return { x: cx + (R + 28) * Math.cos(a), y: cy + (R + 28) * Math.sin(a) } }
   const poly = (pts: { x: number; y: number }[]) => pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') + 'Z'
   const sp = axes.map((ax, i) => pt(i, ax.value ?? 0))
   const cp = axes.map((ax, i) => pt(i, ax.classValue ?? 0))
@@ -234,8 +234,8 @@ function GrowthTrendCards({ rows, classContext }: {
             </div>
             <MiniSparkline values={vals} color={color} />
             <div className="mt-2 flex items-center justify-between">
-              <span className="text-[9px] text-gray-400">��고 {best} · 최��� {worst}</span>
-              {classAvg !== null && <span className="text-[9px] text-gray-400">��� {classAvg}%</span>}
+              <span className="text-[9px] text-gray-400">최고 {best} · 최저 {worst}</span>
+              {classAvg !== null && <span className="text-[9px] text-gray-400">반 {classAvg}%</span>}
             </div>
             {vals.length >= 2 && (
               <div className="mt-1 text-[9px] text-gray-400">
@@ -523,85 +523,6 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
           </div>
         </section>
       )}
-
-      {/* ── 오답 분석 ─────────────────────────────────────────────── */}
-      {(wrongItems.length > 0 || categoryStats.length > 0) && (() => {
-        const qAcc = classContext?.questionAccuracy ?? {}
-        const hasClassData = Object.keys(qAcc).length > 0
-        const classify = (w: WrongItem): 'solo' | 'hard' | 'common' => {
-          const acc = qAcc[w.exam_question_id]
-          if (!acc || acc.total === 0) return 'common'
-          const pct = (acc.correct / acc.total) * 100
-          return pct >= 70 ? 'solo' : pct < 50 ? 'hard' : 'common'
-        }
-        const classified = wrongItems.map((w) => ({ ...w, kind: classify(w) }))
-        const soloItems = classified.filter((w) => w.kind === 'solo')
-        const hardItems = classified.filter((w) => w.kind === 'hard')
-        const commonItems = classified.filter((w) => w.kind === 'common')
-        const topTags = (items: typeof classified, n = 3) => {
-          const freq: Record<string, number> = {}
-          items.forEach((w) => w.tags.forEach((t) => { freq[t] = (freq[t] ?? 0) + 1 }))
-          return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, n).map(([t]) => t)
-        }
-
-        const cards: { count: number; label: string; sub: string; color: string; bg: string; border: string; tags: string[] }[] = []
-        if (hasClassData) {
-          if (soloItems.length > 0) cards.push({ count: soloItems.length, label: '나만 틀린 문항', sub: '반 정답률 70%↑', color: '#EF4444', bg: 'bg-red-50/60', border: 'border-red-100', tags: topTags(soloItems) })
-          if (commonItems.length > 0) cards.push({ count: commonItems.length, label: '일반 오답', sub: '반 정답률 50~70%', color: '#F59E0B', bg: 'bg-amber-50/60', border: 'border-amber-100', tags: topTags(commonItems) })
-          if (hardItems.length > 0) cards.push({ count: hardItems.length, label: '반 전체 어려움', sub: '반 정답률 50%↓', color: '#94A3B8', bg: 'bg-gray-50/60', border: 'border-gray-200', tags: topTags(hardItems) })
-        } else if (wrongItems.length > 0) {
-          cards.push({ count: wrongItems.length, label: '오답 문항', sub: `총 ${wrongItems.length}문항`, color: '#6B7280', bg: 'bg-gray-50/60', border: 'border-gray-200', tags: topTags(classified) })
-        }
-
-        return (
-          <section className="mt-5">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">오답 분석</p>
-
-            {/* 오답 유형 카드 */}
-            {cards.length > 0 && (
-              <div className={`grid gap-2.5 mb-3 ${cards.length >= 3 ? 'grid-cols-3' : cards.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                {cards.map((c) => (
-                  <div key={c.label} className={`rounded-xl border ${c.border} ${c.bg} p-3.5`}>
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-2xl font-extrabold tabular-nums" style={{ color: c.color }}>{c.count}</span>
-                      <span className="text-[10px] font-medium" style={{ color: c.color }}>{c.label}</span>
-                    </div>
-                    <p className="text-[9px] text-gray-400 mt-0.5 mb-2">{c.sub}</p>
-                    {c.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {c.tags.map((t) => (
-                          <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/80 text-gray-600 font-medium">{t}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* 유형별 정답률 */}
-            {categoryStats.length > 0 && (
-              <div className="rounded-xl border border-gray-100 p-4">
-                <p className="text-[10px] font-semibold text-gray-400 mb-3">유형별 정답률</p>
-                <div className="space-y-2.5">
-                  {categoryStats.map((c) => {
-                    const barColor = c.rate >= 80 ? GREEN : c.rate >= 60 ? '#F59E0B' : RED
-                    return (
-                      <div key={c.name} className="flex items-center gap-3">
-                        <span className="text-[10px] text-gray-600 w-[90px] truncate shrink-0">{c.name}</span>
-                        <div className="flex-1 relative h-2 rounded-full bg-gray-100">
-                          <div className="absolute left-0 top-0 h-full rounded-full" style={{ width: `${c.rate}%`, background: barColor }} />
-                        </div>
-                        <span className="text-[10px] font-bold tabular-nums w-[32px] text-right" style={{ color: barColor }}>{c.rate}%</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </section>
-        )
-      })()}
 
       {/* ── 선생님 메시지 ─────────────────────────────────────────── */}
       {(card.summary_text || card.teacher_comment) && (
