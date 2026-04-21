@@ -248,7 +248,7 @@ const EXAM_KIND_OPTIONS = [
   { label: '모의고사', value: '모의고사' },
 ]
 
-const MONTHS = [3, 4, 6, 7, 9, 10, 11]
+const MONTHS = [3, 4, 5, 6, 7, 9, 10, 11]
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: 10 }, (_, i) => CURRENT_YEAR - i)
 
