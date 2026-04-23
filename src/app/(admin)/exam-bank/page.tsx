@@ -426,7 +426,7 @@ function ExamList() {
                     }
                   }}
                   className="p-1.5 rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="AI 해석/어휘 생성 (20~24, 29~42번)"
+                  title="AI 해설/어휘 생성 (20~24, 29~42번)"
                 >
                   {generatingId === exam.id
                     ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -1969,7 +1969,7 @@ function ExplanationUploadDialog({
         toast.success(`해설 적용 완료 (PDF ${data.updated}문항 + AI ${aiData.updated}문항)`)
       } else {
         toast.success(`PDF 해설 ${data.updated}/${data.total}문항 적용 완료`)
-        toast.warning('AI 해석 생성 실패 — 나중에 Sparkles 버튼으로 재시도하세요')
+        toast.warning('AI 해설 생성 실패 — 나중에 Sparkles 버튼으로 재시도하세요')
       }
       queryClient.invalidateQueries({ queryKey: ['exam-bank-questions', examId] })
       queryClient.invalidateQueries({ queryKey: ['exam-bank-search'] })
@@ -2184,7 +2184,7 @@ function BulkExplanationDialog({
         )
         if (!pdfOk) throw new Error((data.error as string) || '파싱 실패')
 
-        // AI 해석/어휘 생성
+        // AI 해설/어휘 생성
         const { ok: aiOk, data: aiData } = await safeJson(
           await fetch(`/api/exam-bank/${it.exam.id}/generate-explanation`, { method: 'POST' })
         )
