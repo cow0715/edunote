@@ -1,9 +1,12 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertClassOwner, err, ok } from '@/lib/api'
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
   const { id: classId } = await params
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertClassOwner(supabase, classId, teacherId)) return err('접근 권한 없음', 403)
   const url = new URL(request.url)
   const date = url.searchParams.get('date')
   let query = supabase.from('attendance').select('*').eq('class_id', classId).order('date', { ascending: false })
@@ -17,6 +20,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
   const { id: classId } = await params
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertClassOwner(supabase, classId, teacherId)) return err('접근 권한 없음', 403)
   const body: { date: string; records: { student_id: string; status: 'present' | 'late' | 'absent'; note?: string | null }[] } = await request.json()
   if (!body.date || !Array.isArray(body.records)) return err('잘못된 요청', 400)
   const rows = body.records.map((r) => ({ class_id: classId, student_id: r.student_id, date: body.date, status: r.status, note: r.note ?? null }))

@@ -1,4 +1,4 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 
 export async function GET(_: Request, { params }: { params: Promise<{ key: string }> }) {
   const { supabase, user } = await getAuth()
@@ -13,6 +13,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ key: strin
 export async function PUT(request: Request, { params }: { params: Promise<{ key: string }> }) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
 
   const { key } = await params
   const { content } = await request.json()

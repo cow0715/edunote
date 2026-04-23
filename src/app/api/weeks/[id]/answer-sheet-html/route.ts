@@ -1,9 +1,12 @@
-import { getAuth, err } from '@/lib/api'
+import { getAuth, getTeacherId, assertWeekOwner, err } from '@/lib/api'
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
   // 주차 정보
   const { data: week } = await supabase

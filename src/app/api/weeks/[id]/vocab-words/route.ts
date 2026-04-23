@@ -1,4 +1,4 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeVocabItems, generateVocabExamples } from '@/lib/anthropic'
 
 export const maxDuration = 60
@@ -7,6 +7,9 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
   const { data, error } = await supabase
     .from('vocab_word')
@@ -22,6 +25,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
   const { words } = await request.json()
   if (!words?.length) return err('단어 없음')

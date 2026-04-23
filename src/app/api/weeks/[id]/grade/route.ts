@@ -1,4 +1,4 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeSubjectiveAnswers, SubjectiveStudentAnswer } from '@/lib/anthropic'
 import { recalcReadingCorrect, gradeOX, gradeMultiSelect } from '@/lib/grade-utils'
 
@@ -7,6 +7,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
   const { student_id, homework_done, memo } = await request.json()
   if (!student_id) return err('student_id 필요')
@@ -26,6 +29,9 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
   const { data: week } = await supabase
     .from('week')
@@ -84,6 +90,9 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
   type GradeRow = {
     student_id: string

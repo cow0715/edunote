@@ -33,14 +33,22 @@ async function fetchExamSeq(grade: number, examYear: number, examMonth: number):
 
   const buf = await res.arrayBuffer()
   const html = new TextDecoder('euc-kr').decode(buf)
-  const monthStr = String(examMonth).padStart(2, '0')
   const examType = monthToExamType(examMonth)
   // 수능(11월)은 코로나 연도 등 실제 시행일이 12월일 수 있어 월 대신 "수능" 키워드로 매칭
-  const re = examType === 1
-    ? new RegExp(`fncSelExamSeq\\((\\d+),'\\d+',\\d+\\)[^>]*>\\s*${megastudyYear}\\.[^<]*수능`)
-    : new RegExp(`fncSelExamSeq\\((\\d+),'\\d+',\\d+\\)[^>]*>\\s*${megastudyYear}\\.${monthStr}`)
-  const m = html.match(re)
-  return m ? parseInt(m[1]) : null
+  if (examType === 1) {
+    const re = new RegExp(`fncSelExamSeq\\((\\d+),'\\d+',\\d+\\)[^>]*>\\s*${megastudyYear}\\.[^<]*수능`)
+    const m = html.match(re)
+    return m ? parseInt(m[1]) : null
+  }
+  // 4월 학력평가가 5월로 연기되는 해가 있어(2023, 2024학년도) 4↔5 상호 fallback
+  const monthsToTry = examMonth === 4 ? [4, 5] : examMonth === 5 ? [5, 4] : [examMonth]
+  for (const month of monthsToTry) {
+    const monthStr = String(month).padStart(2, '0')
+    const re = new RegExp(`fncSelExamSeq\\((\\d+),'\\d+',\\d+\\)[^>]*>\\s*${megastudyYear}\\.${monthStr}`)
+    const m = html.match(re)
+    if (m) return parseInt(m[1])
+  }
+  return null
 }
 
 export type StatsRow = {

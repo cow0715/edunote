@@ -1,9 +1,12 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertClassOwner, err, ok } from '@/lib/api'
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
   const { id: classId } = await params
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertClassOwner(supabase, classId, teacherId)) return err('접근 권한 없음', 403)
   const { data, error } = await supabase.from('week').select('*').eq('class_id', classId).order('week_number')
   if (error) { console.error('[GET /api/classes/[id]/weeks]', error); return err(error.message, 500) }
   return ok(data)
@@ -13,6 +16,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
   const { id: classId } = await params
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertClassOwner(supabase, classId, teacherId)) return err('접근 권한 없음', 403)
   const body = await request.json().catch(() => ({}))
   const { data: existing } = await supabase.from('week').select('week_number').eq('class_id', classId).order('week_number', { ascending: false }).limit(1)
   const nextWeekNumber = existing && existing.length > 0 ? existing[0].week_number + 1 : 1

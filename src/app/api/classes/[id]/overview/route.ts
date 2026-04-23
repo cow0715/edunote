@@ -1,9 +1,12 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertClassOwner, err, ok } from '@/lib/api'
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
   const { id: classId } = await params
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertClassOwner(supabase, classId, teacherId)) return err('접근 권한 없음', 403)
   const [{ data: classStudents }, { data: weeks }] = await Promise.all([
     supabase.from('class_student').select('student_id, student(*), joined_at, left_at').eq('class_id', classId).is('left_at', null).order('joined_at'),
     supabase.from('week').select('*').eq('class_id', classId).order('week_number'),
