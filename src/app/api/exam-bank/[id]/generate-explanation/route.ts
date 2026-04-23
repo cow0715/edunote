@@ -4,14 +4,18 @@ import { generateExplanations, QuestionForExplanation } from '@/lib/anthropic'
 
 export const maxDuration = 300
 
-// 대상 문항 범위: 20~24, 29~42
-const AI_TARGET_RANGES = [
-  [20, 24],
-  [29, 42],
-] as const
+// 평가원/수능: PDF에 풀이가 있으므로 일부 문항만 AI 보완
+const PYUNGWON_RANGES = [[20, 24], [29, 42]] as const
 
-function isAiTarget(n: number): boolean {
-  return AI_TARGET_RANGES.some(([from, to]) => n >= from && n <= to)
+// 학평: 듣기(1~17) 제외한 독해 전체
+const HAKPYUNG_MONTHS = [3, 4, 5, 7, 10]
+
+function isHakpyung(month: number): boolean {
+  return HAKPYUNG_MONTHS.includes(month)
+}
+
+function isPyungwonTarget(n: number): boolean {
+  return PYUNGWON_RANGES.some(([from, to]) => n >= from && n <= to)
 }
 
 export async function POST(
@@ -26,17 +30,19 @@ export async function POST(
 
   const { id } = await params
 
-  // 소유권 확인
+  // 소유권 + 시험 월 확인
   const { data: exam } = await supabase
     .from('exam_bank')
-    .select('id')
+    .select('id, exam_month')
     .eq('id', id)
     .eq('teacher_id', teacherId)
     .single()
 
   if (!exam) return err('시험을 찾을 수 없습니다', 404)
 
-  // 대상 문항 조회
+  const hakpyung = isHakpyung(exam.exam_month)
+
+  // 문항 조회
   const serviceClient = createServiceClient()
   const { data: rows, error: fetchErr } = await serviceClient
     .from('exam_bank_question')
@@ -49,7 +55,7 @@ export async function POST(
   }
 
   const targets: QuestionForExplanation[] = rows
-    .filter((r) => isAiTarget(r.question_number))
+    .filter((r) => isPyungwonTarget(r.question_number))  // 학평/평가원 모두 20~24, 29~42
     .map((r) => ({
       question_number: r.question_number,
       passage: r.passage ?? '',
@@ -64,13 +70,12 @@ export async function POST(
 
   let generated
   try {
-    generated = await generateExplanations(targets)
+    generated = await generateExplanations(targets, 'full')
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return err(`AI 해설 생성 실패: ${msg}`, 500)
   }
 
-  // DB UPDATE
   let updated = 0
   for (const g of generated) {
     const { error } = await serviceClient
@@ -85,5 +90,5 @@ export async function POST(
     if (!error) updated++
   }
 
-  return ok({ updated, total: targets.length })
+  return ok({ updated, total: targets.length, mode: hakpyung ? 'hakpyung' : 'standard' })
 }

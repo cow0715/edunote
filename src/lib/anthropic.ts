@@ -793,18 +793,27 @@ export type QuestionForExplanation = {
 
 export async function generateExplanations(
   questions: QuestionForExplanation[],
+  mode: 'standard' | 'full' = 'standard',
 ): Promise<GeneratedExplanation[]> {
   if (questions.length === 0) return []
+
+  const solutionGuide = mode === 'full'
+    ? `- 정답 근거: 지문에서 정답의 단서가 되는 핵심 문장/표현을 한국어로 짚어줄 것
+   - 오답 포인트: 주요 오답 선지가 왜 틀렸는지 구체적으로 설명
+   - 핵심 어구/구문: 지문의 중요 표현이나 논리 흐름을 추가 설명
+   - 학생이 다음에 유사 문항을 맞힐 수 있도록 풀이 전략 중심으로 작성
+   - 4~6문장으로 충분히 상세하게`
+    : `- 정답 근거: 지문에서 정답의 단서가 되는 핵심 문장/표현을 한국어로 짚어줄 것
+   - 오답 포인트: 헷갈리기 쉬운 오답 선지가 왜 틀렸는지 간결하게 설명 (1~2개)
+   - 단순 "정답은 ~이다" 수준이 아니라, 학생이 다음에 유사 문항을 맞힐 수 있도록 풀이 전략 중심으로 작성
+   - 2~4문장 이내로 간결하게`
 
   const prompt = `다음 수능/모의고사 영어 문항들의 풀이와 어휘를 생성하세요.
 
 각 문항에 대해 아래 두 가지를 작성하세요:
 
 1. solution (풀이)
-   - 정답 근거: 지문에서 정답의 단서가 되는 핵심 문장/표현을 한국어로 짚어줄 것
-   - 오답 포인트: 헷갈리기 쉬운 오답 선지가 왜 틀렸는지 간결하게 설명 (1~2개)
-   - 단순 "정답은 ~이다" 수준이 아니라, 학생이 다음에 유사 문항을 맞힐 수 있도록 풀이 전략 중심으로 작성
-   - 2~4문장 이내로 간결하게
+   ${solutionGuide}
 
 2. vocabulary (Words & Phrases)
    - 지문에 등장하는 고2~고3 수준의 학습 중요 단어/숙어만 선별
@@ -831,7 +840,7 @@ JSON 배열만 출력 (다른 텍스트 없이):
 [{"question_number": 20, "solution": "...", "vocabulary": "word1 뜻1   word2 뜻2"}]`
 
   const res = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: 'claude-opus-4-7',
     max_tokens: 16000,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -937,5 +946,66 @@ JSON 배열만 출력 (다른 텍스트 없이):
   } catch (e) {
     console.error('[parsePdfExplanationsWithClaude] JSON parse 실패:', e)
     throw new Error(`Claude Vision PDF 파싱 실패: ${e instanceof Error ? e.message : e}`)
+  }
+}
+
+/**
+ * 학평(교육청 학력평가) 해설 PDF를 Claude Vision으로 파싱한다.
+ * 학평 해설지는 [출제의도] + 한국어 번역만 있고, [풀이]/[어휘] 섹션이 없다.
+ * 풀이와 어휘는 이후 generateExplanations(full mode)로 별도 생성.
+ */
+export async function parsePdfExplanationsHakpyung(
+  buffer: ArrayBuffer,
+): Promise<ParsedExplanation[]> {
+  const base64 = Buffer.from(buffer).toString('base64')
+
+  const prompt = `이 PDF는 교육청 학력평가(학평) 영어 해설지입니다.
+
+학평 해설지 형식:
+  "N. [출제의도] 한줄설명. 한국어 번역 내용 전체..."
+  (평가원과 달리 [해석]/[풀이]/[Words and Phrases] 헤더가 없음)
+
+18번~45번 문항(독해 영역)의 출제의도와 한국어 번역을 추출하세요.
+1~17번(듣기 영역)은 제외하세요.
+
+각 필드:
+- intent: [출제의도] 바로 뒤의 짧은 설명 (예: "글의 목적을 추론한다.")
+- translation: 그 뒤에 오는 한국어 번역 전체 (도표·실용문 등 번역 없는 문항은 "")
+- solution: "" (빈 문자열 — AI가 별도로 생성함)
+- vocabulary: 문항 끝에 "단어 뜻" 형태 어휘가 있으면 추출, 없으면 ""
+
+중요: 값 안에 큰따옴표(")를 사용하지 마세요.
+
+JSON 배열만 출력:
+[{"question_number": 18, "intent": "...", "translation": "...", "solution": "", "vocabulary": ""}]`
+
+  const res = await anthropic.messages.create({
+    model: 'claude-opus-4-7',
+    max_tokens: 16000,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'document',
+            source: { type: 'base64', media_type: 'application/pdf', data: base64 },
+          } satisfies DocumentBlockParam,
+          { type: 'text', text: prompt } satisfies TextBlockParam,
+        ],
+      },
+    ],
+  })
+
+  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  console.log('[parsePdfExplanationsHakpyung] raw length:', raw.length)
+
+  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
+
+  try {
+    const parsed = JSON.parse(jsonrepair(cleaned)) as ParsedExplanation[]
+    return parsed.filter((e) => e.question_number >= 18)
+  } catch (e) {
+    console.error('[parsePdfExplanationsHakpyung] JSON parse 실패:', e)
+    throw new Error(`학평 Vision PDF 파싱 실패: ${e instanceof Error ? e.message : e}`)
   }
 }
