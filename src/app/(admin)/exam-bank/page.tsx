@@ -953,7 +953,7 @@ function QuestionSearch() {
 
   // 초기 필터: URL 쿼리에서 복원
   const [filters, setFilters] = useState(() => filtersFromParams(new URLSearchParams(searchParams?.toString() ?? '')))
-  const [debouncedFilters, setDebouncedFilters] = useState(filters)
+  const [appliedFilters, setAppliedFilters] = useState(filters)
   const [copyingAll, setCopyingAll] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
@@ -968,15 +968,11 @@ function QuestionSearch() {
         : [...f.difficulties, d],
     }))
 
-  // 필터 변경 debounce
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedFilters(filters), 400)
-    return () => clearTimeout(t)
-  }, [filters])
-
-  const filterKey = useMemo(() => buildFilterParams(debouncedFilters).toString(), [debouncedFilters])
+  const filterKey = useMemo(() => buildFilterParams(appliedFilters).toString(), [appliedFilters])
   const liveFilterKey = useMemo(() => buildFilterParams(filters).toString(), [filters])
-  const isDebouncing = liveFilterKey !== filterKey
+  const hasPendingChanges = liveFilterKey !== filterKey
+
+  const runSearch = () => setAppliedFilters(filters)
 
   // URL 동기화 (filters 확정 후)
   useEffect(() => {
@@ -1036,7 +1032,10 @@ function QuestionSearch() {
     return () => io.disconnect()
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
-  const handleReset = () => setFilters(EMPTY_FILTERS)
+  const handleReset = () => {
+    setFilters(EMPTY_FILTERS)
+    setAppliedFilters(EMPTY_FILTERS)
+  }
 
   const fetchAll = async () => {
     const params = new URLSearchParams(filterKey)
@@ -1227,11 +1226,17 @@ function QuestionSearch() {
           <Input
             value={filters.q}
             onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
-            placeholder="지문/발문에서 키워드 검색 (예: vaccine effective)"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                runSearch()
+              }
+            }}
+            placeholder="지문/발문에서 키워드 검색 (예: vaccine effective). Enter 또는 검색 버튼으로 실행"
             className="pl-9 pr-9 h-9"
           />
           <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-            {(isDebouncing || (isFetching && !isFetchingNextPage)) && (
+            {isFetching && !isFetchingNextPage && (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
             )}
             {filters.q && (
@@ -1392,6 +1397,20 @@ function QuestionSearch() {
               초기화
             </button>
           )}
+
+          {/* 검색 버튼 */}
+          <button
+            onClick={runSearch}
+            className={`h-8 px-4 rounded-lg text-xs font-medium transition-colors self-end inline-flex items-center gap-1.5 ${
+              hasPendingChanges
+                ? 'bg-blue-600 text-white hover:bg-blue-700 ring-2 ring-blue-200'
+                : 'bg-blue-600 text-white hover:bg-blue-700'
+            }`}
+          >
+            <Search className="h-3.5 w-3.5" />
+            검색
+            {hasPendingChanges && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+          </button>
         </div>
       </div>
 
@@ -1409,7 +1428,7 @@ function QuestionSearch() {
               {total > 0
                 ? `${results.length} / ${total}개 문항 표시${selectedIds.size > 0 ? ` · ${selectedIds.size}개 선택` : ''}`
                 : '검색 결과가 없습니다'}
-              {(isDebouncing || (isFetching && !isFetchingNextPage)) && (
+              {isFetching && !isFetchingNextPage && (
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
               )}
             </p>
@@ -1461,7 +1480,7 @@ function QuestionSearch() {
             <>
               <div
                 className={`grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 transition-opacity ${
-                  isDebouncing || (isFetching && !isFetchingNextPage) ? 'opacity-60' : ''
+                  isFetching && !isFetchingNextPage ? 'opacity-60' : ''
                 }`}
               >
                 {results.map((q) => (
