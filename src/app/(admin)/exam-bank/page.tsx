@@ -1677,9 +1677,9 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
   const [elapsed, setElapsed] = useState(0)
   const [form, setForm] = useState({
     exam_year: new Date().getFullYear(),
-    exam_month: 3,
-    grade: 2,
-    source: '교육청',
+    exam_month: 4,
+    grade: 3,
+    source: '모의고사',
     form_type: '홀수형',
   })
 
@@ -1729,7 +1729,7 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
       toast.success(`${data.question_count}개 문항 추출 완료${statsMsg}`)
       queryClient.invalidateQueries({ queryKey: ['exam-bank'] })
       onOpenChange(false)
-      setForm({ exam_year: new Date().getFullYear(), exam_month: 3, grade: 2, source: '교육청', form_type: '홀수형' })
+      setForm({ exam_year: new Date().getFullYear(), exam_month: 4, grade: 3, source: '모의고사', form_type: '홀수형' })
       setFileName('')
       if (fileRef.current) fileRef.current.value = ''
     } catch (e) {

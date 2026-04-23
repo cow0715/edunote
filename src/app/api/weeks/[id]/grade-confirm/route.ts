@@ -1,10 +1,13 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { recalcReadingCorrect } from '@/lib/grade-utils'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
   const body: { student_id: string; exam_question_id: string; is_correct: boolean }[] = await request.json()
   if (!body.length) return ok({ ok: true })

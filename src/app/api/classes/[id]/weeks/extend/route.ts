@@ -1,4 +1,4 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertClassOwner, err, ok } from '@/lib/api'
 
 const DAY_MAP: Record<string, number> = {
   sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
@@ -12,6 +12,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { supabase, user } = await getAuth()
   const { id: classId } = await params
   if (!user) return err('인증 필요', 401)
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertClassOwner(supabase, classId, teacherId)) return err('접근 권한 없음', 403)
 
   const body = await request.json().catch(() => ({}))
   const count = Number(body.count)

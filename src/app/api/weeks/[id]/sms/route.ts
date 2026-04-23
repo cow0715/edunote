@@ -1,10 +1,13 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { generateSmsMessages, SmsStudentInput } from '@/lib/anthropic'
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
   const body = await request.json().catch(() => ({}))
   const customPrompt: string | undefined = body?.customPrompt || undefined

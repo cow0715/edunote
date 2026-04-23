@@ -1,10 +1,13 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertClassOwner, err, ok } from '@/lib/api'
 
 // 수업일(start_date) 순서대로 week_number 재할당
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
   const { id: classId } = await params
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertClassOwner(supabase, classId, teacherId)) return err('접근 권한 없음', 403)
 
   // 1. start_date 순으로 정렬 (null은 맨 뒤)
   const { data: weeks, error: fetchError } = await supabase

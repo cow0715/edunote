@@ -25,3 +25,17 @@ export async function getTeacherId(supabase: SupabaseServerClient, authId: strin
   const { data } = await supabase.from('teacher').select('id').eq('auth_id', authId).single()
   return data?.id ?? null
 }
+
+/** class가 해당 teacher 소유인지 확인 */
+export async function assertClassOwner(supabase: SupabaseServerClient, classId: string, teacherId: string) {
+  const { data } = await supabase.from('class').select('id').eq('id', classId).eq('teacher_id', teacherId).single()
+  return !!data
+}
+
+/** week가 해당 teacher 소유인지 확인 (week → class → teacher_id) */
+export async function assertWeekOwner(supabase: SupabaseServerClient, weekId: string, teacherId: string) {
+  const { data: week } = await supabase.from('week').select('class_id').eq('id', weekId).single()
+  if (!week) return false
+  const { data: cls } = await supabase.from('class').select('id').eq('id', week.class_id).eq('teacher_id', teacherId).single()
+  return !!cls
+}
