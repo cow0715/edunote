@@ -88,17 +88,23 @@ export async function POST(
     }
   }
 
-  // 문항번호 매칭하여 UPDATE
+  // 문항번호 매칭하여 UPDATE (빈 값은 skip하여 기존 데이터 보존)
   let updated = 0
   for (const ex of explanations) {
+    const updateData: Record<string, unknown> = {}
+    if (ex.intent?.trim()) updateData.explanation_intent = ex.intent
+    if (ex.translation?.trim()) updateData.explanation_translation = ex.translation
+    if (ex.solution?.trim()) updateData.explanation_solution = ex.solution
+    if (ex.vocabulary?.trim()) updateData.explanation_vocabulary = ex.vocabulary
+
+    if (Object.keys(updateData).length === 0) {
+      updated++
+      continue
+    }
+
     const { error } = await supabase
       .from('exam_bank_question')
-      .update({
-        explanation_intent: ex.intent,
-        explanation_translation: ex.translation,
-        explanation_solution: ex.solution || null,
-        explanation_vocabulary: ex.vocabulary || null,
-      })
+      .update(updateData)
       .eq('exam_bank_id', id)
       .eq('question_number', ex.question_number)
 
