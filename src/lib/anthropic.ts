@@ -779,6 +779,8 @@ export async function ocrExamAnswers(
 
 export type GeneratedExplanation = {
   question_number: number
+  intent: string        // 출제의도 (한 문장, ~한다. 형태)
+  translation: string   // 해석 (지문 전체 한국어 번역)
   solution: string      // 풀이 (정답 근거 + 오답 포인트)
   vocabulary: string    // Words & Phrases (고2~3 수준, 지문 등장 순서)
 }
@@ -808,14 +810,24 @@ export async function generateExplanations(
    - 단순 "정답은 ~이다" 수준이 아니라, 학생이 다음에 유사 문항을 맞힐 수 있도록 풀이 전략 중심으로 작성
    - 2~4문장 이내로 간결하게`
 
-  const prompt = `다음 수능/모의고사 영어 문항들의 풀이와 어휘를 생성하세요.
+  const prompt = `다음 수능/모의고사 영어 문항들의 해설을 생성하세요.
 
-각 문항에 대해 아래 두 가지를 작성하세요:
+각 문항에 대해 아래 네 가지를 작성하세요:
 
-1. solution (풀이)
+1. intent (출제의도)
+   - 이 문항이 측정하는 능력을 한 문장으로 서술
+   - 반드시 "~한다." 형태로 끝낼 것
+   - 예: "글의 목적을 추론한다."  "빈칸에 들어갈 내용을 추론한다."  "어법에 맞는 표현을 판단한다."
+
+2. translation (해석)
+   - 지문 전체를 자연스러운 한국어로 번역
+   - 원문 단락 구조(줄바꿈)를 그대로 유지
+   - 도표·실용문 등 번역이 불필요한 경우 ""
+
+3. solution (풀이)
    ${solutionGuide}
 
-2. vocabulary (Words & Phrases)
+4. vocabulary (Words & Phrases)
    - 지문에 등장하는 고2~고3 수준의 학습 중요 단어/숙어만 선별
    - 등장 순서대로 나열
    - 형식: "단어 뜻" (예: "eliminate 제거하다   gradual 점진적인   be prone to ~하기 쉽다")
@@ -834,10 +846,10 @@ ${questions.map((q) => `
 정답: ${q.answer}
 `).join('\n---\n')}
 
-중요: solution과 vocabulary 값 안에 큰따옴표(")를 절대 사용하지 마세요. 인용이 필요하면 작은따옴표(')나 한국어 따옴표(「」)를 사용하세요.
+중요: 모든 값 안에 큰따옴표(")를 절대 사용하지 마세요. 인용이 필요하면 작은따옴표(')나 한국어 따옴표(「」)를 사용하세요.
 
 JSON 배열만 출력 (다른 텍스트 없이):
-[{"question_number": 20, "solution": "...", "vocabulary": "word1 뜻1   word2 뜻2"}]`
+[{"question_number": 20, "intent": "빈칸에 들어갈 내용을 추론한다.", "translation": "...", "solution": "...", "vocabulary": "word1 뜻1   word2 뜻2"}]`
 
   const res = await anthropic.messages.create({
     model: 'claude-opus-4-7',
