@@ -2,11 +2,24 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import {
+  BookOpen,
+  FileSearch,
+  GraduationCap,
+  LibraryBig,
+  LogOut,
+  MessageSquare,
+  ScanText,
+  Settings,
+  Tag,
+  Terminal,
+  TrendingUp,
+  Users,
+} from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
-import { BookOpen, Users, LogOut, GraduationCap, Tag, MessageSquare, TrendingUp, Terminal, LibraryBig, ScanText, Settings } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { toast } from 'sonner'
 
 const navItems = [
   { href: '/dashboard', label: '수업 목록', icon: BookOpen },
@@ -16,6 +29,7 @@ const navItems = [
   { href: '/messages', label: '메시지 내역', icon: MessageSquare },
   { href: '/exam-bank', label: '기출문제 은행', icon: LibraryBig },
   { href: '/pdf-extract', label: 'PDF 텍스트 추출', icon: ScanText },
+  { href: '/text-compare', label: '시험 변형 분석', icon: FileSearch },
   { href: '/settings', label: '학원 정보 설정', icon: Settings },
 ]
 
@@ -30,13 +44,13 @@ export function Sidebar() {
   async function handleLogout() {
     const supabase = createClient()
     await supabase.auth.signOut()
-    toast.success('로그아웃되었습니다')
+    toast.success('로그아웃되었습니다.')
     router.push('/login')
     router.refresh()
   }
 
   return (
-    <aside className="hidden md:flex h-full w-56 flex-col border-r bg-card">
+    <aside className="hidden h-full w-56 flex-col border-r bg-card md:flex">
       <div className="flex items-center gap-2 border-b px-4 py-5">
         <GraduationCap className="h-6 w-6 text-primary" />
         <span className="font-semibold text-gray-900">학원 관리</span>
@@ -49,7 +63,7 @@ export function Sidebar() {
             href={href}
             className={cn(
               'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-              pathname === href || pathname.startsWith(href + '/')
+              pathname === href || pathname.startsWith(`${href}/`)
                 ? 'bg-primary/10 text-primary'
                 : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
             )}
@@ -60,14 +74,14 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="border-t p-3 space-y-1">
+      <div className="space-y-1 border-t p-3">
         {devItems.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}
             className={cn(
               'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-              pathname === href || pathname.startsWith(href + '/')
+              pathname === href || pathname.startsWith(`${href}/`)
                 ? 'bg-primary/10 text-primary'
                 : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'
             )}
@@ -76,6 +90,7 @@ export function Sidebar() {
             {label}
           </Link>
         ))}
+
         <Button
           variant="ghost"
           className="w-full justify-start gap-3 text-gray-600"
