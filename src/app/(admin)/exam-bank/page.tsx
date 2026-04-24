@@ -1758,7 +1758,7 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
           const canvas = document.createElement('canvas')
           canvas.width = viewport.width
           canvas.height = viewport.height
-          await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise
+          await page.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise
           blobs[i - 1] = await new Promise<Blob>(resolve => canvas.toBlob(b => resolve(b!), 'image/png'))
         }
 
