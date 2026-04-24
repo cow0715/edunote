@@ -81,8 +81,10 @@ export async function POST(
     const { error } = await serviceClient
       .from('exam_bank_question')
       .update({
-        explanation_solution: g.solution ?? null,
-        explanation_vocabulary: g.vocabulary,
+        explanation_intent: g.intent || null,
+        explanation_translation: g.translation || null,
+        explanation_solution: g.solution || null,
+        explanation_vocabulary: g.vocabulary || null,
       })
       .eq('exam_bank_id', id)
       .eq('question_number', g.question_number)
