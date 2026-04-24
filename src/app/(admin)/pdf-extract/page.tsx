@@ -115,10 +115,11 @@ export default function PdfExtractPage() {
       if (!uploadRes.ok) throw new Error('업로드 실패')
 
       setStatus('AI 추출 중... (1~3분 소요)')
+      const fileNames = isImage ? files.map((f) => f.name) : [files[0].name]
       const res = await fetch('/api/pdf-extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
+        body: JSON.stringify({ path, fileNames }),
       })
 
       if (!res.ok) {
