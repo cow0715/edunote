@@ -54,8 +54,9 @@ export async function POST(
     return err(`문항 조회 실패: ${fetchErr?.message}`)
   }
 
+  // 학평/평가원 공통: 20~24, 29~42번만 AI 생성 (나머지는 PDF 해설 사용)
   const targets: QuestionForExplanation[] = rows
-    .filter((r) => hakpyung ? r.question_number >= 18 : isPyungwonTarget(r.question_number))
+    .filter((r) => isPyungwonTarget(r.question_number))
     .map((r) => ({
       question_number: r.question_number,
       passage: r.passage ?? '',
