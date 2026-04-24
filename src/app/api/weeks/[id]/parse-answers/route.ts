@@ -192,6 +192,7 @@ async function parseAnswersWithMode(
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증이 필요합니다.', 401)
@@ -522,5 +523,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }),
   )
 
-  return ok({ ok: true, questions_parsed: questions.length, students_regraded: weekScores.length, parse_mode_used: usedMode })
+    return ok({ ok: true, questions_parsed: questions.length, students_regraded: weekScores.length, parse_mode_used: usedMode })
+  } catch (e) {
+    console.error('[parse-answers] unhandled error:', e)
+    const message = e instanceof Error ? e.message : '서버 처리 중 오류가 발생했습니다.'
+    return err(message, 500)
+  }
 }
