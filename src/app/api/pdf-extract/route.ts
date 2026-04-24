@@ -98,56 +98,87 @@ const EXTRACT_PROMPT = `너는 시험지 PDF에서 문제와 해설을 추출하
 
 "PDF를 사람이 복사한 것처럼 최대한 유사한 텍스트"`
 
+function isContentFilter(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e)
+  return msg.includes('Output blocked') || msg.includes('content filtering')
+}
+
+async function extractWithClaude(base64: string, maxTokens = 32000): Promise<string> {
+  const msg = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: maxTokens,
+    temperature: 0,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+        { type: 'text', text: EXTRACT_PROMPT },
+      ],
+    }],
+  })
+  return msg.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n').trim()
+}
+
 export async function POST(request: Request) {
   try {
     const { path } = await request.json()
-
-    if (!path || typeof path !== 'string') {
-      return err('path가 필요합니다')
-    }
+    if (!path || typeof path !== 'string') return err('path가 필요합니다')
 
     const supabase = createServiceClient()
-
-    // service role로 Storage에서 직접 다운로드 (강사 권한 불필요)
     const { data, error } = await supabase.storage.from('pdf-temp').download(path)
-    if (error || !data) {
-      return err(`PDF 다운로드 실패: ${error?.message}`)
-    }
+    if (error || !data) return err(`PDF 다운로드 실패: ${error?.message}`)
 
     const buffer = await data.arrayBuffer()
     const base64 = Buffer.from(buffer).toString('base64')
 
-    const stream = anthropic.messages.stream({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 32000,
-      temperature: 0,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'document',
-              source: { type: 'base64', media_type: 'application/pdf', data: base64 },
-            },
-            { type: 'text', text: EXTRACT_PROMPT },
-          ],
-        },
-      ],
-    })
+    // 1차: 전체 PDF 시도
+    try {
+      const text = await extractWithClaude(base64)
+      await supabase.storage.from('pdf-temp').remove([path]).catch(() => {})
+      return new Response(text, { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
+    } catch (e) {
+      if (!isContentFilter(e)) throw e
+      // 콘텐츠 필터 → 페이지별 재처리
+    }
 
-    const msg = await stream.finalMessage()
-    const text = msg.content
-      .map((c) => (c.type === 'text' ? c.text : ''))
-      .join('\n')
-      .trim()
+    // 2차: 페이지별 처리
+    const { PDFDocument } = await import('pdf-lib')
+    const srcDoc = await PDFDocument.load(buffer)
+    const pageCount = srcDoc.getPageCount()
 
-    // 임시 파일 삭제 (실패해도 무시)
+    type PageResult = { pageNum: number; text: string; filtered: boolean }
+
+    const pageResults: PageResult[] = await Promise.all(
+      Array.from({ length: pageCount }, async (_, i): Promise<PageResult> => {
+        const newDoc = await PDFDocument.create()
+        const [copiedPage] = await newDoc.copyPages(srcDoc, [i])
+        newDoc.addPage(copiedPage)
+        const bytes = await newDoc.save()
+        const pageBase64 = Buffer.from(bytes.buffer as ArrayBuffer).toString('base64')
+        try {
+          const text = await extractWithClaude(pageBase64, 8192)
+          return { pageNum: i + 1, text, filtered: false }
+        } catch (e) {
+          if (isContentFilter(e)) return { pageNum: i + 1, text: '', filtered: true }
+          throw e
+        }
+      })
+    )
+
     await supabase.storage.from('pdf-temp').remove([path]).catch(() => {})
 
-    return new Response(text, {
-      status: 200,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    })
+    const filteredPages = pageResults.filter((r) => r.filtered).map((r) => r.pageNum)
+    const combinedText = pageResults.filter((r) => !r.filtered).map((r) => r.text).join('\n\n')
+
+    if (filteredPages.length === pageCount) {
+      return err('모든 페이지가 콘텐츠 정책으로 차단되었습니다', 422)
+    }
+
+    const output = filteredPages.length > 0
+      ? `[콘텐츠 정책으로 제외된 페이지: ${filteredPages.map((p) => `${p}페이지`).join(', ')}]\n${'─'.repeat(50)}\n\n${combinedText}`
+      : combinedText
+
+    return new Response(output, { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return err(`추출 실패: ${msg}`, 500)
