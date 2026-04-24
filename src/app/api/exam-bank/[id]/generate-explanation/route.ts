@@ -55,7 +55,7 @@ export async function POST(
   }
 
   const targets: QuestionForExplanation[] = rows
-    .filter((r) => isPyungwonTarget(r.question_number))  // 학평/평가원 모두 20~24, 29~42
+    .filter((r) => hakpyung ? r.question_number >= 18 : isPyungwonTarget(r.question_number))
     .map((r) => ({
       question_number: r.question_number,
       passage: r.passage ?? '',

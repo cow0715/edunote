@@ -1741,11 +1741,52 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
       })
 
 
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || '업로드 실패')
+      let data = await res.json()
 
+      // 콘텐츠 필터 에러 → 페이지별 이미지 fallback
+      if (!res.ok && data.contentFilter) {
+        toast.info('일부 페이지 필터 감지, 페이지별 재처리 중...')
+
+        const pdfjsLib = await import('pdfjs-dist')
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
+        const arrayBuffer = await file.arrayBuffer()
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+        const blobs: Blob[] = new Array(pdf.numPages)
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i)
+          const viewport = page.getViewport({ scale: 2.0 })
+          const canvas = document.createElement('canvas')
+          canvas.width = viewport.width
+          canvas.height = viewport.height
+          await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise
+          blobs[i - 1] = await new Promise<Blob>(resolve => canvas.toBlob(b => resolve(b!), 'image/png'))
+        }
+
+        const ts = Date.now()
+        const safeFileName = file.name.replace(/[^\w.\-]/g, '_')
+        const storagePaths = await Promise.all(
+          blobs.map(async (blob, i) => {
+            const path = `${ts}_${safeFileName}_p${String(i + 1).padStart(2, '0')}.png`
+            const { error } = await supabase.storage.from('exam-pdf-temp').upload(path, blob, { contentType: 'image/png' })
+            if (error) throw new Error(`페이지 ${i + 1} 업로드 실패: ${error.message}`)
+            return path
+          })
+        )
+
+        const res2 = await fetch('/api/exam-bank', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...form, title: autoTitle, storagePaths, mimeType: 'image/png' }),
+        })
+        data = await res2.json()
+        if (!res2.ok) throw new Error(data.error || '재처리 실패')
+      } else if (!res.ok) {
+        throw new Error(data.error || '업로드 실패')
+      }
+
+      const skippedMsg = data.skipped_pages?.length ? ` · ${data.skipped_pages.length}개 페이지 건너뜀` : ''
       const statsMsg = data.stats_fetched > 0 ? ` · 메가스터디 통계 ${data.stats_fetched}문항` : ''
-      toast.success(`${data.question_count}개 문항 추출 완료${statsMsg}`)
+      toast.success(`${data.question_count}개 문항 추출 완료${statsMsg}${skippedMsg}`)
       queryClient.invalidateQueries({ queryKey: ['exam-bank'] })
       onOpenChange(false)
       setForm({ exam_year: new Date().getFullYear(), exam_month: 4, grade: 3, source: '모의고사', form_type: '홀수형' })
