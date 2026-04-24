@@ -80,9 +80,59 @@ async function extractPdfText(fileData: string): Promise<string> {
   return String(text || '')
 }
 
+function looksLikeProblemSheetPdf(rawText: string): boolean {
+  const answerMatches = rawText.match(/정답/g) ?? []
+  const explanationMatches = rawText.match(/해설|출제의도|\[정답\]/g) ?? []
+  return answerMatches.length >= 8 && explanationMatches.length <= 1
+}
+
+async function generateProblemSheetExplanations(
+  merged: Array<{
+    question: {
+      question_number: number
+      passage: string
+      question_text: string
+      choices: string[]
+    }
+    answer: {
+      question_style: ParsedAnswer['question_style']
+      correct_answer: number
+      correct_answer_text: string | null
+    }
+  }>,
+): Promise<Map<number, string>> {
+  const chunkSize = 8
+  const chunks: typeof merged[] = []
+  for (let i = 0; i < merged.length; i += chunkSize) {
+    chunks.push(merged.slice(i, i + chunkSize))
+  }
+
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      generateExplanations(
+        chunk.map(({ question, answer }) => ({
+          question_number: question.question_number,
+          passage: question.passage,
+          question_text: question.question_text,
+          choices: question.choices,
+          answer: buildExplanationAnswer(question, answer),
+        })),
+        'standard',
+      ),
+    ),
+  )
+
+  return new Map(
+    results
+      .flat()
+      .map((item) => [item.question_number, item.solution || item.translation || item.intent || '']),
+  )
+}
+
 async function parseProblemSheetAnswers(
   fileData: string,
   mimeType: string,
+  rawText?: string,
 ): Promise<ParsedAnswer[]> {
   if (mimeType !== 'application/pdf') {
     throw new Error('문제지형 파싱은 현재 PDF만 지원합니다.')
@@ -93,12 +143,12 @@ async function parseProblemSheetAnswers(
     throw new Error('문제지에서 문항을 찾지 못했습니다.')
   }
 
-  const rawText = await extractPdfText(fileData)
-  if (!rawText.trim()) {
+  const resolvedRawText = rawText ?? await extractPdfText(fileData)
+  if (!resolvedRawText.trim()) {
     throw new Error('문제지 PDF에서 텍스트를 추출하지 못했습니다.')
   }
 
-  const answerKey = await parseProblemSheetAnswerKey(rawText, questions)
+  const answerKey = await parseProblemSheetAnswerKey(resolvedRawText, questions)
   if (!answerKey.length) {
     throw new Error('문제지 PDF에서 정답 표기를 찾지 못했습니다.')
   }
@@ -114,19 +164,7 @@ async function parseProblemSheetAnswers(
 
   let explanations = new Map<number, string>()
   try {
-    const generated = await generateExplanations(
-      merged.map(({ question, answer }) => ({
-        question_number: question.question_number,
-        passage: question.passage,
-        question_text: question.question_text,
-        choices: question.choices,
-        answer: buildExplanationAnswer(question, answer),
-      })),
-      'full',
-    )
-    explanations = new Map(
-      generated.map((item) => [item.question_number, item.solution || item.translation || item.intent || '']),
-    )
+    explanations = await generateProblemSheetExplanations(merged)
   } catch (e) {
     console.error('[parse-answers] problem_sheet explanation generation failed:', e)
   }
@@ -165,6 +203,22 @@ async function parseAnswersWithMode(
   }
 
   console.log('[parse-answers] requested mode: auto')
+  if (mimeType === 'application/pdf') {
+    try {
+      const rawText = await extractPdfText(fileData)
+      if (looksLikeProblemSheetPdf(rawText)) {
+        console.log('[parse-answers] auto detected problem_sheet from raw text')
+        const parsedAnswers = await parseProblemSheetAnswers(fileData, mimeType, rawText)
+        if (parsedAnswers.length > 0) {
+          console.log('[parse-answers] used mode: problem_sheet')
+          return { parsedAnswers, usedMode: 'problem_sheet' }
+        }
+      }
+    } catch (e) {
+      console.error('[parse-answers] auto detection failure:', e)
+    }
+  }
+
   try {
     const parsedAnswers = await parseAnswerSheet(fileData, mimeType, tagCategories)
     if (parsedAnswers.length > 0) {
