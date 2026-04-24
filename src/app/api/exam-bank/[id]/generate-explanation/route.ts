@@ -78,14 +78,14 @@ export async function POST(
 
   let updated = 0
   for (const g of generated) {
+    // 학평: PDF에서 이미 가져온 출제의도/해석은 덮어쓰지 않음
+    const updateFields = hakpyung
+      ? { explanation_solution: g.solution || null, explanation_vocabulary: g.vocabulary || null }
+      : { explanation_intent: g.intent || null, explanation_translation: g.translation || null, explanation_solution: g.solution || null, explanation_vocabulary: g.vocabulary || null }
+
     const { error } = await serviceClient
       .from('exam_bank_question')
-      .update({
-        explanation_intent: g.intent || null,
-        explanation_translation: g.translation || null,
-        explanation_solution: g.solution || null,
-        explanation_vocabulary: g.vocabulary || null,
-      })
+      .update(updateFields)
       .eq('exam_bank_id', id)
       .eq('question_number', g.question_number)
 
