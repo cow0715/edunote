@@ -3,6 +3,7 @@
 import { useRef, useState, useEffect } from 'react'
 import { Upload, CheckCircle2, AlertTriangle, FileText, FileCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useUploadStore, AnswerSheetStatus } from '@/store/upload-store'
@@ -42,6 +43,8 @@ interface Props {
   savedFilePath?: string | null
 }
 
+type ParseMode = 'auto' | 'answer_sheet' | 'problem_sheet'
+
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -54,6 +57,7 @@ function readFileAsBase64(file: File): Promise<string> {
 export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
+  const [parseMode, setParseMode] = useState<ParseMode>('auto')
   const [elapsed, setElapsed] = useState(0)
   const qc = useQueryClient()
 
@@ -62,7 +66,6 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
 
   useEffect(() => {
     if (status.type !== 'loading') return
-    setElapsed(0)
     const timer = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => clearInterval(timer)
   }, [status.type])
@@ -76,6 +79,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
 
   async function handleUpload() {
     if (!file) return
+    setElapsed(0)
 
     setStatus(weekId, { type: 'loading', step: 'Claude가 해설지를 읽는 중...' })
 
@@ -86,7 +90,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
       const res = await fetch(`/api/weeks/${weekId}/parse-answers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileData: base64, mimeType: file.type, fileName: file.name }),
+        body: JSON.stringify({ fileData: base64, mimeType: file.type, fileName: file.name, parseMode }),
       })
 
       const data = await res.json()
@@ -119,6 +123,23 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
         PDF 또는 이미지 형식의 답안해설지를 업로드하면 Claude가 정답을 추출합니다.
         재업로드 시 기존 학생 답안은 유지되고 정답만 업데이트됩니다.
       </p>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-gray-500">파일 형식</p>
+        <Select value={parseMode} onValueChange={(value) => setParseMode(value as ParseMode)}>
+          <SelectTrigger className="h-9 text-sm">
+            <SelectValue placeholder="형식 선택" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="auto">자동 판별</SelectItem>
+            <SelectItem value="answer_sheet">해설 포함</SelectItem>
+            <SelectItem value="problem_sheet">문제지만 있음</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-[11px] text-gray-400">
+          자동 판별을 기본으로 사용하고, 애매한 PDF면 형식을 직접 지정해 다시 시도할 수 있습니다.
+        </p>
+      </div>
 
       {savedFilePath && status.type !== 'done' && (
         <div
@@ -188,7 +209,12 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
             size="sm"
             variant="outline"
             className="mt-2 w-full"
-            onClick={() => { setFile(null); setStatus(weekId, { type: 'idle' }); if (inputRef.current) inputRef.current.value = '' }}
+            onClick={() => {
+              setFile(null)
+              setParseMode('auto')
+              setStatus(weekId, { type: 'idle' })
+              if (inputRef.current) inputRef.current.value = ''
+            }}
           >
             다른 파일 업로드
           </Button>

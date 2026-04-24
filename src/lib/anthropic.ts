@@ -709,6 +709,135 @@ export type ExamBankParsedQuestion = {
   answer: string
 }
 
+export type WeekProblemSheetQuestion = {
+  question_number: number
+  question_type: string | null
+  question_style: 'objective' | 'subjective' | 'ox' | 'multi_select'
+  passage: string
+  question_text: string
+  choices: string[]
+}
+
+export type ProblemSheetAnswerKeyItem = {
+  question_number: number
+  question_style: 'objective' | 'subjective' | 'ox' | 'multi_select'
+  correct_answer: number
+  correct_answer_text: string | null
+}
+
+const WEEK_PROBLEM_SHEET_PARSE_RULES = `이 PDF는 주차별 설정에 업로드하는 영어 문제지 또는 시험지입니다.
+문항 구조만 추출하세요. 정답은 추출하지 마세요.
+
+출력 필드:
+- question_number: 문항 번호
+- question_type: 해설이 없어 확실하지 않으면 null
+- question_style: objective | subjective | ox | multi_select
+- passage: 지문이 있으면 전체, 없으면 ""
+- question_text: 발문 + 보기문장 + 서답형 지시문까지 포함
+- choices: 객관식 보기 배열, 없으면 []
+
+판단 규칙:
+- 1개 정답 객관식은 objective
+- O/X 판단은 ox
+- 여러 개를 모두 고르는 형식은 multi_select
+- 서답형, 영작형, 빈칸 완성형 텍스트 답안은 subjective
+
+중요:
+- 정답은 생성하지 마세요
+- 문항을 건너뛰지 마세요
+- JSON 배열만 출력하세요`
+
+function buildWeekProblemSheetAnswerPrompt(
+  rawText: string,
+  questions: WeekProblemSheetQuestion[],
+): string {
+  return `다음은 영어 문제지 PDF에서 추출한 원문 텍스트입니다.
+이 텍스트 안의 '정답' 표기를 읽어서 각 문항의 정답만 구조화하세요.
+
+원문 텍스트:
+${rawText}
+
+문항 목록:
+${questions.map((q) => `- ${q.question_number}번 (${q.question_style})${q.choices.length ? ` 보기 ${q.choices.length}개` : ''}`).join('\n')}
+
+출력 필드:
+- question_number: 문항 번호
+- question_style: objective | subjective | ox | multi_select
+- correct_answer: objective면 1~5, 아니면 0
+- correct_answer_text:
+  * objective면 null
+  * ox면 "O" 또는 "X (...)"
+  * multi_select면 "1,3" 같은 형식
+  * subjective면 정답 텍스트
+
+중요 규칙:
+- 위 문항 목록에 있는 번호만 출력하세요
+- 정답이 불명확한 문항은 제외하세요
+- objective는 correct_answer에 숫자를 넣고 correct_answer_text는 null로 두세요
+- subjective는 correct_answer를 0으로 두고 correct_answer_text에 정답 텍스트를 넣으세요
+- JSON 배열만 출력하세요`
+}
+
+export async function parseWeekProblemSheetPage(
+  fileData: string,
+  mimeType: string,
+): Promise<WeekProblemSheetQuestion[]> {
+  const isImage = mimeType.startsWith('image/')
+  const isPdf = mimeType === 'application/pdf'
+  if (!isImage && !isPdf) throw new Error('지원하지 않는 파일 형식입니다. PDF 또는 이미지만 업로드해주세요.')
+
+  const fileContent = isImage
+    ? { type: 'image' as const, source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: fileData } }
+    : { type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: fileData } }
+
+  const res = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 16384,
+    messages: [{
+      role: 'user',
+      content: [fileContent, { type: 'text', text: WEEK_PROBLEM_SHEET_PARSE_RULES }],
+    }],
+  })
+
+  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  console.log('[parseWeekProblemSheetPage] raw response length:', raw.length)
+
+  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
+  try {
+    const parsed = JSON.parse(jsonrepair(cleaned)) as WeekProblemSheetQuestion[]
+    console.log('[parseWeekProblemSheetPage] parsed count:', parsed.length, '| questions:', parsed.map((p) => p.question_number).join(', '))
+    return parsed
+  } catch (e) {
+    console.error('[parseWeekProblemSheetPage] JSON parse 실패:', e)
+    throw e
+  }
+}
+
+export async function parseProblemSheetAnswerKey(
+  rawText: string,
+  questions: WeekProblemSheetQuestion[],
+): Promise<ProblemSheetAnswerKeyItem[]> {
+  const prompt = buildWeekProblemSheetAnswerPrompt(rawText, questions)
+  const res = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 8192,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  console.log('[parseProblemSheetAnswerKey] raw response length:', raw.length)
+
+  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
+  try {
+    const parsed = JSON.parse(jsonrepair(cleaned)) as ProblemSheetAnswerKeyItem[]
+    console.log('[parseProblemSheetAnswerKey] parsed count:', parsed.length, '| questions:', parsed.map((p) => p.question_number).join(', '))
+    return parsed
+  } catch (e) {
+    console.error('[parseProblemSheetAnswerKey] JSON parse 실패:', e)
+    throw e
+  }
+}
+
 export async function parseExamBankPage(
   fileData: string,
   mimeType: string,
