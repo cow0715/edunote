@@ -122,7 +122,7 @@ async function extractWithClaude(base64: string, maxTokens = 32000): Promise<str
 
 export async function POST(request: Request) {
   try {
-    const { path } = await request.json()
+    const { path, fileNames } = await request.json()
     if (!path || typeof path !== 'string') return err('path가 필요합니다')
 
     const supabase = createServiceClient()
@@ -175,8 +175,10 @@ export async function POST(request: Request) {
       return err('모든 페이지가 콘텐츠 정책으로 차단되었습니다', 422)
     }
 
+    const names: string[] = Array.isArray(fileNames) ? fileNames : []
+    const filteredLabels = filteredPages.map((p) => names[p - 1] ?? `${p}페이지`)
     const output = filteredPages.length > 0
-      ? `[콘텐츠 정책으로 제외된 페이지: ${filteredPages.map((p) => `${p}페이지`).join(', ')}]\n${'─'.repeat(50)}\n\n${combinedText}`
+      ? `[콘텐츠 정책으로 제외된 파일: ${filteredLabels.join(', ')}]\n${'─'.repeat(50)}\n\n${combinedText}`
       : combinedText
 
     return new Response(output, { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
