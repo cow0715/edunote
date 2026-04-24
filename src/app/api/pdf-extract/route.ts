@@ -104,7 +104,7 @@ function isContentFilter(e: unknown): boolean {
 }
 
 async function extractWithClaude(base64: string, maxTokens = 32000): Promise<string> {
-  const msg = await anthropic.messages.create({
+  const stream = anthropic.messages.stream({
     model: 'claude-sonnet-4-6',
     max_tokens: maxTokens,
     temperature: 0,
@@ -116,6 +116,7 @@ async function extractWithClaude(base64: string, maxTokens = 32000): Promise<str
       ],
     }],
   })
+  const msg = await stream.finalMessage()
   return msg.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n').trim()
 }
 
