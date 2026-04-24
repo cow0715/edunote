@@ -16,6 +16,8 @@ const ANSWER_STEPS = [
   { label: '거의 다 됐습니다...', sub: '학생 답안과 대조해 재채점 중입니다' },
 ]
 
+type ParseMode = 'auto' | 'answer_sheet' | 'problem_sheet'
+
 function AnswerParseProgress({ elapsed }: { elapsed: number }) {
   const idx = elapsed < 10 ? 0 : elapsed < 30 ? 1 : 2
   const current = ANSWER_STEPS[idx]
@@ -43,8 +45,6 @@ interface Props {
   savedFilePath?: string | null
 }
 
-type ParseMode = 'auto' | 'answer_sheet' | 'problem_sheet'
-
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -52,6 +52,14 @@ function readFileAsBase64(file: File): Promise<string> {
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
+}
+
+function parseJsonSafely(raw: string): Record<string, unknown> {
+  try {
+    return raw ? JSON.parse(raw) as Record<string, unknown> : {}
+  } catch {
+    return { error: raw || '서버가 JSON이 아닌 응답을 반환했습니다.' }
+  }
 }
 
 export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
@@ -71,16 +79,16 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
   }, [status.type])
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0]
-    if (!f) return
-    setFile(f)
+    const nextFile = e.target.files?.[0]
+    if (!nextFile) return
+    setFile(nextFile)
     setStatus(weekId, { type: 'idle' })
   }
 
   async function handleUpload() {
     if (!file) return
-    setElapsed(0)
 
+    setElapsed(0)
     setStatus(weekId, { type: 'loading', step: 'Claude가 해설지를 읽는 중...' })
 
     try {
@@ -93,25 +101,29 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
         body: JSON.stringify({ fileData: base64, mimeType: file.type, fileName: file.name, parseMode }),
       })
 
-      const data = await res.json()
+      const raw = await res.text()
+      const data = parseJsonSafely(raw)
 
       if (!res.ok) {
-        setStatus(weekId, { type: 'error', message: data.error ?? '처리 실패' })
+        setStatus(weekId, { type: 'error', message: String(data.error ?? '처리 실패') })
         return
       }
 
+      const questionsParsed = Number(data.questions_parsed ?? 0)
+      const studentsRegraded = Number(data.students_regraded ?? 0)
+
       setStatus(weekId, {
         type: 'done',
-        questions_parsed: data.questions_parsed,
-        students_regraded: data.students_regraded,
-        subjective_grading_failed: data.subjective_grading_failed,
+        questions_parsed: questionsParsed,
+        students_regraded: studentsRegraded,
+        subjective_grading_failed: Boolean(data.subjective_grading_failed),
       })
 
       qc.invalidateQueries({ queryKey: ['exam-questions', weekId] })
       qc.invalidateQueries({ queryKey: ['grade', weekId] })
       qc.invalidateQueries({ queryKey: ['week', weekId] })
 
-      toast.success(`${data.questions_parsed}문항 파싱 완료${data.students_regraded > 0 ? `, ${data.students_regraded}명 재채점` : ''}`)
+      toast.success(`${questionsParsed}문항 파싱 완료${studentsRegraded > 0 ? `, ${studentsRegraded}명 재채점` : ''}`)
     } catch (e) {
       setStatus(weekId, { type: 'error', message: e instanceof Error ? e.message : '오류 발생' })
     }
@@ -146,7 +158,10 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
           className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
           onClick={async () => {
             const res = await fetch(`/api/answer-sheet-url?path=${encodeURIComponent(savedFilePath)}`)
-            if (!res.ok) { toast.error('다운로드 링크 생성 실패'); return }
+            if (!res.ok) {
+              toast.error('다운로드 링크 생성 실패')
+              return
+            }
             const { url } = await res.json()
             window.open(url, '_blank')
           }}
