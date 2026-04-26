@@ -14,6 +14,14 @@ import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useUploadStore, type AnswerSheetStatus } from '@/store/upload-store'
 
@@ -32,6 +40,8 @@ type LocalStatus =
   | { type: 'loading'; message: string }
   | { type: 'done'; message: string; questionsParsed?: number; studentsRegraded?: number; generatedCount?: number; subjectiveGradingFailed?: boolean }
   | { type: 'error'; message: string }
+
+type PendingUploadAction = 'standard' | 'problem' | null
 
 interface Props {
   weekId: string
@@ -180,6 +190,9 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
   const [problemStatus, setProblemStatus] = useState<LocalStatus>({ type: 'idle' })
   const [explanationStatus, setExplanationStatus] = useState<LocalStatus>({ type: 'idle' })
   const [canGenerateExplanations, setCanGenerateExplanations] = useState(readingTotal > 0)
+  const [warningOpen, setWarningOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<PendingUploadAction>(null)
+  const [warningCount, setWarningCount] = useState(0)
   const qc = useQueryClient()
 
   const status = useUploadStore((state) => state.answerSheet[weekId]) ?? IDLE_STATUS
@@ -190,10 +203,11 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
   }, [readingTotal])
 
   useEffect(() => {
-    if (status.type !== 'loading') return
+    const isLoading = status.type === 'loading' || problemStatus.type === 'loading'
+    if (!isLoading) return
     const timer = setInterval(() => setElapsed((value) => value + 1), 1000)
     return () => clearInterval(timer)
-  }, [status.type])
+  }, [problemStatus.type, status.type])
 
   function resetQueries() {
     qc.invalidateQueries({ queryKey: ['exam-questions', weekId] })
@@ -215,7 +229,37 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     setProblemStatus({ type: 'idle' })
   }
 
+  async function hasExistingStudentAnswers() {
+    const response = await fetch(`/api/weeks/${weekId}/answer-sheet-impact`, { cache: 'no-store' })
+    const raw = await response.text()
+    const data = parseJsonSafely(raw)
+
+    if (!response.ok) {
+      throw new Error(String(data.error ?? '학생 답안 상태를 확인하지 못했습니다.'))
+    }
+
+    return {
+      hasStudentAnswers: Boolean(data.has_student_answers),
+      answerCount: Number(data.answer_count ?? 0),
+    }
+  }
+
+  async function guardBeforeUpload(action: Exclude<PendingUploadAction, null>) {
+    const { hasStudentAnswers, answerCount } = await hasExistingStudentAnswers()
+    if (!hasStudentAnswers) return true
+
+    setWarningCount(answerCount)
+    setPendingAction(action)
+    setWarningOpen(true)
+    return false
+  }
+
   async function handleStandardUpload() {
+    if (!await guardBeforeUpload('standard')) return
+    await handleStandardUploadConfirmed()
+  }
+
+  async function handleStandardUploadConfirmed() {
     if (!answerFile) return
 
     setElapsed(0)
@@ -261,8 +305,14 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
   }
 
   async function handleProblemImport() {
+    if (!await guardBeforeUpload('problem')) return
+    await handleProblemImportConfirmed()
+  }
+
+  async function handleProblemImportConfirmed() {
     if (!problemFile) return
 
+    setElapsed(0)
     setProblemStatus({ type: 'loading', message: '문제지 PDF에서 문항과 정답을 구조화하고 있습니다.' })
 
     try {
@@ -345,8 +395,24 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     window.open(url, '_blank')
   }
 
+  async function continueWarningAction() {
+    setWarningOpen(false)
+    const action = pendingAction
+    setPendingAction(null)
+
+    if (action === 'standard') {
+      await handleStandardUploadConfirmed()
+      return
+    }
+
+    if (action === 'problem') {
+      await handleProblemImportConfirmed()
+    }
+  }
+
   return (
-    <div className="space-y-4">
+    <>
+      <div className="space-y-4">
       <p className="text-sm leading-6 text-slate-500 dark:text-slate-400">
         일반 주차 해설지는 기존 업로드로 처리하고, 중간·기말처럼 문제지와 정답이 섞인 PDF는 아래 전용 가져오기를 사용하세요.
         특수 PDF는 먼저 문항과 정답만 저장한 뒤, 필요하면 AI 해설을 나중에 붙이는 구조입니다.
@@ -451,13 +517,17 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
             <p>4. 문제 본문 중간에 정답이나 해설을 끼워 넣는 형식은 피하는 것이 좋습니다.</p>
           </div>
 
-          <FileDropzone
-            file={problemFile}
-            inputRef={problemInputRef}
-            onChange={handleProblemFile}
-            accept="application/pdf"
-            idleLabel="클릭해서 중간·기말 PDF를 선택하세요. 문제는 위, 답안은 아래에 모인 형식이 가장 좋습니다."
-          />
+          {problemStatus.type === 'loading' ? (
+            <AnswerParseProgress elapsed={elapsed} />
+          ) : (
+            <FileDropzone
+              file={problemFile}
+              inputRef={problemInputRef}
+              onChange={handleProblemFile}
+              accept="application/pdf"
+              idleLabel="클릭해서 중간·기말 PDF를 선택하세요. 문제는 위, 답안은 아래에 모인 형식이 가장 좋습니다."
+            />
+          )}
 
           <StatusBanner status={problemStatus} />
 
@@ -492,6 +562,38 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
           )}
         </CardContent>
       </Card>
-    </div>
+      </div>
+      <Dialog
+        open={warningOpen}
+        onOpenChange={(open) => {
+          setWarningOpen(open)
+          if (!open) setPendingAction(null)
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>학생 답안이 있는 상태입니다</DialogTitle>
+            <DialogDescription>
+              이미 입력된 학생 답안이 {warningCount}개 있습니다. 재업로드하면 문항과 정답이 새 파일 기준으로 바뀌고,
+              사라진 문항의 학생 답안은 함께 삭제될 수 있습니다. 계속 진행할까요?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setWarningOpen(false)
+                setPendingAction(null)
+              }}
+            >
+              취소
+            </Button>
+            <Button className="bg-red-500 text-white hover:bg-red-600" onClick={continueWarningAction}>
+              그래도 재업로드
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
