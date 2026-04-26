@@ -8,10 +8,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id: weekId } = await params
   if (!user) return err('인증이 필요합니다.', 401)
 
-  const body = await request.json()
-  const files = Array.isArray(body.files) ? body.files : []
-  const normalizedFiles = files.filter((file): file is ExamOcrBatchInput => (
+  const body = await request.json() as { files?: unknown }
+  const files: unknown[] = Array.isArray(body.files) ? body.files : []
+  const normalizedFiles = files.filter((file: unknown): file is ExamOcrBatchInput => (
     !!file &&
+    typeof file === 'object' &&
+    'fileData' in file &&
+    'mimeType' in file &&
     typeof file.fileData === 'string' &&
     typeof file.mimeType === 'string'
   ))
