@@ -6,6 +6,7 @@ import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { ScoreToggleField } from './score-toggle-field'
 import { GroupedQuestionRow, QuestionRow } from './question-inputs'
+import { ExamBatchUploadButton } from './exam-batch-upload-button'
 import { ExamPhotoButton, ExamOcrResult } from './exam-photo-button'
 
 export function ExamSheetContent({ weekId, row, questions, readingTotal, updateRow, updateAnswer, updateAnswerText }: {
@@ -40,6 +41,11 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, updateR
       {questions.length > 0 && (
         <div className="flex items-center gap-1 px-4 py-2 border-b bg-gray-50/30">
           <span className="text-xs text-gray-400 mr-1">답안 OCR</span>
+          <ExamBatchUploadButton
+            weekId={weekId}
+            disabled={!row.present}
+            onResult={applyOcrResults}
+          />
           <ExamPhotoButton
             weekId={weekId}
             side="front"

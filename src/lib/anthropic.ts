@@ -21,6 +21,12 @@ export type ExamOcrResult = {
   student_answer_text?: string
 }
 
+export type ExamOcrBatchInput = {
+  fileData: string
+  mimeType: string
+  fileName?: string
+}
+
 export const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
@@ -725,8 +731,9 @@ export type ProblemSheetAnswerKeyItem = {
   correct_answer_text: string | null
 }
 
-const WEEK_PROBLEM_SHEET_PARSE_RULES = `이 PDF는 주차별 설정에 업로드하는 영어 문제지 또는 시험지입니다.
-문항 구조만 추출하세요. 정답은 추출하지 마세요.
+const WEEK_PROBLEM_SHEET_PARSE_RULES = `이 PDF는 주차별 설정의 '중간·기말 전용 가져오기'에 업로드하는 영어 시험지입니다.
+이 형식은 보통 상단에 문제, 하단에 정답표가 따로 모여 있습니다.
+지금 단계에서는 문제 영역만 읽어서 문항 구조만 추출하세요. 하단 정답표는 무시하세요.
 
 출력 필드:
 - question_number: 문항 번호
@@ -743,6 +750,8 @@ const WEEK_PROBLEM_SHEET_PARSE_RULES = `이 PDF는 주차별 설정에 업로드
 - 서답형, 영작형, 빈칸 완성형 텍스트 답안은 subjective
 
 중요:
+- 문항은 파일에 보이는 순서대로 배열에 담으세요
+- 하단 정답표나 해설표는 문항으로 오인하지 마세요
 - 정답은 생성하지 마세요
 - 문항을 건너뛰지 마세요
 - JSON 배열만 출력하세요`
@@ -751,8 +760,9 @@ function buildWeekProblemSheetAnswerPrompt(
   rawText: string,
   questions: WeekProblemSheetQuestion[],
 ): string {
-  return `다음은 영어 문제지 PDF에서 추출한 원문 텍스트입니다.
-이 텍스트 안의 '정답' 표기를 읽어서 각 문항의 정답만 구조화하세요.
+  return `다음은 영어 시험지 PDF에서 추출한 원문 텍스트입니다.
+이 문서는 상단에 문제, 하단에 정답표가 따로 있는 형식입니다.
+하단 정답표 영역만 읽어서 각 문항의 정답만 구조화하세요.
 
 원문 텍스트:
 ${rawText}
@@ -771,6 +781,7 @@ ${questions.map((q) => `- ${q.question_number}번 (${q.question_style})${q.choic
   * subjective면 정답 텍스트
 
 중요 규칙:
+- 상단 문제 본문에 나온 숫자나 선지는 무시하고, 하단 정답표에 적힌 정답만 사용하세요
 - 위 문항 목록에 있는 번호만 출력하세요
 - 정답이 불명확한 문항은 제외하세요
 - objective는 correct_answer에 숫자를 넣고 correct_answer_text는 null로 두세요
@@ -883,7 +894,27 @@ export async function ocrExamAnswers(
   mimeType: string,
   questions: ExamOcrQuestion[],
 ): Promise<ExamOcrResult[]> {
-  const fileContent = { type: 'image' as const, source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: fileData } }
+  const isImage = mimeType.startsWith('image/')
+  const isPdf = mimeType === 'application/pdf'
+  if (!isImage && !isPdf) throw new Error('지원하지 않는 파일 형식입니다. PDF 또는 이미지만 업로드해주세요.')
+
+  const fileContent = isImage
+    ? {
+        type: 'image' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+          data: fileData,
+        },
+      }
+    : {
+        type: 'document' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: 'application/pdf' as const,
+          data: fileData,
+        },
+      }
 
   console.log('[ocrExamAnswers] Claude Vision OCR 사용')
   const prompt = buildExamOcrVisionPrompt(questions)
@@ -899,6 +930,79 @@ export async function ocrExamAnswers(
   } catch (e) {
     console.error('[ocrExamAnswers] JSON parse 실패:', e)
     throw e
+  }
+}
+
+async function splitPdfToSinglePageBase64(fileData: string): Promise<string[]> {
+  const { PDFDocument } = await import('pdf-lib')
+  const srcDoc = await PDFDocument.load(Buffer.from(fileData, 'base64'))
+  const pageDocs: string[] = []
+
+  for (let i = 0; i < srcDoc.getPageCount(); i += 1) {
+    const pageDoc = await PDFDocument.create()
+    const [copiedPage] = await pageDoc.copyPages(srcDoc, [i])
+    pageDoc.addPage(copiedPage)
+    const pageBytes = await pageDoc.save()
+    pageDocs.push(Buffer.from(pageBytes).toString('base64'))
+  }
+
+  return pageDocs
+}
+
+function getExamOcrResultKey(result: ExamOcrResult): string {
+  return `${result.question_number}|${result.sub_label ?? ''}`
+}
+
+function scoreExamOcrResult(result: ExamOcrResult): number {
+  if (typeof result.student_answer === 'number') return 100
+  const text = result.student_answer_text?.trim() ?? ''
+  if (!text) return 0
+  return Math.min(text.length, 80)
+}
+
+function mergeExamOcrResults(results: ExamOcrResult[][]): ExamOcrResult[] {
+  const merged = new Map<string, ExamOcrResult>()
+
+  for (const pageResults of results) {
+    for (const result of pageResults) {
+      const key = getExamOcrResultKey(result)
+      const current = merged.get(key)
+      if (!current || scoreExamOcrResult(result) > scoreExamOcrResult(current)) {
+        merged.set(key, result)
+      }
+    }
+  }
+
+  return [...merged.values()].sort((a, b) => {
+    if (a.question_number !== b.question_number) return a.question_number - b.question_number
+    return (a.sub_label ?? '').localeCompare(b.sub_label ?? '')
+  })
+}
+
+export async function ocrExamAnswerBatch(
+  files: ExamOcrBatchInput[],
+  questions: ExamOcrQuestion[],
+): Promise<{ results: ExamOcrResult[]; pagesProcessed: number }> {
+  const pageResults: ExamOcrResult[][] = []
+  let pagesProcessed = 0
+
+  for (const file of files) {
+    if (file.mimeType === 'application/pdf') {
+      const pages = await splitPdfToSinglePageBase64(file.fileData)
+      for (const page of pages) {
+        pageResults.push(await ocrExamAnswers(page, 'application/pdf', questions))
+        pagesProcessed += 1
+      }
+      continue
+    }
+
+    pageResults.push(await ocrExamAnswers(file.fileData, file.mimeType, questions))
+    pagesProcessed += 1
+  }
+
+  return {
+    results: mergeExamOcrResults(pageResults),
+    pagesProcessed,
   }
 }
 
