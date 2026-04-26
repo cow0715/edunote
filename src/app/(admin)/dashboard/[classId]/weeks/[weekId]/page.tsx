@@ -14,7 +14,6 @@ import { GradeGrid } from '@/components/grade/grade-grid'
 import { SmsSheet } from '@/components/grade/sms-sheet'
 import { AttendanceManager } from '@/components/attendance/attendance-manager'
 import { AnswerSheetUploader } from '@/components/grade/answer-sheet-uploader'
-import { ExplanationEditor } from '@/components/grade/explanation-editor'
 import { QuestionTypeEditor } from '@/components/grade/question-type-editor'
 import { VocabWordSetup } from '@/components/grade/vocab-word-setup'
 import { useWeek, useUpdateWeek } from '@/hooks/use-weeks'
@@ -156,7 +155,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
               <TabsTrigger value="basic" className="flex-1">기본 정보</TabsTrigger>
               <TabsTrigger value="answer-sheet" className="flex-1">해설지</TabsTrigger>
               <TabsTrigger value="vocab-words" className="flex-1">단어 세팅</TabsTrigger>
-              <TabsTrigger value="question-types" className="flex-1">문항 유형</TabsTrigger>
+              <TabsTrigger value="question-types" className="flex-1">문항/정답 편집</TabsTrigger>
               <TabsTrigger value="attendance" className="flex-1">출결</TabsTrigger>
             </TabsList>
 
@@ -226,7 +225,6 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
                   답안지 표 다운로드 (한글로 열기)
                 </button>
               </div>
-              <ExplanationEditor weekId={weekId} />
             </TabsContent>
 
             <TabsContent value="vocab-words" forceMount className="data-[state=inactive]:hidden pt-4">

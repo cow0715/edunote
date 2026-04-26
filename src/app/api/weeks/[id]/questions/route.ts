@@ -116,6 +116,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     question_style?: string
     correct_answer?: number | null
     extra_correct_answers?: number[]
+    question_text?: string | null
     explanation?: string | null
     correct_answer_text_override?: string | null
     grading_criteria?: string | null
@@ -128,7 +129,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   // 비객관식 재채점 대기열 — 메인 루프 종료 후 일괄 처리 (모든 DB 쓰기 반영 이후)
   const pendingRegrade = new Set<string>()
 
-  for (const { id, concept_tag_ids, question_style, correct_answer, extra_correct_answers, explanation, correct_answer_text_override, grading_criteria, is_void, all_correct } of updates) {
+  for (const { id, concept_tag_ids, question_style, correct_answer, extra_correct_answers, question_text, explanation, correct_answer_text_override, grading_criteria, is_void, all_correct } of updates) {
     // 소유 확인
     const { data: q } = await supabase
       .from('exam_question')
@@ -221,6 +222,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     // 해설·모범답안·채점기준 업데이트
     {
       const textUpdate: Record<string, unknown> = {}
+      if (question_text !== undefined) textUpdate.question_text = question_text
       if (explanation !== undefined) textUpdate.explanation = explanation
       const effectiveStyle2 = question_style ?? q.question_style
       if (correct_answer_text_override !== undefined) {
