@@ -320,14 +320,25 @@ export function QuestionTypeEditor({ weekId }: Props) {
               </div>
 
               {expanded ? (
-                <div className="space-y-4 border-t border-slate-100 px-4 py-4 dark:border-white/5">
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-                    <div className="space-y-4">
+                <div className="space-y-4 border-t border-slate-100 bg-slate-50/40 px-4 py-4 dark:border-white/5 dark:bg-slate-950/20">
+                  <div className="rounded-[20px] bg-blue-50/80 px-4 py-3 text-xs leading-5 text-blue-800 dark:bg-blue-500/10 dark:text-blue-200">
+                    <b className="font-semibold">사용법</b> 왼쪽에서 문제 원문과 해설을 확인하고, 오른쪽에서 유형·정답·태그만 빠르게 수정하세요.
+                    객관식은 번호를 누르면 정답이 바뀌고, 서답형은 모범답안과 채점 기준을 함께 적어두면 AI 채점에 사용됩니다.
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+                    <div className="space-y-4 rounded-[22px] bg-white p-4 shadow-[0_10px_30px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/80">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">문제와 해설</p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          시험지에서 읽힌 전체 문제를 그대로 확인하고, 필요하면 문장이나 보기를 직접 고칠 수 있습니다.
+                        </p>
+                      </div>
                       <div className="space-y-1.5">
                         <label className="text-xs font-medium text-slate-500 dark:text-slate-400">문제 전문</label>
                         <Textarea
-                          rows={8}
-                          className="resize-y text-sm"
+                          rows={12}
+                          className="resize-y rounded-[18px] border-0 bg-slate-50/90 text-sm leading-6 shadow-inner dark:bg-slate-950/40"
                           value={editRow.question_text}
                           onChange={(event) => setField(q.id, 'question_text', event.target.value)}
                         />
@@ -337,15 +348,22 @@ export function QuestionTypeEditor({ weekId }: Props) {
                         <label className="text-xs font-medium text-slate-500 dark:text-slate-400">해설 / 오답 사유</label>
                         <Textarea
                           rows={5}
-                          className="resize-y text-sm"
+                          className="resize-y rounded-[18px] border-0 bg-slate-50/90 text-sm leading-6 shadow-inner dark:bg-slate-950/40"
                           value={editRow.explanation}
                           onChange={(event) => setField(q.id, 'explanation', event.target.value)}
                         />
                       </div>
                     </div>
 
-                    <div className="space-y-4">
-                      <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-4 rounded-[22px] bg-white p-4 shadow-[0_10px_30px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/80">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">정답 설정</p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          채점에 바로 반영되는 값입니다. 수정 후 하단의 저장 버튼을 눌러야 적용됩니다.
+                        </p>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                         <div className="space-y-1.5">
                           <label className="text-xs font-medium text-slate-500 dark:text-slate-400">문항 형식</label>
                           <Select
@@ -427,7 +445,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
                         ) : (
                           <Textarea
                             rows={3}
-                            className="resize-y text-sm"
+                            className="resize-y rounded-[18px] border-0 bg-slate-50/90 text-sm leading-6 shadow-inner dark:bg-slate-950/40"
                             placeholder={ANSWER_TEXT_LABEL[style] ?? '정답 텍스트'}
                             value={editRow.correct_answer_text}
                             onChange={(event) => setField(q.id, 'correct_answer_text', event.target.value)}
@@ -440,7 +458,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
                           <label className="text-xs font-medium text-slate-500 dark:text-slate-400">채점 기준</label>
                           <Textarea
                             rows={4}
-                            className="resize-y text-sm"
+                            className="resize-y rounded-[18px] border-0 bg-slate-50/90 text-sm leading-6 shadow-inner dark:bg-slate-950/40"
                             value={editRow.grading_criteria}
                             onChange={(event) => setField(q.id, 'grading_criteria', event.target.value)}
                           />

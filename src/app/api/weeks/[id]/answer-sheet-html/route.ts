@@ -82,9 +82,9 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     const hasSub = group.length > 1 || first.sub_label !== null
     const tr = trStyle(isShort ? shortPt : tallPt)
 
-    if (style === 'objective' && !hasSub) {
+    if ((style === 'objective' || style === 'multi_select') && !hasSub) {
       rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:16px;">① &nbsp; ② &nbsp; ③ &nbsp; ④ &nbsp; ⑤</span></td></tr>`)
-    } else if (style === 'objective' && hasSub) {
+    } else if ((style === 'objective' || style === 'multi_select') && hasSub) {
       const cells = group.map((q) =>
         `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}><span style="font-size:14px;">① ② ③ ④ ⑤</span></td>`
       ).join('')
