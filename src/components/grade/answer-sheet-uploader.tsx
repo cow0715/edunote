@@ -363,6 +363,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
   const [problemStatus, setProblemStatus] = useState<LocalStatus>({ type: 'idle' })
   const [answerKeyStatus, setAnswerKeyStatus] = useState<LocalStatus>({ type: 'idle' })
   const [explanationStatus, setExplanationStatus] = useState<LocalStatus>({ type: 'idle' })
+  const [problemImported, setProblemImported] = useState(readingTotal > 0)
   const [canGenerateExplanations, setCanGenerateExplanations] = useState(readingTotal > 0)
   const [warningOpen, setWarningOpen] = useState(false)
   const [pendingAction, setPendingAction] = useState<PendingUploadAction>(null)
@@ -374,6 +375,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
   useEffect(() => {
     setCanGenerateExplanations(readingTotal > 0)
+    setProblemImported(readingTotal > 0)
   }, [readingTotal])
 
   useEffect(() => {
@@ -540,6 +542,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
         studentsRegraded,
         subjectiveGradingFailed: Boolean(data.subjective_grading_failed),
       })
+      setProblemImported(true)
       setCanGenerateExplanations(false)
       resetQueries()
       toast.success(`${questionsParsed}문항을 시험지 PDF에서 가져왔습니다.`)
@@ -550,6 +553,10 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
   async function handleAnswerKeyImport() {
     if (!answerKeyFiles.length) return
+    if (!problemImported) {
+      setAnswerKeyStatus({ type: 'error', message: '먼저 시험지 문항 저장을 완료해주세요.' })
+      return
+    }
 
     setElapsed(0)
     setAnswerKeyStatus({ type: 'loading', message: '정오표에서 문항별 정답을 읽어 기존 문항에 반영하고 있습니다.' })
@@ -820,15 +827,25 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
             )}
           </div>
 
-          <div className="space-y-3 rounded-[20px] bg-white/80 p-4 shadow-[0_10px_30px_rgba(0,75,198,0.04)] dark:bg-slate-950/40">
+          <div className={`space-y-3 rounded-[20px] p-4 shadow-[0_10px_30px_rgba(0,75,198,0.04)] ${
+            problemImported
+              ? 'bg-white/80 dark:bg-slate-950/40'
+              : 'bg-slate-50/80 opacity-70 dark:bg-slate-950/30'
+          }`}>
             <div className="space-y-1">
               <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">2. 정오표 업로드</p>
               <p className="text-xs text-slate-600 dark:text-slate-400">
-                시험지 저장 후 정오표 이미지를 올리면 기존 문항에 정답만 덮어쓰고 학생 점수도 다시 계산합니다.
+                {problemImported
+                  ? '시험지 저장 후 정오표 이미지를 올리면 기존 문항에 정답만 덮어쓰고 학생 점수도 다시 계산합니다.'
+                  : '시험지 문항 저장이 끝나면 정오표 업로드가 열립니다.'}
               </p>
             </div>
 
-            {answerKeyStatus.type === 'loading' ? (
+            {!problemImported ? (
+              <div className="rounded-[18px] bg-white/80 px-4 py-4 text-xs text-slate-500 dark:bg-slate-900/60 dark:text-slate-400">
+                1단계 시험지 저장을 먼저 완료해주세요.
+              </div>
+            ) : answerKeyStatus.type === 'loading' ? (
               <AnswerParseProgress elapsed={elapsed} />
             ) : (
               <FileDropzone
@@ -841,7 +858,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
               />
             )}
 
-            {answerKeyFiles.length > 0 && (
+            {problemImported && answerKeyFiles.length > 0 && (
               <OrderedFileList
                 files={answerKeyFiles}
                 onMove={moveAnswerKeyFile}
@@ -849,9 +866,9 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
               />
             )}
 
-            <StatusBanner status={answerKeyStatus} />
+            {problemImported && <StatusBanner status={answerKeyStatus} />}
 
-            {answerKeyFiles.length > 0 && answerKeyStatus.type !== 'loading' && (
+            {problemImported && answerKeyFiles.length > 0 && answerKeyStatus.type !== 'loading' && (
               <Button
                 variant="outline"
                 className="w-full rounded-full border-0 bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
