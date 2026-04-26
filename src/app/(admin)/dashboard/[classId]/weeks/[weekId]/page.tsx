@@ -212,7 +212,11 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
             </TabsContent>
 
             <TabsContent value="answer-sheet" forceMount className="data-[state=inactive]:hidden pt-4 space-y-0">
-              <AnswerSheetUploader weekId={weekId} savedFilePath={week?.answer_sheet_path} />
+              <AnswerSheetUploader
+                weekId={weekId}
+                savedFilePath={week?.answer_sheet_path}
+                readingTotal={week?.reading_total}
+              />
               <div className="px-4 py-2">
                 <button
                   type="button"
