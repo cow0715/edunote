@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { createClient } from '@/lib/supabase/client'
 import { useUploadStore, type AnswerSheetStatus } from '@/store/upload-store'
 
 const IDLE_STATUS: AnswerSheetStatus = { type: 'idle' }
@@ -46,6 +47,7 @@ type LocalStatus =
 
 type PendingUploadAction = 'standard' | 'problem' | null
 type UploadAsset = { id: string; file: File }
+const TEMP_UPLOAD_BUCKET = 'exam-pdf-temp'
 
 interface Props {
   weekId: string
@@ -69,13 +71,34 @@ function buildUploadAssets(fileList: FileList | null): UploadAsset[] {
   }))
 }
 
-async function readUploadFiles(files: UploadAsset[]) {
+function safeStorageName(fileName: string) {
+  return fileName
+    .replace(/[^\x00-\x7F]/g, '_')
+    .replace(/[/\\?%*:|"<>\s]/g, '_')
+    .replace(/_+/g, '_')
+}
+
+async function uploadFilesToTempStorage(files: UploadAsset[], weekId: string, purpose: string) {
+  const supabase = createClient()
+  const startedAt = Date.now()
+
   return Promise.all(
-    files.map(async ({ file }) => ({
-      fileData: await readFileAsBase64(file),
-      mimeType: file.type,
-      fileName: file.name,
-    })),
+    files.map(async ({ file }, index) => {
+      const storagePath = `week-import/${weekId}/${purpose}/${startedAt}_${String(index + 1).padStart(2, '0')}_${safeStorageName(file.name)}`
+      const { error } = await supabase.storage
+        .from(TEMP_UPLOAD_BUCKET)
+        .upload(storagePath, file, { contentType: file.type || 'application/octet-stream', upsert: true })
+
+      if (error) {
+        throw new Error(`파일 업로드 실패: ${error.message}`)
+      }
+
+      return {
+        storagePath,
+        mimeType: file.type || 'application/octet-stream',
+        fileName: file.name,
+      }
+    }),
   )
 }
 
@@ -416,7 +439,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     setProblemStatus({ type: 'loading', message: '시험지 파일에서 문항 구조를 정리하고 있습니다.' })
 
     try {
-      const files = await readUploadFiles(problemFiles)
+      const files = await uploadFilesToTempStorage(problemFiles, weekId, 'problem-sheet')
       const response = await fetch(`/api/weeks/${weekId}/import-problem-sheet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -458,7 +481,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     setAnswerKeyStatus({ type: 'loading', message: '정오표에서 문항별 정답을 읽어 기존 문항에 반영하고 있습니다.' })
 
     try {
-      const files = await readUploadFiles(answerKeyFiles)
+      const files = await uploadFilesToTempStorage(answerKeyFiles, weekId, 'answer-key')
       const response = await fetch(`/api/weeks/${weekId}/import-problem-answer-key`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
