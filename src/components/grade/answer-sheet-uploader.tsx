@@ -26,7 +26,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { createClient } from '@/lib/supabase/client'
 import { useUploadStore, type AnswerSheetStatus } from '@/store/upload-store'
 
 const IDLE_STATUS: AnswerSheetStatus = { type: 'idle' }
@@ -47,7 +46,7 @@ type LocalStatus =
 
 type PendingUploadAction = 'standard' | 'problem' | null
 type UploadAsset = { id: string; file: File }
-const TEMP_UPLOAD_BUCKET = 'exam-pdf-temp'
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 interface Props {
   weekId: string
@@ -78,28 +77,103 @@ function safeStorageName(fileName: string) {
     .replace(/_+/g, '_')
 }
 
+async function resizeImageToBlob(file: File, maxPx = 2000, quality = 0.85): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height))
+      const width = Math.round(img.width * scale)
+      const height = Math.round(img.height * scale)
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      canvas.getContext('2d')?.drawImage(img, 0, 0, width, height)
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('이미지 변환에 실패했습니다.')), 'image/jpeg', quality)
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('이미지 파일을 읽지 못했습니다.'))
+    }
+    img.src = url
+  })
+}
+
+async function imagesToPdf(files: File[]): Promise<Blob> {
+  const { PDFDocument } = await import('pdf-lib')
+  const pdfDoc = await PDFDocument.create()
+
+  for (const file of files) {
+    const resized = await resizeImageToBlob(file)
+    const imageBytes = await resized.arrayBuffer()
+    const pdfImage = await pdfDoc.embedJpg(imageBytes)
+    const page = pdfDoc.addPage([pdfImage.width, pdfImage.height])
+    page.drawImage(pdfImage, { x: 0, y: 0, width: pdfImage.width, height: pdfImage.height })
+  }
+
+  const bytes = await pdfDoc.save()
+  return new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' })
+}
+
+async function prepareUploadBlob(files: UploadAsset[], purpose: string) {
+  const rawFiles = files.map((asset) => asset.file)
+  const pdfFiles = rawFiles.filter((file) => file.type === 'application/pdf')
+  const imageFiles = rawFiles.filter((file) => IMAGE_TYPES.includes(file.type))
+
+  if (pdfFiles.length > 0 && rawFiles.length > 1) {
+    throw new Error('PDF는 1개만 선택하거나, 이미지 여러 장만 선택해주세요.')
+  }
+
+  if (pdfFiles.length === 1) {
+    return {
+      blob: pdfFiles[0],
+      mimeType: 'application/pdf',
+      fileName: pdfFiles[0].name,
+    }
+  }
+
+  if (imageFiles.length !== rawFiles.length) {
+    throw new Error('PDF, JPG, PNG, WEBP 파일만 업로드할 수 있습니다.')
+  }
+
+  const blob = await imagesToPdf(imageFiles)
+  return {
+    blob,
+    mimeType: 'application/pdf',
+    fileName: `${purpose}-${Date.now()}.pdf`,
+  }
+}
+
 async function uploadFilesToTempStorage(files: UploadAsset[], weekId: string, purpose: string) {
-  const supabase = createClient()
-  const startedAt = Date.now()
+  const prepared = await prepareUploadBlob(files, purpose)
+  const presignResponse = await fetch(`/api/weeks/${weekId}/import-upload-url`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileName: safeStorageName(prepared.fileName) }),
+  })
 
-  return Promise.all(
-    files.map(async ({ file }, index) => {
-      const storagePath = `week-import/${weekId}/${purpose}/${startedAt}_${String(index + 1).padStart(2, '0')}_${safeStorageName(file.name)}`
-      const { error } = await supabase.storage
-        .from(TEMP_UPLOAD_BUCKET)
-        .upload(storagePath, file, { contentType: file.type || 'application/octet-stream', upsert: true })
+  if (!presignResponse.ok) {
+    const data = await presignResponse.json().catch(() => ({ error: '업로드 URL 발급에 실패했습니다.' }))
+    throw new Error(String(data.error ?? '업로드 URL 발급에 실패했습니다.'))
+  }
 
-      if (error) {
-        throw new Error(`파일 업로드 실패: ${error.message}`)
-      }
+  const { uploadUrl, path } = await presignResponse.json() as { uploadUrl: string; path: string }
+  const uploadResponse = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': prepared.mimeType },
+    body: prepared.blob,
+  })
 
-      return {
-        storagePath,
-        mimeType: file.type || 'application/octet-stream',
-        fileName: file.name,
-      }
-    }),
-  )
+  if (!uploadResponse.ok) {
+    throw new Error('파일 업로드에 실패했습니다.')
+  }
+
+  return [{
+    storagePath: path,
+    mimeType: prepared.mimeType,
+    fileName: prepared.fileName,
+  }]
 }
 
 function moveUploadAsset(files: UploadAsset[], fromIndex: number, direction: -1 | 1) {
