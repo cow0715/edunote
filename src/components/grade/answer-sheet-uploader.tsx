@@ -428,6 +428,18 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     setAnswerKeyFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))
   }
 
+  function resetProblemImportSelection() {
+    setProblemFiles([])
+    setProblemStatus({ type: 'idle' })
+    if (problemInputRef.current) problemInputRef.current.value = ''
+  }
+
+  function resetAnswerKeySelection() {
+    setAnswerKeyFiles([])
+    setAnswerKeyStatus({ type: 'idle' })
+    if (answerKeyInputRef.current) answerKeyInputRef.current.value = ''
+  }
+
   async function hasExistingStudentAnswers() {
     const response = await fetch(`/api/weeks/${weekId}/answer-sheet-impact`, { cache: 'no-store' })
     const raw = await response.text()
@@ -819,10 +831,16 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
             <StatusBanner status={problemStatus} />
 
-            {problemFiles.length > 0 && problemStatus.type !== 'loading' && (
+            {problemFiles.length > 0 && problemStatus.type !== 'loading' && problemStatus.type !== 'done' && (
               <Button className="w-full rounded-full bg-slate-900 text-white hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-700" onClick={handleProblemImport}>
                 <Upload className="h-4 w-4" />
                 시험지에서 문항 저장
+              </Button>
+            )}
+
+            {problemStatus.type === 'done' && (
+              <Button variant="outline" className="w-full rounded-full" onClick={resetProblemImportSelection}>
+                다른 시험지 선택
               </Button>
             )}
           </div>
@@ -868,7 +886,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
             {problemImported && <StatusBanner status={answerKeyStatus} />}
 
-            {problemImported && answerKeyFiles.length > 0 && answerKeyStatus.type !== 'loading' && (
+            {problemImported && answerKeyFiles.length > 0 && answerKeyStatus.type !== 'loading' && answerKeyStatus.type !== 'done' && (
               <Button
                 variant="outline"
                 className="w-full rounded-full border-0 bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
@@ -876,6 +894,12 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
               >
                 <Upload className="h-4 w-4" />
                 정오표 정답 반영
+              </Button>
+            )}
+
+            {answerKeyStatus.type === 'done' && (
+              <Button variant="outline" className="w-full rounded-full" onClick={resetAnswerKeySelection}>
+                다른 정오표 선택
               </Button>
             )}
           </div>

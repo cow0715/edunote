@@ -600,6 +600,10 @@ export async function parseProblemSheetAnswerKeyOnly(params: {
     throw new Error('먼저 시험지 PDF를 업로드해 문항을 저장해주세요.')
   }
 
+  const answerableQuestionCount = existingQuestions.filter(
+    (question) => (question.sub_label ?? null) === null,
+  ).length
+
   const questions: WeekProblemSheetQuestion[] = existingQuestions.map((question) => ({
     question_number: question.question_number,
     question_type: null,
@@ -654,6 +658,13 @@ export async function parseProblemSheetAnswerKeyOnly(params: {
     throw new Error('정오표에서 적용할 정답을 찾지 못했습니다.')
   }
 
+  if (answerableQuestionCount > 0 && parsed.length !== answerableQuestionCount) {
+    throw new Error(
+      `정오표에서 ${parsed.length}/${answerableQuestionCount}문항만 읽혔습니다. ` +
+      '현재 저장된 시험지 문항 수와 정오표 정답 수가 같아야 적용할 수 있습니다.',
+    )
+  }
+
   return parsed
 }
 
@@ -692,8 +703,9 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
   weekId: string
   parsedAnswers: ParsedAnswer[]
   matchTagId?: MatchTagId
+  deleteMissingQuestions?: boolean
 }): Promise<ReadingImportOutcome> {
-  const { supabase, weekId, parsedAnswers, matchTagId = () => null } = params
+  const { supabase, weekId, parsedAnswers, matchTagId = () => null, deleteMissingQuestions = true } = params
   const persistErrors: string[] = []
 
   const { data: existingQuestions } = await supabase
@@ -778,14 +790,16 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
     throw new Error('문항은 파싱됐지만 DB에 저장하지 못했습니다.')
   }
 
-  const removedQuestions = (existingQuestions ?? []).filter(
-    (question) => !parsedKeys.has(`${question.question_number}|${question.sub_label ?? ''}`),
-  )
-  if (removedQuestions.length > 0) {
-    const removedIds = removedQuestions.map((question) => question.id)
-    await supabase.from('student_answer').delete().in('exam_question_id', removedIds)
-    await supabase.from('exam_question_tag').delete().in('exam_question_id', removedIds)
-    await supabase.from('exam_question').delete().in('id', removedIds)
+  if (deleteMissingQuestions) {
+    const removedQuestions = (existingQuestions ?? []).filter(
+      (question) => !parsedKeys.has(`${question.question_number}|${question.sub_label ?? ''}`),
+    )
+    if (removedQuestions.length > 0) {
+      const removedIds = removedQuestions.map((question) => question.id)
+      await supabase.from('student_answer').delete().in('exam_question_id', removedIds)
+      await supabase.from('exam_question_tag').delete().in('exam_question_id', removedIds)
+      await supabase.from('exam_question').delete().in('id', removedIds)
+    }
   }
 
   const tagInserts: { exam_question_id: string; concept_tag_id: string }[] = []
