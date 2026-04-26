@@ -9,6 +9,7 @@ import {
   FileCheck,
   FileText,
   ListOrdered,
+  Loader2,
   Sparkles,
   Upload,
   X,
@@ -40,7 +41,7 @@ type AnswerParseMode = 'auto' | 'answer_sheet'
 
 type LocalStatus =
   | { type: 'idle' }
-  | { type: 'loading'; message: string }
+  | { type: 'loading'; message: string; processedCount?: number; totalCount?: number }
   | { type: 'done'; message: string; questionsParsed?: number; studentsRegraded?: number; generatedCount?: number; subjectiveGradingFailed?: boolean }
   | { type: 'error'; message: string }
 
@@ -351,6 +352,42 @@ function StatusBanner({ status }: { status: AnswerSheetStatus | LocalStatus }) {
   )
 }
 
+function ExplanationLoadingCard({ status }: { status: LocalStatus }) {
+  if (status.type !== 'loading') return null
+
+  const total = status.totalCount ?? 0
+  const processed = Math.min(status.processedCount ?? 0, total)
+  const percent = total > 0 ? Math.round((processed / total) * 100) : null
+
+  return (
+    <div className="space-y-3 rounded-[18px] bg-white/85 p-4 shadow-[0_10px_30px_rgba(0,75,198,0.05)] dark:bg-slate-950/40">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI가 해설을 나눠서 생성하는 중입니다</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{status.message}</p>
+        </div>
+        {percent !== null ? (
+          <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
+            {percent}%
+          </span>
+        ) : null}
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+        <div
+          className="h-full rounded-full bg-blue-600 transition-all duration-500 dark:bg-blue-400"
+          style={{ width: percent !== null ? `${percent}%` : '28%' }}
+        />
+      </div>
+      <p className="text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+        창을 닫지 말고 기다려 주세요. 많은 문항은 여러 번 나눠 호출해서 timeout을 피합니다.
+      </p>
+    </div>
+  )
+}
+
 export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }: Props) {
   const answerInputRef = useRef<HTMLInputElement>(null)
   const problemInputRef = useRef<HTMLInputElement>(null)
@@ -610,7 +647,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
   }
 
   async function handleGenerateExplanations() {
-    setExplanationStatus({ type: 'loading', message: '저장된 문항을 기준으로 AI 해설을 생성하고 있습니다.' })
+    setExplanationStatus({ type: 'loading', message: '저장된 문항을 기준으로 AI 해설을 준비하고 있습니다.' })
 
     try {
       let remainingIds: string[] | null = null
@@ -646,12 +683,15 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
           totalTargetCount = batchTotal
         }
         const totalForDisplay = totalTargetCount ?? batchTotal
+        const nextProcessedCount = Math.min(processedCount, totalForDisplay)
 
         if (data.done === true) break
 
         setExplanationStatus({
           type: 'loading',
-          message: `AI 해설 생성 중입니다. ${Math.min(processedCount, totalForDisplay)} / ${totalForDisplay} 문항을 처리했습니다.`,
+          message: `${nextProcessedCount} / ${totalForDisplay} 문항을 처리했습니다.`,
+          processedCount: nextProcessedCount,
+          totalCount: totalForDisplay,
         })
       }
 
@@ -913,7 +953,8 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
                 </p>
               </div>
 
-              <StatusBanner status={explanationStatus} />
+              <ExplanationLoadingCard status={explanationStatus} />
+              {explanationStatus.type !== 'loading' && <StatusBanner status={explanationStatus} />}
 
               <Button
                 variant="outline"
@@ -921,7 +962,9 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
                 onClick={handleGenerateExplanations}
                 disabled={explanationStatus.type === 'loading'}
               >
-                <Sparkles className="h-4 w-4" />
+                {explanationStatus.type === 'loading'
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Sparkles className="h-4 w-4" />}
                 {explanationStatus.type === 'loading' ? 'AI 해설 생성 중' : '저장 후 AI 해설 생성'}
               </Button>
             </div>
