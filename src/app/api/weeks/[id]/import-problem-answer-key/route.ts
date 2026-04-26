@@ -67,6 +67,8 @@ async function cleanupStorageFiles(files: ProblemSheetUploadInput[]) {
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  let uploadedFiles: ProblemSheetUploadInput[] = []
+
   try {
     const { supabase, user } = await getAuth()
     const { id: weekId } = await params
@@ -77,7 +79,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한이 없습니다.', 403)
 
     const body = await request.json() as Record<string, unknown>
-    const uploadedFiles = normalizeFiles(body)
+    uploadedFiles = normalizeFiles(body)
     const files = await resolveStorageFiles(uploadedFiles)
     if (!files.length) return err('파일이 없습니다.')
 
@@ -96,18 +98,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       parsedAnswers,
     })
 
-    const response = ok({
+    return ok({
       ok: true,
       ...result,
       parse_mode_used: 'problem_answer_key',
       explanations_generated: false,
       answer_key_applied: true,
     })
-    await cleanupStorageFiles(uploadedFiles)
-    return response
   } catch (error) {
     console.error('[import-problem-answer-key] unhandled error:', error)
     const message = error instanceof Error ? error.message : '정오표 가져오기에 실패했습니다.'
     return err(message, 422)
+  } finally {
+    await cleanupStorageFiles(uploadedFiles)
   }
 }
