@@ -1,12 +1,9 @@
 import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
 import {
-  type ProblemSheetUploadInput,
-  createTagMatcher,
-  fetchTeacherTagContext,
+  applyWeekReadingAnswerKeyAndRegrade,
   normalizeParsedAnswers,
-  parseProblemSheetQuestionsOnly,
-  saveWeekAnswerSheetFile,
-  syncWeekReadingQuestionsAndRegrade,
+  type ProblemSheetUploadInput,
+  parseProblemSheetAnswerKeyOnly,
 } from '@/lib/week-reading-import'
 
 export const maxDuration = 300
@@ -47,39 +44,35 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!teacherId) return err('강사 정보를 찾지 못했습니다.', 404)
     if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한이 없습니다.', 403)
 
-    const { tagList } = await fetchTeacherTagContext(supabase, teacherId)
-    const matchTagId = createTagMatcher(tagList)
-
     const body = await request.json() as Record<string, unknown>
     const files = normalizeFiles(body)
     if (!files.length) return err('파일이 없습니다.')
 
-    const parsedAnswers = normalizeParsedAnswers(await parseProblemSheetQuestionsOnly(files))
+    const parsedAnswers = normalizeParsedAnswers(await parseProblemSheetAnswerKeyOnly({
+      supabase,
+      weekId,
+      files,
+    }))
     if (!parsedAnswers.length) {
-      return err('시험지 PDF에서 문항 구조 추출에 실패했습니다.', 422)
+      return err('정오표에서 정답을 추출하지 못했습니다.', 422)
     }
 
-    if (files.length === 1) {
-      const [first] = files
-      await saveWeekAnswerSheetFile(supabase, weekId, first.fileData, first.mimeType, first.fileName)
-    }
-    const result = await syncWeekReadingQuestionsAndRegrade({
+    const result = await applyWeekReadingAnswerKeyAndRegrade({
       supabase,
       weekId,
       parsedAnswers,
-      matchTagId,
     })
 
     return ok({
       ok: true,
       ...result,
-      parse_mode_used: 'problem_sheet',
+      parse_mode_used: 'problem_answer_key',
       explanations_generated: false,
-      answer_key_applied: false,
+      answer_key_applied: true,
     })
   } catch (error) {
-    console.error('[import-problem-sheet] unhandled error:', error)
-    const message = error instanceof Error ? error.message : '문제지형 PDF 가져오기에 실패했습니다.'
+    console.error('[import-problem-answer-key] unhandled error:', error)
+    const message = error instanceof Error ? error.message : '정오표 가져오기에 실패했습니다.'
     return err(message, 422)
   }
 }
