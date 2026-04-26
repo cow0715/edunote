@@ -29,7 +29,8 @@ export type ReadingImportOutcome = {
 }
 
 export type ProblemSheetUploadInput = {
-  fileData: string
+  fileData?: string
+  storagePath?: string
   mimeType: string
   fileName?: string
 }
@@ -214,6 +215,9 @@ async function parseProblemSheetQuestionInputs(
   const collected: WeekProblemSheetQuestion[] = []
 
   for (const file of files) {
+    if (!file.fileData) {
+      throw new Error('업로드 파일 데이터를 읽지 못했습니다.')
+    }
     const parsed = await parseWeekProblemSheetPage(file.fileData, file.mimeType)
     const normalizedPage = parsed
       .map((question) => {
@@ -607,6 +611,9 @@ export async function parseProblemSheetAnswerKeyOnly(params: {
 
   const mergedItems = new Map<number, ProblemSheetAnswerKeyItem>()
   for (const file of files) {
+    if (!file.fileData) {
+      throw new Error('업로드 파일 데이터를 읽지 못했습니다.')
+    }
     const items = await parseProblemSheetAnswerKeyFile(file.fileData, file.mimeType, questions)
     for (const item of items) {
       const questionNumber = coerceQuestionNumber(item.question_number)
