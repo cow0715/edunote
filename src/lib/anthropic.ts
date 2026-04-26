@@ -789,6 +789,35 @@ ${questions.map((q) => `- ${q.question_number}번 (${q.question_style})${q.choic
 - JSON 배열만 출력하세요`
 }
 
+function buildWeekProblemSheetAnswerVisionPrompt(
+  questions: WeekProblemSheetQuestion[],
+): string {
+  return `이 파일은 영어 시험지의 정오표 또는 정답표입니다.
+표, 리스트, 캡처 이미지처럼 생겼더라도 문항 번호별 최종 정답만 읽어 구조화하세요.
+
+문항 목록:
+${questions.map((q) => `- ${q.question_number}번 (${q.question_style})${q.choices.length ? ` 보기 ${q.choices.length}개` : ''}`).join('\n')}
+
+출력 필드:
+- question_number: 문항 번호
+- question_style: objective | subjective | ox | multi_select
+- correct_answer: objective면 1~5, 아니면 0
+- correct_answer_text:
+  * objective면 null
+  * ox면 "O" 또는 "X (...)" 형식
+  * multi_select면 "1,3" 같은 형식
+  * subjective면 정답 텍스트
+
+중요 규칙:
+- 첨부한 파일 안에서 보이는 최종 정답만 사용하세요
+- 위 문항 목록에 있는 번호만 출력하세요
+- 표 머리글, 과목명, 쪽수, 메모는 무시하세요
+- objective는 correct_answer에 숫자를 넣고 correct_answer_text는 null로 두세요
+- subjective는 correct_answer를 0으로 두고 correct_answer_text에 정답 텍스트를 넣으세요
+- 불명확한 문항은 제외하세요
+- JSON 배열만 출력하세요`
+}
+
 export async function parseWeekProblemSheetPage(
   fileData: string,
   mimeType: string,
@@ -845,6 +874,43 @@ export async function parseProblemSheetAnswerKey(
     return parsed
   } catch (e) {
     console.error('[parseProblemSheetAnswerKey] JSON parse 실패:', e)
+    throw e
+  }
+}
+
+export async function parseProblemSheetAnswerKeyFile(
+  fileData: string,
+  mimeType: string,
+  questions: WeekProblemSheetQuestion[],
+): Promise<ProblemSheetAnswerKeyItem[]> {
+  const isImage = mimeType.startsWith('image/')
+  const isPdf = mimeType === 'application/pdf'
+  if (!isImage && !isPdf) throw new Error('지원하지 않는 파일 형식입니다. PDF 또는 이미지만 업로드해주세요.')
+
+  const fileContent = isImage
+    ? { type: 'image' as const, source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: fileData } }
+    : { type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: fileData } }
+
+  const prompt = buildWeekProblemSheetAnswerVisionPrompt(questions)
+  const res = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 8192,
+    messages: [{
+      role: 'user',
+      content: [fileContent, { type: 'text', text: prompt }],
+    }],
+  })
+
+  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  console.log('[parseProblemSheetAnswerKeyFile] raw response length:', raw.length)
+
+  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
+  try {
+    const parsed = JSON.parse(jsonrepair(cleaned)) as ProblemSheetAnswerKeyItem[]
+    console.log('[parseProblemSheetAnswerKeyFile] parsed count:', parsed.length, '| questions:', parsed.map((p) => p.question_number).join(', '))
+    return parsed
+  } catch (e) {
+    console.error('[parseProblemSheetAnswerKeyFile] JSON parse 실패:', e)
     throw e
   }
 }

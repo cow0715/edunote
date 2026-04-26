@@ -3,6 +3,7 @@ import {
   generateExplanations,
   gradeSubjectiveAnswers,
   parseProblemSheetAnswerKey,
+  parseProblemSheetAnswerKeyFile,
   parseWeekProblemSheetPage,
 } from '@/lib/anthropic'
 import type {
@@ -25,6 +26,12 @@ export type ReadingImportOutcome = {
   questions_parsed: number
   students_regraded: number
   subjective_grading_failed?: boolean
+}
+
+export type ProblemSheetUploadInput = {
+  fileData: string
+  mimeType: string
+  fileName?: string
 }
 
 function coerceQuestionNumber(value: unknown): number | null {
@@ -176,10 +183,55 @@ export function looksLikeProblemSheetPdf(rawText: string): boolean {
 }
 
 function normalizeProblemSheetQuestions(questions: WeekProblemSheetQuestion[]): WeekProblemSheetQuestion[] {
-  return questions.map((question, index) => ({
-    ...question,
-    question_number: index + 1,
-  }))
+  const usedNumbers = new Set<number>()
+  let fallbackNumber = 1
+
+  return questions.map((question) => {
+    let questionNumber = coerceQuestionNumber(question.question_number)
+
+    if (!questionNumber || usedNumbers.has(questionNumber)) {
+      while (usedNumbers.has(fallbackNumber)) {
+        fallbackNumber += 1
+      }
+      questionNumber = fallbackNumber
+    }
+
+    usedNumbers.add(questionNumber)
+    if (questionNumber >= fallbackNumber) {
+      fallbackNumber = questionNumber + 1
+    }
+
+    return {
+      ...question,
+      question_number: questionNumber,
+    }
+  })
+}
+
+async function parseProblemSheetQuestionInputs(
+  files: ProblemSheetUploadInput[],
+): Promise<WeekProblemSheetQuestion[]> {
+  const collected: WeekProblemSheetQuestion[] = []
+
+  for (const file of files) {
+    const parsed = await parseWeekProblemSheetPage(file.fileData, file.mimeType)
+    const normalizedPage = parsed
+      .map((question) => {
+        const questionNumber = coerceQuestionNumber(question.question_number)
+        if (!questionNumber) return null
+
+        return {
+          ...question,
+          question_number: questionNumber,
+          question_style: normalizeQuestionStyle(question.question_style),
+        }
+      })
+      .filter((question): question is WeekProblemSheetQuestion => question !== null)
+
+    collected.push(...normalizedPage)
+  }
+
+  return normalizeProblemSheetQuestions(collected)
 }
 
 function normalizeQuestionStyle(
@@ -350,6 +402,14 @@ function buildStoredQuestionText(question: {
   return parts.length > 0 ? parts.join('\n') : null
 }
 
+function extractChoicesFromStoredQuestionText(raw: string | null): string[] {
+  return (raw ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^\d+\.\s+/.test(line))
+    .map((line) => line.replace(/^\d+\.\s+/, '').trim())
+}
+
 function buildExplanationAnswer(
   question: { choices: string[] },
   answer: {
@@ -405,6 +465,32 @@ async function generateProblemSheetExplanations(
   )
 }
 
+export async function parseProblemSheetQuestionsOnly(
+  files: ProblemSheetUploadInput[],
+): Promise<ParsedAnswer[]> {
+  if (!files.length) {
+    throw new Error('시험지 파일이 없습니다.')
+  }
+
+  const questions = await parseProblemSheetQuestionInputs(files)
+
+  if (!questions.length) {
+    throw new Error('시험지에서 문항 구조를 찾지 못했습니다.')
+  }
+
+  return questions.map((question) => ({
+    question_number: question.question_number,
+    sub_label: null,
+    question_style: question.question_style,
+    question_type: question.question_type,
+    correct_answer: 0,
+    correct_answer_text: null,
+    grading_criteria: null,
+    explanation: null,
+    question_text: buildStoredQuestionText(question),
+  }))
+}
+
 export async function parseProblemSheetAnswers(
   fileData: string,
   mimeType: string,
@@ -417,18 +503,7 @@ export async function parseProblemSheetAnswers(
     throw new Error('문제지형 가져오기는 현재 PDF만 지원합니다.')
   }
 
-  const questions = normalizeProblemSheetQuestions((await parseWeekProblemSheetPage(fileData, mimeType))
-    .map((question) => {
-      const questionNumber = coerceQuestionNumber(question.question_number)
-      if (!questionNumber) return null
-
-      return {
-        ...question,
-        question_number: questionNumber,
-        question_style: normalizeQuestionStyle(question.question_style),
-      }
-    })
-    .filter((question): question is WeekProblemSheetQuestion => question !== null))
+  const questions = await parseProblemSheetQuestionInputs([{ fileData, mimeType }])
 
   if (!questions.length) {
     throw new Error('문제지에서 문항 구조를 찾지 못했습니다.')
@@ -497,6 +572,82 @@ export async function parseProblemSheetAnswers(
     explanation: explanations.get(question.question_number) || null,
     question_text: buildStoredQuestionText(question),
   }))
+}
+
+export async function parseProblemSheetAnswerKeyOnly(params: {
+  supabase: SupabaseServerClient
+  weekId: string
+  files: ProblemSheetUploadInput[]
+}): Promise<ParsedAnswer[]> {
+  const { supabase, weekId, files } = params
+  if (!files.length) {
+    throw new Error('정오표 파일이 없습니다.')
+  }
+
+  const { data: existingQuestions } = await supabase
+    .from('exam_question')
+    .select('id, question_number, sub_label, question_style, question_text')
+    .eq('week_id', weekId)
+    .eq('exam_type', 'reading')
+    .order('question_number')
+    .order('sub_label', { nullsFirst: true })
+
+  if (!existingQuestions?.length) {
+    throw new Error('먼저 시험지 PDF를 업로드해 문항을 저장해주세요.')
+  }
+
+  const questions: WeekProblemSheetQuestion[] = existingQuestions.map((question) => ({
+    question_number: question.question_number,
+    question_type: null,
+    question_style: normalizeQuestionStyle(question.question_style),
+    passage: '',
+    question_text: question.question_text ?? '',
+    choices: extractChoicesFromStoredQuestionText(question.question_text),
+  }))
+
+  const mergedItems = new Map<number, ProblemSheetAnswerKeyItem>()
+  for (const file of files) {
+    const items = await parseProblemSheetAnswerKeyFile(file.fileData, file.mimeType, questions)
+    for (const item of items) {
+      const questionNumber = coerceQuestionNumber(item.question_number)
+      if (!questionNumber) continue
+      mergedItems.set(questionNumber, {
+        ...item,
+        question_number: questionNumber,
+        correct_answer: coerceCorrectAnswer(item.correct_answer),
+      })
+    }
+  }
+
+  const parsed: ParsedAnswer[] = [...mergedItems.values()]
+    .map((item): ParsedAnswer | null => {
+      const questionNumber = coerceQuestionNumber(item.question_number)
+      if (!questionNumber) return null
+
+      const existing = existingQuestions.find(
+        (question) => question.question_number === questionNumber && (question.sub_label ?? null) === null,
+      )
+      if (!existing) return null
+
+      return {
+        question_number: questionNumber,
+        sub_label: null,
+        question_style: normalizeQuestionStyle(item.question_style ?? existing.question_style),
+        question_type: null,
+        correct_answer: coerceCorrectAnswer(item.correct_answer),
+        correct_answer_text: item.correct_answer_text ?? null,
+        grading_criteria: null,
+        explanation: null,
+        question_text: existing.question_text ?? null,
+      }
+    })
+    .filter((item): item is ParsedAnswer => item !== null)
+
+  if (!parsed.length) {
+    throw new Error('정오표에서 적용할 정답을 찾지 못했습니다.')
+  }
+
+  return parsed
 }
 
 export async function saveWeekAnswerSheetFile(
@@ -791,6 +942,185 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
 
   return {
     questions_parsed: questions.length,
+    students_regraded: weekScores.length,
+  }
+}
+
+export async function applyWeekReadingAnswerKeyAndRegrade(params: {
+  supabase: SupabaseServerClient
+  weekId: string
+  parsedAnswers: ParsedAnswer[]
+}): Promise<ReadingImportOutcome> {
+  const { supabase, weekId, parsedAnswers } = params
+
+  const { data: existingQuestions } = await supabase
+    .from('exam_question')
+    .select('id, question_number, sub_label, question_style, correct_answer, correct_answer_text, grading_criteria')
+    .eq('week_id', weekId)
+    .eq('exam_type', 'reading')
+
+  const existingMap = new Map(
+    (existingQuestions ?? []).map((question) => [`${question.question_number}|${question.sub_label ?? ''}`, question]),
+  )
+
+  const updatedRows: QuestionRow[] = []
+  for (const answer of parsedAnswers) {
+    const existing = existingMap.get(`${answer.question_number}|${answer.sub_label ?? ''}`)
+    if (!existing) continue
+
+    const { data, error } = await supabase
+      .from('exam_question')
+      .update({
+        correct_answer: answer.correct_answer,
+        correct_answer_text: answer.correct_answer_text,
+      })
+      .eq('id', existing.id)
+      .select('id, question_number, sub_label, question_style, correct_answer, correct_answer_text, grading_criteria')
+      .single()
+
+    if (error) {
+      throw new Error(`Q${answer.question_number}${answer.sub_label ?? ''}: ${error.message}`)
+    }
+    if (data) updatedRows.push(data)
+  }
+
+  if (updatedRows.length === 0) {
+    throw new Error('기존 문항과 매칭되는 정답이 없습니다.')
+  }
+
+  const { data: weekScores } = await supabase
+    .from('week_score')
+    .select('id, student_id, student_answer(id, exam_question_id, student_answer, student_answer_text, ox_selection, is_correct)')
+    .eq('week_id', weekId)
+
+  if (!weekScores?.length) {
+    return { questions_parsed: updatedRows.length, students_regraded: 0 }
+  }
+
+  const studentIds = weekScores.map((score) => score.student_id)
+  const { data: students } = await supabase
+    .from('student')
+    .select('id, name')
+    .in('id', studentIds)
+  const studentNameMap = new Map((students ?? []).map((student) => [student.id, student.name]))
+
+  const questionByKey = new Map(
+    updatedRows.map((question) => [`${question.question_number}__${question.sub_label ?? ''}`, question]),
+  )
+  const questionById = new Map(updatedRows.map((question) => [question.id, question]))
+
+  const subjectiveForGrading: SubjectiveStudentAnswer[] = []
+
+  await Promise.all(
+    weekScores.map(async (score) => {
+      type AnswerRow = {
+        id: string
+        exam_question_id: string
+        student_answer: number | null
+        student_answer_text: string | null
+        ox_selection: string | null
+        is_correct: boolean
+      }
+      const answers: AnswerRow[] = (score.student_answer as unknown as AnswerRow[]) ?? []
+
+      await Promise.all(
+        answers.map(async (answer) => {
+          const question = questionById.get(answer.exam_question_id)
+          if (!question) return
+
+          if (question.question_style === 'objective') {
+            const isCorrect = answer.student_answer !== null && answer.student_answer === question.correct_answer
+            if (isCorrect !== answer.is_correct) {
+              await supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', answer.id)
+            }
+            return
+          }
+
+          if (question.question_style === 'ox' && answer.ox_selection) {
+            const isCorrect = question.correct_answer_text
+              ? gradeOX(question.correct_answer_text, answer.ox_selection, answer.student_answer_text ?? '')
+              : false
+            if (isCorrect !== answer.is_correct) {
+              await supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', answer.id)
+            }
+            return
+          }
+
+          if (question.question_style === 'multi_select' && answer.student_answer_text?.trim()) {
+            const isCorrect = question.correct_answer_text
+              ? gradeMultiSelect(question.correct_answer_text, answer.student_answer_text)
+              : false
+            if (isCorrect !== answer.is_correct) {
+              await supabase.from('student_answer').update({ is_correct: isCorrect }).eq('id', answer.id)
+            }
+            return
+          }
+
+          if (question.question_style === 'find_error' && answer.student_answer_text?.trim()) {
+            await supabase.from('student_answer').update({
+              is_correct: false,
+              needs_review: true,
+              ai_feedback: '채점 페이지에서 다시 검토해 주세요.',
+            }).eq('id', answer.id)
+            return
+          }
+
+          if (question.question_style === 'subjective' && answer.student_answer_text?.trim()) {
+            subjectiveForGrading.push({
+              week_score_id: score.id,
+              exam_question_id: answer.exam_question_id,
+              question_number: question.question_number,
+              sub_label: question.sub_label ?? null,
+              student_name: studentNameMap.get(score.student_id) ?? score.student_id,
+              student_answer_text: answer.student_answer_text.trim(),
+            })
+          }
+        }),
+      )
+    }),
+  )
+
+  if (subjectiveForGrading.length > 0) {
+    const uniqueKeys = [...new Set(subjectiveForGrading.map((answer) => `${answer.question_number}__${answer.sub_label ?? ''}`))]
+    const subjectiveQuestions = uniqueKeys
+      .map((key) => {
+        const question = questionByKey.get(key)
+        return question?.question_style === 'subjective' && question.correct_answer_text
+          ? {
+              question_number: question.question_number,
+              sub_label: question.sub_label ?? null,
+              correct_answer_text: question.correct_answer_text,
+              grading_criteria: question.grading_criteria,
+            }
+          : null
+      })
+      .filter((question): question is NonNullable<typeof question> => question !== null)
+
+    if (subjectiveQuestions.length > 0) {
+      try {
+        const gradingResults = await gradeSubjectiveAnswers(subjectiveQuestions, subjectiveForGrading)
+        for (const result of gradingResults) {
+          await supabase
+            .from('student_answer')
+            .update({ is_correct: result.is_correct, ai_feedback: result.ai_feedback })
+            .eq('week_score_id', result.week_score_id)
+            .eq('exam_question_id', result.exam_question_id)
+        }
+      } catch (error) {
+        console.error('[week-reading-import] subjective grading failed:', error)
+        await recalcReadingCorrect(supabase, weekScores.map((score) => score.id))
+        return {
+          questions_parsed: updatedRows.length,
+          students_regraded: weekScores.length,
+          subjective_grading_failed: true,
+        }
+      }
+    }
+  }
+
+  await recalcReadingCorrect(supabase, weekScores.map((score) => score.id))
+  return {
+    questions_parsed: updatedRows.length,
     students_regraded: weekScores.length,
   }
 }

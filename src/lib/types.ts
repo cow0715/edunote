@@ -92,6 +92,7 @@ export interface ExamQuestion {
   week_id: string;
   question_number: number;
   sub_label: string | null;  // 소문항 (예: 'a', 'b'), null = 소문항 없음
+  question_text: string | null;
   correct_answer: number;
   correct_answer_text: string | null;
   extra_correct_answers: number[];

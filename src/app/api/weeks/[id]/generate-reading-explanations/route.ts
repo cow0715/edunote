@@ -2,6 +2,7 @@ import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { generateExplanations } from '@/lib/anthropic'
 
 export const maxDuration = 300
+const EXPLANATION_BATCH_SIZE = 8
 
 type QuestionForGeneration = {
   id: string
@@ -56,6 +57,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const body = await request.json().catch(() => ({}))
     const force = body?.force === true
+    const requestedIds = Array.isArray(body?.questionIds)
+      ? body.questionIds.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+      : null
 
     const { data: questions, error } = await supabase
       .from('exam_question')
@@ -67,19 +71,32 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     if (error) return err(error.message, 500)
 
-    const targets = (questions ?? []).filter((question) => {
+    const orderedQuestions = questions ?? []
+    const requestedIdSet = requestedIds ? new Set(requestedIds) : null
+    const targets = orderedQuestions.filter((question) => {
+      if (requestedIdSet) return requestedIdSet.has(question.id)
       if (force) return true
       return !question.explanation?.trim()
     })
 
     if (targets.length === 0) {
-      return ok({ ok: true, generated_count: 0 })
+      return ok({
+        ok: true,
+        generated_count: 0,
+        processed_count: 0,
+        remaining_count: 0,
+        remaining_ids: [],
+        done: true,
+        total_target_count: 0,
+      })
     }
 
+    const batchTargets = targets.slice(0, EXPLANATION_BATCH_SIZE)
+    const remainingIds = targets.slice(EXPLANATION_BATCH_SIZE).map((question) => question.id)
     const chunkSize = 6
     const chunks: QuestionForGeneration[][] = []
-    for (let i = 0; i < targets.length; i += chunkSize) {
-      chunks.push(targets.slice(i, i + chunkSize))
+    for (let i = 0; i < batchTargets.length; i += chunkSize) {
+      chunks.push(batchTargets.slice(i, i + chunkSize))
     }
 
     const generatedMap = new Map<string, string>()
@@ -130,6 +147,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return ok({
       ok: true,
       generated_count: generatedMap.size,
+      processed_count: batchTargets.length,
+      remaining_count: remainingIds.length,
+      remaining_ids: remainingIds,
+      done: remainingIds.length === 0,
+      total_target_count: targets.length,
     })
   } catch (error) {
     console.error('[generate-reading-explanations] unhandled error:', error)

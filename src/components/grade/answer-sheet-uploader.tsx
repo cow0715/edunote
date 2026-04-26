@@ -4,11 +4,14 @@ import { useEffect, useRef, useState, type ChangeEvent, type RefObject } from 'r
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   FileCheck,
   FileText,
   ListOrdered,
   Sparkles,
   Upload,
+  X,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -42,6 +45,7 @@ type LocalStatus =
   | { type: 'error'; message: string }
 
 type PendingUploadAction = 'standard' | 'problem' | null
+type UploadAsset = { id: string; file: File }
 
 interface Props {
   weekId: string
@@ -56,6 +60,33 @@ function readFileAsBase64(file: File): Promise<string> {
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
+}
+
+function buildUploadAssets(fileList: FileList | null): UploadAsset[] {
+  return Array.from(fileList ?? []).map((file, index) => ({
+    id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
+    file,
+  }))
+}
+
+async function readUploadFiles(files: UploadAsset[]) {
+  return Promise.all(
+    files.map(async ({ file }) => ({
+      fileData: await readFileAsBase64(file),
+      mimeType: file.type,
+      fileName: file.name,
+    })),
+  )
+}
+
+function moveUploadAsset(files: UploadAsset[], fromIndex: number, direction: -1 | 1) {
+  const toIndex = fromIndex + direction
+  if (toIndex < 0 || toIndex >= files.length) return files
+
+  const next = [...files]
+  const [moved] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, moved)
+  return next
 }
 
 function parseJsonSafely(raw: string): Record<string, unknown> {
@@ -94,8 +125,9 @@ function FileDropzone(props: {
   onChange: (event: ChangeEvent<HTMLInputElement>) => void
   accept: string
   idleLabel: string
+  multiple?: boolean
 }) {
-  const { file, inputRef, onChange, accept, idleLabel } = props
+  const { file, inputRef, onChange, accept, idleLabel, multiple = false } = props
 
   return (
     <div
@@ -118,9 +150,51 @@ function FileDropzone(props: {
         ref={inputRef}
         type="file"
         accept={accept}
+        multiple={multiple}
         className="hidden"
         onChange={onChange}
       />
+    </div>
+  )
+}
+
+function OrderedFileList(props: {
+  files: UploadAsset[]
+  onMove: (index: number, direction: -1 | 1) => void
+  onRemove: (index: number) => void
+}) {
+  const { files, onMove, onRemove } = props
+
+  return (
+    <div className="space-y-2">
+      {files.map((asset, index) => (
+        <div
+          key={asset.id}
+          className="flex items-center gap-3 rounded-[18px] bg-slate-50/90 px-3 py-3 text-sm text-slate-700 dark:bg-slate-900/70 dark:text-slate-200"
+        >
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700 dark:bg-slate-800 dark:text-blue-300">
+            {index + 1}
+          </div>
+          <FileText className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-medium">{asset.file.name}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {asset.file.type.startsWith('image/') ? '이미지' : 'PDF'} · 페이지 순서 {index + 1}
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => onMove(index, -1)} disabled={index === 0}>
+              <ChevronUp className="h-4 w-4" />
+            </Button>
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => onMove(index, 1)} disabled={index === files.length - 1}>
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-full text-red-500 hover:text-red-600" onClick={() => onRemove(index)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -183,11 +257,14 @@ function StatusBanner({ status }: { status: AnswerSheetStatus | LocalStatus }) {
 export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }: Props) {
   const answerInputRef = useRef<HTMLInputElement>(null)
   const problemInputRef = useRef<HTMLInputElement>(null)
+  const answerKeyInputRef = useRef<HTMLInputElement>(null)
   const [answerFile, setAnswerFile] = useState<File | null>(null)
-  const [problemFile, setProblemFile] = useState<File | null>(null)
+  const [problemFiles, setProblemFiles] = useState<UploadAsset[]>([])
+  const [answerKeyFiles, setAnswerKeyFiles] = useState<UploadAsset[]>([])
   const [parseMode, setParseMode] = useState<AnswerParseMode>('auto')
   const [elapsed, setElapsed] = useState(0)
   const [problemStatus, setProblemStatus] = useState<LocalStatus>({ type: 'idle' })
+  const [answerKeyStatus, setAnswerKeyStatus] = useState<LocalStatus>({ type: 'idle' })
   const [explanationStatus, setExplanationStatus] = useState<LocalStatus>({ type: 'idle' })
   const [canGenerateExplanations, setCanGenerateExplanations] = useState(readingTotal > 0)
   const [warningOpen, setWarningOpen] = useState(false)
@@ -203,11 +280,11 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
   }, [readingTotal])
 
   useEffect(() => {
-    const isLoading = status.type === 'loading' || problemStatus.type === 'loading'
+    const isLoading = status.type === 'loading' || problemStatus.type === 'loading' || answerKeyStatus.type === 'loading'
     if (!isLoading) return
     const timer = setInterval(() => setElapsed((value) => value + 1), 1000)
     return () => clearInterval(timer)
-  }, [problemStatus.type, status.type])
+  }, [answerKeyStatus.type, problemStatus.type, status.type])
 
   function resetQueries() {
     qc.invalidateQueries({ queryKey: ['exam-questions', weekId] })
@@ -223,10 +300,33 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
   }
 
   function handleProblemFile(event: ChangeEvent<HTMLInputElement>) {
-    const nextFile = event.target.files?.[0]
-    if (!nextFile) return
-    setProblemFile(nextFile)
+    const nextFiles = buildUploadAssets(event.target.files)
+    if (!nextFiles.length) return
+    setProblemFiles(nextFiles)
     setProblemStatus({ type: 'idle' })
+  }
+
+  function handleAnswerKeyFile(event: ChangeEvent<HTMLInputElement>) {
+    const nextFiles = buildUploadAssets(event.target.files)
+    if (!nextFiles.length) return
+    setAnswerKeyFiles(nextFiles)
+    setAnswerKeyStatus({ type: 'idle' })
+  }
+
+  function moveProblemFile(index: number, direction: -1 | 1) {
+    setProblemFiles((prev) => moveUploadAsset(prev, index, direction))
+  }
+
+  function moveAnswerKeyFile(index: number, direction: -1 | 1) {
+    setAnswerKeyFiles((prev) => moveUploadAsset(prev, index, direction))
+  }
+
+  function removeProblemFile(index: number) {
+    setProblemFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))
+  }
+
+  function removeAnswerKeyFile(index: number) {
+    setAnswerKeyFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))
   }
 
   async function hasExistingStudentAnswers() {
@@ -310,20 +410,18 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
   }
 
   async function handleProblemImportConfirmed() {
-    if (!problemFile) return
+    if (!problemFiles.length) return
 
     setElapsed(0)
-    setProblemStatus({ type: 'loading', message: '문제지 PDF에서 문항과 정답을 구조화하고 있습니다.' })
+    setProblemStatus({ type: 'loading', message: '시험지 파일에서 문항 구조를 정리하고 있습니다.' })
 
     try {
-      const base64 = await readFileAsBase64(problemFile)
+      const files = await readUploadFiles(problemFiles)
       const response = await fetch(`/api/weeks/${weekId}/import-problem-sheet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fileData: base64,
-          mimeType: problemFile.type,
-          fileName: problemFile.name,
+          files,
         }),
       })
 
@@ -340,16 +438,58 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
       setProblemStatus({
         type: 'done',
-        message: '문항 구조와 정답 저장이 완료되었습니다.',
+        message: '시험지 문항 저장이 완료되었습니다. 이제 정오표를 올려 정답을 반영할 수 있습니다.',
         questionsParsed,
         studentsRegraded,
         subjectiveGradingFailed: Boolean(data.subjective_grading_failed),
       })
-      setCanGenerateExplanations(questionsParsed > 0)
+      setCanGenerateExplanations(false)
       resetQueries()
-      toast.success(`${questionsParsed}문항을 중간·기말 전용 경로로 가져왔습니다.`)
+      toast.success(`${questionsParsed}문항을 시험지 PDF에서 가져왔습니다.`)
     } catch (error) {
       setProblemStatus({ type: 'error', message: error instanceof Error ? error.message : '오류가 발생했습니다.' })
+    }
+  }
+
+  async function handleAnswerKeyImport() {
+    if (!answerKeyFiles.length) return
+
+    setElapsed(0)
+    setAnswerKeyStatus({ type: 'loading', message: '정오표에서 문항별 정답을 읽어 기존 문항에 반영하고 있습니다.' })
+
+    try {
+      const files = await readUploadFiles(answerKeyFiles)
+      const response = await fetch(`/api/weeks/${weekId}/import-problem-answer-key`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          files,
+        }),
+      })
+
+      const raw = await response.text()
+      const data = parseJsonSafely(raw)
+
+      if (!response.ok) {
+        setAnswerKeyStatus({ type: 'error', message: String(data.error ?? '정오표 가져오기에 실패했습니다.') })
+        return
+      }
+
+      const questionsParsed = Number(data.questions_parsed ?? 0)
+      const studentsRegraded = Number(data.students_regraded ?? 0)
+
+      setAnswerKeyStatus({
+        type: 'done',
+        message: '정오표 정답 반영이 완료되었습니다.',
+        questionsParsed,
+        studentsRegraded,
+        subjectiveGradingFailed: Boolean(data.subjective_grading_failed),
+      })
+      setCanGenerateExplanations(questionsParsed > 0 || readingTotal > 0)
+      resetQueries()
+      toast.success(`${questionsParsed}문항에 정오표 정답을 반영했습니다.`)
+    } catch (error) {
+      setAnswerKeyStatus({ type: 'error', message: error instanceof Error ? error.message : '오류가 발생했습니다.' })
     }
   }
 
@@ -357,21 +497,48 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     setExplanationStatus({ type: 'loading', message: '저장된 문항을 기준으로 AI 해설을 생성하고 있습니다.' })
 
     try {
-      const response = await fetch(`/api/weeks/${weekId}/generate-reading-explanations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: false }),
-      })
+      let remainingIds: string[] | null = null
+      let generatedCount = 0
+      let processedCount = 0
+      let totalTargetCount: number | null = null
 
-      const raw = await response.text()
-      const data = parseJsonSafely(raw)
+      while (true) {
+        const response = await fetch(`/api/weeks/${weekId}/generate-reading-explanations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            force: false,
+            ...(remainingIds ? { questionIds: remainingIds } : {}),
+          }),
+        })
 
-      if (!response.ok) {
-        setExplanationStatus({ type: 'error', message: String(data.error ?? 'AI 해설 생성에 실패했습니다.') })
-        return
+        const raw = await response.text()
+        const data = parseJsonSafely(raw)
+
+        if (!response.ok) {
+          setExplanationStatus({ type: 'error', message: String(data.error ?? 'AI 해설 생성에 실패했습니다.') })
+          return
+        }
+
+        generatedCount += Number(data.generated_count ?? 0)
+        processedCount += Number(data.processed_count ?? 0)
+        remainingIds = Array.isArray(data.remaining_ids)
+          ? data.remaining_ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
+          : []
+        const batchTotal = Number(data.total_target_count ?? (processedCount + remainingIds.length))
+        if (totalTargetCount == null) {
+          totalTargetCount = batchTotal
+        }
+        const totalForDisplay = totalTargetCount ?? batchTotal
+
+        if (data.done === true) break
+
+        setExplanationStatus({
+          type: 'loading',
+          message: `AI 해설 생성 중입니다. ${Math.min(processedCount, totalForDisplay)} / ${totalForDisplay} 문항을 처리했습니다.`,
+        })
       }
 
-      const generatedCount = Number(data.generated_count ?? 0)
       setExplanationStatus({
         type: 'done',
         message: generatedCount > 0 ? 'AI 해설 생성을 마쳤습니다.' : '생성할 해설이 없어 건너뛰었습니다.',
@@ -414,8 +581,8 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     <>
       <div className="space-y-4">
       <p className="text-sm leading-6 text-slate-500 dark:text-slate-400">
-        일반 주차 해설지는 기존 업로드로 처리하고, 중간·기말처럼 문제지와 정답이 섞인 PDF는 아래 전용 가져오기를 사용하세요.
-        특수 PDF는 먼저 문항과 정답만 저장한 뒤, 필요하면 AI 해설을 나중에 붙이는 구조입니다.
+        진단평가처럼 분량이 적은 해설·정답지는 위 업로드에서 한 번에 처리하고, 중간·기말처럼 문항이 많은 시험지는 아래에서
+        시험지 PDF와 정오표를 나눠 올리는 흐름이 더 안정적입니다.
       </p>
 
       {savedFilePath && status.type !== 'done' && (
@@ -496,54 +663,115 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
       <Card className="rounded-[24px] border-0 bg-white/95 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/90">
         <CardHeader className="gap-1">
-          <CardTitle className="text-base text-slate-900 dark:text-slate-50">중간·기말 전용 가져오기</CardTitle>
+          <CardTitle className="text-base text-slate-900 dark:text-slate-50">중간·기말 시험지 가져오기</CardTitle>
           <CardDescription className="text-slate-500 dark:text-slate-400">
-            상단에 문제, 하단에 답안을 따로 모은 PDF를 읽어와 문항, 정답, 채점 세팅까지 먼저 마무리합니다.
+            시험지 PDF로 문항을 먼저 저장하고, 정오표 이미지나 PDF로 정답을 따로 반영합니다.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-[20px] bg-slate-50/90 px-4 py-3 text-xs leading-5 text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-            이 흐름은 AI 해설을 바로 만들지 않습니다. 먼저 DB 세팅과 재채점을 안정적으로 끝내고, 필요할 때 아래 버튼으로 해설만 따로 생성합니다.
+            실사용 기준으로는 `시험지 PDF 업로드 → 정오표 업로드 → 필요 시 AI 해설 생성` 순서가 가장 안정적입니다.
           </div>
 
           <div className="rounded-[20px] bg-blue-50/80 p-4 text-xs leading-5 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
             <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
               <ListOrdered className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-              <span>권장 PDF 형식</span>
+              <span>권장 업로드 순서</span>
             </div>
-            <p>1. 상단에는 문제만 순서대로 배치하세요.</p>
-            <p>2. 하단에는 답안만 따로 모아 한 줄에 한 문항씩 적어주세요.</p>
-            <p>3. 가장 안정적인 표기는 `1. ③`, `2. ⑤`, `7. 서답형 정답`처럼 문항 번호를 파일 순서대로 맞추는 방식입니다.</p>
-            <p>4. 문제 본문 중간에 정답이나 해설을 끼워 넣는 형식은 피하는 것이 좋습니다.</p>
+            <p>1. 먼저 시험지 PDF를 올려 문항과 문제 텍스트를 저장하세요.</p>
+            <p>2. 그다음 정오표 이미지나 PDF를 올려 문항별 정답만 반영하세요.</p>
+            <p>3. 정오표는 표 캡처, 스캔 PDF, 답안 리스트 모두 가능하지만 문항 번호가 선명할수록 안정적입니다.</p>
+            <p>4. 해설은 마지막에 따로 생성하므로, 처음부터 한 파일에 억지로 합칠 필요는 없습니다.</p>
           </div>
 
-          {problemStatus.type === 'loading' ? (
-            <AnswerParseProgress elapsed={elapsed} />
-          ) : (
-            <FileDropzone
-              file={problemFile}
-              inputRef={problemInputRef}
-              onChange={handleProblemFile}
-              accept="application/pdf"
-              idleLabel="클릭해서 중간·기말 PDF를 선택하세요. 문제는 위, 답안은 아래에 모인 형식이 가장 좋습니다."
-            />
-          )}
+          <div className="space-y-3 rounded-[20px] bg-white/80 p-4 shadow-[0_10px_30px_rgba(0,75,198,0.04)] dark:bg-slate-950/40">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">1. 시험지 PDF 업로드</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                문제 본문이 들어 있는 시험지 PDF를 읽어 문항 구조와 문제 텍스트를 먼저 저장합니다.
+              </p>
+            </div>
 
-          <StatusBanner status={problemStatus} />
+            {problemStatus.type === 'loading' ? (
+              <AnswerParseProgress elapsed={elapsed} />
+            ) : (
+              <FileDropzone
+                file={problemFiles[0]?.file ?? null}
+                inputRef={problemInputRef}
+                onChange={handleProblemFile}
+                accept="application/pdf,image/*"
+                idleLabel="클릭해서 시험지 PDF 1개 또는 페이지 순서대로 이미지 여러 장을 선택하세요."
+                multiple
+              />
+            )}
 
-          {problemFile && problemStatus.type !== 'loading' && (
-            <Button className="w-full rounded-full bg-slate-900 text-white hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-700" onClick={handleProblemImport}>
-              <Upload className="h-4 w-4" />
-              문항/정답 먼저 가져오기
-            </Button>
-          )}
+            {problemFiles.length > 0 && (
+              <OrderedFileList
+                files={problemFiles}
+                onMove={moveProblemFile}
+                onRemove={removeProblemFile}
+              />
+            )}
 
-          {(canGenerateExplanations || problemStatus.type === 'done') && (
+            <StatusBanner status={problemStatus} />
+
+            {problemFiles.length > 0 && problemStatus.type !== 'loading' && (
+              <Button className="w-full rounded-full bg-slate-900 text-white hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-700" onClick={handleProblemImport}>
+                <Upload className="h-4 w-4" />
+                시험지에서 문항 저장
+              </Button>
+            )}
+          </div>
+
+          <div className="space-y-3 rounded-[20px] bg-white/80 p-4 shadow-[0_10px_30px_rgba(0,75,198,0.04)] dark:bg-slate-950/40">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">2. 정오표 업로드</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                시험지 저장 후 정오표 이미지를 올리면 기존 문항에 정답만 덮어쓰고 학생 점수도 다시 계산합니다.
+              </p>
+            </div>
+
+            {answerKeyStatus.type === 'loading' ? (
+              <AnswerParseProgress elapsed={elapsed} />
+            ) : (
+              <FileDropzone
+                file={answerKeyFiles[0]?.file ?? null}
+                inputRef={answerKeyInputRef}
+                onChange={handleAnswerKeyFile}
+                accept="application/pdf,image/*"
+                idleLabel="클릭해서 정오표 PDF 1개 또는 페이지 순서대로 이미지 여러 장을 선택하세요."
+                multiple
+              />
+            )}
+
+            {answerKeyFiles.length > 0 && (
+              <OrderedFileList
+                files={answerKeyFiles}
+                onMove={moveAnswerKeyFile}
+                onRemove={removeAnswerKeyFile}
+              />
+            )}
+
+            <StatusBanner status={answerKeyStatus} />
+
+            {answerKeyFiles.length > 0 && answerKeyStatus.type !== 'loading' && (
+              <Button
+                variant="outline"
+                className="w-full rounded-full border-0 bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+                onClick={handleAnswerKeyImport}
+              >
+                <Upload className="h-4 w-4" />
+                정오표 정답 반영
+              </Button>
+            )}
+          </div>
+
+          {(canGenerateExplanations || answerKeyStatus.type === 'done') && (
             <div className="space-y-3 rounded-[20px] bg-blue-50/70 p-4 dark:bg-slate-900/60">
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI 해설 후처리</p>
                 <p className="text-xs text-slate-600 dark:text-slate-400">
-                  저장된 문항을 기준으로 비어 있는 해설만 채웁니다. 실패해도 문항과 정답 세팅은 유지됩니다.
+                  문항과 정답 저장이 끝난 뒤 비어 있는 해설만 채웁니다. 실패해도 문항과 정답 세팅은 유지됩니다.
                 </p>
               </div>
 
