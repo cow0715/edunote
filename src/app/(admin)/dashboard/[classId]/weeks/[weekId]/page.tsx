@@ -21,6 +21,7 @@ import { useClass } from '@/hooks/use-classes'
 import { useClassStudents } from '@/hooks/use-students'
 import { ClassStudent } from '@/lib/types'
 import { generateSessionDates } from '@/lib/schedule'
+import { cn } from '@/lib/utils'
 
 interface WeekFormValues {
   start_date: string
@@ -145,7 +146,12 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
 
       {/* 설정 모달 */}
       <Dialog open={settingsOpen} onOpenChange={(v) => { setSettingsOpen(v); if (!v) setActiveTab('basic') }}>
-        <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className={cn(
+            'max-h-[90vh] max-w-[95vw] overflow-y-auto',
+            activeTab === 'question-types' ? 'sm:max-w-[98vw] xl:max-w-7xl' : 'sm:max-w-4xl',
+          )}
+        >
           <DialogHeader>
             <DialogTitle>{week.week_number}주차 설정</DialogTitle>
           </DialogHeader>

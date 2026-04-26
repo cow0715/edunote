@@ -52,6 +52,10 @@ function summarizeQuestion(questionText: string | null) {
   return firstLine ?? '문제 텍스트가 아직 없습니다.'
 }
 
+function getQuestionDisplayText(questionText: string | null) {
+  return questionText?.trim() || '문제 텍스트가 아직 없습니다.'
+}
+
 export function QuestionTypeEditor({ weekId }: Props) {
   const qc = useQueryClient()
   const { data: questions = [], isLoading } = useQuery<ExamQuestion[]>({
@@ -79,6 +83,19 @@ export function QuestionTypeEditor({ weekId }: Props) {
     () => questions.filter((q) => q.exam_type === 'reading'),
     [questions],
   )
+  const subjectiveOrderMap = useMemo(() => {
+    const next: Record<string, number> = {}
+    let order = 0
+
+    for (const q of readingQuestions) {
+      const style = styleMap[q.id] ?? q.question_style
+      if (style !== 'subjective') continue
+      order += 1
+      next[q.id] = order
+    }
+
+    return next
+  }, [readingQuestions, styleMap])
 
   const snapshot = readingQuestions
     .map((q) => `${q.id}:${q.question_style}:${q.correct_answer}:${q.correct_answer_text}:${q.explanation}:${q.grading_criteria}:${q.question_text}:${q.is_void}:${q.all_correct}:${(q.exam_question_tag ?? []).map((t) => t.concept_tag?.id).sort().join(',')}`)
@@ -253,7 +270,10 @@ export function QuestionTypeEditor({ weekId }: Props) {
             : []
           const answer = answerMap[q.id] ?? { primary: null, extra: [] }
           const expanded = expandedIds.includes(q.id)
-          const summary = summarizeQuestion(editRow.question_text || q.question_text)
+          const questionDisplayText = getQuestionDisplayText(editRow.question_text || q.question_text)
+          const styleLabel = style === 'subjective'
+            ? `서답형${subjectiveOrderMap[q.id] ?? ''}`
+            : (STYLE_LABEL[style] ?? style)
           const answerSummary = style === 'objective'
             ? [answer.primary, ...(answer.extra ?? [])].filter((value): value is number => value !== null && value > 0).join(', ') || '미설정'
             : (editRow.correct_answer_text || q.correct_answer_text || '미설정')
@@ -267,7 +287,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
                       {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
                     </span>
                     <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
-                      {STYLE_LABEL[style] ?? style}
+                      {styleLabel}
                     </span>
                     <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-300">
                       정답: {answerSummary}
@@ -283,7 +303,9 @@ export function QuestionTypeEditor({ weekId }: Props) {
                       </span>
                     ) : null}
                   </div>
-                  <p className="truncate text-sm text-slate-600 dark:text-slate-300">{summary}</p>
+                  <div className="rounded-[18px] bg-slate-50/80 px-3 py-2 text-sm leading-6 whitespace-pre-wrap break-words text-slate-700 dark:bg-slate-950/40 dark:text-slate-300">
+                    {questionDisplayText}
+                  </div>
                 </div>
 
                 <Button
