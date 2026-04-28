@@ -2,8 +2,8 @@
 CREATE TABLE IF NOT EXISTS exam_bank (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   teacher_id UUID NOT NULL REFERENCES teacher(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,                -- '2026년 3월 고2 모의고사'
-  exam_year INT NOT NULL,             -- 2026
+  title TEXT NOT NULL,                -- '2025년 3월 고2 모의고사'
+  exam_year INT NOT NULL,             -- 시행년도, 예: 2025
   exam_month INT NOT NULL,            -- 3, 6, 9, 11(수능)
   grade INT NOT NULL,                 -- 1, 2, 3 (고1/고2/고3)
   source TEXT NOT NULL DEFAULT '교육청', -- '교육청', '평가원', '수능'

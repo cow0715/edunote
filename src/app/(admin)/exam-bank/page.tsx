@@ -592,7 +592,7 @@ function QuestionCard({
 
   // 시험 출처 레이블 (복사 헤더용)
   const examLabel = q.exam_bank
-    ? `${q.exam_bank.exam_year}년도 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade} ${q.exam_bank.source} ${q.question_number}번`
+    ? `${q.exam_bank.exam_year}년 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade} ${q.exam_bank.source} ${q.question_number}번`
     : `${q.question_number}번`
 
   const buildQuestionText = useCallback(() => {
@@ -1048,7 +1048,7 @@ function QuestionSearch() {
 
   const getExamLabel = (q: ExamBankQuestion) =>
     q.exam_bank
-      ? `${q.exam_bank.exam_year}년도 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade} ${q.exam_bank.source} ${q.question_number}번`
+      ? `${q.exam_bank.exam_year}년 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade} ${q.exam_bank.source} ${q.question_number}번`
       : `${q.question_number}번`
 
   const circled = ['①','②','③','④','⑤']
@@ -1305,9 +1305,9 @@ function QuestionSearch() {
             </Select>
           </div>
 
-          {/* 년도 */}
+          {/* 년 */}
           <div>
-            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">년도</p>
+            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">년</p>
             <div className="flex items-center gap-1">
               <Select value={filters.year_from || 'all'} onValueChange={set('year_from')}>
                 <SelectTrigger className="h-8 text-xs w-[72px]"><SelectValue placeholder="시작" /></SelectTrigger>
@@ -1703,8 +1703,8 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
   })
 
   const autoTitle = form.source === '수능'
-    ? `${form.exam_year}년도 수능`
-    : `${form.exam_year}년도 ${form.exam_month}월 고${form.grade} 모의고사`
+    ? `${form.exam_year}년 ${form.exam_month}월 수능`
+    : `${form.exam_year}년 ${form.exam_month}월 고${form.grade} 모의고사`
 
   const handleUpload = async () => {
     const file = fileRef.current?.files?.[0]
@@ -1813,9 +1813,9 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
         </DialogHeader>
 
         <div className="space-y-3">
-          {/* 년도 */}
+          {/* 년 */}
           <div className="flex items-center gap-3">
-            <Label className="w-16 shrink-0 text-right text-sm text-gray-500">년도</Label>
+            <Label className="w-16 shrink-0 text-right text-sm text-gray-500">년</Label>
             <Input
               type="number"
               value={form.exam_year}
@@ -1849,7 +1849,15 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
           {/* 구분 */}
           <div className="flex items-center gap-3">
             <Label className="w-16 shrink-0 text-right text-sm text-gray-500">구분</Label>
-            <Select value={form.source} onValueChange={(v) => setForm({ ...form, source: v })}>
+            <Select
+              value={form.source}
+              onValueChange={(v) => setForm({
+                ...form,
+                source: v,
+                exam_month: v === '수능' ? 11 : form.exam_month,
+                grade: v === '수능' ? 3 : form.grade,
+              })}
+            >
               <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="수능">수능</SelectItem>
@@ -2160,7 +2168,7 @@ function ExplanationUploadDialog({
 }
 
 // ── 일괄 해설 업로드 다이얼로그 ───────────────────────────────────────────
-// 파일명 규칙: YYYY_MM_G.pdf (예: 2026_06_2.pdf = 2026년 6월 고2)
+// 파일명 규칙: YYYY_MM_G.pdf (예: 2025_06_3.pdf = 2025년 6월 고3)
 
 type BulkItem = {
   file: File
@@ -2278,7 +2286,7 @@ function BulkExplanationDialog({
         <div className="space-y-4">
           <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700 space-y-1">
             <p className="font-semibold">파일명 규칙: <code>YYYY_MM_G.pdf</code></p>
-            <p>예시: <code>2026_06_2.pdf</code> → 2026년 6월 고2 / <code>2025_11_3.pdf</code> → 2025년 11월 수능</p>
+            <p>예시: <code>2025_06_3.pdf</code> → 2025년 6월 고3 / <code>2025_11_3.pdf</code> → 2025년 11월 수능</p>
           </div>
 
           <input ref={fileRef} type="file" accept=".pdf" multiple className="hidden"

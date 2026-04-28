@@ -13,9 +13,8 @@ function monthToExamType(month: number): number {
 }
 
 async function fetchExamSeq(grade: number, examYear: number, examMonth: number): Promise<number | null> {
-  // DB는 학년도 기준, 메가스터디는 시행연도 기준 → 항상 -1
-  // 예: 2026학년도 수능/6월/9월 = 2025년 시행 → megastudy examYear=2025
-  const megastudyYear = examYear - 1
+  // DB와 메가스터디 모두 시행년도 기준으로 조회한다.
+  const megastudyYear = examYear
 
   const body = new URLSearchParams({
     grdFlg: String(grade),
@@ -40,7 +39,7 @@ async function fetchExamSeq(grade: number, examYear: number, examMonth: number):
     const m = html.match(re)
     return m ? parseInt(m[1]) : null
   }
-  // 4월 학력평가가 5월로 연기되는 해가 있어(2023, 2024학년도) 4↔5 상호 fallback
+  // 4월 학력평가가 5월로 연기되는 해가 있어 4↔5 상호 fallback
   const monthsToTry = examMonth === 4 ? [4, 5] : examMonth === 5 ? [5, 4] : [examMonth]
   for (const month of monthsToTry) {
     const monthStr = String(month).padStart(2, '0')
