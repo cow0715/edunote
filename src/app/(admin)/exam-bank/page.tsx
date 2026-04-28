@@ -250,7 +250,8 @@ const EXAM_KIND_OPTIONS = [
 
 const MONTHS = [3, 4, 5, 6, 7, 9, 10, 11]
 const CURRENT_YEAR = new Date().getFullYear()
-const YEARS = Array.from({ length: 10 }, (_, i) => CURRENT_YEAR - i)
+const MIN_EXAM_YEAR = 2016
+const YEARS = Array.from({ length: CURRENT_YEAR - MIN_EXAM_YEAR + 1 }, (_, i) => CURRENT_YEAR - i)
 
 /** Response가 JSON이 아닐 때도 안전하게 파싱 */
 async function safeJson(res: Response): Promise<{ ok: boolean; data: Record<string, unknown> }> {
