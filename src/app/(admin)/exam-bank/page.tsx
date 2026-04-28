@@ -250,8 +250,6 @@ const EXAM_KIND_OPTIONS = [
 
 const MONTHS = [3, 4, 5, 6, 7, 9, 10, 11]
 const CURRENT_YEAR = new Date().getFullYear()
-const MIN_EXAM_YEAR = 2016
-const YEARS = Array.from({ length: CURRENT_YEAR - MIN_EXAM_YEAR + 1 }, (_, i) => CURRENT_YEAR - i)
 
 /** Response가 JSON이 아닐 때도 안전하게 파싱 */
 async function safeJson(res: Response): Promise<{ ok: boolean; data: Record<string, unknown> }> {
@@ -958,6 +956,11 @@ function QuestionSearch() {
   const [copyingAll, setCopyingAll] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
+  const { data: examsForYears } = useQuery<ExamBank[]>({
+    queryKey: ['exam-bank'],
+    queryFn: () => fetch('/api/exam-bank').then((r) => r.json()),
+  })
+
   const set = (key: keyof typeof EMPTY_FILTERS) => (v: string) =>
     setFilters((f) => ({ ...f, [key]: v === 'all' ? '' : v }))
 
@@ -972,6 +975,19 @@ function QuestionSearch() {
   const filterKey = useMemo(() => buildFilterParams(appliedFilters).toString(), [appliedFilters])
   const liveFilterKey = useMemo(() => buildFilterParams(filters).toString(), [filters])
   const hasPendingChanges = liveFilterKey !== filterKey
+  const yearOptions = useMemo(() => {
+    const years = new Set<number>([CURRENT_YEAR])
+    for (const exam of examsForYears ?? []) {
+      if (Number.isFinite(exam.exam_year)) years.add(exam.exam_year)
+    }
+    for (const value of [filters.year_from, filters.year_to, appliedFilters.year_from, appliedFilters.year_to]) {
+      const year = Number(value)
+      if (Number.isFinite(year) && year > 0) years.add(year)
+    }
+    const minYear = Math.min(...years)
+    const maxYear = Math.max(...years)
+    return Array.from({ length: maxYear - minYear + 1 }, (_, i) => maxYear - i)
+  }, [appliedFilters.year_from, appliedFilters.year_to, examsForYears, filters.year_from, filters.year_to])
 
   const runSearch = () => setAppliedFilters(filters)
 
@@ -1314,7 +1330,7 @@ function QuestionSearch() {
                 <SelectTrigger className="h-8 text-xs w-[88px]"><SelectValue placeholder="시작" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
-                  {YEARS.map((y) => <SelectItem key={y} value={String(y)}>{y}년</SelectItem>)}
+                  {yearOptions.map((y) => <SelectItem key={y} value={String(y)}>{y}년</SelectItem>)}
                 </SelectContent>
               </Select>
               <span className="text-xs text-gray-300">~</span>
@@ -1322,7 +1338,7 @@ function QuestionSearch() {
                 <SelectTrigger className="h-8 text-xs w-[88px]"><SelectValue placeholder="종료" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
-                  {YEARS.map((y) => <SelectItem key={y} value={String(y)}>{y}년</SelectItem>)}
+                  {yearOptions.map((y) => <SelectItem key={y} value={String(y)}>{y}년</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
