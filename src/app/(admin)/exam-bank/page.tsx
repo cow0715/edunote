@@ -1305,23 +1305,23 @@ function QuestionSearch() {
             </Select>
           </div>
 
-          {/* 년 */}
+          {/* 시행년 */}
           <div>
-            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">년</p>
+            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">시행년</p>
             <div className="flex items-center gap-1">
               <Select value={filters.year_from || 'all'} onValueChange={set('year_from')}>
-                <SelectTrigger className="h-8 text-xs w-[72px]"><SelectValue placeholder="시작" /></SelectTrigger>
+                <SelectTrigger className="h-8 text-xs w-[88px]"><SelectValue placeholder="시작" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
-                  {YEARS.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
+                  {YEARS.map((y) => <SelectItem key={y} value={String(y)}>{y}년</SelectItem>)}
                 </SelectContent>
               </Select>
               <span className="text-xs text-gray-300">~</span>
               <Select value={filters.year_to || 'all'} onValueChange={set('year_to')}>
-                <SelectTrigger className="h-8 text-xs w-[72px]"><SelectValue placeholder="종료" /></SelectTrigger>
+                <SelectTrigger className="h-8 text-xs w-[88px]"><SelectValue placeholder="종료" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
-                  {YEARS.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
+                  {YEARS.map((y) => <SelectItem key={y} value={String(y)}>{y}년</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
