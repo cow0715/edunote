@@ -398,6 +398,16 @@ function sourceLabel(source: VocabSource) {
   return `${source.year}년 ${source.month}월 ${source.source} ${source.question_number}번`
 }
 
+function listOrEmpty(values: unknown) {
+  return Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0) : []
+}
+
+function hasRelatedWords(item: VocabCollectionItem) {
+  return listOrEmpty(item.synonyms).length > 0
+    || listOrEmpty(item.antonyms).length > 0
+    || listOrEmpty(item.similar_words).length > 0
+}
+
 function downloadVocabCsv(collection: VocabCollectionDetail) {
   const header = ['번호', '단어', '뜻', '빈도', '주제', '유의어', '반의어', '유사어', '출처']
   const rows = collection.items.map((item, index) => [
@@ -406,9 +416,9 @@ function downloadVocabCsv(collection: VocabCollectionDetail) {
     item.meaning,
     item.frequency,
     item.topic,
-    item.synonyms.join(' / '),
-    item.antonyms.join(' / '),
-    item.similar_words.join(' / '),
+    listOrEmpty(item.synonyms).join(' / '),
+    listOrEmpty(item.antonyms).join(' / '),
+    listOrEmpty(item.similar_words).join(' / '),
     item.sources.map(sourceLabel).join(' / '),
   ])
   const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')
@@ -553,7 +563,7 @@ function VocabCollections() {
     }
     if (viewMode === 'related') {
       return items
-        .filter((item) => item.synonyms.length > 0 || item.antonyms.length > 0 || item.similar_words.length > 0)
+        .filter(hasRelatedWords)
         .sort((a, b) => b.frequency - a.frequency || a.word.localeCompare(b.word))
     }
     return items
@@ -750,25 +760,36 @@ function VocabCollections() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {displayedItems.map((item, index) => (
-                      <tr key={item.id} className="align-top">
-                        <td className="px-3 py-2 text-xs text-gray-400">{index + 1}</td>
-                        <td className="px-3 py-2 font-semibold text-gray-900">{item.word}</td>
-                        <td className="px-3 py-2 text-gray-600">{item.meaning}</td>
-                        <td className="px-3 py-2 text-center font-semibold text-blue-600">{item.frequency}</td>
-                        <td className="px-3 py-2 text-xs text-gray-500">{item.topic}</td>
-                        <td className="px-3 py-2 text-xs leading-5 text-gray-500">
-                          {item.synonyms.length > 0 && <p>유의: {item.synonyms.join(' / ')}</p>}
-                          {item.antonyms.length > 0 && <p>반의: {item.antonyms.join(' / ')}</p>}
-                          {item.similar_words.length > 0 && <p>유사: {item.similar_words.join(' / ')}</p>}
-                          {item.synonyms.length === 0 && item.antonyms.length === 0 && item.similar_words.length === 0 ? '-' : null}
-                        </td>
-                        <td className="px-3 py-2 text-xs leading-5 text-gray-400">
-                          {item.sources.slice(0, 4).map(sourceLabel).join(' / ')}
-                          {item.sources.length > 4 ? ` 외 ${item.sources.length - 4}` : ''}
+                    {displayedItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-16 text-center text-sm text-gray-400">
+                          표시할 단어가 없습니다.
                         </td>
                       </tr>
-                    ))}
+                    ) : displayedItems.map((item, index) => {
+                      const synonyms = listOrEmpty(item.synonyms)
+                      const antonyms = listOrEmpty(item.antonyms)
+                      const similarWords = listOrEmpty(item.similar_words)
+                      return (
+                        <tr key={item.id} className="align-top">
+                          <td className="px-3 py-2 text-xs text-gray-400">{index + 1}</td>
+                          <td className="px-3 py-2 font-semibold text-gray-900">{item.word}</td>
+                          <td className="px-3 py-2 text-gray-600">{item.meaning}</td>
+                          <td className="px-3 py-2 text-center font-semibold text-blue-600">{item.frequency}</td>
+                          <td className="px-3 py-2 text-xs text-gray-500">{item.topic}</td>
+                          <td className="px-3 py-2 text-xs leading-5 text-gray-500">
+                            {synonyms.length > 0 && <p>유의: {synonyms.join(' / ')}</p>}
+                            {antonyms.length > 0 && <p>반의: {antonyms.join(' / ')}</p>}
+                            {similarWords.length > 0 && <p>유사: {similarWords.join(' / ')}</p>}
+                            {!synonyms.length && !antonyms.length && !similarWords.length ? '-' : null}
+                          </td>
+                          <td className="px-3 py-2 text-xs leading-5 text-gray-400">
+                            {item.sources.slice(0, 4).map(sourceLabel).join(' / ')}
+                            {item.sources.length > 4 ? ` 외 ${item.sources.length - 4}` : ''}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
