@@ -417,6 +417,22 @@ function downloadVocabCsv(collection: VocabCollectionDetail) {
   URL.revokeObjectURL(url)
 }
 
+async function readApiError(res: Response, fallback: string) {
+  const text = await res.text().catch(() => '')
+  if (text.includes('FUNCTION_INVOCATION_TIMEOUT') || res.status === 504) {
+    return '단어장 생성 시간이 초과됐습니다. 잠시 후 다시 시도해주세요.'
+  }
+
+  if (!text) return fallback
+
+  try {
+    const data = JSON.parse(text) as { error?: string; message?: string }
+    return data.error ?? data.message ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
 function VocabCollections() {
   const queryClient = useQueryClient()
   const currentYear = new Date().getFullYear()
@@ -454,8 +470,8 @@ function VocabCollections() {
           months,
         }),
       })
+      if (!res.ok) throw new Error(await readApiError(res, '단어장 생성 실패'))
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? '단어장 생성 실패')
       return data as { id: string; title: string; item_count: number }
     },
     onSuccess: (data) => {
