@@ -409,9 +409,9 @@ function hasRelatedWords(item: VocabCollectionItem) {
     || listOrEmpty(item.similar_words).length > 0
 }
 
-function downloadVocabCsv(collection: VocabCollectionDetail) {
+function downloadVocabCsv(collection: VocabCollectionDetail, items = collection.items) {
   const header = ['번호', '단어', '뜻', '빈도', '주제', '유의어', '반의어', '유사어', '출처']
-  const rows = collection.items.map((item, index) => [
+  const rows = items.map((item, index) => [
     index + 1,
     item.word,
     item.meaning,
@@ -450,6 +450,33 @@ async function readApiError(res: Response, fallback: string) {
   }
 }
 
+type VocabSortKey = 'topic' | 'frequency' | 'word' | 'source'
+
+const VOCAB_SORT_OPTIONS: { value: VocabSortKey; label: string }[] = [
+  { value: 'topic', label: '주제' },
+  { value: 'frequency', label: '빈출 높은 순' },
+  { value: 'word', label: '단어 A-Z' },
+  { value: 'source', label: '출처 최신순' },
+]
+
+const DEFAULT_VOCAB_SORTS: VocabSortKey[] = ['topic', 'frequency', 'word']
+
+function compareSourceLatest(a: VocabCollectionItem, b: VocabCollectionItem) {
+  const aSource = a.sources[0]
+  const bSource = b.sources[0]
+  return (bSource?.year ?? 0) - (aSource?.year ?? 0)
+    || (bSource?.month ?? 0) - (aSource?.month ?? 0)
+    || (aSource?.question_number ?? 0) - (bSource?.question_number ?? 0)
+}
+
+function compareVocabBySort(a: VocabCollectionItem, b: VocabCollectionItem, key: VocabSortKey) {
+  if (key === 'topic') return (a.topic || '기타').localeCompare(b.topic || '기타')
+  if (key === 'frequency') return b.frequency - a.frequency
+  if (key === 'word') return a.word.localeCompare(b.word)
+  if (key === 'source') return compareSourceLatest(a, b)
+  return 0
+}
+
 function VocabCollections() {
   const queryClient = useQueryClient()
   const currentYear = new Date().getFullYear()
@@ -459,7 +486,10 @@ function VocabCollections() {
   const [months, setMonths] = useState<number[]>([6, 9, 11])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [duplicateCollection, setDuplicateCollection] = useState<VocabCollection | null>(null)
-  const [viewMode, setViewMode] = useState<'topic' | 'frequent' | 'related' | 'source'>('topic')
+  const [topicFilter, setTopicFilter] = useState('all')
+  const [relatedFilter, setRelatedFilter] = useState<'all' | 'with' | 'without'>('all')
+  const [minFrequency, setMinFrequency] = useState('1')
+  const [sortRules, setSortRules] = useState<VocabSortKey[]>(DEFAULT_VOCAB_SORTS)
 
   const { data: collections, isLoading } = useQuery<VocabCollection[]>({
     queryKey: ['vocab-collections'],
@@ -554,50 +584,45 @@ function VocabCollections() {
   }
 
   const selectedCollection = detail ?? null
-  const displayedItems = useMemo(() => {
-    const items = [...(selectedCollection?.items ?? [])]
-    if (viewMode === 'frequent') {
-      return items.sort((a, b) => b.frequency - a.frequency || a.word.localeCompare(b.word))
-    }
-    if (viewMode === 'topic') {
-      return items.sort((a, b) => a.topic.localeCompare(b.topic) || b.frequency - a.frequency || a.word.localeCompare(b.word))
-    }
-    if (viewMode === 'related') {
-      return items
-        .filter(hasRelatedWords)
-        .sort((a, b) => b.frequency - a.frequency || a.word.localeCompare(b.word))
-    }
-    if (viewMode === 'source') {
-      return items.sort((a, b) => {
-        const aSource = a.sources[0]
-        const bSource = b.sources[0]
-        return (bSource?.year ?? 0) - (aSource?.year ?? 0)
-          || (bSource?.month ?? 0) - (aSource?.month ?? 0)
-          || (aSource?.question_number ?? 0) - (bSource?.question_number ?? 0)
-          || a.word.localeCompare(b.word)
-      })
-    }
-    return items.sort((a, b) => b.frequency - a.frequency || a.word.localeCompare(b.word))
-  }, [selectedCollection, viewMode])
-
-  const displaySections = useMemo(() => {
-    if (viewMode !== 'topic') {
-      const title = viewMode === 'frequent' ? '빈출순'
-        : viewMode === 'related' ? '관련어 묶음'
-          : '출처 최신순'
-      return [{ title, items: displayedItems }]
-    }
-
-    const groups = new Map<string, VocabCollectionItem[]>()
-    for (const item of displayedItems) {
+  const topicOptions = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const item of selectedCollection?.items ?? []) {
       const topic = item.topic || '기타'
-      groups.set(topic, [...(groups.get(topic) ?? []), item])
+      counts.set(topic, (counts.get(topic) ?? 0) + 1)
     }
+    return [...counts.entries()]
+      .map(([topic, count]) => ({ topic, count }))
+      .sort((a, b) => b.count - a.count || a.topic.localeCompare(b.topic))
+  }, [selectedCollection])
 
-    return [...groups.entries()]
-      .map(([title, items]) => ({ title, items }))
-      .sort((a, b) => b.items.length - a.items.length || a.title.localeCompare(b.title))
-  }, [displayedItems, viewMode])
+  const displayedItems = useMemo(() => {
+    const minimum = Math.max(1, Number(minFrequency) || 1)
+    return [...(selectedCollection?.items ?? [])]
+      .filter((item) => topicFilter === 'all' || (item.topic || '기타') === topicFilter)
+      .filter((item) => item.frequency >= minimum)
+      .filter((item) => {
+        if (relatedFilter === 'with') return hasRelatedWords(item)
+        if (relatedFilter === 'without') return !hasRelatedWords(item)
+        return true
+      })
+      .sort((a, b) => {
+        for (const rule of sortRules) {
+          const result = compareVocabBySort(a, b, rule)
+          if (result !== 0) return result
+        }
+        return a.word.localeCompare(b.word)
+      })
+  }, [minFrequency, relatedFilter, selectedCollection, sortRules, topicFilter])
+
+  const updateSortRule = (index: number, value: VocabSortKey) => {
+    setSortRules((current) => current.map((rule, i) => (i === index ? value : rule)))
+  }
+
+  useEffect(() => {
+    if (topicFilter !== 'all' && !topicOptions.some((option) => option.topic === topicFilter)) {
+      setTopicFilter('all')
+    }
+  }, [topicFilter, topicOptions])
 
   return (
     <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
@@ -733,30 +758,14 @@ function VocabCollections() {
                 <h2 className="truncate text-base font-bold text-gray-900">{selectedCollection.title}</h2>
                 <p className="mt-0.5 text-xs text-gray-400">
                   {selectedCollection.year_from}-{selectedCollection.year_to}년 · {selectedCollection.months.map((m) => m === 11 ? '수능' : `${m}월`).join(', ')}
+                  <span className="mx-1.5">·</span>
+                  {displayedItems.length}/{selectedCollection.items.length}개 표시
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <div className="hidden rounded-lg bg-gray-50 p-1 sm:flex">
-                  {[
-                    ['topic', '주제'],
-                    ['frequent', '빈출'],
-                    ['related', '관련어 묶음'],
-                    ['source', '출처'],
-                  ].map(([value, label]) => (
-                    <button
-                      key={value}
-                      onClick={() => setViewMode(value as typeof viewMode)}
-                      className={`h-7 rounded-md px-2 text-xs font-medium transition-colors ${
-                        viewMode === value ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <Button variant="outline" size="sm" onClick={() => downloadVocabCsv(selectedCollection)}>
+                <Button variant="outline" size="sm" onClick={() => downloadVocabCsv(selectedCollection, displayedItems)}>
                   <Download className="mr-2 h-4 w-4" />
-                  CSV
+                  현재 정렬 CSV
                 </Button>
               </div>
             </div>
@@ -764,65 +773,118 @@ function VocabCollections() {
             {detailLoading ? (
               <div className="flex min-h-[320px] items-center justify-center text-sm text-gray-400">불러오는 중...</div>
             ) : (
-              <div className="max-h-[680px] overflow-auto">
-                <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2 text-xs text-gray-400 sm:hidden">
-                  <span>{displayedItems.length}개 표시</span>
-                  <Select value={viewMode} onValueChange={(value) => setViewMode(value as typeof viewMode)}>
-                    <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="topic">주제</SelectItem>
-                      <SelectItem value="frequent">빈출</SelectItem>
-                      <SelectItem value="related">관련어 묶음</SelectItem>
-                      <SelectItem value="source">출처</SelectItem>
-                    </SelectContent>
-                  </Select>
+              <div>
+                <div className="grid gap-3 border-b border-gray-100 bg-gray-50/60 px-4 py-3 lg:grid-cols-[1fr_1.4fr]">
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <div>
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">주제</p>
+                      <Select value={topicFilter} onValueChange={setTopicFilter}>
+                        <SelectTrigger className="h-8 bg-white text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">전체 주제</SelectItem>
+                          {topicOptions.map((option) => (
+                            <SelectItem key={option.topic} value={option.topic}>
+                              {option.topic} ({option.count})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">관련어</p>
+                      <Select value={relatedFilter} onValueChange={(value) => setRelatedFilter(value as typeof relatedFilter)}>
+                        <SelectTrigger className="h-8 bg-white text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">전체</SelectItem>
+                          <SelectItem value="with">관련어 있음</SelectItem>
+                          <SelectItem value="without">관련어 없음</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">최소 빈도</p>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={minFrequency}
+                        onChange={(e) => setMinFrequency(e.target.value)}
+                        className="h-8 bg-white text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">정렬 우선순위</p>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {sortRules.map((rule, index) => (
+                        <Select key={index} value={rule} onValueChange={(value) => updateSortRule(index, value as VocabSortKey)}>
+                          <SelectTrigger className="h-8 bg-white text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {VOCAB_SORT_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {index + 1}순위 · {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ))}
+                    </div>
+                  </div>
                 </div>
+
+                <div className="max-h-[620px] overflow-auto">
                 {displayedItems.length === 0 ? (
                   <div className="px-3 py-16 text-center text-sm text-gray-400">
                     표시할 단어가 없습니다.
                   </div>
                 ) : (
-                  <div>
-                    {displaySections.map((section) => (
-                      <section key={section.title} className="border-b border-gray-100 last:border-b-0">
-                        <div className="sticky top-0 z-10 flex items-center justify-between bg-gray-50 px-4 py-2">
-                          <h3 className="text-xs font-bold text-gray-700">{section.title}</h3>
-                          <span className="text-[11px] text-gray-400">{section.items.length}개</span>
-                        </div>
-                        <div className="divide-y divide-gray-100">
-                          {section.items.map((item, index) => {
-                            const synonyms = listOrEmpty(item.synonyms)
-                            const antonyms = listOrEmpty(item.antonyms)
-                            const similarWords = listOrEmpty(item.similar_words)
-                            const rank = viewMode === 'topic' ? index + 1 : displayedItems.indexOf(item) + 1
-                            return (
-                              <div key={item.id} className="grid gap-3 px-4 py-3 text-sm sm:grid-cols-[40px_minmax(160px,1.2fr)_minmax(240px,2fr)_120px]">
-                                <div className="text-xs font-medium text-gray-300">{rank}</div>
-                                <div>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="font-bold text-gray-950">{item.word}</span>
-                                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{item.frequency}회</span>
-                                  </div>
-                                  <p className="mt-1 text-gray-600">{item.meaning}</p>
-                                </div>
-                                <div className="space-y-1 text-xs leading-5 text-gray-500">
-                                  {synonyms.length > 0 && <p><span className="font-semibold text-gray-400">유의</span> {synonyms.join(' / ')}</p>}
-                                  {antonyms.length > 0 && <p><span className="font-semibold text-gray-400">반의</span> {antonyms.join(' / ')}</p>}
-                                  {similarWords.length > 0 && <p><span className="font-semibold text-gray-400">유사</span> {similarWords.join(' / ')}</p>}
-                                  {!synonyms.length && !antonyms.length && !similarWords.length ? <p className="text-gray-300">관련어 없음</p> : null}
-                                </div>
-                                <div className="text-xs leading-5 text-gray-400">
-                                  {item.sources.slice(0, 3).map(sourceLabel).join(' / ')}
-                                  {item.sources.length > 3 ? ` 외 ${item.sources.length - 3}` : ''}
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </section>
-                    ))}
-                  </div>
+                  <table className="w-full min-w-[980px] text-left text-sm">
+                    <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_rgba(15,23,42,0.06)]">
+                      <tr className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                        <th className="w-12 px-4 py-2">No</th>
+                        <th className="w-44 px-3 py-2">단어</th>
+                        <th className="w-20 px-3 py-2">빈도</th>
+                        <th className="w-32 px-3 py-2">주제</th>
+                        <th className="min-w-52 px-3 py-2">뜻</th>
+                        <th className="min-w-64 px-3 py-2">유의/반의/유사</th>
+                        <th className="min-w-48 px-3 py-2">출처</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {displayedItems.map((item, index) => {
+                        const synonyms = listOrEmpty(item.synonyms)
+                        const antonyms = listOrEmpty(item.antonyms)
+                        const similarWords = listOrEmpty(item.similar_words)
+                        return (
+                          <tr key={item.id} className="align-top hover:bg-blue-50/30">
+                            <td className="px-4 py-3 text-xs font-medium text-gray-300">{index + 1}</td>
+                            <td className="px-3 py-3">
+                              <p className="font-bold text-gray-950">{item.word}</p>
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{item.frequency}회</span>
+                            </td>
+                            <td className="px-3 py-3 text-xs text-gray-500">{item.topic || '기타'}</td>
+                            <td className="px-3 py-3 text-gray-600">{item.meaning}</td>
+                            <td className="space-y-1 px-3 py-3 text-xs leading-5 text-gray-500">
+                              {synonyms.length > 0 && <p><span className="font-semibold text-gray-400">유의</span> {synonyms.join(' / ')}</p>}
+                              {antonyms.length > 0 && <p><span className="font-semibold text-gray-400">반의</span> {antonyms.join(' / ')}</p>}
+                              {similarWords.length > 0 && <p><span className="font-semibold text-gray-400">유사</span> {similarWords.join(' / ')}</p>}
+                              {!synonyms.length && !antonyms.length && !similarWords.length ? <p className="text-gray-300">관련어 없음</p> : null}
+                            </td>
+                            <td className="px-3 py-3 text-xs leading-5 text-gray-400">
+                              {item.sources.slice(0, 3).map(sourceLabel).join(' / ')}
+                              {item.sources.length > 3 ? ` 외 ${item.sources.length - 3}` : ''}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 )}
+                </div>
               </div>
             )}
           </>
