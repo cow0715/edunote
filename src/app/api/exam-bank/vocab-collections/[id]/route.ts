@@ -13,6 +13,10 @@ type VocabCollectionItemRow = {
   sort_order: number
 }
 
+function asStringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
+}
+
 async function fetchCollectionItems(
   supabase: Awaited<ReturnType<typeof getAuth>>['supabase'],
   collectionId: string,
@@ -56,7 +60,13 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (collectionError || !collection) return err('단어장을 찾을 수 없습니다', 404)
 
   try {
-    const items = await fetchCollectionItems(supabase, id)
+    const items = (await fetchCollectionItems(supabase, id)).map((item) => ({
+      ...item,
+      synonyms: asStringArray(item.synonyms),
+      antonyms: asStringArray(item.antonyms),
+      similar_words: asStringArray(item.similar_words),
+      sources: Array.isArray(item.sources) ? item.sources : [],
+    }))
     return ok({ ...collection, items })
   } catch (error) {
     return err(error instanceof Error ? error.message : '단어장 항목 조회 실패', 500)
