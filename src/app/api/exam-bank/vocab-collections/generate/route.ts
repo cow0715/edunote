@@ -75,6 +75,33 @@ function chunkRows<T>(rows: T[], size: number) {
   return chunks
 }
 
+async function fetchQuestionVocabulary(
+  supabase: Awaited<ReturnType<typeof getAuth>>['supabase'],
+  questionIds: string[],
+) {
+  const rows: VocabRow[] = []
+
+  for (const ids of chunkRows(questionIds, 200)) {
+    let from = 0
+    const pageSize = 1000
+
+    while (true) {
+      const { data, error } = await supabase
+        .from('exam_bank_question_vocab')
+        .select('question_id, word, normalized_word, meaning, topic, synonyms, antonyms, similar_words')
+        .in('question_id', ids)
+        .range(from, from + pageSize - 1)
+
+      if (error) throw new Error(error.message)
+      rows.push(...((data ?? []) as VocabRow[]))
+      if (!data || data.length < pageSize) break
+      from += pageSize
+    }
+  }
+
+  return rows
+}
+
 export async function POST(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
@@ -142,13 +169,12 @@ export async function POST(request: Request) {
   const questionMap = new Map(questionRows.map((question) => [question.id, question]))
 
   const questionIds = questionRows.map((question) => question.id)
-  const { data: vocabRowsRaw, error: vocabError } = await supabase
-    .from('exam_bank_question_vocab')
-    .select('question_id, word, normalized_word, meaning, topic, synonyms, antonyms, similar_words')
-    .in('question_id', questionIds)
-
-  if (vocabError) return err(vocabError.message, 500)
-  const vocabRows = (vocabRowsRaw ?? []) as VocabRow[]
+  let vocabRows: VocabRow[]
+  try {
+    vocabRows = await fetchQuestionVocabulary(supabase, questionIds)
+  } catch (error) {
+    return err(error instanceof Error ? error.message : '어휘 조회 실패', 500)
+  }
   if (vocabRows.length === 0) {
     return err('구조화된 어휘가 없습니다. 먼저 어휘 데이터 백필을 실행해주세요.', 422)
   }
