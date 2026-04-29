@@ -1,5 +1,43 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 
+type VocabCollectionItemRow = {
+  id: string
+  word: string
+  meaning: string
+  frequency: number
+  topic: string
+  synonyms: string[]
+  antonyms: string[]
+  similar_words: string[]
+  sources: unknown
+  sort_order: number
+}
+
+async function fetchCollectionItems(
+  supabase: Awaited<ReturnType<typeof getAuth>>['supabase'],
+  collectionId: string,
+) {
+  const rows: VocabCollectionItemRow[] = []
+  let from = 0
+  const pageSize = 1000
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('vocab_collection_item')
+      .select('id, word, meaning, frequency, topic, synonyms, antonyms, similar_words, sources, sort_order')
+      .eq('collection_id', collectionId)
+      .order('sort_order', { ascending: true })
+      .range(from, from + pageSize - 1)
+
+    if (error) throw new Error(error.message)
+    rows.push(...((data ?? []) as VocabCollectionItemRow[]))
+    if (!data || data.length < pageSize) break
+    from += pageSize
+  }
+
+  return rows
+}
+
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
@@ -17,14 +55,12 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   if (collectionError || !collection) return err('단어장을 찾을 수 없습니다', 404)
 
-  const { data: items, error: itemError } = await supabase
-    .from('vocab_collection_item')
-    .select('id, word, meaning, frequency, topic, synonyms, antonyms, similar_words, sources, sort_order')
-    .eq('collection_id', id)
-    .order('sort_order', { ascending: true })
-
-  if (itemError) return err(itemError.message, 500)
-  return ok({ ...collection, items: items ?? [] })
+  try {
+    const items = await fetchCollectionItems(supabase, id)
+    return ok({ ...collection, items })
+  } catch (error) {
+    return err(error instanceof Error ? error.message : '단어장 항목 조회 실패', 500)
+  }
 }
 
 export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
