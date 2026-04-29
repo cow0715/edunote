@@ -1,5 +1,6 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { parseExamVocabulary } from '@/lib/exam-vocabulary'
+import { getOrCreateVocabEnrichments } from '@/lib/vocab-enrichment'
 
 export const maxDuration = 60
 
@@ -42,12 +43,14 @@ type SourceRef = {
 
 type VocabBucket = {
   word: string
+  normalized_word: string
   meanings: Map<string, number>
   questionIds: Set<string>
   sources: SourceRef[]
   topicCounts: Map<string, number>
   synonyms: Set<string>
   antonyms: Set<string>
+  similarWords: Set<string>
 }
 
 function topValue(counts: Map<string, number>) {
@@ -157,12 +160,14 @@ export async function POST(request: Request) {
 
     const bucket = buckets.get(vocab.normalized_word) ?? {
       word: vocab.word,
+      normalized_word: vocab.normalized_word,
       meanings: new Map<string, number>(),
       questionIds: new Set<string>(),
       sources: [],
       topicCounts: new Map<string, number>(),
       synonyms: new Set<string>(),
       antonyms: new Set<string>(),
+      similarWords: new Set<string>(),
     }
 
     bucket.meanings.set(vocab.meaning, (bucket.meanings.get(vocab.meaning) ?? 0) + 1)
@@ -185,11 +190,13 @@ export async function POST(request: Request) {
   const items = [...buckets.values()]
     .map((bucket) => ({
       word: bucket.word,
+      normalized_word: bucket.normalized_word,
       meaning: topMeanings(bucket.meanings),
       frequency: bucket.questionIds.size,
       topic: topValue(bucket.topicCounts) || '기타',
       synonyms: [...bucket.synonyms],
       antonyms: [...bucket.antonyms],
+      similar_words: [...bucket.similarWords],
       sources: bucket.sources
         .sort((a, b) => b.year - a.year || b.month - a.month || a.question_number - b.question_number)
         .slice(0, 20),
@@ -198,6 +205,32 @@ export async function POST(request: Request) {
     .sort((a, b) => b.frequency - a.frequency || a.topic.localeCompare(b.topic) || a.word.localeCompare(b.word))
 
   if (items.length === 0) return err('추출할 어휘가 없습니다. 해설의 Words & Phrases를 먼저 채워주세요.', 422)
+
+  let enrichedCount = 0
+  try {
+    const enrichments = await getOrCreateVocabEnrichments(
+      supabase,
+      items.map((item) => ({
+        word: item.word,
+        normalized_word: item.normalized_word,
+        meaning: item.meaning,
+        topic: item.topic,
+      })),
+      { generateLimit: 120, batchSize: 40 },
+    )
+
+    for (const item of items) {
+      const enrichment = enrichments.get(item.normalized_word)
+      if (!enrichment) continue
+      item.topic = enrichment.topic || item.topic
+      item.synonyms = enrichment.synonyms ?? []
+      item.antonyms = enrichment.antonyms ?? []
+      item.similar_words = enrichment.similar_words ?? []
+      enrichedCount += 1
+    }
+  } catch (error) {
+    console.warn('[vocab-collections/generate] enrichment skipped:', error)
+  }
 
   const { data: collection, error: collectionError } = await supabase
     .from('vocab_collection')
@@ -217,7 +250,14 @@ export async function POST(request: Request) {
 
   const rows = items.map((item, index) => ({
     collection_id: collection.id,
-    ...item,
+    word: item.word,
+    meaning: item.meaning,
+    frequency: item.frequency,
+    topic: item.topic,
+    synonyms: item.synonyms,
+    antonyms: item.antonyms,
+    similar_words: item.similar_words,
+    sources: item.sources,
     sort_order: index + 1,
   }))
 
@@ -229,5 +269,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return ok({ id: collection.id, item_count: items.length, title })
+  return ok({ id: collection.id, item_count: items.length, enriched_count: enrichedCount, title })
 }

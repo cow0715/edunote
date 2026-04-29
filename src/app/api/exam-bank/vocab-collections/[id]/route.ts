@@ -19,7 +19,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   const { data: items, error: itemError } = await supabase
     .from('vocab_collection_item')
-    .select('id, word, meaning, frequency, topic, synonyms, antonyms, sources, sort_order')
+    .select('id, word, meaning, frequency, topic, synonyms, antonyms, similar_words, sources, sort_order')
     .eq('collection_id', id)
     .order('sort_order', { ascending: true })
 
