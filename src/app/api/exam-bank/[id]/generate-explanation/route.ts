@@ -1,6 +1,7 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { generateExplanations, QuestionForExplanation } from '@/lib/anthropic'
+import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
 
 export const maxDuration = 300
 
@@ -64,6 +65,7 @@ export async function POST(
       choices: Array.isArray(r.choices) ? r.choices.map(String) : [],
       answer: r.answer ?? '',
     }))
+  const questionMeta = new Map(rows.map((r) => [r.question_number, r]))
 
   if (targets.length === 0) {
     return err('AI 생성 대상 문항이 없습니다', 422)
@@ -90,7 +92,13 @@ export async function POST(
       .eq('exam_bank_id', id)
       .eq('question_number', g.question_number)
 
-    if (!error) updated++
+    if (!error) {
+      const question = questionMeta.get(g.question_number)
+      if (question) {
+        await syncExamQuestionVocabulary(serviceClient, question.id, g.vocabulary, undefined, question.passage ?? '')
+      }
+      updated++
+    }
   }
 
   return ok({ updated, total: targets.length, mode: hakpyung ? 'hakpyung' : 'standard' })

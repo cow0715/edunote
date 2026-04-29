@@ -29,7 +29,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2, BookOpen, ChevronRight, Sparkles, FolderOpen, CheckCircle2, XCircle, Circle } from 'lucide-react'
+import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2, BookOpen, ChevronRight, Sparkles, FolderOpen, CheckCircle2, XCircle, Circle, Download } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -77,6 +77,41 @@ type ExamBankQuestion = {
     grade: number
     source: string
   }
+}
+
+type VocabSource = {
+  year: number
+  month: number
+  grade: number
+  source: string
+  question_number: number
+}
+
+type VocabCollection = {
+  id: string
+  title: string
+  grade: number
+  year_from: number
+  year_to: number
+  months: number[]
+  item_count: number
+  created_at: string
+}
+
+type VocabCollectionItem = {
+  id: string
+  word: string
+  meaning: string
+  frequency: number
+  topic: string
+  synonyms: string[]
+  antonyms: string[]
+  sources: VocabSource[]
+  sort_order: number
+}
+
+type VocabCollectionDetail = VocabCollection & {
+  items: VocabCollectionItem[]
 }
 
 // ── 마크다운 인라인 렌더러 ────────────────────────────────────────────────
@@ -287,6 +322,7 @@ export default function ExamBankPage() {
         <TabsList>
           <TabsTrigger value="list">시험 목록</TabsTrigger>
           <TabsTrigger value="search">문제 검색</TabsTrigger>
+          <TabsTrigger value="vocab">단어장</TabsTrigger>
         </TabsList>
 
         <TabsContent value="list" className="mt-4">
@@ -295,6 +331,10 @@ export default function ExamBankPage() {
 
         <TabsContent value="search" className="mt-4">
           <QuestionSearch />
+        </TabsContent>
+
+        <TabsContent value="vocab" className="mt-4">
+          <VocabCollections />
         </TabsContent>
       </Tabs>
 
@@ -339,6 +379,259 @@ function FetchStatsButton({ examId, formType }: { examId: string; formType: stri
     >
       {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart2 className="h-4 w-4" />}
     </Button>
+  )
+}
+
+// ── 기출 단어장 ───────────────────────────────────────────────────────────
+
+function csvCell(value: string | number) {
+  const text = String(value ?? '')
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+function sourceLabel(source: VocabSource) {
+  return `${source.year}년 ${source.month}월 ${source.source} ${source.question_number}번`
+}
+
+function downloadVocabCsv(collection: VocabCollectionDetail) {
+  const header = ['번호', '단어', '뜻', '빈도', '주제', '유의어', '반의어', '출처']
+  const rows = collection.items.map((item, index) => [
+    index + 1,
+    item.word,
+    item.meaning,
+    item.frequency,
+    item.topic,
+    item.synonyms.join(' / '),
+    item.antonyms.join(' / '),
+    item.sources.map(sourceLabel).join(' / '),
+  ])
+  const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${collection.title}.csv`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+function VocabCollections() {
+  const queryClient = useQueryClient()
+  const currentYear = new Date().getFullYear()
+  const defaultYearTo = currentYear - 1
+  const [yearFrom, setYearFrom] = useState(String(defaultYearTo - 4))
+  const [yearTo, setYearTo] = useState(String(defaultYearTo))
+  const [months, setMonths] = useState<number[]>([6, 9, 11])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  const { data: collections, isLoading } = useQuery<VocabCollection[]>({
+    queryKey: ['vocab-collections'],
+    queryFn: () => fetch('/api/exam-bank/vocab-collections').then((r) => r.json()),
+  })
+
+  const { data: examsForYears } = useQuery<ExamBank[]>({
+    queryKey: ['exam-bank'],
+    queryFn: () => fetch('/api/exam-bank').then((r) => r.json()),
+  })
+
+  const { data: detail, isFetching: detailLoading } = useQuery<VocabCollectionDetail>({
+    queryKey: ['vocab-collection', selectedId],
+    queryFn: () => fetch(`/api/exam-bank/vocab-collections/${selectedId}`).then((r) => r.json()),
+    enabled: !!selectedId,
+  })
+
+  const generateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/exam-bank/vocab-collections/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          year_from: Number(yearFrom),
+          year_to: Number(yearTo),
+          grade: 3,
+          months,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? '단어장 생성 실패')
+      return data as { id: string; title: string; item_count: number }
+    },
+    onSuccess: (data) => {
+      toast.success(`단어장 생성 완료 (${data.item_count}개)`)
+      setSelectedId(data.id)
+      queryClient.invalidateQueries({ queryKey: ['vocab-collections'] })
+      queryClient.invalidateQueries({ queryKey: ['vocab-collection', data.id] })
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : '단어장 생성 실패')
+    },
+  })
+
+  const yearOptions = useMemo(() => {
+    const years = new Set<number>([currentYear, defaultYearTo])
+    for (const exam of examsForYears ?? []) {
+      if (Number.isFinite(exam.exam_year)) years.add(exam.exam_year)
+    }
+    for (const value of [yearFrom, yearTo]) {
+      const year = Number(value)
+      if (Number.isFinite(year) && year > 0) years.add(year)
+    }
+    const min = Math.min(...years)
+    const max = Math.max(...years)
+    return Array.from({ length: max - min + 1 }, (_, i) => max - i)
+  }, [currentYear, defaultYearTo, examsForYears, yearFrom, yearTo])
+
+  const toggleMonth = (month: number) => {
+    setMonths((prev) => prev.includes(month)
+      ? prev.filter((m) => m !== month)
+      : [...prev, month].sort((a, b) => a - b))
+  }
+
+  const selectedCollection = detail ?? null
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+      <div className="space-y-3">
+        <div className="rounded-2xl bg-white p-4 shadow-[0px_4px_24px_rgba(0,75,198,0.06)] border border-gray-100/80">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-900">기출 어휘 생성</h2>
+            <BookOpen className="h-4 w-4 text-blue-600" />
+          </div>
+
+          <div className="mt-4 space-y-3">
+            <div>
+              <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">시행년</p>
+              <div className="flex items-center gap-1">
+                <Select value={yearFrom} onValueChange={setYearFrom}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {yearOptions.map((year) => <SelectItem key={year} value={String(year)}>{year}년</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <span className="text-xs text-gray-300">~</span>
+                <Select value={yearTo} onValueChange={setYearTo}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {yearOptions.map((year) => <SelectItem key={year} value={String(year)}>{year}년</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-[11px] font-medium text-gray-400 uppercase tracking-wide">시험</p>
+              <div className="grid grid-cols-3 gap-2">
+                {[6, 9, 11].map((month) => (
+                  <label key={month} className="flex h-9 items-center justify-center gap-1.5 rounded-lg bg-gray-50 text-xs font-medium text-gray-600">
+                    <Checkbox checked={months.includes(month)} onCheckedChange={() => toggleMonth(month)} />
+                    {month === 11 ? '수능' : `${month}월`}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <Button
+              className="w-full"
+              onClick={() => generateMutation.mutate()}
+              disabled={generateMutation.isPending || months.length === 0}
+            >
+              {generateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+              단어장 생성
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-white p-2 shadow-[0px_4px_24px_rgba(0,75,198,0.06)] border border-gray-100/80">
+          {isLoading ? (
+            <p className="px-3 py-6 text-sm text-gray-400">단어장을 불러오는 중...</p>
+          ) : !collections?.length ? (
+            <p className="px-3 py-6 text-sm text-gray-400">생성된 단어장이 없습니다.</p>
+          ) : (
+            <div className="space-y-1">
+              {collections.map((collection) => (
+                <button
+                  key={collection.id}
+                  onClick={() => setSelectedId(collection.id)}
+                  className={`w-full rounded-xl px-3 py-2 text-left transition-colors ${
+                    selectedId === collection.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
+                  }`}
+                >
+                  <p className="truncate text-sm font-semibold">{collection.title}</p>
+                  <p className="mt-0.5 text-xs text-gray-400">
+                    {collection.year_from}-{collection.year_to}년 · {collection.item_count}개
+                  </p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-white shadow-[0px_4px_24px_rgba(0,75,198,0.06)] border border-gray-100/80 overflow-hidden">
+        {!selectedCollection ? (
+          <div className="flex min-h-[360px] items-center justify-center text-sm text-gray-400">
+            단어장을 선택하거나 새로 생성하세요.
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-bold text-gray-900">{selectedCollection.title}</h2>
+                <p className="mt-0.5 text-xs text-gray-400">
+                  {selectedCollection.year_from}-{selectedCollection.year_to}년 · {selectedCollection.months.map((m) => m === 11 ? '수능' : `${m}월`).join(', ')}
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => downloadVocabCsv(selectedCollection)}>
+                <Download className="mr-2 h-4 w-4" />
+                CSV
+              </Button>
+            </div>
+
+            {detailLoading ? (
+              <div className="flex min-h-[320px] items-center justify-center text-sm text-gray-400">불러오는 중...</div>
+            ) : (
+              <div className="max-h-[680px] overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-gray-50 text-xs text-gray-400">
+                    <tr>
+                      <th className="w-12 px-3 py-2 text-left font-medium">#</th>
+                      <th className="px-3 py-2 text-left font-medium">단어</th>
+                      <th className="px-3 py-2 text-left font-medium">뜻</th>
+                      <th className="w-20 px-3 py-2 text-center font-medium">빈도</th>
+                      <th className="w-28 px-3 py-2 text-left font-medium">주제</th>
+                      <th className="px-3 py-2 text-left font-medium">유의/반의</th>
+                      <th className="px-3 py-2 text-left font-medium">출처</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {selectedCollection.items.map((item, index) => (
+                      <tr key={item.id} className="align-top">
+                        <td className="px-3 py-2 text-xs text-gray-400">{index + 1}</td>
+                        <td className="px-3 py-2 font-semibold text-gray-900">{item.word}</td>
+                        <td className="px-3 py-2 text-gray-600">{item.meaning}</td>
+                        <td className="px-3 py-2 text-center font-semibold text-blue-600">{item.frequency}</td>
+                        <td className="px-3 py-2 text-xs text-gray-500">{item.topic}</td>
+                        <td className="px-3 py-2 text-xs leading-5 text-gray-500">
+                          {item.synonyms.length > 0 && <p>유의: {item.synonyms.join(' / ')}</p>}
+                          {item.antonyms.length > 0 && <p>반의: {item.antonyms.join(' / ')}</p>}
+                          {item.synonyms.length === 0 && item.antonyms.length === 0 ? '-' : null}
+                        </td>
+                        <td className="px-3 py-2 text-xs leading-5 text-gray-400">
+                          {item.sources.slice(0, 4).map(sourceLabel).join(' / ')}
+                          {item.sources.length > 4 ? ` 외 ${item.sources.length - 4}` : ''}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   )
 }
 

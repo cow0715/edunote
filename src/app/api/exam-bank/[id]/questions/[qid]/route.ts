@@ -1,4 +1,5 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
+import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
 
 // 소유권 확인 헬퍼
 async function verifyOwner(
@@ -17,7 +18,7 @@ async function verifyOwner(
 
   const { data: question } = await supabase
     .from('exam_bank_question')
-    .select('id')
+    .select('id, question_type, passage')
     .eq('id', qid)
     .eq('exam_bank_id', examId)
     .single()
@@ -72,6 +73,15 @@ export async function PATCH(
     .single()
 
   if (error) return err(error.message)
+  if (isExplanationUpdate) {
+    await syncExamQuestionVocabulary(
+      supabase,
+      qid,
+      explanation_vocabulary,
+      data.question_type ?? question.question_type,
+      data.passage ?? question.passage,
+    )
+  }
   return ok(data)
 }
 
