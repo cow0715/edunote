@@ -51,6 +51,12 @@ type VocabBucket = {
   similarWords: Set<string>
 }
 
+function sameMonths(a: number[] | null | undefined, b: number[]) {
+  const aa = [...(a ?? [])].map(Number).sort((x, y) => x - y)
+  const bb = [...b].map(Number).sort((x, y) => x - y)
+  return aa.length === bb.length && aa.every((value, index) => value === bb[index])
+}
+
 function topValue(counts: Map<string, number>) {
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? ''
 }
@@ -76,23 +82,39 @@ export async function POST(request: Request) {
   const teacherId = await getTeacherId(supabase, user.id)
   if (!teacherId) return err('선생님 정보 없음', 403)
 
-  const body = await request.json().catch(() => ({}))
+  const body = await request.json().catch(() => ({})) as Record<string, unknown>
   const currentYear = new Date().getFullYear()
   const yearTo = Number(body.year_to ?? currentYear - 1)
   const yearFrom = Number(body.year_from ?? yearTo - 4)
   const grade = Number(body.grade ?? 3)
-  const months = Array.isArray(body.months) && body.months.length > 0
-    ? body.months.map(Number).filter((m: number) => Number.isFinite(m))
+  const months: number[] = Array.isArray(body.months) && body.months.length > 0
+    ? body.months.map(Number).filter((m) => Number.isFinite(m))
     : [6, 9, 11]
+  const sortedMonths = [...new Set(months)].sort((a, b) => a - b)
+  const forceRegenerate = body.force_regenerate === true
 
   if (!Number.isFinite(yearFrom) || !Number.isFinite(yearTo) || yearFrom > yearTo) {
     return err('연도 범위를 확인해주세요')
   }
-  if (!months.length) return err('월 범위를 확인해주세요')
+  if (!sortedMonths.length) return err('월 범위를 확인해주세요')
 
   const title = typeof body.title === 'string' && body.title.trim()
     ? body.title.trim()
     : `${yearFrom}-${yearTo}년 6·9·수능 기출 어휘`
+
+  const { data: existingCollections, error: existingError } = await supabase
+    .from('vocab_collection')
+    .select('id, title, grade, year_from, year_to, months, item_count, created_at')
+    .eq('teacher_id', teacherId)
+    .eq('grade', grade)
+    .eq('year_from', yearFrom)
+    .eq('year_to', yearTo)
+
+  if (existingError) return err(existingError.message, 500)
+  const existingCollection = (existingCollections ?? []).find((collection) => sameMonths(collection.months as number[], sortedMonths))
+  if (existingCollection && !forceRegenerate) {
+    return ok({ duplicate: true, existing: existingCollection })
+  }
 
   const { data: exams, error: examError } = await supabase
     .from('exam_bank')
@@ -101,7 +123,7 @@ export async function POST(request: Request) {
     .eq('grade', grade)
     .gte('exam_year', yearFrom)
     .lte('exam_year', yearTo)
-    .in('exam_month', months)
+    .in('exam_month', sortedMonths)
 
   if (examError) return err(examError.message, 500)
   const examRows = (exams ?? []) as ExamRow[]
@@ -187,6 +209,15 @@ export async function POST(request: Request) {
 
   if (items.length === 0) return err('추출할 어휘가 없습니다. 해설의 Words & Phrases를 먼저 채워주세요.', 422)
 
+  if (existingCollection && forceRegenerate) {
+    const { error: deleteError } = await supabase
+      .from('vocab_collection')
+      .delete()
+      .eq('id', existingCollection.id)
+      .eq('teacher_id', teacherId)
+    if (deleteError) return err(deleteError.message, 500)
+  }
+
   const { data: collection, error: collectionError } = await supabase
     .from('vocab_collection')
     .insert({
@@ -195,7 +226,7 @@ export async function POST(request: Request) {
       grade,
       year_from: yearFrom,
       year_to: yearTo,
-      months,
+      months: sortedMonths,
       item_count: items.length,
     })
     .select('id')

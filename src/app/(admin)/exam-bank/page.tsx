@@ -115,6 +115,10 @@ type VocabCollectionDetail = VocabCollection & {
   items: VocabCollectionItem[]
 }
 
+type GenerateVocabResult =
+  | { duplicate: true; existing: VocabCollection }
+  | { duplicate?: false; id: string; title: string; item_count: number }
+
 // ── 마크다운 인라인 렌더러 ────────────────────────────────────────────────
 // **bold**, *italic*, <u>underline</u>을 React 요소로 변환
 
@@ -443,6 +447,8 @@ function VocabCollections() {
   const [yearTo, setYearTo] = useState(String(defaultYearTo))
   const [months, setMonths] = useState<number[]>([6, 9, 11])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [duplicateCollection, setDuplicateCollection] = useState<VocabCollection | null>(null)
+  const [viewMode, setViewMode] = useState<'all' | 'frequent' | 'topic' | 'related'>('all')
 
   const { data: collections, isLoading } = useQuery<VocabCollection[]>({
     queryKey: ['vocab-collections'],
@@ -460,8 +466,12 @@ function VocabCollections() {
     enabled: !!selectedId,
   })
 
+  useEffect(() => {
+    setDuplicateCollection(null)
+  }, [yearFrom, yearTo, months])
+
   const generateMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ force = false }: { force?: boolean } = {}) => {
       const res = await fetch('/api/exam-bank/vocab-collections/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -470,13 +480,20 @@ function VocabCollections() {
           year_to: Number(yearTo),
           grade: 3,
           months,
+          force_regenerate: force,
         }),
       })
       if (!res.ok) throw new Error(await readApiError(res, '단어장 생성 실패'))
       const data = await res.json()
-      return data as { id: string; title: string; item_count: number }
+      return data as GenerateVocabResult
     },
     onSuccess: (data) => {
+      if (data.duplicate) {
+        setDuplicateCollection(data.existing)
+        toast.info('같은 조건의 단어장이 이미 있습니다')
+        return
+      }
+      setDuplicateCollection(null)
       toast.success(`단어장 생성 완료 (${data.item_count}개)`)
       setSelectedId(data.id)
       queryClient.invalidateQueries({ queryKey: ['vocab-collections'] })
@@ -508,6 +525,21 @@ function VocabCollections() {
   }
 
   const selectedCollection = detail ?? null
+  const displayedItems = useMemo(() => {
+    const items = [...(selectedCollection?.items ?? [])]
+    if (viewMode === 'frequent') {
+      return items.sort((a, b) => b.frequency - a.frequency || a.word.localeCompare(b.word))
+    }
+    if (viewMode === 'topic') {
+      return items.sort((a, b) => a.topic.localeCompare(b.topic) || b.frequency - a.frequency || a.word.localeCompare(b.word))
+    }
+    if (viewMode === 'related') {
+      return items
+        .filter((item) => item.synonyms.length > 0 || item.antonyms.length > 0 || item.similar_words.length > 0)
+        .sort((a, b) => b.frequency - a.frequency || a.word.localeCompare(b.word))
+    }
+    return items
+  }, [selectedCollection, viewMode])
 
   return (
     <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
@@ -552,12 +584,40 @@ function VocabCollections() {
 
             <Button
               className="w-full"
-              onClick={() => generateMutation.mutate()}
+              onClick={() => generateMutation.mutate({ force: false })}
               disabled={generateMutation.isPending || months.length === 0}
             >
               {generateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
               단어장 생성
             </Button>
+
+            {duplicateCollection && (
+              <div className="rounded-xl bg-blue-50 px-3 py-3 text-xs text-blue-700">
+                <p className="font-semibold">같은 조건의 단어장이 이미 있습니다.</p>
+                <p className="mt-1 text-blue-500">{duplicateCollection.title} · {duplicateCollection.item_count}개</p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 border-blue-200 bg-white text-xs text-blue-700 hover:bg-blue-50"
+                    onClick={() => {
+                      setSelectedId(duplicateCollection.id)
+                      setDuplicateCollection(null)
+                    }}
+                  >
+                    기존 열기
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => generateMutation.mutate({ force: true })}
+                    disabled={generateMutation.isPending}
+                  >
+                    재생성
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -601,16 +661,48 @@ function VocabCollections() {
                   {selectedCollection.year_from}-{selectedCollection.year_to}년 · {selectedCollection.months.map((m) => m === 11 ? '수능' : `${m}월`).join(', ')}
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => downloadVocabCsv(selectedCollection)}>
-                <Download className="mr-2 h-4 w-4" />
-                CSV
-              </Button>
+              <div className="flex items-center gap-2">
+                <div className="hidden rounded-lg bg-gray-50 p-1 sm:flex">
+                  {[
+                    ['all', '전체'],
+                    ['frequent', '빈출'],
+                    ['topic', '주제'],
+                    ['related', '관련어'],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      onClick={() => setViewMode(value as typeof viewMode)}
+                      className={`h-7 rounded-md px-2 text-xs font-medium transition-colors ${
+                        viewMode === value ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <Button variant="outline" size="sm" onClick={() => downloadVocabCsv(selectedCollection)}>
+                  <Download className="mr-2 h-4 w-4" />
+                  CSV
+                </Button>
+              </div>
             </div>
 
             {detailLoading ? (
               <div className="flex min-h-[320px] items-center justify-center text-sm text-gray-400">불러오는 중...</div>
             ) : (
               <div className="max-h-[680px] overflow-auto">
+                <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2 text-xs text-gray-400 sm:hidden">
+                  <span>{displayedItems.length}개 표시</span>
+                  <Select value={viewMode} onValueChange={(value) => setViewMode(value as typeof viewMode)}>
+                    <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">전체</SelectItem>
+                      <SelectItem value="frequent">빈출</SelectItem>
+                      <SelectItem value="topic">주제</SelectItem>
+                      <SelectItem value="related">관련어</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-gray-50 text-xs text-gray-400">
                     <tr>
@@ -624,7 +716,7 @@ function VocabCollections() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {selectedCollection.items.map((item, index) => (
+                    {displayedItems.map((item, index) => (
                       <tr key={item.id} className="align-top">
                         <td className="px-3 py-2 text-xs text-gray-400">{index + 1}</td>
                         <td className="px-3 py-2 font-semibold text-gray-900">{item.word}</td>
