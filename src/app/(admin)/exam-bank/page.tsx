@@ -504,6 +504,24 @@ function VocabCollections() {
     },
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/exam-bank/vocab-collections/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(await readApiError(res, '단어장 삭제 실패'))
+      return id
+    },
+    onSuccess: (id) => {
+      toast.success('단어장을 삭제했습니다')
+      if (selectedId === id) setSelectedId(null)
+      setDuplicateCollection((current) => current?.id === id ? null : current)
+      queryClient.invalidateQueries({ queryKey: ['vocab-collections'] })
+      queryClient.removeQueries({ queryKey: ['vocab-collection', id] })
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : '단어장 삭제 실패')
+    },
+  })
+
   const yearOptions = useMemo(() => {
     const years = new Set<number>([currentYear, defaultYearTo])
     for (const exam of examsForYears ?? []) {
@@ -629,18 +647,34 @@ function VocabCollections() {
           ) : (
             <div className="space-y-1">
               {collections.map((collection) => (
-                <button
+                <div
                   key={collection.id}
-                  onClick={() => setSelectedId(collection.id)}
                   className={`w-full rounded-xl px-3 py-2 text-left transition-colors ${
                     selectedId === collection.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
                   }`}
                 >
-                  <p className="truncate text-sm font-semibold">{collection.title}</p>
-                  <p className="mt-0.5 text-xs text-gray-400">
-                    {collection.year_from}-{collection.year_to}년 · {collection.item_count}개
-                  </p>
-                </button>
+                  <div className="flex items-start gap-2">
+                    <button className="min-w-0 flex-1 text-left" onClick={() => setSelectedId(collection.id)}>
+                      <p className="truncate text-sm font-semibold">{collection.title}</p>
+                      <p className="mt-0.5 text-xs text-gray-400">
+                        {collection.year_from}-{collection.year_to}년 · {collection.item_count}개
+                      </p>
+                    </button>
+                    <button
+                      className="mt-0.5 rounded-md p-1 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
+                      disabled={deleteMutation.isPending}
+                      title="단어장 삭제"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        if (window.confirm(`"${collection.title}" 단어장을 삭제할까요?`)) {
+                          deleteMutation.mutate(collection.id)
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
           )}
