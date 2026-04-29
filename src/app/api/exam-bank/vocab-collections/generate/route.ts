@@ -1,5 +1,5 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
-import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
+import { parseExamVocabulary } from '@/lib/exam-vocabulary'
 
 export const maxDuration = 60
 
@@ -62,6 +62,12 @@ function topMeanings(meanings: Map<string, number>) {
     .join(' / ')
 }
 
+function chunkRows<T>(rows: T[], size: number) {
+  const chunks: T[][] = []
+  for (let i = 0; i < rows.length; i += size) chunks.push(rows.slice(i, i + size))
+  return chunks
+}
+
 export async function POST(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
@@ -111,35 +117,36 @@ export async function POST(request: Request) {
   const questionRows = ((questions ?? []) as QuestionRow[]).filter((question) => question.explanation_vocabulary?.trim())
   if (questionRows.length === 0) return err('추출할 어휘가 없습니다. 해설의 Words & Phrases를 먼저 채워주세요.', 422)
 
-  const questionIds = questionRows.map((question) => question.id)
   const questionMap = new Map(questionRows.map((question) => [question.id, question]))
 
-  const { data: existingVocab, error: existingVocabError } = await supabase
-    .from('exam_bank_question_vocab')
-    .select('question_id')
-    .in('question_id', questionIds)
-
-  if (existingVocabError) return err(existingVocabError.message, 500)
-  const syncedQuestionIds = new Set((existingVocab ?? []).map((row) => row.question_id as string))
-
-  for (const question of questionRows) {
-    if (syncedQuestionIds.has(question.id)) continue
-    await syncExamQuestionVocabulary(
-      supabase,
-      question.id,
-      question.explanation_vocabulary,
-      question.question_type,
-      question.passage,
-    )
-  }
-
+  const questionIds = questionRows.map((question) => question.id)
   const { data: vocabRowsRaw, error: vocabError } = await supabase
     .from('exam_bank_question_vocab')
     .select('question_id, word, normalized_word, meaning, topic, synonyms, antonyms')
     .in('question_id', questionIds)
 
   if (vocabError) return err(vocabError.message, 500)
-  const vocabRows = (vocabRowsRaw ?? []) as VocabRow[]
+  const savedVocabRows = (vocabRowsRaw ?? []) as VocabRow[]
+  const savedQuestionIds = new Set(savedVocabRows.map((row) => row.question_id))
+  const vocabRows: VocabRow[] = [...savedVocabRows]
+
+  // Old questions may only have the legacy explanation_vocabulary string.
+  // Parse them inline for this collection instead of backfilling every question
+  // during the request, which can exceed Vercel function timeouts.
+  for (const question of questionRows) {
+    if (savedQuestionIds.has(question.id)) continue
+    for (const parsed of parseExamVocabulary(question.explanation_vocabulary, question.question_type, question.passage)) {
+      vocabRows.push({
+        question_id: question.id,
+        word: parsed.word,
+        normalized_word: parsed.normalized_word,
+        meaning: parsed.meaning,
+        topic: parsed.topic,
+        synonyms: [],
+        antonyms: [],
+      })
+    }
+  }
 
   const buckets = new Map<string, VocabBucket>()
   for (const vocab of vocabRows) {
@@ -214,10 +221,12 @@ export async function POST(request: Request) {
     sort_order: index + 1,
   }))
 
-  const { error: itemError } = await supabase.from('vocab_collection_item').insert(rows)
-  if (itemError) {
-    await supabase.from('vocab_collection').delete().eq('id', collection.id)
-    return err(itemError.message, 500)
+  for (const chunk of chunkRows(rows, 500)) {
+    const { error: itemError } = await supabase.from('vocab_collection_item').insert(chunk)
+    if (itemError) {
+      await supabase.from('vocab_collection').delete().eq('id', collection.id)
+      return err(itemError.message, 500)
+    }
   }
 
   return ok({ id: collection.id, item_count: items.length, title })
