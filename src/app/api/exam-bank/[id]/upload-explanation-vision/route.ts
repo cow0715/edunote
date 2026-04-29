@@ -2,6 +2,7 @@ import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parsePdfExplanationsWithClaude } from '@/lib/anthropic'
 import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
+import { enrichExamQuestionVocabulary } from '@/lib/vocab-enrichment'
 
 export const maxDuration = 300
 
@@ -67,6 +68,7 @@ export async function POST(
 
   // 문항번호 매칭하여 UPDATE
   let updated = 0
+  const normalizedWords = new Set<string>()
   for (const ex of explanations) {
     const { error } = await supabase
       .from('exam_bank_question')
@@ -82,11 +84,17 @@ export async function POST(
     if (!error) {
       const question = questionMap.get(ex.question_number)
       if (question) {
-        await syncExamQuestionVocabulary(supabase, question.id, ex.vocabulary, question.question_type, question.passage)
+        const synced = await syncExamQuestionVocabulary(supabase, question.id, ex.vocabulary, question.question_type, question.passage)
+        for (const word of synced.normalizedWords) normalizedWords.add(word)
       }
       updated++
     }
   }
 
-  return ok({ updated, total: explanations.length })
+  let enriched = { candidates: 0, generated: 0, updated: 0 }
+  if (normalizedWords.size > 0) {
+    enriched = await enrichExamQuestionVocabulary(supabase, { normalizedWords: [...normalizedWords], limit: 500, batchSize: 40 })
+  }
+
+  return ok({ updated, total: explanations.length, enriched })
 }

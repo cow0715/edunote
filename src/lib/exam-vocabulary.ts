@@ -162,6 +162,26 @@ export function parseExamVocabulary(
   return [...byKey.values()]
 }
 
+export function formatExamVocabulary(rows: ParsedExamVocabulary[]) {
+  return rows.map((row) => `${row.word} ${row.meaning}`).join('   ')
+}
+
+export function mergeExamVocabularyText(
+  existingText: string | null | undefined,
+  generatedText: string | null | undefined,
+  questionType?: string | null,
+  passage?: string | null,
+) {
+  const byWord = new Map<string, ParsedExamVocabulary>()
+  for (const row of parseExamVocabulary(existingText, questionType, passage)) {
+    byWord.set(row.normalized_word, row)
+  }
+  for (const row of parseExamVocabulary(generatedText, questionType, passage)) {
+    if (!byWord.has(row.normalized_word)) byWord.set(row.normalized_word, row)
+  }
+  return formatExamVocabulary([...byWord.values()])
+}
+
 export async function syncExamQuestionVocabulary(
   supabase: SupabaseServerClient,
   questionId: string,
@@ -172,7 +192,7 @@ export async function syncExamQuestionVocabulary(
   await supabase.from('exam_bank_question_vocab').delete().eq('question_id', questionId)
 
   const rows = parseExamVocabulary(vocabularyText, questionType, passage)
-  if (rows.length === 0) return { inserted: 0 }
+  if (rows.length === 0) return { inserted: 0, normalizedWords: [] as string[] }
 
   const { error } = await supabase
     .from('exam_bank_question_vocab')
@@ -182,9 +202,12 @@ export async function syncExamQuestionVocabulary(
       normalized_word: row.normalized_word,
       meaning: row.meaning,
       topic: row.topic,
+      synonyms: [],
+      antonyms: [],
+      similar_words: [],
       sort_order: index + 1,
     })))
 
   if (error) throw new Error(error.message)
-  return { inserted: rows.length }
+  return { inserted: rows.length, normalizedWords: [...new Set(rows.map((row) => row.normalized_word))] }
 }

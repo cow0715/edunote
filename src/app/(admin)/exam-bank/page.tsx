@@ -474,10 +474,10 @@ function VocabCollections() {
       })
       if (!res.ok) throw new Error(await readApiError(res, '단어장 생성 실패'))
       const data = await res.json()
-      return data as { id: string; title: string; item_count: number; enriched_count?: number }
+      return data as { id: string; title: string; item_count: number }
     },
     onSuccess: (data) => {
-      toast.success(`단어장 생성 완료 (${data.item_count}개 · AI 보강 ${data.enriched_count ?? 0}개)`)
+      toast.success(`단어장 생성 완료 (${data.item_count}개)`)
       setSelectedId(data.id)
       queryClient.invalidateQueries({ queryKey: ['vocab-collections'] })
       queryClient.invalidateQueries({ queryKey: ['vocab-collection', data.id] })
