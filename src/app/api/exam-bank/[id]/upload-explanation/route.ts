@@ -2,6 +2,7 @@ import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parseExplanationText } from '@/lib/explanation-parser'
 import { parsePdfExplanationsHakpyung } from '@/lib/anthropic'
+import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
 
 export const maxDuration = 300
 
@@ -88,6 +89,12 @@ export async function POST(
     }
   }
 
+  const { data: questionRows } = await supabase
+    .from('exam_bank_question')
+    .select('id, question_number, question_type, passage')
+    .eq('exam_bank_id', id)
+  const questionMap = new Map((questionRows ?? []).map((q) => [q.question_number, q]))
+
   // 문항번호 매칭하여 UPDATE (빈 값은 skip하여 기존 데이터 보존)
   let updated = 0
   for (const ex of explanations) {
@@ -108,7 +115,13 @@ export async function POST(
       .eq('exam_bank_id', id)
       .eq('question_number', ex.question_number)
 
-    if (!error) updated++
+    if (!error) {
+      const question = questionMap.get(ex.question_number)
+      if (question && 'explanation_vocabulary' in updateData) {
+        await syncExamQuestionVocabulary(supabase, question.id, ex.vocabulary, question.question_type, question.passage)
+      }
+      updated++
+    }
   }
 
   return ok({ updated, total: explanations.length, mode: hakpyung ? 'hakpyung' : 'standard' })

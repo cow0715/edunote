@@ -1,6 +1,7 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parsePdfExplanationsWithClaude } from '@/lib/anthropic'
+import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
 
 export const maxDuration = 300
 
@@ -58,6 +59,12 @@ export async function POST(
     return err('Claude Vision이 문항을 찾지 못했습니다', 422)
   }
 
+  const { data: questionRows } = await supabase
+    .from('exam_bank_question')
+    .select('id, question_number, question_type, passage')
+    .eq('exam_bank_id', id)
+  const questionMap = new Map((questionRows ?? []).map((q) => [q.question_number, q]))
+
   // 문항번호 매칭하여 UPDATE
   let updated = 0
   for (const ex of explanations) {
@@ -72,7 +79,13 @@ export async function POST(
       .eq('exam_bank_id', id)
       .eq('question_number', ex.question_number)
 
-    if (!error) updated++
+    if (!error) {
+      const question = questionMap.get(ex.question_number)
+      if (question) {
+        await syncExamQuestionVocabulary(supabase, question.id, ex.vocabulary, question.question_type, question.passage)
+      }
+      updated++
+    }
   }
 
   return ok({ updated, total: explanations.length })

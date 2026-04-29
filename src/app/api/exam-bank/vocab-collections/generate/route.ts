@@ -1,0 +1,224 @@
+import { getAuth, getTeacherId, err, ok } from '@/lib/api'
+import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
+
+export const maxDuration = 60
+
+type ExamRow = {
+  id: string
+  exam_year: number
+  exam_month: number
+  grade: number
+  source: string
+}
+
+type QuestionRow = {
+  id: string
+  exam_bank_id: string
+  question_number: number
+  question_type: string
+  passage: string | null
+  explanation_vocabulary: string | null
+}
+
+type VocabRow = {
+  question_id: string
+  word: string
+  normalized_word: string
+  meaning: string
+  topic: string
+  synonyms: string[] | null
+  antonyms: string[] | null
+}
+
+type SourceRef = {
+  exam_id: string
+  question_id: string
+  year: number
+  month: number
+  grade: number
+  source: string
+  question_number: number
+}
+
+type VocabBucket = {
+  word: string
+  meanings: Map<string, number>
+  questionIds: Set<string>
+  sources: SourceRef[]
+  topicCounts: Map<string, number>
+  synonyms: Set<string>
+  antonyms: Set<string>
+}
+
+function topValue(counts: Map<string, number>) {
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? ''
+}
+
+function topMeanings(meanings: Map<string, number>) {
+  return [...meanings.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 3)
+    .map(([meaning]) => meaning)
+    .join(' / ')
+}
+
+export async function POST(request: Request) {
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증 필요', 401)
+
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('선생님 정보 없음', 403)
+
+  const body = await request.json().catch(() => ({}))
+  const currentYear = new Date().getFullYear()
+  const yearTo = Number(body.year_to ?? currentYear - 1)
+  const yearFrom = Number(body.year_from ?? yearTo - 4)
+  const grade = Number(body.grade ?? 3)
+  const months = Array.isArray(body.months) && body.months.length > 0
+    ? body.months.map(Number).filter((m: number) => Number.isFinite(m))
+    : [6, 9, 11]
+
+  if (!Number.isFinite(yearFrom) || !Number.isFinite(yearTo) || yearFrom > yearTo) {
+    return err('연도 범위를 확인해주세요')
+  }
+  if (!months.length) return err('월 범위를 확인해주세요')
+
+  const title = typeof body.title === 'string' && body.title.trim()
+    ? body.title.trim()
+    : `${yearFrom}-${yearTo}년 6·9·수능 기출 어휘`
+
+  const { data: exams, error: examError } = await supabase
+    .from('exam_bank')
+    .select('id, exam_year, exam_month, grade, source')
+    .eq('teacher_id', teacherId)
+    .eq('grade', grade)
+    .gte('exam_year', yearFrom)
+    .lte('exam_year', yearTo)
+    .in('exam_month', months)
+
+  if (examError) return err(examError.message, 500)
+  const examRows = (exams ?? []) as ExamRow[]
+  if (examRows.length === 0) return err('조건에 맞는 시험이 없습니다', 404)
+
+  const examMap = new Map(examRows.map((exam) => [exam.id, exam]))
+  const { data: questions, error: questionError } = await supabase
+    .from('exam_bank_question')
+    .select('id, exam_bank_id, question_number, question_type, passage, explanation_vocabulary')
+    .in('exam_bank_id', examRows.map((exam) => exam.id))
+    .not('explanation_vocabulary', 'is', null)
+
+  if (questionError) return err(questionError.message, 500)
+  const questionRows = ((questions ?? []) as QuestionRow[]).filter((question) => question.explanation_vocabulary?.trim())
+  if (questionRows.length === 0) return err('추출할 어휘가 없습니다. 해설의 Words & Phrases를 먼저 채워주세요.', 422)
+
+  const questionIds = questionRows.map((question) => question.id)
+  const questionMap = new Map(questionRows.map((question) => [question.id, question]))
+
+  const { data: existingVocab, error: existingVocabError } = await supabase
+    .from('exam_bank_question_vocab')
+    .select('question_id')
+    .in('question_id', questionIds)
+
+  if (existingVocabError) return err(existingVocabError.message, 500)
+  const syncedQuestionIds = new Set((existingVocab ?? []).map((row) => row.question_id as string))
+
+  for (const question of questionRows) {
+    if (syncedQuestionIds.has(question.id)) continue
+    await syncExamQuestionVocabulary(
+      supabase,
+      question.id,
+      question.explanation_vocabulary,
+      question.question_type,
+      question.passage,
+    )
+  }
+
+  const { data: vocabRowsRaw, error: vocabError } = await supabase
+    .from('exam_bank_question_vocab')
+    .select('question_id, word, normalized_word, meaning, topic, synonyms, antonyms')
+    .in('question_id', questionIds)
+
+  if (vocabError) return err(vocabError.message, 500)
+  const vocabRows = (vocabRowsRaw ?? []) as VocabRow[]
+
+  const buckets = new Map<string, VocabBucket>()
+  for (const vocab of vocabRows) {
+    const question = questionMap.get(vocab.question_id)
+    if (!question) continue
+    const exam = examMap.get(question.exam_bank_id)
+    if (!exam) continue
+
+    const bucket = buckets.get(vocab.normalized_word) ?? {
+      word: vocab.word,
+      meanings: new Map<string, number>(),
+      questionIds: new Set<string>(),
+      sources: [],
+      topicCounts: new Map<string, number>(),
+      synonyms: new Set<string>(),
+      antonyms: new Set<string>(),
+    }
+
+    bucket.meanings.set(vocab.meaning, (bucket.meanings.get(vocab.meaning) ?? 0) + 1)
+    bucket.questionIds.add(question.id)
+    bucket.sources.push({
+      exam_id: exam.id,
+      question_id: question.id,
+      year: exam.exam_year,
+      month: exam.exam_month,
+      grade: exam.grade,
+      source: exam.source,
+      question_number: question.question_number,
+    })
+    bucket.topicCounts.set(vocab.topic, (bucket.topicCounts.get(vocab.topic) ?? 0) + 1)
+    for (const synonym of vocab.synonyms ?? []) bucket.synonyms.add(synonym)
+    for (const antonym of vocab.antonyms ?? []) bucket.antonyms.add(antonym)
+    buckets.set(vocab.normalized_word, bucket)
+  }
+
+  const items = [...buckets.values()]
+    .map((bucket) => ({
+      word: bucket.word,
+      meaning: topMeanings(bucket.meanings),
+      frequency: bucket.questionIds.size,
+      topic: topValue(bucket.topicCounts) || '기타',
+      synonyms: [...bucket.synonyms],
+      antonyms: [...bucket.antonyms],
+      sources: bucket.sources
+        .sort((a, b) => b.year - a.year || b.month - a.month || a.question_number - b.question_number)
+        .slice(0, 20),
+    }))
+    .filter((item) => item.meaning)
+    .sort((a, b) => b.frequency - a.frequency || a.topic.localeCompare(b.topic) || a.word.localeCompare(b.word))
+
+  if (items.length === 0) return err('추출할 어휘가 없습니다. 해설의 Words & Phrases를 먼저 채워주세요.', 422)
+
+  const { data: collection, error: collectionError } = await supabase
+    .from('vocab_collection')
+    .insert({
+      teacher_id: teacherId,
+      title,
+      grade,
+      year_from: yearFrom,
+      year_to: yearTo,
+      months,
+      item_count: items.length,
+    })
+    .select('id')
+    .single()
+
+  if (collectionError || !collection) return err(collectionError?.message ?? '단어장 저장 실패', 500)
+
+  const rows = items.map((item, index) => ({
+    collection_id: collection.id,
+    ...item,
+    sort_order: index + 1,
+  }))
+
+  const { error: itemError } = await supabase.from('vocab_collection_item').insert(rows)
+  if (itemError) {
+    await supabase.from('vocab_collection').delete().eq('id', collection.id)
+    return err(itemError.message, 500)
+  }
+
+  return ok({ id: collection.id, item_count: items.length, title })
+}
