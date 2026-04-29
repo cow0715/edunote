@@ -106,6 +106,7 @@ type VocabCollectionItem = {
   topic: string
   synonyms: string[]
   antonyms: string[]
+  similar_words: string[]
   sources: VocabSource[]
   sort_order: number
 }
@@ -394,7 +395,7 @@ function sourceLabel(source: VocabSource) {
 }
 
 function downloadVocabCsv(collection: VocabCollectionDetail) {
-  const header = ['번호', '단어', '뜻', '빈도', '주제', '유의어', '반의어', '출처']
+  const header = ['번호', '단어', '뜻', '빈도', '주제', '유의어', '반의어', '유사어', '출처']
   const rows = collection.items.map((item, index) => [
     index + 1,
     item.word,
@@ -403,6 +404,7 @@ function downloadVocabCsv(collection: VocabCollectionDetail) {
     item.topic,
     item.synonyms.join(' / '),
     item.antonyms.join(' / '),
+    item.similar_words.join(' / '),
     item.sources.map(sourceLabel).join(' / '),
   ])
   const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')
@@ -472,10 +474,10 @@ function VocabCollections() {
       })
       if (!res.ok) throw new Error(await readApiError(res, '단어장 생성 실패'))
       const data = await res.json()
-      return data as { id: string; title: string; item_count: number }
+      return data as { id: string; title: string; item_count: number; enriched_count?: number }
     },
     onSuccess: (data) => {
-      toast.success(`단어장 생성 완료 (${data.item_count}개)`)
+      toast.success(`단어장 생성 완료 (${data.item_count}개 · AI 보강 ${data.enriched_count ?? 0}개)`)
       setSelectedId(data.id)
       queryClient.invalidateQueries({ queryKey: ['vocab-collections'] })
       queryClient.invalidateQueries({ queryKey: ['vocab-collection', data.id] })
@@ -617,7 +619,7 @@ function VocabCollections() {
                       <th className="px-3 py-2 text-left font-medium">뜻</th>
                       <th className="w-20 px-3 py-2 text-center font-medium">빈도</th>
                       <th className="w-28 px-3 py-2 text-left font-medium">주제</th>
-                      <th className="px-3 py-2 text-left font-medium">유의/반의</th>
+                      <th className="px-3 py-2 text-left font-medium">관련어</th>
                       <th className="px-3 py-2 text-left font-medium">출처</th>
                     </tr>
                   </thead>
@@ -632,7 +634,8 @@ function VocabCollections() {
                         <td className="px-3 py-2 text-xs leading-5 text-gray-500">
                           {item.synonyms.length > 0 && <p>유의: {item.synonyms.join(' / ')}</p>}
                           {item.antonyms.length > 0 && <p>반의: {item.antonyms.join(' / ')}</p>}
-                          {item.synonyms.length === 0 && item.antonyms.length === 0 ? '-' : null}
+                          {item.similar_words.length > 0 && <p>유사: {item.similar_words.join(' / ')}</p>}
+                          {item.synonyms.length === 0 && item.antonyms.length === 0 && item.similar_words.length === 0 ? '-' : null}
                         </td>
                         <td className="px-3 py-2 text-xs leading-5 text-gray-400">
                           {item.sources.slice(0, 4).map(sourceLabel).join(' / ')}
