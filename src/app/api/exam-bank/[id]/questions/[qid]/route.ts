@@ -1,5 +1,6 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
+import { enrichExamQuestionVocabulary } from '@/lib/vocab-enrichment'
 
 // 소유권 확인 헬퍼
 async function verifyOwner(
@@ -74,13 +75,16 @@ export async function PATCH(
 
   if (error) return err(error.message)
   if (isExplanationUpdate) {
-    await syncExamQuestionVocabulary(
+    const synced = await syncExamQuestionVocabulary(
       supabase,
       qid,
       explanation_vocabulary,
       data.question_type ?? question.question_type,
       data.passage ?? question.passage,
     )
+    if (synced.normalizedWords.length > 0) {
+      await enrichExamQuestionVocabulary(supabase, { normalizedWords: synced.normalizedWords, limit: 120, batchSize: 40 })
+    }
   }
   return ok(data)
 }

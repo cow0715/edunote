@@ -1090,6 +1090,7 @@ export type QuestionForExplanation = {
   question_text: string
   choices: string[]
   answer: string
+  existing_vocabulary?: string
 }
 
 export async function generateExplanations(
@@ -1128,6 +1129,7 @@ export async function generateExplanations(
 
 4. vocabulary (Words & Phrases)
    - 지문에 등장하는 고2~고3 수준의 학습 중요 단어/숙어만 선별
+   - 기존 Words & Phrases가 제공된 문항은 기존 단어/뜻을 반드시 모두 포함하고, 필요한 단어만 추가할 것
    - 등장 순서대로 나열
    - 형식: "단어 뜻" (예: "eliminate 제거하다   gradual 점진적인   be prone to ~하기 쉽다")
    - 선별 기준:
@@ -1143,6 +1145,7 @@ ${questions.map((q) => `
 발문: ${q.question_text}
 선지: ${q.choices.join(' / ')}
 정답: ${q.answer}
+기존 Words & Phrases: ${q.existing_vocabulary || '(없음)'}
 `).join('\n---\n')}
 
 중요: 모든 값 안에 큰따옴표(")를 절대 사용하지 마세요. 인용이 필요하면 작은따옴표(')나 한국어 따옴표(「」)를 사용하세요.

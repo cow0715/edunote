@@ -1,6 +1,4 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
-import { parseExamVocabulary } from '@/lib/exam-vocabulary'
-import { getOrCreateVocabEnrichments } from '@/lib/vocab-enrichment'
 
 export const maxDuration = 60
 
@@ -18,7 +16,6 @@ type QuestionRow = {
   question_number: number
   question_type: string
   passage: string | null
-  explanation_vocabulary: string | null
 }
 
 type VocabRow = {
@@ -29,6 +26,7 @@ type VocabRow = {
   topic: string
   synonyms: string[] | null
   antonyms: string[] | null
+  similar_words: string[] | null
 }
 
 type SourceRef = {
@@ -112,43 +110,25 @@ export async function POST(request: Request) {
   const examMap = new Map(examRows.map((exam) => [exam.id, exam]))
   const { data: questions, error: questionError } = await supabase
     .from('exam_bank_question')
-    .select('id, exam_bank_id, question_number, question_type, passage, explanation_vocabulary')
+    .select('id, exam_bank_id, question_number, question_type, passage')
     .in('exam_bank_id', examRows.map((exam) => exam.id))
-    .not('explanation_vocabulary', 'is', null)
 
   if (questionError) return err(questionError.message, 500)
-  const questionRows = ((questions ?? []) as QuestionRow[]).filter((question) => question.explanation_vocabulary?.trim())
-  if (questionRows.length === 0) return err('추출할 어휘가 없습니다. 해설의 Words & Phrases를 먼저 채워주세요.', 422)
+  const questionRows = (questions ?? []) as QuestionRow[]
+  if (questionRows.length === 0) return err('조건에 맞는 문항이 없습니다', 404)
 
   const questionMap = new Map(questionRows.map((question) => [question.id, question]))
 
   const questionIds = questionRows.map((question) => question.id)
   const { data: vocabRowsRaw, error: vocabError } = await supabase
     .from('exam_bank_question_vocab')
-    .select('question_id, word, normalized_word, meaning, topic, synonyms, antonyms')
+    .select('question_id, word, normalized_word, meaning, topic, synonyms, antonyms, similar_words')
     .in('question_id', questionIds)
 
   if (vocabError) return err(vocabError.message, 500)
-  const savedVocabRows = (vocabRowsRaw ?? []) as VocabRow[]
-  const savedQuestionIds = new Set(savedVocabRows.map((row) => row.question_id))
-  const vocabRows: VocabRow[] = [...savedVocabRows]
-
-  // Old questions may only have the legacy explanation_vocabulary string.
-  // Parse them inline for this collection instead of backfilling every question
-  // during the request, which can exceed Vercel function timeouts.
-  for (const question of questionRows) {
-    if (savedQuestionIds.has(question.id)) continue
-    for (const parsed of parseExamVocabulary(question.explanation_vocabulary, question.question_type, question.passage)) {
-      vocabRows.push({
-        question_id: question.id,
-        word: parsed.word,
-        normalized_word: parsed.normalized_word,
-        meaning: parsed.meaning,
-        topic: parsed.topic,
-        synonyms: [],
-        antonyms: [],
-      })
-    }
+  const vocabRows = (vocabRowsRaw ?? []) as VocabRow[]
+  if (vocabRows.length === 0) {
+    return err('구조화된 어휘가 없습니다. 먼저 어휘 데이터 백필을 실행해주세요.', 422)
   }
 
   const buckets = new Map<string, VocabBucket>()
@@ -184,6 +164,7 @@ export async function POST(request: Request) {
     bucket.topicCounts.set(vocab.topic, (bucket.topicCounts.get(vocab.topic) ?? 0) + 1)
     for (const synonym of vocab.synonyms ?? []) bucket.synonyms.add(synonym)
     for (const antonym of vocab.antonyms ?? []) bucket.antonyms.add(antonym)
+    for (const similarWord of vocab.similar_words ?? []) bucket.similarWords.add(similarWord)
     buckets.set(vocab.normalized_word, bucket)
   }
 
@@ -205,32 +186,6 @@ export async function POST(request: Request) {
     .sort((a, b) => b.frequency - a.frequency || a.topic.localeCompare(b.topic) || a.word.localeCompare(b.word))
 
   if (items.length === 0) return err('추출할 어휘가 없습니다. 해설의 Words & Phrases를 먼저 채워주세요.', 422)
-
-  let enrichedCount = 0
-  try {
-    const enrichments = await getOrCreateVocabEnrichments(
-      supabase,
-      items.map((item) => ({
-        word: item.word,
-        normalized_word: item.normalized_word,
-        meaning: item.meaning,
-        topic: item.topic,
-      })),
-      { generateLimit: 120, batchSize: 40 },
-    )
-
-    for (const item of items) {
-      const enrichment = enrichments.get(item.normalized_word)
-      if (!enrichment) continue
-      item.topic = enrichment.topic || item.topic
-      item.synonyms = enrichment.synonyms ?? []
-      item.antonyms = enrichment.antonyms ?? []
-      item.similar_words = enrichment.similar_words ?? []
-      enrichedCount += 1
-    }
-  } catch (error) {
-    console.warn('[vocab-collections/generate] enrichment skipped:', error)
-  }
 
   const { data: collection, error: collectionError } = await supabase
     .from('vocab_collection')
@@ -269,5 +224,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return ok({ id: collection.id, item_count: items.length, enriched_count: enrichedCount, title })
+  return ok({ id: collection.id, item_count: items.length, title })
 }

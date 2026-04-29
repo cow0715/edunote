@@ -1,7 +1,8 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { generateExplanations, QuestionForExplanation } from '@/lib/anthropic'
-import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
+import { mergeExamVocabularyText, syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
+import { enrichExamQuestionVocabulary } from '@/lib/vocab-enrichment'
 
 export const maxDuration = 300
 
@@ -47,7 +48,7 @@ export async function POST(
   const serviceClient = createServiceClient()
   const { data: rows, error: fetchErr } = await serviceClient
     .from('exam_bank_question')
-    .select('id, question_number, passage, question_text, choices, answer')
+    .select('id, question_number, passage, question_text, choices, answer, explanation_vocabulary')
     .eq('exam_bank_id', id)
     .order('question_number')
 
@@ -64,6 +65,7 @@ export async function POST(
       question_text: r.question_text ?? '',
       choices: Array.isArray(r.choices) ? r.choices.map(String) : [],
       answer: r.answer ?? '',
+      existing_vocabulary: r.explanation_vocabulary ?? '',
     }))
   const questionMeta = new Map(rows.map((r) => [r.question_number, r]))
 
@@ -80,11 +82,20 @@ export async function POST(
   }
 
   let updated = 0
+  const normalizedWords = new Set<string>()
   for (const g of generated) {
+    const question = questionMeta.get(g.question_number)
+    const vocabulary = mergeExamVocabularyText(
+      question?.explanation_vocabulary,
+      g.vocabulary,
+      undefined,
+      question?.passage ?? '',
+    ) || g.vocabulary || null
+
     // 학평: PDF에서 이미 가져온 출제의도/해석은 덮어쓰지 않음
     const updateFields = hakpyung
-      ? { explanation_solution: g.solution || null, explanation_vocabulary: g.vocabulary || null }
-      : { explanation_intent: g.intent || null, explanation_translation: g.translation || null, explanation_solution: g.solution || null, explanation_vocabulary: g.vocabulary || null }
+      ? { explanation_solution: g.solution || null, explanation_vocabulary: vocabulary }
+      : { explanation_intent: g.intent || null, explanation_translation: g.translation || null, explanation_solution: g.solution || null, explanation_vocabulary: vocabulary }
 
     const { error } = await serviceClient
       .from('exam_bank_question')
@@ -93,13 +104,18 @@ export async function POST(
       .eq('question_number', g.question_number)
 
     if (!error) {
-      const question = questionMeta.get(g.question_number)
       if (question) {
-        await syncExamQuestionVocabulary(serviceClient, question.id, g.vocabulary, undefined, question.passage ?? '')
+        const synced = await syncExamQuestionVocabulary(serviceClient, question.id, vocabulary, undefined, question.passage ?? '')
+        for (const word of synced.normalizedWords) normalizedWords.add(word)
       }
       updated++
     }
   }
 
-  return ok({ updated, total: targets.length, mode: hakpyung ? 'hakpyung' : 'standard' })
+  let enriched = { candidates: 0, generated: 0, updated: 0 }
+  if (normalizedWords.size > 0) {
+    enriched = await enrichExamQuestionVocabulary(serviceClient, { normalizedWords: [...normalizedWords], limit: 300, batchSize: 40 })
+  }
+
+  return ok({ updated, total: targets.length, mode: hakpyung ? 'hakpyung' : 'standard', enriched })
 }

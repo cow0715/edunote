@@ -3,16 +3,14 @@ import type { SupabaseServerClient } from '@/lib/api'
 import { anthropic } from '@/lib/anthropic'
 
 export type VocabEnrichmentCandidate = {
-  word: string
   normalized_word: string
+  word: string
   meaning: string
   topic: string
 }
 
-export type VocabEnrichment = {
+export type VocabEnrichmentResult = {
   normalized_word: string
-  word: string
-  meaning_sample: string
   topic: string
   synonyms: string[]
   antonyms: string[]
@@ -21,6 +19,13 @@ export type VocabEnrichment = {
 
 const ENRICHMENT_MODEL = 'claude-haiku-4-5-20251001'
 const TOPICS = ['과학/기술', '환경/생태', '경제/사회', '심리/인지', '예술/문화', '교육/학습', '일상/실용', '어휘', '어법', '기타']
+
+type VocabDbRow = VocabEnrichmentCandidate & {
+  id: string
+  synonyms: string[] | null
+  antonyms: string[] | null
+  similar_words: string[] | null
+}
 
 function uniqueClean(values: unknown, max = 4) {
   if (!Array.isArray(values)) return []
@@ -39,9 +44,17 @@ function uniqueClean(values: unknown, max = 4) {
   return result
 }
 
-function normalizeTopic(topic: unknown) {
-  if (typeof topic !== 'string') return '기타'
-  return TOPICS.includes(topic) ? topic : '기타'
+function normalizeTopic(topic: unknown, fallback = '기타') {
+  if (typeof topic !== 'string') return fallback
+  return TOPICS.includes(topic) ? topic : fallback
+}
+
+function needsEnrichment(row: VocabDbRow) {
+  return (
+    !row.synonyms?.length
+    && !row.antonyms?.length
+    && !row.similar_words?.length
+  )
 }
 
 function parseEnrichmentResponse(raw: string, candidates: VocabEnrichmentCandidate[]) {
@@ -50,7 +63,7 @@ function parseEnrichmentResponse(raw: string, candidates: VocabEnrichmentCandida
   if (!Array.isArray(parsed)) return []
 
   const candidateMap = new Map(candidates.map((candidate) => [candidate.normalized_word, candidate]))
-  const rows: VocabEnrichment[] = []
+  const rows: VocabEnrichmentResult[] = []
 
   for (const item of parsed) {
     if (!item || typeof item !== 'object') continue
@@ -61,9 +74,7 @@ function parseEnrichmentResponse(raw: string, candidates: VocabEnrichmentCandida
 
     rows.push({
       normalized_word: candidate.normalized_word,
-      word: candidate.word,
-      meaning_sample: candidate.meaning,
-      topic: normalizeTopic(data.topic || candidate.topic),
+      topic: normalizeTopic(data.topic, candidate.topic),
       synonyms: uniqueClean(data.synonyms, 4),
       antonyms: uniqueClean(data.antonyms, 4),
       similar_words: uniqueClean(data.similar_words, 5),
@@ -116,59 +127,60 @@ ${JSON.stringify(candidates.map((candidate) => ({
   return parseEnrichmentResponse(raw, candidates)
 }
 
-export async function getOrCreateVocabEnrichments(
+export async function enrichExamQuestionVocabulary(
   supabase: SupabaseServerClient,
-  candidates: VocabEnrichmentCandidate[],
-  options: { generateLimit?: number; batchSize?: number } = {},
+  options: { normalizedWords?: string[]; limit?: number; batchSize?: number } = {},
 ) {
+  const normalizedWords = [...new Set((options.normalizedWords ?? []).filter(Boolean))]
+  let query = supabase
+    .from('exam_bank_question_vocab')
+    .select('id, normalized_word, word, meaning, topic, synonyms, antonyms, similar_words')
+    .order('created_at', { ascending: true })
+    .limit(options.limit ?? 200)
+
+  if (normalizedWords.length > 0) {
+    query = query.in('normalized_word', normalizedWords)
+  }
+
+  const { data, error } = await query
+  if (error) throw new Error(error.message)
+
+  const rows = ((data ?? []) as VocabDbRow[]).filter(needsEnrichment)
   const byWord = new Map<string, VocabEnrichmentCandidate>()
-  for (const candidate of candidates) {
-    if (!candidate.normalized_word || byWord.has(candidate.normalized_word)) continue
-    byWord.set(candidate.normalized_word, candidate)
+  for (const row of rows) {
+    if (!byWord.has(row.normalized_word)) {
+      byWord.set(row.normalized_word, {
+        normalized_word: row.normalized_word,
+        word: row.word,
+        meaning: row.meaning,
+        topic: row.topic || '기타',
+      })
+    }
   }
 
-  const uniqueCandidates = [...byWord.values()]
-  if (uniqueCandidates.length === 0) return new Map<string, VocabEnrichment>()
-
-  const { data: existingRaw, error: existingError } = await supabase
-    .from('vocab_enrichment')
-    .select('normalized_word, word, meaning_sample, topic, synonyms, antonyms, similar_words')
-    .in('normalized_word', uniqueCandidates.map((candidate) => candidate.normalized_word))
-
-  if (existingError) throw new Error(existingError.message)
-
-  const enrichments = new Map<string, VocabEnrichment>()
-  for (const row of (existingRaw ?? []) as VocabEnrichment[]) {
-    enrichments.set(row.normalized_word, {
-      ...row,
-      synonyms: row.synonyms ?? [],
-      antonyms: row.antonyms ?? [],
-      similar_words: row.similar_words ?? [],
-    })
-  }
-
-  const missing = uniqueCandidates
-    .filter((candidate) => !enrichments.has(candidate.normalized_word))
-    .slice(0, options.generateLimit ?? 120)
-
-  const generated: VocabEnrichment[] = []
+  const candidates = [...byWord.values()]
+  const generated: VocabEnrichmentResult[] = []
   const batchSize = options.batchSize ?? 40
-  for (let i = 0; i < missing.length; i += batchSize) {
-    generated.push(...await generateEnrichments(missing.slice(i, i + batchSize)))
+  for (let i = 0; i < candidates.length; i += batchSize) {
+    generated.push(...await generateEnrichments(candidates.slice(i, i + batchSize)))
   }
 
-  if (generated.length > 0) {
-    const { error: upsertError } = await supabase
-      .from('vocab_enrichment')
-      .upsert(generated.map((row) => ({
-        ...row,
-        model: ENRICHMENT_MODEL,
-        updated_at: new Date().toISOString(),
-      })), { onConflict: 'normalized_word' })
+  let updated = 0
+  for (const result of generated) {
+    const { data: updatedRows, error: updateError } = await supabase
+      .from('exam_bank_question_vocab')
+      .update({
+        topic: result.topic,
+        synonyms: result.synonyms,
+        antonyms: result.antonyms,
+        similar_words: result.similar_words,
+      })
+      .eq('normalized_word', result.normalized_word)
+      .select('id')
 
-    if (upsertError) throw new Error(upsertError.message)
-    for (const row of generated) enrichments.set(row.normalized_word, row)
+    if (updateError) throw new Error(updateError.message)
+    updated += updatedRows?.length ?? 0
   }
 
-  return enrichments
+  return { candidates: candidates.length, generated: generated.length, updated }
 }
