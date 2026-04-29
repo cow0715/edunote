@@ -38,7 +38,14 @@ export async function GET(request: Request) {
   if (yearFrom) examQuery = examQuery.gte('exam_year', Number(yearFrom))
   if (yearTo) examQuery = examQuery.lte('exam_year', Number(yearTo))
   if (source) examQuery = examQuery.eq('source', source)
-  if (month) examQuery = examQuery.eq('exam_month', Number(month))
+  if (month) {
+    const months = month.split(',')
+      .map((value) => Number(value.trim()))
+      .filter((value) => Number.isFinite(value) && value >= 1 && value <= 12)
+
+    if (months.length === 1) examQuery = examQuery.eq('exam_month', months[0])
+    else if (months.length > 1) examQuery = examQuery.in('exam_month', [...new Set(months)])
+  }
 
   const { data: exams, error: examError } = await examQuery
   if (examError) return err(examError.message)

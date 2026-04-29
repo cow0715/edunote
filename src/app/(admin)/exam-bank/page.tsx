@@ -32,6 +32,7 @@ import { toast } from 'sonner'
 import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2, BookOpen, ChevronRight, Sparkles, FolderOpen, CheckCircle2, XCircle, Circle, Download } from 'lucide-react'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
@@ -1394,7 +1395,7 @@ const EMPTY_FILTERS = {
   year_from: '',
   year_to: '',
   kind: '',
-  month: '',
+  months: [] as string[],
   points: '',
   difficulties: [] as string[],
   max_correct_rate: '',
@@ -1409,7 +1410,7 @@ function buildFilterParams(f: typeof EMPTY_FILTERS) {
   if (f.grade) params.set('grade', f.grade)
   if (f.year_from) params.set('year_from', f.year_from)
   if (f.year_to) params.set('year_to', f.year_to)
-  if (f.month) params.set('month', f.month)
+  if (f.months.length) params.set('month', f.months.join(','))
   if (f.kind === '수능') params.set('source', '수능')
   else if (f.kind === '모의고사') params.set('source', '모의고사')
   if (f.points) params.set('points', f.points)
@@ -1420,6 +1421,10 @@ function buildFilterParams(f: typeof EMPTY_FILTERS) {
 
 function filtersFromParams(sp: URLSearchParams): typeof EMPTY_FILTERS {
   const src = sp.get('source')
+  const months = (sp.get('month') ?? '').split(',')
+    .map((s) => s.trim())
+    .filter((s) => MONTHS.includes(Number(s)))
+
   return {
     q: sp.get('q') ?? '',
     type: sp.get('type') ?? '',
@@ -1427,7 +1432,7 @@ function filtersFromParams(sp: URLSearchParams): typeof EMPTY_FILTERS {
     year_from: sp.get('year_from') ?? '',
     year_to: sp.get('year_to') ?? '',
     kind: src === '수능' ? '수능' : src === '모의고사' ? '모의고사' : '',
-    month: sp.get('month') ?? '',
+    months,
     points: sp.get('points') ?? '',
     difficulties: (sp.get('difficulty') ?? '').split(',').map((s) => s.trim()).filter(Boolean),
     max_correct_rate: sp.get('max_correct_rate') ?? '',
@@ -1452,6 +1457,19 @@ function QuestionSearch() {
 
   const set = (key: keyof typeof EMPTY_FILTERS) => (v: string) =>
     setFilters((f) => ({ ...f, [key]: v === 'all' ? '' : v }))
+
+  const toggleMonthFilter = (month: number) =>
+    setFilters((f) => {
+      const value = String(month)
+      const months = f.months.includes(value)
+        ? f.months.filter((m) => m !== value)
+        : [...f.months, value].sort((a, b) => Number(a) - Number(b))
+      return { ...f, months }
+    })
+
+  const monthFilterLabel = filters.months.length === 0 || filters.months.length === MONTHS.length
+    ? '전체 월'
+    : filters.months.map((m) => `${m}월`).join(', ')
 
   const toggleDifficulty = (d: string) =>
     setFilters((f) => ({
@@ -1719,7 +1737,7 @@ function QuestionSearch() {
     }))
 
   const hasFilter = filters.type || filters.grade || filters.year_from || filters.year_to
-    || filters.kind || filters.month || filters.points || filters.difficulties.length || filters.max_correct_rate
+    || filters.kind || filters.months.length || filters.points || filters.difficulties.length || filters.max_correct_rate
 
   return (
     <div className="space-y-4">
@@ -1800,15 +1818,41 @@ function QuestionSearch() {
           </div>
 
           {/* 월 */}
-          <div className="min-w-[72px]">
-            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">월</p>
-            <Select value={filters.month || 'all'} onValueChange={set('month')}>
-              <SelectTrigger className="h-8 text-xs w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">전체</SelectItem>
-                {MONTHS.map((m) => <SelectItem key={m} value={String(m)}>{m}월</SelectItem>)}
-              </SelectContent>
-            </Select>
+          <div className="min-w-[132px]">
+            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">?</p>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 w-full justify-between rounded-lg border-gray-200 bg-white px-3 text-xs font-normal text-gray-700 hover:bg-gray-50"
+                >
+                  <span className="truncate">{monthFilterLabel}</span>
+                  <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 text-gray-400" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-40 rounded-xl border-gray-100 bg-white p-1.5 shadow-[0px_12px_36px_rgba(0,75,198,0.10)]">
+                <DropdownMenuCheckboxItem
+                  checked={filters.months.length === 0}
+                  onCheckedChange={() => setFilters((f) => ({ ...f, months: [] }))}
+                  onSelect={(e) => e.preventDefault()}
+                  className="rounded-lg text-xs"
+                >
+                  ?? ?
+                </DropdownMenuCheckboxItem>
+                {MONTHS.map((month) => (
+                  <DropdownMenuCheckboxItem
+                    key={month}
+                    checked={filters.months.includes(String(month))}
+                    onCheckedChange={() => toggleMonthFilter(month)}
+                    onSelect={(e) => e.preventDefault()}
+                    className="rounded-lg text-xs"
+                  >
+                    {month}?
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           {/* 시행년 */}
