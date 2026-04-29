@@ -451,30 +451,34 @@ async function readApiError(res: Response, fallback: string) {
 }
 
 type VocabSortKey = 'topic' | 'frequency' | 'word' | 'source'
+type VocabSortDirection = 'asc' | 'desc'
 
-const VOCAB_SORT_OPTIONS: { value: VocabSortKey; label: string }[] = [
-  { value: 'topic', label: '주제' },
-  { value: 'frequency', label: '빈출 높은 순' },
-  { value: 'word', label: '단어 A-Z' },
-  { value: 'source', label: '출처 최신순' },
-]
-
-const DEFAULT_VOCAB_SORTS: VocabSortKey[] = ['topic', 'frequency', 'word']
+const VOCAB_SORT_COLUMN_ORDER: VocabSortKey[] = ['topic', 'frequency', 'word', 'source']
+const DEFAULT_VOCAB_SORT_DIRECTIONS: Record<VocabSortKey, VocabSortDirection> = {
+  topic: 'asc',
+  frequency: 'desc',
+  word: 'asc',
+  source: 'desc',
+}
 
 function compareSourceLatest(a: VocabCollectionItem, b: VocabCollectionItem) {
   const aSource = a.sources[0]
   const bSource = b.sources[0]
-  return (bSource?.year ?? 0) - (aSource?.year ?? 0)
-    || (bSource?.month ?? 0) - (aSource?.month ?? 0)
+  return (aSource?.year ?? 0) - (bSource?.year ?? 0)
+    || (aSource?.month ?? 0) - (bSource?.month ?? 0)
     || (aSource?.question_number ?? 0) - (bSource?.question_number ?? 0)
 }
 
 function compareVocabBySort(a: VocabCollectionItem, b: VocabCollectionItem, key: VocabSortKey) {
   if (key === 'topic') return (a.topic || '기타').localeCompare(b.topic || '기타')
-  if (key === 'frequency') return b.frequency - a.frequency
+  if (key === 'frequency') return a.frequency - b.frequency
   if (key === 'word') return a.word.localeCompare(b.word)
   if (key === 'source') return compareSourceLatest(a, b)
   return 0
+}
+
+function applySortDirection(value: number, direction: VocabSortDirection) {
+  return direction === 'asc' ? value : -value
 }
 
 function VocabCollections() {
@@ -487,9 +491,8 @@ function VocabCollections() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [duplicateCollection, setDuplicateCollection] = useState<VocabCollection | null>(null)
   const [topicFilter, setTopicFilter] = useState('all')
-  const [relatedFilter, setRelatedFilter] = useState<'all' | 'with' | 'without'>('all')
   const [minFrequency, setMinFrequency] = useState('1')
-  const [sortRules, setSortRules] = useState<VocabSortKey[]>(DEFAULT_VOCAB_SORTS)
+  const [sortDirections, setSortDirections] = useState(DEFAULT_VOCAB_SORT_DIRECTIONS)
 
   const { data: collections, isLoading } = useQuery<VocabCollection[]>({
     queryKey: ['vocab-collections'],
@@ -600,23 +603,25 @@ function VocabCollections() {
     return [...(selectedCollection?.items ?? [])]
       .filter((item) => topicFilter === 'all' || (item.topic || '기타') === topicFilter)
       .filter((item) => item.frequency >= minimum)
-      .filter((item) => {
-        if (relatedFilter === 'with') return hasRelatedWords(item)
-        if (relatedFilter === 'without') return !hasRelatedWords(item)
-        return true
-      })
       .sort((a, b) => {
-        for (const rule of sortRules) {
+        for (const rule of VOCAB_SORT_COLUMN_ORDER) {
           const result = compareVocabBySort(a, b, rule)
-          if (result !== 0) return result
+          if (result !== 0) return applySortDirection(result, sortDirections[rule])
         }
         return a.word.localeCompare(b.word)
       })
-  }, [minFrequency, relatedFilter, selectedCollection, sortRules, topicFilter])
+  }, [minFrequency, selectedCollection, sortDirections, topicFilter])
 
-  const updateSortRule = (index: number, value: VocabSortKey) => {
-    setSortRules((current) => current.map((rule, i) => (i === index ? value : rule)))
-  }
+  const toggleSortDirection = (key: VocabSortKey) =>
+    setSortDirections((current) => ({
+      ...current,
+      [key]: current[key] === 'asc' ? 'desc' : 'asc',
+    }))
+
+  const sortCaret = (key: VocabSortKey) =>
+    sortDirections[key] === 'asc'
+      ? <ChevronUp className="h-3.5 w-3.5" />
+      : <ChevronDown className="h-3.5 w-3.5" />
 
   useEffect(() => {
     if (topicFilter !== 'all' && !topicOptions.some((option) => option.topic === topicFilter)) {
@@ -774,8 +779,8 @@ function VocabCollections() {
               <div className="flex min-h-[320px] items-center justify-center text-sm text-gray-400">불러오는 중...</div>
             ) : (
               <div>
-                <div className="grid gap-3 border-b border-gray-100 bg-gray-50/60 px-4 py-3 lg:grid-cols-[1fr_1.4fr]">
-                  <div className="grid gap-2 sm:grid-cols-3">
+                <div className="flex flex-wrap items-end justify-between gap-3 border-b border-gray-100 bg-gray-50/60 px-4 py-3">
+                  <div className="grid flex-1 gap-2 sm:max-w-md sm:grid-cols-[1fr_120px]">
                     <div>
                       <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">주제</p>
                       <Select value={topicFilter} onValueChange={setTopicFilter}>
@@ -791,17 +796,6 @@ function VocabCollections() {
                       </Select>
                     </div>
                     <div>
-                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">관련어</p>
-                      <Select value={relatedFilter} onValueChange={(value) => setRelatedFilter(value as typeof relatedFilter)}>
-                        <SelectTrigger className="h-8 bg-white text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">전체</SelectItem>
-                          <SelectItem value="with">관련어 있음</SelectItem>
-                          <SelectItem value="without">관련어 없음</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
                       <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">최소 빈도</p>
                       <Input
                         type="number"
@@ -812,25 +806,8 @@ function VocabCollections() {
                       />
                     </div>
                   </div>
-
-                  <div>
-                    <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">정렬 우선순위</p>
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      {sortRules.map((rule, index) => (
-                        <Select key={index} value={rule} onValueChange={(value) => updateSortRule(index, value as VocabSortKey)}>
-                          <SelectTrigger className="h-8 bg-white text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {VOCAB_SORT_OPTIONS.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {index + 1}순위 · {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ))}
-                    </div>
+                  <div className="text-xs leading-5 text-gray-400">
+                    정렬: 주제{sortDirections.topic === 'asc' ? '↑' : '↓'} · 빈도{sortDirections.frequency === 'asc' ? '↑' : '↓'} · 단어{sortDirections.word === 'asc' ? '↑' : '↓'} · 출처{sortDirections.source === 'asc' ? '↑' : '↓'}
                   </div>
                 </div>
 
@@ -844,12 +821,28 @@ function VocabCollections() {
                     <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_rgba(15,23,42,0.06)]">
                       <tr className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
                         <th className="w-12 px-4 py-2">No</th>
-                        <th className="w-44 px-3 py-2">단어</th>
-                        <th className="w-20 px-3 py-2">빈도</th>
-                        <th className="w-32 px-3 py-2">주제</th>
+                        <th className="w-36 px-3 py-2">
+                          <button type="button" onClick={() => toggleSortDirection('topic')} className="flex items-center gap-1 rounded-md px-1 py-0.5 hover:bg-gray-100 hover:text-gray-700">
+                            주제 {sortCaret('topic')}
+                          </button>
+                        </th>
+                        <th className="w-24 px-3 py-2">
+                          <button type="button" onClick={() => toggleSortDirection('frequency')} className="flex items-center gap-1 rounded-md px-1 py-0.5 hover:bg-gray-100 hover:text-gray-700">
+                            빈도 {sortCaret('frequency')}
+                          </button>
+                        </th>
+                        <th className="w-44 px-3 py-2">
+                          <button type="button" onClick={() => toggleSortDirection('word')} className="flex items-center gap-1 rounded-md px-1 py-0.5 hover:bg-gray-100 hover:text-gray-700">
+                            단어 {sortCaret('word')}
+                          </button>
+                        </th>
                         <th className="min-w-52 px-3 py-2">뜻</th>
                         <th className="min-w-64 px-3 py-2">유의/반의/유사</th>
-                        <th className="min-w-48 px-3 py-2">출처</th>
+                        <th className="min-w-48 px-3 py-2">
+                          <button type="button" onClick={() => toggleSortDirection('source')} className="flex items-center gap-1 rounded-md px-1 py-0.5 hover:bg-gray-100 hover:text-gray-700">
+                            출처 {sortCaret('source')}
+                          </button>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -860,13 +853,13 @@ function VocabCollections() {
                         return (
                           <tr key={item.id} className="align-top hover:bg-blue-50/30">
                             <td className="px-4 py-3 text-xs font-medium text-gray-300">{index + 1}</td>
-                            <td className="px-3 py-3">
-                              <p className="font-bold text-gray-950">{item.word}</p>
-                            </td>
+                            <td className="px-3 py-3 text-xs text-gray-500">{item.topic || '기타'}</td>
                             <td className="px-3 py-3">
                               <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{item.frequency}회</span>
                             </td>
-                            <td className="px-3 py-3 text-xs text-gray-500">{item.topic || '기타'}</td>
+                            <td className="px-3 py-3">
+                              <p className="font-bold text-gray-950">{item.word}</p>
+                            </td>
                             <td className="px-3 py-3 text-gray-600">{item.meaning}</td>
                             <td className="space-y-1 px-3 py-3 text-xs leading-5 text-gray-500">
                               {synonyms.length > 0 && <p><span className="font-semibold text-gray-400">유의</span> {synonyms.join(' / ')}</p>}
