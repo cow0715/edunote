@@ -1871,7 +1871,7 @@ function QuestionSearch() {
 
           {/* 월 */}
           <div className="min-w-[132px]">
-            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">?</p>
+            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">월</p>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -1890,7 +1890,7 @@ function QuestionSearch() {
                   onSelect={(e) => e.preventDefault()}
                   className="rounded-lg text-xs"
                 >
-                  ?? ?
+                  전체 월
                 </DropdownMenuCheckboxItem>
                 {MONTHS.map((month) => (
                   <DropdownMenuCheckboxItem
@@ -1900,7 +1900,7 @@ function QuestionSearch() {
                     onSelect={(e) => e.preventDefault()}
                     className="rounded-lg text-xs"
                   >
-                    {month}?
+                    {month}월
                   </DropdownMenuCheckboxItem>
                 ))}
               </DropdownMenuContent>
