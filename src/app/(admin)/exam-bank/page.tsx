@@ -143,6 +143,52 @@ function mdToPlain(text: string): string {
     .replace(/<u>([^<]+)<\/u>/g, '$1')
 }
 
+function normalizeCopyBlock(text: string) {
+  return text
+    .replace(/\r/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\n{2,}(?=\*\s*[A-Za-z][^\n]{0,80}[가-힣])/g, '\n\n')
+    .trim()
+}
+
+function buildQuestionCopyText(q: ExamBankQuestion, label: string) {
+  const circled = ['①','②','③','④','⑤']
+  const ratesSummary = q.choice_rates?.some((r) => r != null)
+    ? `\n선택률: ${q.choices.map((_, i) => {
+        const r = q.choice_rates?.[i]
+        return r != null ? `${circled[i]} ${r}%` : null
+      }).filter(Boolean).join('   ')}`
+    : ''
+  const headParts = [`[${label}]`, normalizeCopyBlock(mdToPlain(q.question_text))]
+  const passage = normalizeCopyBlock(mdToPlain(q.passage ?? ''))
+  if (passage) headParts.push(passage)
+  const choicesText = q.choices.map((choice) => normalizeCopyBlock(mdToPlain(choice))).join('\n').trim()
+  const passageText = headParts.filter(Boolean).join('\n') + (choicesText ? '\n\n\n' : '')
+
+  return [
+    passageText + choicesText,
+    q.answer ? `정답: ${q.answer}` : '',
+    ratesSummary.trim(),
+  ].filter(Boolean).join('\n')
+}
+
+function buildQuestionCopyHtml(q: ExamBankQuestion, label: string) {
+  const chunks = [
+    `<p><strong>[${label}]</strong></p>`,
+    `<p>${mdToHtml(normalizeCopyBlock(q.question_text))}</p>`,
+  ]
+  const passage = normalizeCopyBlock(q.passage ?? '')
+  if (passage) chunks.push(`<p>${mdToHtml(passage)}</p>`)
+  if (q.choices.length > 0) chunks.push('<p><br></p>')
+  if (q.choices.length > 0) {
+    chunks.push(`<p>${q.choices.map((choice) => mdToHtml(normalizeCopyBlock(choice))).join('<br>')}</p>`)
+  }
+  if (q.answer) chunks.push(`<p>정답: ${q.answer}</p>`)
+  return chunks.join('')
+}
+
 async function copyRich(plainText: string, htmlText: string) {
   try {
     await navigator.clipboard.write([
@@ -1151,30 +1197,11 @@ function QuestionCard({
     : `${q.question_number}번`
 
   const buildQuestionText = useCallback(() => {
-    const header = q.exam_bank ? `[${examLabel}]\n` : ''
-    const circled = ['①','②','③','④','⑤']
-    const ratesSummary = q.choice_rates?.some((r) => r != null)
-      ? `\n선택률: ${q.choices.map((_, i) => {
-          const r = q.choice_rates?.[i]
-          return r != null ? `${circled[i]} ${r}%` : null
-        }).filter(Boolean).join('   ')}`
-      : ''
-    return header + [
-      mdToPlain(q.question_text),
-      q.passage ? `\n${mdToPlain(q.passage)}` : '',
-      q.choices.length > 0 ? `\n${q.choices.map(mdToPlain).join('\n')}` : '',
-      q.answer ? `\n정답: ${q.answer}` : '',
-      ratesSummary,
-    ].join('')
+    return buildQuestionCopyText(q, examLabel)
   }, [q, examLabel])
 
   const buildQuestionHtml = useCallback(() => {
-    const header = q.exam_bank ? `<p><strong>[${examLabel}]</strong></p>` : ''
-    return header
-      + `<p>${mdToHtml(q.question_text)}</p>`
-      + (q.passage ? `<p>${mdToHtml(q.passage)}</p>` : '')
-      + (q.choices.length > 0 ? `<p>${q.choices.map(mdToHtml).join('<br>')}</p>` : '')
-      + (q.answer ? `<p>정답: ${q.answer}</p>` : '')
+    return buildQuestionCopyHtml(q, examLabel)
   }, [q, examLabel])
 
   const buildExplanationText = useCallback(() => {
@@ -1641,34 +1668,11 @@ function QuestionSearch() {
       ? `${q.exam_bank.exam_year}년 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade} ${q.exam_bank.source} ${q.question_number}번`
       : `${q.question_number}번`
 
-  const circled = ['①','②','③','④','⑤']
-
   const buildAllQText = (list: ExamBankQuestion[]) =>
-    list.map((q) => {
-      const ratesSummary = q.choice_rates?.some((r) => r != null)
-        ? `\n선택률: ${q.choices.map((_, i) => {
-            const r = q.choice_rates?.[i]
-            return r != null ? `${circled[i]} ${r}%` : null
-          }).filter(Boolean).join('   ')}`
-        : ''
-      return [
-        `[${getExamLabel(q)}]`,
-        `\n${mdToPlain(q.question_text)}`,
-        q.passage ? `\n${mdToPlain(q.passage)}` : '',
-        q.choices.length > 0 ? `\n${q.choices.map(mdToPlain).join('\n')}` : '',
-        q.answer ? `\n정답: ${q.answer}` : '',
-        ratesSummary,
-      ].join('')
-    }).join('\n\n---\n\n')
+    list.map((q) => buildQuestionCopyText(q, getExamLabel(q))).join('\n\n---\n\n')
 
   const buildAllQHtml = (list: ExamBankQuestion[]) =>
-    list.map((q) =>
-      `<p><strong>[${getExamLabel(q)}]</strong></p>`
-      + `<p>${mdToHtml(q.question_text)}</p>`
-      + (q.passage ? `<p>${mdToHtml(q.passage)}</p>` : '')
-      + (q.choices.length > 0 ? `<p>${q.choices.map(mdToHtml).join('<br>')}</p>` : '')
-      + (q.answer ? `<p>정답: ${q.answer}</p>` : '')
-    ).join('<hr>')
+    list.map((q) => buildQuestionCopyHtml(q, getExamLabel(q))).join('<hr>')
 
   const buildAllExText = (list: ExamBankQuestion[]) =>
     list.map((q) => {
@@ -1694,21 +1698,7 @@ function QuestionSearch() {
 
   const buildAllQWithTransText = (list: ExamBankQuestion[]) =>
     list.map((q) => {
-      const circled2 = ['①','②','③','④','⑤']
-      const ratesSummary = q.choice_rates?.some((r) => r != null)
-        ? `\n선택률: ${q.choices.map((_, i) => {
-            const r = q.choice_rates?.[i]
-            return r != null ? `${circled2[i]} ${r}%` : null
-          }).filter(Boolean).join('   ')}`
-        : ''
-      const qPart = [
-        `[${getExamLabel(q)}]`,
-        `\n${mdToPlain(q.question_text)}`,
-        q.passage ? `\n${mdToPlain(q.passage)}` : '',
-        q.choices.length > 0 ? `\n${q.choices.map(mdToPlain).join('\n')}` : '',
-        q.answer ? `\n정답: ${q.answer}` : '',
-        ratesSummary,
-      ].join('')
+      const qPart = buildQuestionCopyText(q, getExamLabel(q))
       const transPart = q.explanation_translation
         ? `\n\n[${getExamLabel(q)} 해석]\n${q.explanation_translation}`
         : ''
@@ -1717,11 +1707,7 @@ function QuestionSearch() {
 
   const buildAllQWithTransHtml = (list: ExamBankQuestion[]) =>
     list.map((q) =>
-      `<p><strong>[${getExamLabel(q)}]</strong></p>`
-      + `<p>${mdToHtml(q.question_text)}</p>`
-      + (q.passage ? `<p>${mdToHtml(q.passage)}</p>` : '')
-      + (q.choices.length > 0 ? `<p>${q.choices.map(mdToHtml).join('<br>')}</p>` : '')
-      + (q.answer ? `<p>정답: ${q.answer}</p>` : '')
+      buildQuestionCopyHtml(q, getExamLabel(q))
       + (q.explanation_translation
         ? `<p><strong>[${getExamLabel(q)} 해석]</strong><br>${q.explanation_translation.replace(/\n/g, '<br>')}</p>`
         : '')
