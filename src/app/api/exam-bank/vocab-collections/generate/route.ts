@@ -41,6 +41,11 @@ type SourceRef = {
   question_numbers?: number[]
 }
 
+type PassageGroup = {
+  question_ids: string[]
+  question_numbers: number[]
+}
+
 type VocabBucket = {
   word: string
   normalized_word: string
@@ -90,12 +95,17 @@ function passageGroupKey(examId: string, question: QuestionRow) {
   return normalizedPassage ? `${examId}:passage:${normalizedPassage}` : `${examId}:question:${question.id}`
 }
 
-function addSourceToBucket(bucket: VocabBucket, passageKey: string, exam: ExamRow, question: QuestionRow) {
+function addSourceToBucket(
+  bucket: VocabBucket,
+  passageKey: string,
+  exam: ExamRow,
+  question: QuestionRow,
+  group: PassageGroup,
+) {
   const existing = bucket.sourceByPassageKey.get(passageKey)
   if (existing) {
-    existing.question_ids = [...new Set([...(existing.question_ids ?? [existing.question_id]), question.id])]
-    existing.question_numbers = [...new Set([...(existing.question_numbers ?? [existing.question_number]), question.question_number])]
-      .sort((a, b) => a - b)
+    existing.question_ids = group.question_ids
+    existing.question_numbers = group.question_numbers
     existing.question_id = existing.question_ids[0]
     existing.question_number = existing.question_numbers[0]
     return
@@ -103,14 +113,14 @@ function addSourceToBucket(bucket: VocabBucket, passageKey: string, exam: ExamRo
 
   const source: SourceRef = {
     exam_id: exam.id,
-    question_id: question.id,
-    question_ids: [question.id],
+    question_id: group.question_ids[0] ?? question.id,
+    question_ids: group.question_ids,
     year: exam.exam_year,
     month: exam.exam_month,
     grade: exam.grade,
     source: exam.source,
-    question_number: question.question_number,
-    question_numbers: [question.question_number],
+    question_number: group.question_numbers[0] ?? question.question_number,
+    question_numbers: group.question_numbers,
   }
   bucket.sourceByPassageKey.set(passageKey, source)
   bucket.sources.push(source)
@@ -208,6 +218,18 @@ export async function POST(request: Request) {
   if (questionRows.length === 0) return err('조건에 맞는 문항이 없습니다', 404)
 
   const questionMap = new Map(questionRows.map((question) => [question.id, question]))
+  const passageGroups = new Map<string, PassageGroup>()
+  for (const question of questionRows) {
+    const groupKey = passageGroupKey(question.exam_bank_id, question)
+    const group = passageGroups.get(groupKey) ?? { question_ids: [], question_numbers: [] }
+    group.question_ids.push(question.id)
+    group.question_numbers.push(question.question_number)
+    passageGroups.set(groupKey, group)
+  }
+  for (const group of passageGroups.values()) {
+    group.question_ids = [...new Set(group.question_ids)]
+    group.question_numbers = [...new Set(group.question_numbers)].sort((a, b) => a - b)
+  }
 
   const questionIds = questionRows.map((question) => question.id)
   let vocabRows: VocabRow[]
@@ -246,7 +268,13 @@ export async function POST(request: Request) {
       bucket.passageKeys.add(groupKey)
       bucket.topicCounts.set(vocab.topic, (bucket.topicCounts.get(vocab.topic) ?? 0) + 1)
     }
-    addSourceToBucket(bucket, groupKey, exam, question)
+    addSourceToBucket(
+      bucket,
+      groupKey,
+      exam,
+      question,
+      passageGroups.get(groupKey) ?? { question_ids: [question.id], question_numbers: [question.question_number] },
+    )
     for (const synonym of vocab.synonyms ?? []) bucket.synonyms.add(synonym)
     for (const antonym of vocab.antonyms ?? []) bucket.antonyms.add(antonym)
     for (const similarWord of vocab.similar_words ?? []) bucket.similarWords.add(similarWord)
