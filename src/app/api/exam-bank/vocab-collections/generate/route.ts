@@ -32,19 +32,22 @@ type VocabRow = {
 type SourceRef = {
   exam_id: string
   question_id: string
+  question_ids?: string[]
   year: number
   month: number
   grade: number
   source: string
   question_number: number
+  question_numbers?: number[]
 }
 
 type VocabBucket = {
   word: string
   normalized_word: string
   meanings: Map<string, number>
-  questionIds: Set<string>
+  passageKeys: Set<string>
   sources: SourceRef[]
+  sourceByPassageKey: Map<string, SourceRef>
   topicCounts: Map<string, number>
   synonyms: Set<string>
   antonyms: Set<string>
@@ -73,6 +76,44 @@ function chunkRows<T>(rows: T[], size: number) {
   const chunks: T[][] = []
   for (let i = 0; i < rows.length; i += size) chunks.push(rows.slice(i, i + size))
   return chunks
+}
+
+function normalizePassageKey(passage: string | null | undefined) {
+  return (passage ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+function passageGroupKey(examId: string, question: QuestionRow) {
+  const normalizedPassage = normalizePassageKey(question.passage)
+  return normalizedPassage ? `${examId}:passage:${normalizedPassage}` : `${examId}:question:${question.id}`
+}
+
+function addSourceToBucket(bucket: VocabBucket, passageKey: string, exam: ExamRow, question: QuestionRow) {
+  const existing = bucket.sourceByPassageKey.get(passageKey)
+  if (existing) {
+    existing.question_ids = [...new Set([...(existing.question_ids ?? [existing.question_id]), question.id])]
+    existing.question_numbers = [...new Set([...(existing.question_numbers ?? [existing.question_number]), question.question_number])]
+      .sort((a, b) => a - b)
+    existing.question_id = existing.question_ids[0]
+    existing.question_number = existing.question_numbers[0]
+    return
+  }
+
+  const source: SourceRef = {
+    exam_id: exam.id,
+    question_id: question.id,
+    question_ids: [question.id],
+    year: exam.exam_year,
+    month: exam.exam_month,
+    grade: exam.grade,
+    source: exam.source,
+    question_number: question.question_number,
+    question_numbers: [question.question_number],
+  }
+  bucket.sourceByPassageKey.set(passageKey, source)
+  bucket.sources.push(source)
 }
 
 async function fetchQuestionVocabulary(
@@ -185,31 +226,27 @@ export async function POST(request: Request) {
     if (!question) continue
     const exam = examMap.get(question.exam_bank_id)
     if (!exam) continue
+    const groupKey = passageGroupKey(exam.id, question)
 
     const bucket = buckets.get(vocab.normalized_word) ?? {
       word: vocab.word,
       normalized_word: vocab.normalized_word,
       meanings: new Map<string, number>(),
-      questionIds: new Set<string>(),
+      passageKeys: new Set<string>(),
       sources: [],
+      sourceByPassageKey: new Map<string, SourceRef>(),
       topicCounts: new Map<string, number>(),
       synonyms: new Set<string>(),
       antonyms: new Set<string>(),
       similarWords: new Set<string>(),
     }
 
-    bucket.meanings.set(vocab.meaning, (bucket.meanings.get(vocab.meaning) ?? 0) + 1)
-    bucket.questionIds.add(question.id)
-    bucket.sources.push({
-      exam_id: exam.id,
-      question_id: question.id,
-      year: exam.exam_year,
-      month: exam.exam_month,
-      grade: exam.grade,
-      source: exam.source,
-      question_number: question.question_number,
-    })
-    bucket.topicCounts.set(vocab.topic, (bucket.topicCounts.get(vocab.topic) ?? 0) + 1)
+    if (!bucket.passageKeys.has(groupKey)) {
+      bucket.meanings.set(vocab.meaning, (bucket.meanings.get(vocab.meaning) ?? 0) + 1)
+      bucket.passageKeys.add(groupKey)
+      bucket.topicCounts.set(vocab.topic, (bucket.topicCounts.get(vocab.topic) ?? 0) + 1)
+    }
+    addSourceToBucket(bucket, groupKey, exam, question)
     for (const synonym of vocab.synonyms ?? []) bucket.synonyms.add(synonym)
     for (const antonym of vocab.antonyms ?? []) bucket.antonyms.add(antonym)
     for (const similarWord of vocab.similar_words ?? []) bucket.similarWords.add(similarWord)
@@ -221,7 +258,7 @@ export async function POST(request: Request) {
       word: bucket.word,
       normalized_word: bucket.normalized_word,
       meaning: topMeanings(bucket.meanings),
-      frequency: bucket.questionIds.size,
+      frequency: bucket.passageKeys.size,
       topic: topValue(bucket.topicCounts) || '기타',
       synonyms: [...bucket.synonyms],
       antonyms: [...bucket.antonyms],

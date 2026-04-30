@@ -1073,7 +1073,7 @@ export async function ocrExamAnswerBatch(
 }
 
 // ── 기출문제 AI 해설 생성 ─────────────────────────────────────────────────
-// 대상: 20~24번, 29~42번 문항
+// 대상: 20~24번, 29~45번 문항
 // 생성 필드: explanation_translation (해석), explanation_vocabulary (Words & Phrases)
 
 export type GeneratedExplanation = {
