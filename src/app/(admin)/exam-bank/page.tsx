@@ -86,6 +86,7 @@ type VocabSource = {
   grade: number
   source: string
   question_number: number
+  question_numbers?: number[]
 }
 
 type VocabCollection = {
@@ -396,7 +397,15 @@ function csvCell(value: string | number) {
 }
 
 function sourceLabel(source: VocabSource) {
-  return `${source.year}년 ${source.month}월 ${source.source} ${source.question_number}번`
+  const numbers = source.question_numbers?.length
+    ? source.question_numbers
+    : [source.question_number]
+  const sortedNumbers = [...new Set(numbers)].filter((number) => Number.isFinite(number)).sort((a, b) => a - b)
+  if (sortedNumbers.length === 0) return `${source.year}년 ${source.month}월 ${source.source}`
+  const numberLabel = sortedNumbers.length <= 1
+    ? `${sortedNumbers[0]}번`
+    : `${sortedNumbers[0]}~${sortedNumbers[sortedNumbers.length - 1]}번`
+  return `${source.year}년 ${source.month}월 ${source.source} ${numberLabel}`
 }
 
 function listOrEmpty(values: unknown) {
@@ -464,9 +473,11 @@ const DEFAULT_VOCAB_SORT_DIRECTIONS: Record<VocabSortKey, VocabSortDirection> = 
 function compareSourceLatest(a: VocabCollectionItem, b: VocabCollectionItem) {
   const aSource = a.sources[0]
   const bSource = b.sources[0]
+  const aQuestionNumber = aSource?.question_numbers?.[0] ?? aSource?.question_number ?? 0
+  const bQuestionNumber = bSource?.question_numbers?.[0] ?? bSource?.question_number ?? 0
   return (aSource?.year ?? 0) - (bSource?.year ?? 0)
     || (aSource?.month ?? 0) - (bSource?.month ?? 0)
-    || (aSource?.question_number ?? 0) - (bSource?.question_number ?? 0)
+    || aQuestionNumber - bQuestionNumber
 }
 
 function compareVocabBySort(a: VocabCollectionItem, b: VocabCollectionItem, key: VocabSortKey) {
@@ -970,7 +981,7 @@ function ExamList() {
                     }
                   }}
                   className="p-1.5 rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="AI 해설/어휘 생성 (20~24, 29~42번)"
+                  title="AI 해설/어휘 생성 (20~24, 29~45번)"
                 >
                   {generatingId === exam.id
                     ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -2634,7 +2645,7 @@ function ExplanationUploadDialog({
       )
       if (!pdfOk) throw new Error((data.error as string) || '해설 파싱 실패')
 
-      // PDF 파싱 완료 → AI 해석/어휘 자동 생성 (20~24, 29~42번)
+      // PDF 파싱 완료 → AI 해석/어휘 자동 생성 (20~24, 29~45번)
       const { ok: aiOk, data: aiData } = await safeJson(
         await fetch(`/api/exam-bank/${examId}/generate-explanation`, { method: 'POST' })
       )

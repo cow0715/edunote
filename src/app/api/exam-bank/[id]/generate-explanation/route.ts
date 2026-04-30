@@ -7,7 +7,7 @@ import { enrichExamQuestionVocabulary } from '@/lib/vocab-enrichment'
 export const maxDuration = 300
 
 // 평가원/수능: PDF에 풀이가 있으므로 일부 문항만 AI 보완
-const PYUNGWON_RANGES = [[20, 24], [29, 42]] as const
+const PYUNGWON_RANGES = [[20, 24], [29, 45]] as const
 
 // 학평: 듣기(1~17) 제외한 독해 전체
 const HAKPYUNG_MONTHS = [3, 4, 5, 7, 10]
@@ -56,7 +56,7 @@ export async function POST(
     return err(`문항 조회 실패: ${fetchErr?.message}`)
   }
 
-  // 학평/평가원 공통: 20~24, 29~42번만 AI 생성 (나머지는 PDF 해설 사용)
+  // 학평/평가원 공통: 20~24, 29~45번만 AI 생성 (나머지는 PDF 해설 사용)
   const targets: QuestionForExplanation[] = rows
     .filter((r) => isPyungwonTarget(r.question_number))
     .map((r) => ({
