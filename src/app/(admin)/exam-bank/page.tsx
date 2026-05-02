@@ -29,7 +29,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2, BookOpen, ChevronRight, Sparkles, FolderOpen, CheckCircle2, XCircle, Circle, Download } from 'lucide-react'
+import { Upload, Trash2, Search, Copy, ChevronDown, ChevronUp, FileText, File, Plus, Pencil, BarChart2, Loader2, BookOpen, ChevronRight, Sparkles, FolderOpen, CheckCircle2, XCircle, Circle, Download, Info } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -1123,8 +1123,20 @@ const DIFFICULTY_STYLE: Record<string, { bg: string; text: string; dot: string }
   '중하': { bg: 'bg-lime-50',   text: 'text-lime-700',   dot: 'bg-lime-400' },
   '중':   { bg: 'bg-yellow-50', text: 'text-yellow-700', dot: 'bg-yellow-400' },
   '중상': { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-400' },
+  '상':   { bg: 'bg-rose-50',   text: 'text-rose-600',   dot: 'bg-rose-400' },
   '최상': { bg: 'bg-red-50',    text: 'text-red-600',    dot: 'bg-red-400' },
 }
+
+const DIFFICULTY_OPTIONS = ['하', '중하', '중', '중상', '상', '최상'] as const
+const DIFFICULTY_CRITERIA = [
+  ['최상', '30% 미만'],
+  ['상', '30~49%'],
+  ['중상', '50~59%'],
+  ['중', '60~79%'],
+  ['중하', '80~89%'],
+  ['하', '90~100%'],
+] as const
+const DIFFICULTY_CRITERIA_TEXT = `메가스터디 정답률 기준: ${DIFFICULTY_CRITERIA.map(([level, range]) => `${level} ${range}`).join(' · ')}`
 
 // ── 문항 카드 ─────────────────────────────────────────────────────────────
 
@@ -1480,7 +1492,6 @@ function QuestionCard({
 
 // ── 문제 검색 ────────────────────────────────────────────────────────────
 
-const DIFFICULTY_OPTIONS = ['하', '중하', '중', '중상', '최상'] as const
 const EMPTY_FILTERS = {
   q: '',
   type: '',
@@ -1954,7 +1965,16 @@ function QuestionSearch() {
 
           {/* 난이도 */}
           <div>
-            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">난이도</p>
+            <div className="mb-1 flex items-center gap-1">
+              <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">난이도</p>
+              <span
+                title={DIFFICULTY_CRITERIA_TEXT}
+                aria-label={DIFFICULTY_CRITERIA_TEXT}
+                className="inline-flex h-4 w-4 items-center justify-center text-gray-300"
+              >
+                <Info className="h-3.5 w-3.5" />
+              </span>
+            </div>
             <div className="flex gap-1">
               {DIFFICULTY_OPTIONS.map((d) => {
                 const s = DIFFICULTY_STYLE[d]
@@ -1969,6 +1989,20 @@ function QuestionSearch() {
                   >
                     {d}
                   </button>
+                )
+              })}
+            </div>
+            <div className="mt-2 flex max-w-[360px] flex-wrap gap-1.5">
+              {DIFFICULTY_CRITERIA.map(([level, range]) => {
+                const s = DIFFICULTY_STYLE[level]
+                return (
+                  <span
+                    key={level}
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${s.bg} ${s.text}`}
+                  >
+                    <span>{level}</span>
+                    <span className="font-normal opacity-75">{range}</span>
+                  </span>
                 )
               })}
             </div>
