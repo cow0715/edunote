@@ -1,6 +1,14 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { computeMetrics, getPreviousPeriod, type PeriodComparison, type PeriodType, type ClassContext, type AcademyProfile } from '@/lib/report-card'
 
+type ReportClassRow = {
+  id: string
+  name: string
+  academic_year: number | null
+  school_name: string | null
+  grade_level: number | null
+}
+
 // GET /api/report-cards/[id] — 성적표 1건 + 계산된 지표
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
@@ -52,9 +60,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   const classIds = (classStudents ?? []).map((cs: { class_id: string }) => cs.class_id)
   const { data: classRows } = classIds.length > 0
-    ? await supabase.from('class').select('id, name').in('id', classIds)
-    : { data: [] as { id: string; name: string }[] }
-  const classNameById = new Map((classRows ?? []).map((c) => [c.id, c.name]))
+    ? await supabase.from('class').select('id, name, academic_year, school_name, grade_level').in('id', classIds)
+    : { data: [] as ReportClassRow[] }
+  const reportClasses = (classRows ?? []) as ReportClassRow[]
+  const classById = new Map(reportClasses.map((c) => [c.id, c]))
+  const classNameById = new Map(reportClasses.map((c) => [c.id, c.name]))
 
   // 기간 내 주차 — start_date 또는 created_at 기준
   const { data: weeks } = classIds.length > 0
@@ -70,6 +80,17 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     const ref = w.start_date ?? w.created_at.slice(0, 10)
     return ref >= periodStart && ref <= periodEnd
   })
+  const classWeekCounts = new Map<string, number>()
+  for (const w of inPeriod as { class_id: string }[]) {
+    classWeekCounts.set(w.class_id, (classWeekCounts.get(w.class_id) ?? 0) + 1)
+  }
+  const primaryClassId = [...classWeekCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+  const primaryClass = primaryClassId ? classById.get(primaryClassId) : null
+  const studentForReport = {
+    ...student,
+    school: primaryClass?.school_name ?? student.school,
+    grade: primaryClass?.grade_level ? `${primaryClass.grade_level}학년` : student.grade,
+  }
   const weekIds = inPeriod.map((w: { id: string }) => w.id)
 
   // 학생의 채점 점수
@@ -300,7 +321,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     }
   }
 
-  return ok({ card, student, metrics, previous, academy, classContext })
+  return ok({ card, student: studentForReport, metrics, previous, academy, classContext })
 }
 
 // PATCH /api/report-cards/[id] — 편집 (코멘트, 등급, 오답 선별, 상태)

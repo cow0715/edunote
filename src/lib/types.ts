@@ -38,7 +38,25 @@ export interface Class {
   start_date: string;
   end_date: string;
   schedule_days: string[];
+  academic_year: number | null;
+  school_name: string | null;
+  grade_level: number | null;
+  archived_at: string | null;
   created_at: string;
+}
+
+export interface ClassPeriod {
+  id: string;
+  class_id: string;
+  label: string;
+  semester: 1 | 2;
+  exam_type: 'midterm' | 'final' | 'other';
+  start_date: string;
+  end_date: string | null;
+  is_current: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ClassStudent {
@@ -59,6 +77,10 @@ export interface Week {
   homework_total: number;
   answer_sheet_path: string | null;
   created_at: string;
+  display_label?: string;
+  period_label?: string | null;
+  period_week_number?: number | null;
+  class_period_id?: string | null;
 }
 
 export interface ConceptCategory {

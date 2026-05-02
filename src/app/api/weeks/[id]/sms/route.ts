@@ -1,5 +1,6 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { generateSmsMessages, SmsStudentInput } from '@/lib/anthropic'
+import { buildWeekDisplayMap, getPeriodForWeek, type ClassPeriod } from '@/lib/class-periods'
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
@@ -24,6 +25,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const classId = week.class_id
   const className = (week.class as { name: string } | null)?.name ?? '수업'
 
+  const [{ data: periods }, { data: classWeeks }] = await Promise.all([
+    supabase.from('class_period').select('*').eq('class_id', classId).order('sort_order').order('start_date'),
+    supabase.from('week').select('id, class_id, week_number, start_date').eq('class_id', classId),
+  ])
+  const classPeriods = (periods ?? []) as ClassPeriod[]
+  const weekLabel = buildWeekDisplayMap(classWeeks ?? [], classPeriods).get(weekId)?.displayLabel ?? `${week.week_number}주차`
+  const currentPeriod = getPeriodForWeek(
+    { id: weekId, class_id: classId, week_number: week.week_number, start_date: week.start_date },
+    classPeriods,
+  )
+
   // week 조회 후 독립적인 쿼리 병렬 실행
   let csQuery = supabase
     .from('class_student')
@@ -35,11 +47,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     csQuery = csQuery.lte('joined_at', week.start_date)
   }
 
-  const [{ data: classStudents }, { data: prevWeek }, { data: questions }] = await Promise.all([
+  let prevWeekQuery = supabase.from('week').select('id').eq('class_id', classId)
+  if (week.start_date) {
+    prevWeekQuery = prevWeekQuery.lt('start_date', week.start_date).order('start_date', { ascending: false }).limit(1)
+    if (currentPeriod) {
+      prevWeekQuery = prevWeekQuery.gte('start_date', currentPeriod.start_date)
+      if (currentPeriod.end_date) prevWeekQuery = prevWeekQuery.lte('start_date', currentPeriod.end_date)
+    }
+  } else {
+    prevWeekQuery = prevWeekQuery.eq('week_number', week.week_number - 1).limit(1)
+  }
+
+  const [{ data: classStudents }, { data: prevWeeks }, { data: questions }] = await Promise.all([
     csQuery,
-    supabase.from('week').select('id').eq('class_id', classId).eq('week_number', week.week_number - 1).single(),
+    prevWeekQuery,
     supabase.from('exam_question').select('id').eq('week_id', weekId).eq('exam_type', 'reading'),
   ])
+  const prevWeek = prevWeeks?.[0] ?? null
 
   if (!classStudents?.length) return ok({ messages: [] })
 
@@ -185,7 +209,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   try {
     const generated = await generateSmsMessages(
-      { week_number: week.week_number, class_name: className, start_date: week.start_date },
+      { week_number: week.week_number, week_label: weekLabel, class_name: className, start_date: week.start_date },
       studentInputs,
       customPrompt
     )

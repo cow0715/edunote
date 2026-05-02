@@ -4,7 +4,7 @@ import { uploadToS3 } from '@/lib/s3-backup'
 
 const TABLES = [
   'teacher', 'concept_category', 'concept_tag', 'class',
-  'student', 'class_student', 'week', 'exam_question',
+  'class_period', 'student', 'class_student', 'week', 'exam_question',
   'exam_question_tag', 'week_score', 'student_answer',
   'attendance', 'teacher_memos',
 ] as const

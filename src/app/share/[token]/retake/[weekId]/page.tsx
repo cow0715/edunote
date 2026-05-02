@@ -21,11 +21,17 @@ type Word = {
 
 type RetakeData = {
   student: { name: string }
-  week: { week_number: number; class_name: string; vocab_total: number }
+  week: { week_number: number; display_label?: string; class_name: string; vocab_total: number }
   score_id: string
   vocab_retake_correct: number | null
   words: Word[]
   completed: boolean
+}
+
+type ErrorResponse = { error?: string }
+
+function isRetakeData(value: RetakeData | ErrorResponse): value is RetakeData {
+  return 'words' in value && Array.isArray(value.words)
 }
 
 type GradedResult = {
@@ -75,8 +81,9 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
   async function loadData() {
     setPhase('loading')
     try {
-      const d: RetakeData = await fetch(`/api/share/${token}/retake/${weekId}`).then(r => r.json())
-      if ((d as any).error) { setError((d as any).error); setPhase('error'); return }
+      const d: RetakeData | ErrorResponse = await fetch(`/api/share/${token}/retake/${weekId}`).then(r => r.json())
+      if ('error' in d && d.error) { setError(d.error); setPhase('error'); return }
+      if (!isRetakeData(d)) { setError('데이터를 불러올 수 없습니다'); setPhase('error'); return }
       setData(d)
       if (d.completed || d.words.length === 0) {
         setPhase('done')
@@ -393,7 +400,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
             <div className="text-center">
               <p className="text-xl font-black text-gray-900 dark:text-white mb-1">모든 단어 완료!</p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {data.week.class_name} {data.week.week_number}주차 단어를 모두 학습했어요
+                {data.week.class_name} {data.week.display_label ?? `${data.week.week_number}주차`} 단어를 모두 학습했어요
               </p>
             </div>
             <button
@@ -512,7 +519,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                                 <p className="text-[10px] font-bold text-sky-400 uppercase tracking-widest mb-1.5">예문</p>
                                 <div className="space-y-1">
                                   <p className="text-sm text-gray-700 dark:text-gray-300 italic leading-relaxed">
-                                    "{word.example_sentence}"
+                                    &quot;{word.example_sentence}&quot;
                                   </p>
                                   {word.example_translation && (
                                     <p className="text-xs text-gray-400 dark:text-gray-500">{word.example_translation}</p>

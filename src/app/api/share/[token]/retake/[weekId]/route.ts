@@ -1,8 +1,23 @@
 import { createServiceClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { gradeVocabItems } from '@/lib/anthropic'
+import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
 
 type Params = { token: string; weekId: string }
+
+type VocabWordRow = {
+  number: number
+  english_word: string
+  correct_answer: string
+  synonyms: string | null
+  antonyms: string | null
+  example_sentence: string | null
+  example_translation: string | null
+}
+
+function one<T>(value: T | T[] | null | undefined): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null
+}
 
 // ── GET: 아직 못 맞힌 단어만 반환 ────────────────────────────────────────────
 export async function GET(_: Request, { params }: { params: Promise<Params> }) {
@@ -26,7 +41,7 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
 
   const { data: week } = await supabase
     .from('week')
-    .select('week_number, vocab_total, class_id')
+    .select('id, week_number, start_date, vocab_total, class_id')
     .eq('id', weekId)
     .single()
   if (!week) return NextResponse.json({ error: '주차 정보가 없습니다' }, { status: 404 })
@@ -36,6 +51,12 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
     .select('name')
     .eq('id', week.class_id)
     .single()
+
+  const [{ data: periods }, { data: classWeeks }] = await Promise.all([
+    supabase.from('class_period').select('*').eq('class_id', week.class_id).order('sort_order').order('start_date'),
+    supabase.from('week').select('id, class_id, week_number, start_date').eq('class_id', week.class_id),
+  ])
+  const weekLabel = buildWeekDisplayMap(classWeeks ?? [], (periods ?? []) as ClassPeriod[]).get(week.id)?.displayLabel ?? `${week.week_number}주차`
 
   // 원본 오답 전체 조회
   const { data: wrongAnswers } = await supabase
@@ -48,7 +69,7 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
   const allWrong = (wrongAnswers ?? [])
     .filter((a) => a.vocab_word)
     .map((a) => {
-      const vw = Array.isArray(a.vocab_word) ? a.vocab_word[0] : a.vocab_word
+      const vw = one(a.vocab_word) as VocabWordRow
       return {
         answer_id: a.id,
         number: vw.number,
@@ -56,8 +77,8 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
         correct_answer: vw.correct_answer,
         synonyms: vw.synonyms ?? null,
         antonyms: vw.antonyms ?? null,
-        example_sentence: (vw as any).example_sentence ?? null,
-        example_translation: (vw as any).example_translation ?? null,
+        example_sentence: vw.example_sentence ?? null,
+        example_translation: vw.example_translation ?? null,
         retake_answer: a.retake_answer ?? null,
         retake_is_correct: a.retake_is_correct ?? null,
       }
@@ -70,7 +91,7 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
 
   return NextResponse.json({
     student: { name: student.name },
-    week: { week_number: week.week_number, class_name: classRow?.name ?? '', vocab_total: week.vocab_total },
+    week: { week_number: week.week_number, display_label: weekLabel, class_name: classRow?.name ?? '', vocab_total: week.vocab_total },
     score_id: score.id,
     vocab_retake_correct: score.vocab_retake_correct,
     words,

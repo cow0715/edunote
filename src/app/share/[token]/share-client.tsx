@@ -1,7 +1,7 @@
 'use client'
 
 import { use, useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -36,11 +36,12 @@ const ConceptRadarChart = dynamic(
   { ssr: false }
 )
 
-function useShareData(token: string) {
+function useShareData(token: string, periodId: string | null) {
   return useQuery<ShareData>({
-    queryKey: ['share', token],
+    queryKey: ['share', token, periodId],
     queryFn: async () => {
-      const res = await fetch(`/api/share/${token}`)
+      const query = periodId ? `?periodId=${encodeURIComponent(periodId)}` : ''
+      const res = await fetch(`/api/share/${token}${query}`)
       if (!res.ok) throw new Error('데이터를 불러올 수 없습니다')
       return res.json()
     },
@@ -68,7 +69,9 @@ function formatCorrectAnswer(q: StudentAnswer['exam_question']): string {
 export default function ShareClient({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
   const router = useRouter()
-  const { data, isLoading, error } = useShareData(token)
+  const searchParams = useSearchParams()
+  const selectedPeriodId = searchParams.get('periodId')
+  const { data, isLoading, error } = useShareData(token, selectedPeriodId)
   const [expandedWeekId, setExpandedWeekId] = useState<string | null>(null)
   const [expandedWrongWeekIds, setExpandedWrongWeekIds] = useState<Set<string>>(new Set())
   const [expandedVocabWeekIds, setExpandedVocabWeekIds] = useState<Set<string>>(new Set())
@@ -123,7 +126,18 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     </div>
   )
 
-  const { student, classes, weeks, weekScores = [], studentAnswers = [], vocabAnswers = [], attendance = [], classAverages = {} } = data
+  const {
+    student,
+    classes,
+    currentPeriod,
+    periodOptions = [],
+    weeks,
+    weekScores = [],
+    studentAnswers = [],
+    vocabAnswers = [],
+    attendance = [],
+    classAverages = {},
+  } = data
 
   const scoreByWeek = new Map(weekScores.map((s) => [s.week_id, s]))
   const answersByScore = new Map<string, StudentAnswer[]>()
@@ -133,6 +147,9 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     answersByScore.set(a.week_score_id, list)
   })
   const weekNumberByWeekId = new Map(weeks.map((w) => [w.id, w.week_number]))
+  const weekLabelByWeekId = new Map(weeks.map((w) => [w.id, w.display_label ?? `${w.week_number}주차`]))
+  const getWeekLabel = (w: { id: string; week_number: number; display_label?: string }) =>
+    w.display_label ?? `${w.week_number}주차`
 
   const scoredWeeks = weeks.filter((w) => scoreByWeek.has(w.id)).sort((a, b) => a.week_number - b.week_number)
   const visibleWeeks = [...scoredWeeks].reverse()
@@ -369,6 +386,35 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
         {/* ── 탭 콘텐츠 ─────────────────────────────────────────────── */}
         <main className="mx-auto max-w-lg px-4 pt-6 pb-28 space-y-4">
+          {periodOptions.length > 0 && (
+            <div className="rounded-2xl bg-white/90 dark:bg-[#1E293B]/90 px-4 py-3 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium text-[#8B95A1] dark:text-[#94A3B8]">
+                    현재 보기
+                  </p>
+                  <p className="truncate text-sm font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">
+                    {currentPeriod ? currentPeriod.label : '현재 기간 없음'}
+                  </p>
+                </div>
+                <select
+                  value={selectedPeriodId ?? ''}
+                  onChange={(e) => {
+                    const next = e.target.value
+                    router.push(next ? `/share/${token}?periodId=${next}` : `/share/${token}`)
+                  }}
+                  className="h-9 max-w-[190px] rounded-full border border-gray-100 bg-white px-3 text-xs font-semibold text-[#2463EB] outline-none dark:border-white/[0.08] dark:bg-[#0F172A] dark:text-blue-300"
+                >
+                  <option value="">현재 반/기간</option>
+                  {periodOptions.map((period) => (
+                    <option key={period.id} value={period.id}>
+                      {period.class_name} · {period.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
 
           {/* ── 홈 탭 ───────────────────────────────────────────────── */}
           {activeTab === 'home' && (
@@ -477,7 +523,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                   <StatCard label="과제 평균" color="amber"
                     value={avgHomework !== null ? `${avgHomework}%` : null} delta={vsAvgHomework}
                     onClick={() => scrollTo('section-homework')} />
-                  <StatCard label="출석률" color="blue"
+                  <StatCard label="누적 출석률" color="blue"
                     value={attRate !== null ? `${attRate}%` : null} delta={null}
                     onClick={() => scrollTo('section-attendance')} />
                 </div>
@@ -508,7 +554,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
               {/* 출석 현황 */}
               {attendance.length > 0 && (
-                <Card id="section-attendance" title="출석 현황" subtitle="수업일 기준">
+                <Card id="section-attendance" title="누적 출결" subtitle="현재 반 전체 수업일 기준">
                   <AttendanceCalendar attendance={attendance} />
                 </Card>
               )}
@@ -529,7 +575,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                         </div>
                         <div className="pb-3 min-w-0">
                           <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-1">
-                            {className} {week.week_number}주차
+                            {className} {getWeekLabel(week)}
                             {week.start_date && (
                               <span className="ml-1.5">
                                 {new Date(week.start_date).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
@@ -585,7 +631,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex min-w-0 items-center gap-2">
                               <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                                {className} {w.week_number}주차
+                                {className} {getWeekLabel(w)}
                               </span>
                               {w.start_date && (
                                 <span className="text-xs text-gray-400 dark:text-gray-400">
@@ -812,7 +858,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2">
                                   <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                                    {className} {week.week_number}주차
+                                    {className} {getWeekLabel(week)}
                                   </span>
                                   {week.start_date && (
                                     <span className="text-xs text-gray-400 dark:text-gray-400">
@@ -913,7 +959,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2">
                                   <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                                    {className} {week.week_number}주차
+                                    {className} {getWeekLabel(week)}
                                   </span>
                                   {week.start_date && (
                                     <span className="text-xs text-gray-400 dark:text-gray-400">
@@ -1110,11 +1156,11 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
             ) : (
               drawerAnswers.map((a) => {
                 const q = a.exam_question!
-                const weekNum = weekNumberByWeekId.get(q.week_id) ?? '?'
+                const weekLabel = weekLabelByWeekId.get(q.week_id) ?? `${weekNumberByWeekId.get(q.week_id) ?? '?'}주차`
                 return (
                   <div key={a.id} className="rounded-xl border border-gray-100 dark:border-white/[0.08] bg-gray-50 dark:bg-background p-4">
                     <p className="mb-3 text-xs font-semibold text-gray-500 dark:text-gray-300">
-                      {weekNum}주차 · {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
+                      {weekLabel} · {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
                     </p>
 
                     {q.question_text && (

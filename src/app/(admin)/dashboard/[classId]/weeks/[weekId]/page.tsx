@@ -17,9 +17,10 @@ import { AnswerSheetUploader } from '@/components/grade/answer-sheet-uploader'
 import { QuestionTypeEditor } from '@/components/grade/question-type-editor'
 import { VocabWordSetup } from '@/components/grade/vocab-word-setup'
 import { useWeek, useUpdateWeek } from '@/hooks/use-weeks'
-import { useClass } from '@/hooks/use-classes'
+import { useClass, useClassPeriods } from '@/hooks/use-classes'
 import { useClassStudents } from '@/hooks/use-students'
 import { ClassStudent } from '@/lib/types'
+import { buildWeekDisplayMap } from '@/lib/class-periods'
 import { generateSessionDates } from '@/lib/schedule'
 import { cn } from '@/lib/utils'
 
@@ -36,6 +37,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
 
   const { data: week, isLoading } = useWeek(weekId)
   const { data: cls } = useClass(classId)
+  const { data: periods = [] } = useClassPeriods(classId)
   const { data: classStudents = [] } = useClassStudents(classId)
   const updateWeek = useUpdateWeek(weekId)
 
@@ -81,6 +83,8 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
   if (isLoading) return <div className="h-8 w-48 animate-pulse rounded bg-gray-100" />
   if (!week) return <p className="text-sm text-gray-500">주차 정보를 찾을 수 없습니다</p>
 
+  const weekDisplay = buildWeekDisplayMap([week], periods).get(week.id)?.displayLabel ?? `${week.week_number}주차`
+
   return (
     <div>
       {/* Breadcrumb */}
@@ -93,13 +97,13 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
           {cls?.name ?? '수업'}
         </Link>
         <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
-        <span className="text-gray-900 font-medium">{week?.week_number}주차</span>
+        <span className="text-gray-900 font-medium">{weekDisplay}</span>
       </div>
 
       {/* 헤더 */}
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{week.week_number}주차</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{weekDisplay}</h1>
           <div className="mt-1 flex gap-3 text-xs text-gray-400">
             {week.start_date && <span>{new Date(week.start_date).toLocaleDateString('ko-KR')}</span>}
             {week.vocab_total > 0 && <span>단어 {week.vocab_total}개</span>}
@@ -111,7 +115,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
             <Settings className="mr-2 h-4 w-4" />
             설정
           </Button>
-          <SmsSheet weekId={weekId} weekNumber={week.week_number} />
+          <SmsSheet weekId={weekId} weekNumber={week.week_number} weekLabel={weekDisplay} />
         </div>
       </div>
 
@@ -153,7 +157,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
           )}
         >
           <DialogHeader>
-            <DialogTitle>{week.week_number}주차 설정</DialogTitle>
+            <DialogTitle>{weekDisplay} 설정</DialogTitle>
           </DialogHeader>
 
           <Tabs value={activeTab} onValueChange={handleTabChange} className="pt-2">

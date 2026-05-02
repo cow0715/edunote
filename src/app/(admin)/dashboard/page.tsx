@@ -2,12 +2,12 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Plus, BookOpen, Calendar, Pencil, Trash2, Download, RefreshCw } from 'lucide-react'
+import { Plus, BookOpen, Calendar, Pencil, Trash2, Download, RefreshCw, Archive, ArchiveRestore } from 'lucide-react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ClassFormDialog } from '@/components/classes/class-form-dialog'
-import { useClasses, useDeleteClass } from '@/hooks/use-classes'
+import { useClasses, useDeleteClass, useArchiveClass } from '@/hooks/use-classes'
 import { Class } from '@/lib/types'
 import { toast } from 'sonner'
 
@@ -119,8 +119,10 @@ function BackupPanel() {
 }
 
 export default function DashboardPage() {
-  const { data: classes, isLoading } = useClasses()
+  const [includeArchived, setIncludeArchived] = useState(false)
+  const { data: classes, isLoading } = useClasses(includeArchived)
   const deleteClass = useDeleteClass()
+  const archiveClass = useArchiveClass()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Class | undefined>()
@@ -148,10 +150,16 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold text-gray-900">수업 목록</h1>
           <p className="mt-1 text-sm text-gray-500">수업을 선택하면 상세 내용을 확인할 수 있습니다</p>
         </div>
-        <Button onClick={handleCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          수업 생성
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setIncludeArchived((v) => !v)}>
+            {includeArchived ? <ArchiveRestore className="mr-2 h-4 w-4" /> : <Archive className="mr-2 h-4 w-4" />}
+            {includeArchived ? '현재 반만 보기' : '지난 반 보기'}
+          </Button>
+          <Button onClick={handleCreate}>
+            <Plus className="mr-2 h-4 w-4" />
+            수업 생성
+          </Button>
+        </div>
       </div>
 
       <div className="mt-6">
@@ -172,10 +180,17 @@ export default function DashboardPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {classes?.map((cls) => (
-              <Card key={cls.id} className="group relative hover:shadow-md transition-shadow">
+              <Card key={cls.id} className={`group relative hover:shadow-md transition-shadow ${cls.archived_at ? 'opacity-70' : ''}`}>
                 <Link href={`/dashboard/${cls.id}`} className="absolute inset-0 z-0" />
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base">{cls.name}</CardTitle>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    {cls.name}
+                    {cls.archived_at && (
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
+                        지난 반
+                      </span>
+                    )}
+                  </CardTitle>
                   {cls.description && (
                     <p className="text-xs text-gray-500 line-clamp-1">{cls.description}</p>
                   )}
@@ -202,6 +217,18 @@ export default function DashboardPage() {
                       onClick={(e) => { e.preventDefault(); handleDelete(cls.id) }}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2"
+                      disabled={archiveClass.isPending}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        archiveClass.mutate({ id: cls.id, archive: !cls.archived_at })
+                      }}
+                    >
+                      {cls.archived_at ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
                     </Button>
                   </div>
                 </CardContent>

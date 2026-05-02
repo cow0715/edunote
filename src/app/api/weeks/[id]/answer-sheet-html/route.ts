@@ -1,4 +1,5 @@
 import { getAuth, getTeacherId, assertWeekOwner, err } from '@/lib/api'
+import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
@@ -11,7 +12,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   // 주차 정보
   const { data: week } = await supabase
     .from('week')
-    .select('week_number, class_id, class(name)')
+    .select('id, week_number, start_date, class_id, class(name)')
     .eq('id', weekId)
     .single()
 
@@ -31,8 +32,16 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   }
 
   const className = (week?.class as unknown as { name: string } | null)?.name ?? ''
-  const weekNum = week?.week_number ?? ''
-  const title = `${className} ${weekNum}주차 답안지`
+  const { data: periods } = week?.class_id
+    ? await supabase.from('class_period').select('*').eq('class_id', week.class_id).order('sort_order').order('start_date')
+    : { data: [] }
+  const { data: classWeeks } = week?.class_id
+    ? await supabase.from('week').select('id, class_id, week_number, start_date').eq('class_id', week.class_id)
+    : { data: [] }
+  const weekLabel = week
+    ? buildWeekDisplayMap(classWeeks ?? [], (periods ?? []) as ClassPeriod[]).get(week.id)?.displayLabel ?? `${week.week_number}주차`
+    : ''
+  const title = `${className} ${weekLabel} 답안지`
 
   // 문항번호별로 그룹
   type Q = typeof questions[number]
@@ -120,7 +129,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 </head>
 <body>
 <div class="Section1">
-<p style="text-align:center;font-size:18px;font-weight:bold;margin:4pt 0 2pt 0;">Week${weekNum} 진단평가 답안지</p>
+<p style="text-align:center;font-size:18px;font-weight:bold;margin:4pt 0 2pt 0;">${weekLabel} 진단평가 답안지</p>
 <p style="text-align:right;font-size:12px;margin:0 0 4pt 0;">학교: ______________&nbsp;&nbsp;&nbsp;&nbsp;이름: ______________</p>
 <table border="1" bordercolor="#000000" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;border:2px solid #000;">
 ${rows.join('\n')}

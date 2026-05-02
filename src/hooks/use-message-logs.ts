@@ -10,7 +10,14 @@ export type MessageLog = {
   message: string
   sent_at: string
   student?: { id: string; name: string; mother_phone: string | null; father_phone: string | null; phone: string | null }
-  week?: { id: string; week_number: number; class_id: string; class?: { id: string; name: string } } | null
+  week?: {
+    id: string
+    week_number: number
+    display_label?: string
+    start_date?: string | null
+    class_id: string
+    class?: { id: string; name: string }
+  } | null
 }
 
 export function useMessageLogs(studentId: string) {
