@@ -2,7 +2,7 @@ import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 
 // GET — 기출문제 통합 검색
 // ?type=blank_vocabulary&grade=3&year_from=2024&year_to=2026&source=평가원
-// &points=3&difficulty=중상,최상&max_correct_rate=50
+// &points=3&difficulty=중상,상,최상&max_correct_rate=50
 export async function GET(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
