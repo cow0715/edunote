@@ -1,4 +1,5 @@
 import { Metadata } from 'next'
+import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import ShareClient from './share-client'
 
@@ -19,5 +20,9 @@ export async function generateMetadata(
 }
 
 export default function SharePage({ params }: { params: Promise<{ token: string }> }) {
-  return <ShareClient params={params} />
+  return (
+    <Suspense fallback={null}>
+      <ShareClient params={params} />
+    </Suspense>
+  )
 }

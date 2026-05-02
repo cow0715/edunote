@@ -1,6 +1,10 @@
 export type Week = {
   id: string; class_id: string; week_number: number; start_date: string | null
   vocab_total: number; reading_total: number; homework_total: number
+  display_label?: string
+  period_label?: string | null
+  period_week_number?: number | null
+  class_period_id?: string | null
 }
 export type WeekScore = {
   id: string; week_id: string
@@ -33,7 +37,9 @@ export type VocabAnswer = {
 }
 export type ShareData = {
   student: { id: string; name: string; school: string | null; grade: string | null }
-  classes: { id: string; name: string }[]
+  classes: { id: string; name: string; academic_year?: number | null; school_name?: string | null; grade_level?: number | null }[]
+  currentPeriod: { id: string; class_id: string; label: string; start_date: string; end_date: string | null; is_current: boolean } | null
+  periodOptions: { id: string; class_id: string; class_name: string; label: string; start_date: string; end_date: string | null; is_current: boolean; is_active_class: boolean }[]
   weeks: Week[]; weekScores: WeekScore[]; studentAnswers: StudentAnswer[]
   vocabAnswers: VocabAnswer[]; attendance: AttendanceRecord[]
   classAverages: Record<string, { readingRate: number | null; vocabRate: number | null }>

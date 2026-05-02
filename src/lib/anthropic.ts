@@ -80,7 +80,7 @@ export type SmsResult = {
 }
 
 export async function generateSmsMessages(
-  weekInfo: { week_number: number; class_name: string; start_date?: string | null },
+  weekInfo: { week_number: number; week_label?: string | null; class_name: string; start_date?: string | null },
   students: SmsStudentInput[],
   customPrompt?: string
 ): Promise<SmsResult[]> {
@@ -92,7 +92,7 @@ export async function generateSmsMessages(
 
   const prompt = `당신은 영어 학원 선생님입니다. 학생별 주간 성적 데이터를 보고 학부모에게 보낼 문자를 작성하세요.
 
-[${weekInfo.class_name} ${weekInfo.week_number}주차${dateLabel}]
+[${weekInfo.class_name} ${weekInfo.week_label ?? `${weekInfo.week_number}주차`}${dateLabel}]
 
 학생 데이터:
 ${students.map((s) => {

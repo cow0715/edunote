@@ -3,7 +3,7 @@
 import { use, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, UserPlus, UserMinus, RefreshCw, Link as LinkIcon, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, UserPlus, UserMinus, RefreshCw, Link as LinkIcon, Plus, CheckCircle2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -13,7 +13,8 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useClassStudents, useStudents, useAddClassStudent, useRemoveClassStudent } from '@/hooks/use-students'
 import { useWeeks, useMoveWeekDate } from '@/hooks/use-weeks'
-import { useSyncWeeks, useExtendWeeks } from '@/hooks/use-classes'
+import { useSyncWeeks, useExtendWeeks, useClassPeriods, useCreateClassPeriod, useActivateClassPeriod } from '@/hooks/use-classes'
+import { buildWeekDisplayMap, defaultPeriodLabel } from '@/lib/class-periods'
 
 const DAY_LABEL: Record<string, string> = {
   mon: '월', tue: '화', wed: '수', thu: '목', fri: '금', sat: '토', sun: '일',
@@ -46,14 +47,14 @@ function ClassCalendar({
   classStartDate,
   classEndDate,
   dateWeekMap,
-  weekNumberMap,
+  weekLabelMap,
   onDateClick,
   onDrop,
 }: {
   classStartDate: string
   classEndDate: string
   dateWeekMap: Map<string, string>
-  weekNumberMap: Map<string, number>
+  weekLabelMap: Map<string, string>
   onDateClick: (weekId: string) => void
   onDrop: (weekId: string, newDate: string) => void
 }) {
@@ -161,7 +162,7 @@ function ClassCalendar({
       {/* 드래그 안내 */}
       {draggingWeekId && (
         <div className="mb-3 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-600 text-center select-none">
-          {weekNumberMap.get(draggingWeekId)}주차 — 이동할 날짜에서 손을 떼세요
+          {weekLabelMap.get(draggingWeekId)} — 이동할 날짜에서 손을 떼세요
         </div>
       )}
 
@@ -208,7 +209,7 @@ function ClassCalendar({
                     pointerDownPos.current = { x: e.clientX, y: e.clientY }
                   }}
                   onPointerUp={(e) => handlePointerUp(e, weekId)}
-                  title={`${weekNumberMap.get(weekId)}주차`}
+                  title={weekLabelMap.get(weekId)}
                   className={`flex h-7 w-7 cursor-grab items-center justify-center rounded-full text-[11px] font-semibold transition-all select-none
                     bg-primary text-white
                     ${isDragging ? 'opacity-40 scale-90' : 'hover:bg-primary/80'}
@@ -265,6 +266,12 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   const [addStep, setAddStep] = useState<{ studentId: string; name: string; joinedAt: string } | null>(null)
   const [removeTarget, setRemoveTarget] = useState<{ studentId: string; name: string; leftAt: string } | null>(null)
   const [extendCount, setExtendCount] = useState('4')
+  const [periodForm, setPeriodForm] = useState({
+    semester: '1',
+    examType: 'final' as 'midterm' | 'final' | 'other',
+    label: '1학기 기말',
+    startDate: todayLocalStr(),
+  })
 
   const { data: cls, isLoading: classLoading } = useQuery({
     queryKey: ['class', classId],
@@ -273,11 +280,14 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   const { data: classStudents = [] } = useClassStudents(classId)
   const { data: allStudents = [] } = useStudents()
   const { data: weeks = [] } = useWeeks(classId)
+  const { data: periods = [] } = useClassPeriods(classId)
   const addStudent = useAddClassStudent(classId)
   const removeStudent = useRemoveClassStudent(classId)
   const syncWeeks = useSyncWeeks(classId)
   const extendWeeks = useExtendWeeks(classId)
   const moveWeekDate = useMoveWeekDate(classId)
+  const createPeriod = useCreateClassPeriod(classId)
+  const activatePeriod = useActivateClassPeriod(classId)
 
   const enrolledIds = new Set((classStudents as ClassStudent[]).map((cs) => cs.student_id))
   const unenrolled = (allStudents as Student[]).filter((s) => !enrolledIds.has(s.id))
@@ -309,7 +319,32 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     : '요일 미설정'
 
   const dateWeekMap = buildDateWeekMap(weeks as Week[])
-  const weekNumberMap = new Map<string, number>((weeks as Week[]).map((w) => [w.id, w.week_number]))
+  const weekDisplayMap = buildWeekDisplayMap(weeks as Week[], periods)
+  const weekLabelMap = new Map<string, string>((weeks as Week[]).map((w) => [
+    w.id,
+    weekDisplayMap.get(w.id)?.displayLabel ?? `${w.week_number}주차`,
+  ]))
+  const currentPeriod = periods.find((p) => p.is_current)
+
+  function updatePeriodType(semester: string, examType: 'midterm' | 'final' | 'other') {
+    const sem = semester === '2' ? 2 : 1
+    setPeriodForm((prev) => ({
+      ...prev,
+      semester,
+      examType,
+      label: defaultPeriodLabel(sem, examType),
+    }))
+  }
+
+  function createCurrentPeriod() {
+    createPeriod.mutate({
+      label: periodForm.label,
+      semester: periodForm.semester === '2' ? 2 : 1,
+      exam_type: periodForm.examType,
+      start_date: periodForm.startDate,
+      is_current: true,
+    })
+  }
 
   return (
     <div>
@@ -331,6 +366,93 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
           {new Date(cls.end_date).toLocaleDateString('ko-KR')}
           <span className="ml-2">{scheduleLabel}</span>
         </p>
+      </div>
+
+      <div className="mb-6 rounded-xl border bg-white p-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-800">현재 학습 기간</h2>
+            {currentPeriod ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-600">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  {currentPeriod.label}
+                </span>
+                <span className="text-xs text-gray-400">
+                  {currentPeriod.start_date}
+                  {currentPeriod.end_date ? ` ~ ${currentPeriod.end_date}` : ' 이후'}
+                </span>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-amber-500">현재 기간이 없습니다. 새 기간을 시작해 주세요.</p>
+            )}
+            {periods.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {periods.map((period) => (
+                  <button
+                    key={period.id}
+                    type="button"
+                    onClick={() => activatePeriod.mutate(period.id)}
+                    disabled={period.is_current || activatePeriod.isPending}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                      period.is_current
+                        ? 'border-blue-200 bg-blue-50 text-blue-600'
+                        : 'border-gray-200 text-gray-500 hover:border-blue-200 hover:text-blue-500'
+                    }`}
+                  >
+                    {period.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-[100px_120px_1fr_140px_auto]">
+            <Select
+              value={periodForm.semester}
+              onValueChange={(value) => updatePeriodType(value, periodForm.examType)}
+            >
+              <SelectTrigger size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">1학기</SelectItem>
+                <SelectItem value="2">2학기</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={periodForm.examType}
+              onValueChange={(value) => updatePeriodType(periodForm.semester, value as 'midterm' | 'final' | 'other')}
+            >
+              <SelectTrigger size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="midterm">중간</SelectItem>
+                <SelectItem value="final">기말</SelectItem>
+                <SelectItem value="other">기타</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              value={periodForm.label}
+              onChange={(e) => setPeriodForm((prev) => ({ ...prev, label: e.target.value }))}
+              className="h-8"
+            />
+            <Input
+              type="date"
+              value={periodForm.startDate}
+              onChange={(e) => setPeriodForm((prev) => ({ ...prev, startDate: e.target.value }))}
+              className="h-8"
+            />
+            <Button
+              size="sm"
+              onClick={createCurrentPeriod}
+              disabled={!periodForm.label || !periodForm.startDate || createPeriod.isPending}
+            >
+              {createPeriod.isPending ? '생성 중...' : '새 기간 시작'}
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* 학생 섹션 */}
@@ -429,7 +551,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
               classStartDate={cls.start_date}
               classEndDate={cls.end_date}
               dateWeekMap={dateWeekMap}
-              weekNumberMap={weekNumberMap}
+              weekLabelMap={weekLabelMap}
               onDateClick={(weekId) => router.push(`/dashboard/${classId}/weeks/${weekId}`)}
               onDrop={(weekId, newDate) => moveWeekDate.mutate({ weekId, date: newDate })}
             />

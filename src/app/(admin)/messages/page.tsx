@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query'
 type TodayWeek = {
   id: string
   week_number: number
+  display_label?: string
   start_date: string
   class_id: string
   class: { id: string; name: string; teacher_id: string }
@@ -68,14 +69,14 @@ function TodayClasses() {
   return (
     <div className="flex flex-wrap gap-2">
       {weeks.map((w) => (
-        <SmsSheet key={w.id} weekId={w.id} weekNumber={w.week_number}>
+        <SmsSheet key={w.id} weekId={w.id} weekNumber={w.week_number} weekLabel={w.display_label}>
           <div className="flex items-center gap-3 rounded-xl bg-white border border-gray-100 shadow-[0px_4px_16px_rgba(0,75,198,0.06)] px-4 py-3 cursor-pointer hover:border-blue-200 hover:shadow-[0px_4px_16px_rgba(0,75,198,0.12)] transition-all">
             <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50">
               <BookOpen className="h-4 w-4 text-blue-600" />
             </div>
             <div>
               <p className="text-sm font-semibold text-gray-900">{w.class.name}</p>
-              <p className="text-xs text-gray-400">{w.week_number}주차</p>
+              <p className="text-xs text-gray-400">{w.display_label ?? `${w.week_number}주차`}</p>
             </div>
           </div>
         </SmsSheet>
@@ -96,7 +97,7 @@ function MessageItem({ log }: { log: MessageLog }) {
             <span className="font-medium text-gray-900 text-sm">{log.student?.name}</span>
             {log.week ? (
               <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                {log.week.class?.name} {log.week.week_number}주차
+                {log.week.class?.name} {log.week.display_label ?? `${log.week.week_number}주차`}
               </span>
             ) : (
               <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-600">

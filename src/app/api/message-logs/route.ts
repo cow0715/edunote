@@ -1,4 +1,22 @@
 import { getAuth, err, ok } from '@/lib/api'
+import { buildWeekDisplayMap, getWeekDisplayFallback, type ClassPeriod } from '@/lib/class-periods'
+
+type MessageLogWeek = {
+  id: string
+  week_number: number
+  start_date: string | null
+  class_id: string
+  class?: { id: string; name: string } | null
+}
+
+type MessageLogRow = {
+  week?: MessageLogWeek | MessageLogWeek[] | null
+  [key: string]: unknown
+}
+
+function one<T>(value: T | T[] | null | undefined): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null
+}
 
 // 전송 내역 목록 조회
 export async function GET(request: Request) {
@@ -12,7 +30,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from('message_log')
-    .select('*, student(id, name, mother_phone, father_phone, phone), week(id, week_number, class_id, class(id, name))', { count: 'exact' })
+    .select('*, student(id, name, mother_phone, father_phone, phone), week(id, week_number, start_date, class_id, class(id, name))', { count: 'exact' })
     .order('sent_at', { ascending: false })
 
   if (studentId) query = query.eq('student_id', studentId)
@@ -26,8 +44,46 @@ export async function GET(request: Request) {
   const { data, error, count } = await query
   if (error) return err(error.message, 500)
 
-  if (limitParam) return ok({ logs: data, total: count ?? 0 })
-  return ok(data)
+  const logs = (data ?? []) as MessageLogRow[]
+  const weeks = logs
+    .map((log) => one(log.week))
+    .filter((week): week is MessageLogWeek => !!week)
+  const classIds = Array.from(new Set(weeks.map((week) => week.class_id).filter(Boolean)))
+
+  let periods: ClassPeriod[] = []
+  if (classIds.length > 0) {
+    const { data: periodRows } = await supabase
+      .from('class_period')
+      .select('*')
+      .in('class_id', classIds)
+      .order('sort_order', { ascending: true })
+    periods = (periodRows ?? []) as ClassPeriod[]
+  }
+
+  const displayMap = buildWeekDisplayMap(
+    weeks.map((week) => ({
+      id: week.id,
+      class_id: week.class_id,
+      week_number: week.week_number,
+      start_date: week.start_date,
+    })),
+    periods,
+  )
+
+  const decoratedLogs = logs.map((log) => {
+    const week = one(log.week)
+    if (!week) return log
+    return {
+      ...log,
+      week: {
+        ...week,
+        display_label: displayMap.get(week.id)?.displayLabel ?? getWeekDisplayFallback(week.week_number),
+      },
+    }
+  })
+
+  if (limitParam) return ok({ logs: decoratedLogs, total: count ?? 0 })
+  return ok(decoratedLogs)
 }
 
 // 전송 완료 저장

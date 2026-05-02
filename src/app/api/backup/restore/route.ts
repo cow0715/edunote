@@ -4,10 +4,11 @@ import { createServiceClient } from '@/lib/supabase/server'
 // FK 의존성 순서 (복원 시 부모 → 자식)
 const RESTORE_ORDER = [
   'teacher', 'concept_category', 'concept_tag', 'class',
-  'student', 'class_student', 'week', 'exam_question',
+  'class_period', 'student', 'class_student', 'week', 'exam_question',
   'exam_question_tag', 'week_score', 'student_answer',
   'attendance', 'teacher_memos',
 ] as const
+const OPTIONAL_TABLES = new Set<string>(['class_period'])
 
 const CHUNK = 500
 
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
   if (!dump.tables) return err('유효하지 않은 백업 형식 (tables 없음)')
 
   // ── 3. 사전 검증: 필수 테이블 존재 확인 ────────────────────────────────
-  const missingTables = RESTORE_ORDER.filter((t) => !(t in dump.tables))
+  const missingTables = RESTORE_ORDER.filter((t) => !(t in dump.tables) && !OPTIONAL_TABLES.has(t))
   if (missingTables.length > 0) {
     return err(`백업 파일에 누락된 테이블: ${missingTables.join(', ')}`)
   }
@@ -58,7 +59,7 @@ export async function POST(request: Request) {
   let hasError = false
 
   for (const table of RESTORE_ORDER) {
-    const rows = dump.tables[table]
+    const rows = dump.tables[table] ?? []
     if (!rows || rows.length === 0) {
       results[table] = { inserted: 0 }
       continue
@@ -84,6 +85,30 @@ export async function POST(request: Request) {
 
     // FK 위반 방지: 부모 테이블 insert 실패 시 이후 자식 테이블 중단
     if (errMsg) break
+  }
+
+  if (!('class_period' in dump.tables)) {
+    const classes = (dump.tables.class ?? []) as { id: string; start_date?: string | null }[]
+    const defaultPeriods = classes.map((cls) => ({
+      class_id: cls.id,
+      label: '기존',
+      semester: 1,
+      exam_type: 'other',
+      start_date: cls.start_date ?? new Date().toISOString().slice(0, 10),
+      end_date: null,
+      is_current: true,
+      sort_order: 1,
+    }))
+
+    if (defaultPeriods.length > 0) {
+      const { error } = await supabase.from('class_period').insert(defaultPeriods as never[])
+      if (error) {
+        results.class_period = { inserted: 0, error: error.message }
+        hasError = true
+      } else {
+        results.class_period = { inserted: defaultPeriods.length }
+      }
+    }
   }
 
   console.log('[restore] 완료:', results)

@@ -13,6 +13,9 @@ import { useCreateClass, useUpdateClass } from '@/hooks/use-classes'
 interface FormValues {
   name: string
   description: string
+  academic_year: number | null
+  school_name: string
+  grade_level: number | null
   start_date: string
   end_date: string
 }
@@ -47,10 +50,13 @@ export function ClassFormDialog({ open, onClose, editTarget }: Props) {
         ? {
             name: editTarget.name,
             description: editTarget.description ?? '',
+            academic_year: editTarget.academic_year ?? new Date(editTarget.start_date).getFullYear(),
+            school_name: editTarget.school_name ?? '',
+            grade_level: editTarget.grade_level ?? null,
             start_date: editTarget.start_date,
             end_date: editTarget.end_date,
           }
-        : { name: '', description: '', start_date: '', end_date: '' }
+        : { name: '', description: '', academic_year: new Date().getFullYear(), school_name: '', grade_level: null, start_date: '', end_date: '' }
       )
       setScheduleDays(editTarget?.schedule_days ?? [])
     }
@@ -66,7 +72,7 @@ export function ClassFormDialog({ open, onClose, editTarget }: Props) {
     if (isEdit && editTarget) {
       await updateClass.mutateAsync({ id: editTarget.id, ...values, schedule_days: scheduleDays })
     } else {
-      await createClass.mutateAsync({ ...values, schedule_days: scheduleDays })
+      await createClass.mutateAsync({ ...values, schedule_days: scheduleDays, period_label: '1학기 중간' })
     }
     onClose()
   }
@@ -99,6 +105,37 @@ export function ClassFormDialog({ open, onClose, editTarget }: Props) {
               rows={2}
               {...register('description')}
             />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="academic_year">학년도</Label>
+              <Input
+                id="academic_year"
+                type="number"
+                placeholder="2026"
+                {...register('academic_year', { valueAsNumber: true })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="school_name">학교</Label>
+              <Input
+                id="school_name"
+                placeholder="용산고"
+                {...register('school_name')}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="grade_level">학년</Label>
+              <Input
+                id="grade_level"
+                type="number"
+                min={1}
+                max={3}
+                placeholder="1"
+                {...register('grade_level', { valueAsNumber: true })}
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

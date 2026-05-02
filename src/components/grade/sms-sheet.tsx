@@ -47,10 +47,11 @@ function getNearestSchedule() {
 interface Props {
   weekId: string
   weekNumber: number
+  weekLabel?: string
   children?: React.ReactNode
 }
 
-export function SmsSheet({ weekId, weekNumber, children }: Props) {
+export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [messages, setMessages] = useState<SmsMessage[]>([])
@@ -275,7 +276,7 @@ export function SmsSheet({ weekId, weekNumber, children }: Props) {
         {/* ── 헤더: 제목 + 재생성 + 프롬프트 ── */}
         <SheetHeader className="px-5 py-4 border-b shrink-0">
           <div className="flex items-center justify-between">
-            <SheetTitle>{weekNumber}주차 문자 발송</SheetTitle>
+            <SheetTitle>{weekLabel ?? `${weekNumber}주차`} 문자 발송</SheetTitle>
             <div className="flex items-center gap-2">
               <Button size="sm" variant="ghost" onClick={generate} disabled={loading || sendingAll} className="h-8 text-xs">
                 <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />재생성
