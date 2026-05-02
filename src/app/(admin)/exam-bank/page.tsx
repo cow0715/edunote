@@ -1967,13 +1967,32 @@ function QuestionSearch() {
           <div>
             <div className="mb-1 flex items-center gap-1">
               <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">난이도</p>
-              <span
-                title={DIFFICULTY_CRITERIA_TEXT}
-                aria-label={DIFFICULTY_CRITERIA_TEXT}
-                className="inline-flex h-4 w-4 items-center justify-center text-gray-300"
-              >
-                <Info className="h-3.5 w-3.5" />
-              </span>
+              <div className="group relative inline-flex">
+                <button
+                  type="button"
+                  aria-label={DIFFICULTY_CRITERIA_TEXT}
+                  className="inline-flex h-4 w-4 items-center justify-center rounded-full text-gray-300 transition-colors hover:bg-gray-100 hover:text-gray-500 focus-visible:bg-gray-100 focus-visible:text-gray-500 focus-visible:outline-none"
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </button>
+                <div className="pointer-events-none absolute left-1/2 top-6 z-20 hidden w-[280px] -translate-x-1/2 rounded-xl border border-gray-100 bg-white p-3 text-left shadow-[0px_12px_36px_rgba(0,75,198,0.12)] group-hover:block group-focus-within:block">
+                  <p className="mb-2 text-[11px] font-semibold text-gray-500">메가스터디 정답률 기준</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {DIFFICULTY_CRITERIA.map(([level, range]) => {
+                      const s = DIFFICULTY_STYLE[level]
+                      return (
+                        <span
+                          key={level}
+                          className={`inline-flex items-center justify-between gap-2 rounded-full px-2 py-1 text-[10px] font-medium ${s.bg} ${s.text}`}
+                        >
+                          <span>{level}</span>
+                          <span className="font-normal opacity-75">{range}</span>
+                        </span>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="flex gap-1">
               {DIFFICULTY_OPTIONS.map((d) => {
@@ -1989,20 +2008,6 @@ function QuestionSearch() {
                   >
                     {d}
                   </button>
-                )
-              })}
-            </div>
-            <div className="mt-2 flex max-w-[360px] flex-wrap gap-1.5">
-              {DIFFICULTY_CRITERIA.map(([level, range]) => {
-                const s = DIFFICULTY_STYLE[level]
-                return (
-                  <span
-                    key={level}
-                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${s.bg} ${s.text}`}
-                  >
-                    <span>{level}</span>
-                    <span className="font-normal opacity-75">{range}</span>
-                  </span>
                 )
               })}
             </div>
