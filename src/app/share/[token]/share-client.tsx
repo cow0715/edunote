@@ -8,8 +8,9 @@ import {
   GraduationCap, BookOpen, BookText, ClipboardCheck, UserCheck,
   ChevronDown, ChevronUp, X,
   Home, BarChart2, PieChart, MessageSquare, BookX, AlertTriangle,
-  RotateCcw,
+  RotateCcw, History, CalendarDays,
 } from 'lucide-react'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { classifyPatterns } from '@/hooks/weakness/useAnalysis'
 import { ShareData, StudentAnswer, VocabAnswer, TabId, CIRCLE_NUM } from './share-types'
 import { Card, StatCard, AttendanceCalendar, ThemeToggle } from './share-components'
@@ -81,6 +82,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const [activeTab, setActiveTab] = useState<TabId>('home')
   const [wrongNoteTab, setWrongNoteTab] = useState<'reading' | 'vocab'>('reading')
   const [commentExpanded, setCommentExpanded] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const scrollTo = (id: string, delay = 0) => {
     const go = () => {
       const el = document.getElementById(id)
@@ -131,6 +133,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     classes,
     currentPeriod,
     periodOptions = [],
+    cumulative,
     weeks,
     weekScores = [],
     studentAnswers = [],
@@ -150,6 +153,22 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const weekLabelByWeekId = new Map(weeks.map((w) => [w.id, w.display_label ?? `${w.week_number}주차`]))
   const getWeekLabel = (w: { id: string; week_number: number; display_label?: string }) =>
     w.display_label ?? `${w.week_number}주차`
+
+  const selectedPeriod = selectedPeriodId
+    ? periodOptions.find((period) => period.id === selectedPeriodId)
+    : null
+  const currentViewLabel = selectedPeriod
+    ? `${selectedPeriod.class_name} · ${selectedPeriod.label}`
+    : currentPeriod
+      ? currentPeriod.label
+      : '현재 기간'
+  const periodGroups = periodOptions.reduce((groups, period) => {
+    const key = period.class_name || '지난 기록'
+    const list = groups.get(key) ?? []
+    list.push(period)
+    groups.set(key, list)
+    return groups
+  }, new Map<string, typeof periodOptions>())
 
   const scoredWeeks = weeks.filter((w) => scoreByWeek.has(w.id)).sort((a, b) => a.week_number - b.week_number)
   const visibleWeeks = [...scoredWeeks].reverse()
@@ -387,31 +406,24 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
         {/* ── 탭 콘텐츠 ─────────────────────────────────────────────── */}
         <main className="mx-auto max-w-lg px-4 pt-6 pb-28 space-y-4">
           {periodOptions.length > 0 && (
-            <div className="rounded-2xl bg-white/90 dark:bg-[#1E293B]/90 px-4 py-3 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none">
+            <div className="rounded-2xl bg-white/90 dark:bg-[#1E293B]/90 px-4 py-3 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none dark:ring-1 dark:ring-white/[0.06]">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-[11px] font-medium text-[#8B95A1] dark:text-[#94A3B8]">
-                    현재 보기
+                    {selectedPeriod ? '지난 기록 보기' : '현재 기간'}
                   </p>
                   <p className="truncate text-sm font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">
-                    {currentPeriod ? currentPeriod.label : '현재 기간 없음'}
+                    {currentViewLabel}
                   </p>
                 </div>
-                <select
-                  value={selectedPeriodId ?? ''}
-                  onChange={(e) => {
-                    const next = e.target.value
-                    router.push(next ? `/share/${token}?periodId=${next}` : `/share/${token}`)
-                  }}
-                  className="h-9 max-w-[190px] rounded-full border border-gray-100 bg-white px-3 text-xs font-semibold text-[#2463EB] outline-none dark:border-white/[0.08] dark:bg-[#0F172A] dark:text-blue-300"
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(true)}
+                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-[#2463EB] px-3 text-xs font-bold text-white active:scale-95 transition-transform dark:bg-[#3B82F6]"
                 >
-                  <option value="">현재 반/기간</option>
-                  {periodOptions.map((period) => (
-                    <option key={period.id} value={period.id}>
-                      {period.class_name} · {period.label}
-                    </option>
-                  ))}
-                </select>
+                  <History className="h-3.5 w-3.5" />
+                  지난 기록
+                </button>
               </div>
             </div>
           )}
@@ -529,6 +541,50 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 </div>
                 )
               })()}
+
+              {cumulative && (
+                <Card title="누적 습관 지표" subtitle="현재 선택한 반 전체 기록 기준">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="rounded-2xl bg-blue-50 dark:bg-blue-950/40 px-3 py-3">
+                      <p className="text-[11px] font-semibold text-blue-500 dark:text-blue-300">과제 성실도</p>
+                      <p className="mt-1 text-2xl font-black text-[#2463EB] dark:text-blue-300">
+                        {cumulative.homework.rate !== null ? `${cumulative.homework.rate}%` : '-'}
+                      </p>
+                      <p className="mt-1 text-[11px] text-[#8B95A1] dark:text-[#94A3B8]">
+                        {cumulative.homework.done}/{cumulative.homework.total}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 px-3 py-3">
+                      <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-300">재시험 완료율</p>
+                      <p className="mt-1 text-2xl font-black text-emerald-600 dark:text-emerald-300">
+                        {cumulative.retake.rate !== null ? `${cumulative.retake.rate}%` : '-'}
+                      </p>
+                      <p className="mt-1 text-[11px] text-[#8B95A1] dark:text-[#94A3B8]">
+                        남은 단어 {cumulative.retake.remaining}개
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/40 px-3 py-3">
+                      <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-300">장기 약점</p>
+                      <p className="mt-1 text-2xl font-black text-amber-600 dark:text-amber-300">
+                        {cumulative.longTermWeakness.length}
+                      </p>
+                      <p className="mt-1 text-[11px] text-[#8B95A1] dark:text-[#94A3B8]">반복 유형</p>
+                    </div>
+                  </div>
+                  {cumulative.longTermWeakness.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {cumulative.longTermWeakness.slice(0, 4).map((item) => (
+                        <span
+                          key={item.id}
+                          className="rounded-full bg-gray-50 dark:bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold text-gray-600 dark:text-gray-300"
+                        >
+                          {item.name} · {item.weeks}회차
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              )}
 
               {/* 성장 하이라이트 */}
               {highlights.length > 0 && (
@@ -1121,6 +1177,89 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
             })}
           </div>
         </nav>
+
+        <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+          <SheetContent side="bottom" className="mx-auto max-h-[82vh] w-full max-w-lg rounded-t-3xl border-0 bg-white p-0 dark:bg-[#1E293B]" showCloseButton={false}>
+            <SheetHeader className="px-5 pt-5 pb-3">
+              <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-gray-200 dark:bg-white/20" />
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <SheetTitle className="text-base font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">지난 기록</SheetTitle>
+                  <p className="mt-1 text-xs text-[#8B95A1] dark:text-[#94A3B8]">반과 기간을 선택하면 해당 범위로 다시 계산됩니다</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(false)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 text-gray-400 dark:bg-white/[0.06] dark:text-gray-300"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </SheetHeader>
+            <div className="overflow-y-auto px-5 pb-6">
+              <button
+                type="button"
+                onClick={() => {
+                  router.push(`/share/${token}`)
+                  setHistoryOpen(false)
+                }}
+                className={`mb-3 flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left transition-colors ${
+                  !selectedPeriodId
+                    ? 'bg-blue-50 text-[#2463EB] dark:bg-blue-950/40 dark:text-blue-300'
+                    : 'bg-gray-50 text-gray-700 dark:bg-white/[0.05] dark:text-gray-300'
+                }`}
+              >
+                <span>
+                  <span className="block text-sm font-bold">현재 반/기간</span>
+                  <span className="mt-0.5 block text-xs opacity-70">{currentPeriod?.label ?? '현재 기간'}</span>
+                </span>
+                <CalendarDays className="h-4 w-4" />
+              </button>
+
+              <div className="space-y-4">
+                {[...periodGroups.entries()].map(([className, periods]) => (
+                  <div key={className}>
+                    <p className="mb-2 px-1 text-[11px] font-bold uppercase tracking-wide text-[#8B95A1] dark:text-[#94A3B8]">
+                      {className}
+                    </p>
+                    <div className="space-y-1.5">
+                      {periods.map((period) => {
+                        const active = selectedPeriodId === period.id
+                        return (
+                          <button
+                            key={period.id}
+                            type="button"
+                            onClick={() => {
+                              router.push(`/share/${token}?periodId=${period.id}`)
+                              setHistoryOpen(false)
+                            }}
+                            className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left transition-colors ${
+                              active
+                                ? 'bg-blue-50 text-[#2463EB] dark:bg-blue-950/40 dark:text-blue-300'
+                                : 'bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]'
+                            }`}
+                          >
+                            <span>
+                              <span className="block text-sm font-bold">{period.label}</span>
+                              <span className="mt-0.5 block text-xs opacity-70">
+                                {period.start_date}{period.end_date ? ` ~ ${period.end_date}` : ' 이후'}
+                              </span>
+                            </span>
+                            {period.is_current && (
+                              <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-bold text-[#2463EB] dark:bg-white/[0.08] dark:text-blue-300">
+                                현재
+                              </span>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
 
         {/* ── 오답노트 드로어 ──────────────────────────────────────── */}
         <div

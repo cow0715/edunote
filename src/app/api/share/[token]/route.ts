@@ -37,6 +37,11 @@ type RawStudentAnswerRow = {
   [key: string]: unknown
 }
 
+type CumulativeRawAnswerRow = {
+  exam_question: { id: string; week_id: string; exam_type: string | null } | { id: string; week_id: string; exam_type: string | null }[] | null
+  [key: string]: unknown
+}
+
 type ConceptCategoryRow = { id: string; name: string }
 
 type ConceptTagRow = {
@@ -57,8 +62,32 @@ type WeekScoreAverageRow = {
   vocab_correct: number | null
 }
 
+type CumulativeWeekRow = WeekForPeriod & {
+  vocab_total: number
+  reading_total: number
+  homework_total: number
+  answer_sheet_path: string | null
+  created_at: string
+}
+
+type CumulativeScoreRow = {
+  id: string
+  week_id: string
+  homework_done: number | null
+  vocab_retake_correct: number | null
+}
+
+type CumulativeVocabAnswerRow = {
+  id: string
+  retake_is_correct: boolean | null
+}
+
 function one<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null
+}
+
+function rate(done: number, total: number): number | null {
+  return total > 0 ? Math.round((done / total) * 100) : null
 }
 
 function emptyShare(student: unknown, periodOptions: unknown[] = []) {
@@ -72,6 +101,11 @@ function emptyShare(student: unknown, periodOptions: unknown[] = []) {
     studentAnswers: [],
     vocabAnswers: [],
     attendance: [],
+    cumulative: {
+      homework: { done: 0, total: 0, rate: null },
+      retake: { completed: 0, total: 0, rate: null, remaining: 0 },
+      longTermWeakness: [],
+    },
     classAverages: {},
   })
 }
@@ -150,13 +184,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     .in('class_id', selectedClassIds)
     .order('week_number')
 
-  const allSelectedWeeks = (rawWeeks ?? []) as (WeekForPeriod & {
-    vocab_total: number
-    reading_total: number
-    homework_total: number
-    answer_sheet_path: string | null
-    created_at: string
-  })[]
+  const allSelectedWeeks = (rawWeeks ?? []) as CumulativeWeekRow[]
 
   const selectedPeriodByClassId = new Map(selectedPeriods.map((period) => [period.class_id, period]))
   const filteredWeeks = selectedPeriods.length > 0
@@ -181,6 +209,89 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     }
   })
   const weekIds = weeks.map((w) => w.id)
+  const cumulativeWeekIds = allSelectedWeeks.map((w) => w.id)
+
+  const { data: cumulativeScoresData } = cumulativeWeekIds.length > 0
+    ? await supabase
+        .from('week_score')
+        .select('id, week_id, homework_done, vocab_retake_correct')
+        .in('week_id', cumulativeWeekIds)
+        .eq('student_id', student.id)
+    : { data: [] }
+  const cumulativeScores = (cumulativeScoresData ?? []) as CumulativeScoreRow[]
+  const cumulativeScoreIds = cumulativeScores.map((score) => score.id)
+  const cumulativeScoreByWeekId = new Map(cumulativeScores.map((score) => [score.week_id, score]))
+
+  const cumulativeHomework = allSelectedWeeks.reduce(
+    (acc, week) => {
+      const score = cumulativeScoreByWeekId.get(week.id)
+      if (!score || week.homework_total <= 0 || score.homework_done === null) return acc
+      acc.done += score.homework_done
+      acc.total += week.homework_total
+      return acc
+    },
+    { done: 0, total: 0 },
+  )
+
+  const { data: cumulativeVocabAnswersData } = cumulativeScoreIds.length > 0
+    ? await supabase
+        .from('student_vocab_answer')
+        .select('id, retake_is_correct')
+        .in('week_score_id', cumulativeScoreIds)
+        .eq('is_correct', false)
+    : { data: [] }
+  const cumulativeVocabAnswers = (cumulativeVocabAnswersData ?? []) as CumulativeVocabAnswerRow[]
+  const cumulativeRetakeCompleted = cumulativeVocabAnswers.filter((answer) => answer.retake_is_correct === true).length
+
+  const { data: cumulativeRawAnswers } = cumulativeScoreIds.length > 0
+    ? await supabase
+        .from('student_answer')
+        .select(`
+          id, week_score_id, is_correct,
+          exam_question(
+            id, week_id,
+            exam_type
+          )
+        `)
+        .in('week_score_id', cumulativeScoreIds)
+        .eq('is_correct', false)
+    : { data: [] }
+
+  const cumulativeQuestionIds = [...new Set(
+    ((cumulativeRawAnswers ?? []) as CumulativeRawAnswerRow[])
+      .map((answer) => one(answer.exam_question)?.id)
+      .filter(Boolean) as string[]
+  )]
+  const { data: cumulativeQuestionTags } = cumulativeQuestionIds.length > 0
+    ? await supabase
+        .from('exam_question_tag')
+        .select('exam_question_id, concept_tag(id, name, concept_category_id, concept_category(id, name))')
+        .in('exam_question_id', cumulativeQuestionIds)
+    : { data: [] }
+  const cumulativeTagsByQuestionId = new Map<string, { id: string; name: string }[]>()
+  for (const row of (cumulativeQuestionTags ?? []) as QuestionTagRow[]) {
+    const tag = one(row.concept_tag)
+    if (!tag) continue
+    const list = cumulativeTagsByQuestionId.get(row.exam_question_id) ?? []
+    list.push({ id: tag.id, name: tag.name })
+    cumulativeTagsByQuestionId.set(row.exam_question_id, list)
+  }
+  const weaknessMap = new Map<string, { id: string; name: string; wrong: number; weekIds: Set<string> }>()
+  for (const answer of (cumulativeRawAnswers ?? []) as CumulativeRawAnswerRow[]) {
+    const question = one(answer.exam_question)
+    if (!question || question.exam_type !== 'reading') continue
+    for (const tag of cumulativeTagsByQuestionId.get(question.id) ?? []) {
+      const entry = weaknessMap.get(tag.id) ?? { id: tag.id, name: tag.name, wrong: 0, weekIds: new Set<string>() }
+      entry.wrong += 1
+      entry.weekIds.add(question.week_id)
+      weaknessMap.set(tag.id, entry)
+    }
+  }
+  const longTermWeakness = [...weaknessMap.values()]
+    .map((item) => ({ id: item.id, name: item.name, wrong: item.wrong, weeks: item.weekIds.size }))
+    .filter((item) => item.weeks >= 2)
+    .sort((a, b) => b.weeks - a.weeks || b.wrong - a.wrong)
+    .slice(0, 5)
 
   const { data: allWeekScores } = weekIds.length > 0
     ? await supabase.from('week_score').select('week_id, reading_correct, vocab_correct').in('week_id', weekIds)
@@ -308,6 +419,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     studentAnswers,
     vocabAnswers: vocabAnswers ?? [],
     attendance: attendanceRecords ?? [],
+    cumulative: {
+      homework: {
+        ...cumulativeHomework,
+        rate: rate(cumulativeHomework.done, cumulativeHomework.total),
+      },
+      retake: {
+        completed: cumulativeRetakeCompleted,
+        total: cumulativeVocabAnswers.length,
+        rate: rate(cumulativeRetakeCompleted, cumulativeVocabAnswers.length),
+        remaining: cumulativeVocabAnswers.length - cumulativeRetakeCompleted,
+      },
+      longTermWeakness,
+    },
     classAverages,
   })
 }
