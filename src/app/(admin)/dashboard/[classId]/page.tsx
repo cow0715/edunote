@@ -3,17 +3,39 @@
 import { use, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, UserPlus, UserMinus, RefreshCw, Link as LinkIcon, Plus, CheckCircle2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Link as LinkIcon,
+  Pencil,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Trash2,
+  UserMinus,
+  UserPlus,
+} from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Class, ClassStudent, Student, Week } from '@/lib/types'
+import { Class, ClassPeriod, ClassStudent, Student, Week } from '@/lib/types'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useClassStudents, useStudents, useAddClassStudent, useRemoveClassStudent } from '@/hooks/use-students'
 import { useWeeks, useMoveWeekDate } from '@/hooks/use-weeks'
-import { useSyncWeeks, useExtendWeeks, useClassPeriods, useCreateClassPeriod, useActivateClassPeriod } from '@/hooks/use-classes'
+import {
+  useActivateClassPeriod,
+  useClassPeriods,
+  useCreateClassPeriod,
+  useDeleteClassPeriod,
+  useExtendWeeks,
+  useSyncWeeks,
+  useUpdateClassPeriod,
+} from '@/hooks/use-classes'
 import { buildWeekDisplayMap, defaultPeriodLabel } from '@/lib/class-periods'
 
 const DAY_LABEL: Record<string, string> = {
@@ -40,6 +62,54 @@ function buildDateWeekMap(weeks: Week[]): Map<string, string> {
 function todayLocalStr() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function dateKeyToDay(date: string) {
+  const d = new Date(`${date}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return ''
+  return DOW[d.getDay()]
+}
+
+function dateKeyToScheduleDay(date: string) {
+  const d = new Date(`${date}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return ''
+  return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][d.getDay()]
+}
+
+function formatDateWithDay(date?: string | null) {
+  if (!date) return ''
+  const day = dateKeyToDay(date)
+  return day ? `${date} (${day})` : date
+}
+
+function previousDate(date: string) {
+  const d = new Date(`${date}T00:00:00`)
+  d.setDate(d.getDate() - 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function examTypeLabel(type: ClassPeriod['exam_type']) {
+  if (type === 'midterm') return '중간'
+  if (type === 'final') return '기말'
+  return '기타'
+}
+
+function nextPeriodPreset(currentPeriod?: ClassPeriod) {
+  if (!currentPeriod) return { semester: '1', examType: 'midterm' as const }
+  if (currentPeriod.semester === 1 && currentPeriod.exam_type === 'midterm') return { semester: '1', examType: 'final' as const }
+  if (currentPeriod.semester === 1) return { semester: '2', examType: 'midterm' as const }
+  if (currentPeriod.exam_type === 'midterm') return { semester: '2', examType: 'final' as const }
+  return { semester: '2', examType: 'other' as const }
+}
+
+type PeriodDraft = {
+  periodId: string
+  semester: string
+  examType: ClassPeriod['exam_type']
+  label: string
+  startDate: string
+  endDate: string
+  isCurrent: boolean
 }
 
 // ── 달력 컴포넌트 (pointer events 드래그) ─────────────────────────────────────
@@ -266,6 +336,10 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   const [addStep, setAddStep] = useState<{ studentId: string; name: string; joinedAt: string } | null>(null)
   const [removeTarget, setRemoveTarget] = useState<{ studentId: string; name: string; leftAt: string } | null>(null)
   const [extendCount, setExtendCount] = useState('4')
+  const [periodWizardOpen, setPeriodWizardOpen] = useState(false)
+  const [periodEdit, setPeriodEdit] = useState<PeriodDraft | null>(null)
+  const [deletePeriodTarget, setDeletePeriodTarget] = useState<ClassPeriod | null>(null)
+  const [activatePeriodTarget, setActivatePeriodTarget] = useState<ClassPeriod | null>(null)
   const [periodForm, setPeriodForm] = useState({
     semester: '1',
     examType: 'final' as 'midterm' | 'final' | 'other',
@@ -288,6 +362,8 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   const moveWeekDate = useMoveWeekDate(classId)
   const createPeriod = useCreateClassPeriod(classId)
   const activatePeriod = useActivateClassPeriod(classId)
+  const updatePeriod = useUpdateClassPeriod(classId)
+  const deletePeriod = useDeleteClassPeriod(classId)
 
   const enrolledIds = new Set((classStudents as ClassStudent[]).map((cs) => cs.student_id))
   const unenrolled = (allStudents as Student[]).filter((s) => !enrolledIds.has(s.id))
@@ -325,6 +401,43 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     weekDisplayMap.get(w.id)?.displayLabel ?? `${w.week_number}주차`,
   ]))
   const currentPeriod = periods.find((p) => p.is_current)
+  const orderedPeriods = [...periods].sort((a, b) =>
+    a.start_date.localeCompare(b.start_date) ||
+    a.sort_order - b.sort_order
+  )
+  const sortedClassWeeks = (weeks as Week[])
+    .filter((week) => !!week.start_date)
+    .sort((a, b) =>
+      (a.start_date ?? '').localeCompare(b.start_date ?? '') ||
+      a.week_number - b.week_number
+    )
+
+  function getPeriodImpact(startDate: string) {
+    const selectedDayKey = dateKeyToScheduleDay(startDate)
+    const isScheduleDay = !selectedDayKey || scheduleDays.length === 0 || scheduleDays.includes(selectedDayKey)
+    const firstWeek = sortedClassWeeks.find((week) => (week.start_date ?? '') >= startDate)
+    const previousWeek = [...sortedClassWeeks].reverse().find((week) => (week.start_date ?? '') < startDate)
+    const includedCount = sortedClassWeeks.filter((week) => (week.start_date ?? '') >= startDate).length
+
+    return {
+      dayLabel: dateKeyToDay(startDate),
+      isGeneratedLesson: dateWeekMap.has(startDate),
+      isScheduleDay,
+      firstWeek,
+      previousWeek,
+      includedCount,
+      duplicatePeriod: orderedPeriods.find((period) => period.start_date === startDate),
+    }
+  }
+
+  function suggestedStartDate() {
+    const today = todayLocalStr()
+    return sortedClassWeeks.find((week) => (week.start_date ?? '') >= today)?.start_date ?? today
+  }
+
+  const periodImpact = getPeriodImpact(periodForm.startDate)
+  const periodStartNotAfterCurrent = !!currentPeriod && periodForm.startDate <= currentPeriod.start_date
+  const quickStartWeeks = sortedClassWeeks.filter((week) => (week.start_date ?? '') >= todayLocalStr()).slice(0, 6)
 
   function updatePeriodType(semester: string, examType: 'midterm' | 'final' | 'other') {
     const sem = semester === '2' ? 2 : 1
@@ -336,6 +449,39 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     }))
   }
 
+  function updateEditPeriodType(semester: string, examType: 'midterm' | 'final' | 'other') {
+    const sem = semester === '2' ? 2 : 1
+    setPeriodEdit((prev) => prev
+      ? { ...prev, semester, examType, label: defaultPeriodLabel(sem, examType) }
+      : prev
+    )
+  }
+
+  function openCreatePeriod() {
+    const preset = nextPeriodPreset(currentPeriod)
+    const semester = preset.semester
+    const examType = preset.examType
+    setPeriodForm({
+      semester,
+      examType,
+      label: defaultPeriodLabel(semester === '2' ? 2 : 1, examType),
+      startDate: suggestedStartDate(),
+    })
+    setPeriodWizardOpen(true)
+  }
+
+  function openEditPeriod(period: ClassPeriod) {
+    setPeriodEdit({
+      periodId: period.id,
+      semester: String(period.semester),
+      examType: period.exam_type,
+      label: period.label,
+      startDate: period.start_date,
+      endDate: period.end_date ?? '',
+      isCurrent: period.is_current,
+    })
+  }
+
   function createCurrentPeriod() {
     createPeriod.mutate({
       label: periodForm.label,
@@ -343,6 +489,37 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
       exam_type: periodForm.examType,
       start_date: periodForm.startDate,
       is_current: true,
+    }, {
+      onSuccess: () => setPeriodWizardOpen(false),
+    })
+  }
+
+  function savePeriodEdit() {
+    if (!periodEdit) return
+    updatePeriod.mutate({
+      periodId: periodEdit.periodId,
+      label: periodEdit.label,
+      semester: periodEdit.semester === '2' ? 2 : 1,
+      exam_type: periodEdit.examType,
+      start_date: periodEdit.startDate,
+      end_date: periodEdit.endDate || null,
+      is_current: periodEdit.isCurrent ? true : undefined,
+    }, {
+      onSuccess: () => setPeriodEdit(null),
+    })
+  }
+
+  function confirmActivatePeriod() {
+    if (!activatePeriodTarget) return
+    activatePeriod.mutate(activatePeriodTarget.id, {
+      onSuccess: () => setActivatePeriodTarget(null),
+    })
+  }
+
+  function confirmDeletePeriod() {
+    if (!deletePeriodTarget) return
+    deletePeriod.mutate(deletePeriodTarget.id, {
+      onSuccess: () => setDeletePeriodTarget(null),
     })
   }
 
@@ -368,91 +545,133 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
         </p>
       </div>
 
-      <div className="mb-6 rounded-xl border bg-white p-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-gray-800">현재 학습 기간</h2>
+      <div className="mb-6 rounded-3xl bg-white p-5 shadow-[0_10px_40px_rgba(0,75,198,0.03)]">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-bold text-gray-900">학습 기간 관리</h2>
+              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-600">
+                SHARE 표시 기준
+              </span>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-gray-500">
+              기간은 데이터를 지우는 기능이 아니라, 학부모 공유 화면에서 어떤 시험 범위의 성적·오답·과제를 보여줄지 정하는 기준입니다.
+            </p>
+
             {currentPeriod ? (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-600">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {currentPeriod.label}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-bold text-blue-600">
+                  <CheckCircle2 className="h-4 w-4" />
+                  현재 {currentPeriod.label}
                 </span>
-                <span className="text-xs text-gray-400">
-                  {currentPeriod.start_date}
-                  {currentPeriod.end_date ? ` ~ ${currentPeriod.end_date}` : ' 이후'}
+                <span className="text-xs font-medium text-gray-400">
+                  {formatDateWithDay(currentPeriod.start_date)}
+                  {currentPeriod.end_date ? ` ~ ${formatDateWithDay(currentPeriod.end_date)}` : ' 이후'}
                 </span>
               </div>
             ) : (
-              <p className="mt-2 text-xs text-amber-500">현재 기간이 없습니다. 새 기간을 시작해 주세요.</p>
-            )}
-            {periods.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {periods.map((period) => (
-                  <button
-                    key={period.id}
-                    type="button"
-                    onClick={() => activatePeriod.mutate(period.id)}
-                    disabled={period.is_current || activatePeriod.isPending}
-                    className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                      period.is_current
-                        ? 'border-blue-200 bg-blue-50 text-blue-600'
-                        : 'border-gray-200 text-gray-500 hover:border-blue-200 hover:text-blue-500'
-                    }`}
-                  >
-                    {period.label}
-                  </button>
-                ))}
+              <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-600">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                현재 기간이 없습니다. 새 기간을 시작하면 SHARE 기본 화면이 정해집니다.
               </div>
             )}
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-[100px_120px_1fr_140px_auto]">
-            <Select
-              value={periodForm.semester}
-              onValueChange={(value) => updatePeriodType(value, periodForm.examType)}
-            >
-              <SelectTrigger size="sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">1학기</SelectItem>
-                <SelectItem value="2">2학기</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={periodForm.examType}
-              onValueChange={(value) => updatePeriodType(periodForm.semester, value as 'midterm' | 'final' | 'other')}
-            >
-              <SelectTrigger size="sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="midterm">중간</SelectItem>
-                <SelectItem value="final">기말</SelectItem>
-                <SelectItem value="other">기타</SelectItem>
-              </SelectContent>
-            </Select>
-            <Input
-              value={periodForm.label}
-              onChange={(e) => setPeriodForm((prev) => ({ ...prev, label: e.target.value }))}
-              className="h-8"
-            />
-            <Input
-              type="date"
-              value={periodForm.startDate}
-              onChange={(e) => setPeriodForm((prev) => ({ ...prev, startDate: e.target.value }))}
-              className="h-8"
-            />
-            <Button
-              size="sm"
-              onClick={createCurrentPeriod}
-              disabled={!periodForm.label || !periodForm.startDate || createPeriod.isPending}
-            >
-              {createPeriod.isPending ? '생성 중...' : '새 기간 시작'}
-            </Button>
+          <Button
+            onClick={openCreatePeriod}
+            className="h-10 rounded-full px-4"
+          >
+            <Plus className="h-4 w-4" />
+            새 시험 기간 시작
+          </Button>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl bg-blue-50 px-4 py-3">
+            <p className="text-xs font-bold text-blue-600">SHARE 기본 화면</p>
+            <p className="mt-1 text-xs leading-5 text-gray-600">현재 기간의 성적, 오답, 단어, 과제, 취약분석만 보여줍니다.</p>
+          </div>
+          <div className="rounded-2xl bg-gray-50 px-4 py-3">
+            <p className="text-xs font-bold text-gray-700">수업 목록 주차</p>
+            <p className="mt-1 text-xs leading-5 text-gray-500">선택한 시작일 이후 수업이 새 기간 1주차부터 다시 표시됩니다.</p>
+          </div>
+          <div className="rounded-2xl bg-emerald-50 px-4 py-3">
+            <p className="text-xs font-bold text-emerald-700">누적 데이터</p>
+            <p className="mt-1 text-xs leading-5 text-gray-600">출결과 누적 습관 지표는 같은 반 안에서 계속 이어집니다.</p>
           </div>
         </div>
+
+        {orderedPeriods.length > 0 && (
+          <div className="mt-5">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-xs font-bold text-gray-700">기간 목록</p>
+              <p className="text-[11px] text-gray-400">잘못 만들었으면 수정하거나 이전 기간으로 되돌릴 수 있습니다.</p>
+            </div>
+            <div className="space-y-2">
+              {orderedPeriods.map((period) => (
+                <div
+                  key={period.id}
+                  className={`flex flex-col gap-3 rounded-2xl px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${
+                    period.is_current ? 'bg-blue-50' : 'bg-gray-50'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className={`text-sm font-bold ${period.is_current ? 'text-blue-700' : 'text-gray-800'}`}>
+                        {period.label}
+                      </p>
+                      {period.is_current && (
+                        <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-blue-600">현재</span>
+                      )}
+                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
+                        {period.semester}학기 · {examTypeLabel(period.exam_type)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {formatDateWithDay(period.start_date)}
+                      {period.end_date ? ` ~ ${formatDateWithDay(period.end_date)}` : ' 이후'}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {!period.is_current && (
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="outline"
+                        onClick={() => setActivatePeriodTarget(period)}
+                        disabled={activatePeriod.isPending}
+                        className="rounded-full bg-white"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        현재로
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="ghost"
+                      onClick={() => openEditPeriod(period)}
+                      title="기간 수정"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="ghost"
+                      onClick={() => setDeletePeriodTarget(period)}
+                      disabled={period.is_current || deletePeriod.isPending}
+                      title={period.is_current ? '현재 기간은 다른 기간을 현재로 바꾼 뒤 삭제할 수 있습니다' : '기간 삭제'}
+                      className="text-red-500 hover:text-red-600"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 학생 섹션 */}
@@ -573,6 +792,312 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
           </div>
         )}
       </div>
+
+      {/* 새 기간 시작 다이얼로그 */}
+      <Dialog open={periodWizardOpen} onOpenChange={setPeriodWizardOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>새 시험 기간 시작</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-5 pt-1">
+            <div className="rounded-2xl bg-blue-50 px-4 py-3">
+              <p className="text-sm font-bold text-blue-700">이 작업은 데이터를 지우지 않습니다.</p>
+              <p className="mt-1 text-xs leading-5 text-gray-600">
+                선택한 시작일 이후 수업만 새 기간 성적·오답·과제 분석에 들어갑니다. 출결과 누적 습관 지표는 같은 반 안에서 계속 이어집니다.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>학기</Label>
+                <Select
+                  value={periodForm.semester}
+                  onValueChange={(value) => updatePeriodType(value, periodForm.examType)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1학기</SelectItem>
+                    <SelectItem value="2">2학기</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>시험 구분</Label>
+                <Select
+                  value={periodForm.examType}
+                  onValueChange={(value) => updatePeriodType(periodForm.semester, value as 'midterm' | 'final' | 'other')}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="midterm">중간</SelectItem>
+                    <SelectItem value="final">기말</SelectItem>
+                    <SelectItem value="other">기타</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>기간 이름</Label>
+                <Input
+                  value={periodForm.label}
+                  onChange={(e) => setPeriodForm((prev) => ({ ...prev, label: e.target.value }))}
+                  placeholder="예: 1학기 기말"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>시작 날짜</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="date"
+                    value={periodForm.startDate}
+                    onChange={(e) => setPeriodForm((prev) => ({ ...prev, startDate: e.target.value }))}
+                  />
+                  <div className="flex h-9 min-w-16 items-center justify-center rounded-md bg-gray-50 px-3 text-xs font-bold text-gray-600">
+                    {periodImpact.dayLabel || '요일'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {(quickStartWeeks.length > 0 || sortedClassWeeks.length > 0) && (
+              <div>
+                <p className="mb-2 text-xs font-bold text-gray-700">수업일 빠른 선택</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {(quickStartWeeks.length > 0 ? quickStartWeeks : sortedClassWeeks.slice(-6)).map((week) => (
+                    <button
+                      key={week.id}
+                      type="button"
+                      onClick={() => setPeriodForm((prev) => ({ ...prev, startDate: week.start_date ?? prev.startDate }))}
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        periodForm.startDate === week.start_date
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-50 text-gray-600 hover:bg-blue-50 hover:text-blue-600'
+                      }`}
+                    >
+                      {formatDateWithDay(week.start_date)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {!periodImpact.isScheduleDay && (
+                <div className="flex gap-2 rounded-2xl bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-700">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  이 날짜는 이 반의 수업 요일이 아닙니다. 날짜가 맞다면 괜찮지만, 보통은 실제 첫 수업일을 선택하는 편이 안전합니다.
+                </div>
+              )}
+              {!periodImpact.isGeneratedLesson && periodImpact.firstWeek && (
+                <div className="flex gap-2 rounded-2xl bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-700">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  선택한 날짜에 생성된 수업 주차가 없습니다. 실제 첫 반영 주차는 {formatDateWithDay(periodImpact.firstWeek.start_date)}입니다.
+                </div>
+              )}
+              {periodImpact.duplicatePeriod && (
+                <div className="flex gap-2 rounded-2xl bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-700">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  같은 시작일의 기간이 이미 있습니다: {periodImpact.duplicatePeriod.label}
+                </div>
+              )}
+              {periodStartNotAfterCurrent && (
+                <div className="flex gap-2 rounded-2xl bg-red-50 px-4 py-3 text-xs leading-5 text-red-600">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  새 기간의 시작일은 현재 기간 시작일보다 뒤여야 합니다. 현재 기간 날짜를 고치려는 경우에는 기간 목록에서 현재 기간을 수정해 주세요.
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl bg-gray-50 px-4 py-4">
+              <div className="mb-3 flex items-center gap-2">
+                <CalendarDays className="h-4 w-4 text-blue-600" />
+                <p className="text-sm font-bold text-gray-800">확정하면 이렇게 바뀝니다</p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <p className="text-[11px] font-bold text-gray-500">이전 현재 기간</p>
+                  <p className="mt-1 text-xs leading-5 text-gray-700">
+                    {currentPeriod
+                      ? `${currentPeriod.label}은 ${formatDateWithDay(previousDate(periodForm.startDate))}까지로 정리됩니다.`
+                      : '새 기간이 현재 기간이 됩니다.'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-gray-500">첫 주차 표시</p>
+                  <p className="mt-1 text-xs leading-5 text-gray-700">
+                    {periodImpact.firstWeek
+                      ? `${formatDateWithDay(periodImpact.firstWeek.start_date)} 수업이 ${periodForm.label} 1주차가 됩니다.`
+                      : '이 날짜 이후 생성된 수업이 없어 SHARE에 새 기간 성적이 아직 보이지 않습니다.'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-gray-500">SHARE 표시</p>
+                  <p className="mt-1 text-xs leading-5 text-gray-700">
+                    오답·성적·단어·과제는 {periodForm.label} 기준 {periodImpact.includedCount}회 수업만 반영됩니다.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setPeriodWizardOpen(false)}>취소</Button>
+              <Button
+                onClick={createCurrentPeriod}
+                disabled={!periodForm.label || !periodForm.startDate || periodStartNotAfterCurrent || !!periodImpact.duplicatePeriod || createPeriod.isPending}
+              >
+                {createPeriod.isPending ? '시작 중...' : '이대로 시작'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 기간 수정 다이얼로그 */}
+      <Dialog open={!!periodEdit} onOpenChange={(v) => { if (!v) setPeriodEdit(null) }}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>기간 수정</DialogTitle>
+          </DialogHeader>
+          {periodEdit && (() => {
+            const editImpact = getPeriodImpact(periodEdit.startDate)
+            return (
+              <div className="space-y-4 pt-1">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>학기</Label>
+                    <Select
+                      value={periodEdit.semester}
+                      onValueChange={(value) => updateEditPeriodType(value, periodEdit.examType)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">1학기</SelectItem>
+                        <SelectItem value="2">2학기</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>시험 구분</Label>
+                    <Select
+                      value={periodEdit.examType}
+                      onValueChange={(value) => updateEditPeriodType(periodEdit.semester, value as 'midterm' | 'final' | 'other')}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="midterm">중간</SelectItem>
+                        <SelectItem value="final">기말</SelectItem>
+                        <SelectItem value="other">기타</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>기간 이름</Label>
+                    <Input
+                      value={periodEdit.label}
+                      onChange={(e) => setPeriodEdit((prev) => prev ? { ...prev, label: e.target.value } : prev)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>시작 날짜</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="date"
+                        value={periodEdit.startDate}
+                        onChange={(e) => setPeriodEdit((prev) => prev ? { ...prev, startDate: e.target.value } : prev)}
+                      />
+                      <div className="flex h-9 min-w-16 items-center justify-center rounded-md bg-gray-50 px-3 text-xs font-bold text-gray-600">
+                        {editImpact.dayLabel || '요일'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>종료 날짜</Label>
+                    <Input
+                      type="date"
+                      value={periodEdit.endDate}
+                      onChange={(e) => setPeriodEdit((prev) => prev ? { ...prev, endDate: e.target.value } : prev)}
+                    />
+                    <p className="text-[11px] text-gray-400">현재 진행 중인 기간은 종료 날짜를 비워두면 됩니다.</p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl bg-gray-50 px-4 py-3">
+                  <p className="text-xs font-bold text-gray-700">수정 후 표시 미리보기</p>
+                  <p className="mt-1 text-xs leading-5 text-gray-500">
+                    {editImpact.firstWeek
+                      ? `${formatDateWithDay(editImpact.firstWeek.start_date)} 수업부터 ${periodEdit.label} 1주차로 계산됩니다.`
+                      : '이 날짜 이후 생성된 수업이 없어 이 기간에 포함될 주차가 아직 없습니다.'}
+                  </p>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setPeriodEdit(null)}>취소</Button>
+                  <Button
+                    onClick={savePeriodEdit}
+                    disabled={!periodEdit.label || !periodEdit.startDate || updatePeriod.isPending}
+                  >
+                    {updatePeriod.isPending ? '저장 중...' : '수정 저장'}
+                  </Button>
+                </div>
+              </div>
+            )
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* 기간 전환 확인 다이얼로그 */}
+      <Dialog open={!!activatePeriodTarget} onOpenChange={(v) => { if (!v) setActivatePeriodTarget(null) }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>현재 기간으로 바꿀까요?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div className="rounded-2xl bg-blue-50 px-4 py-3">
+              <p className="text-sm font-bold text-blue-700">{activatePeriodTarget?.label}</p>
+              <p className="mt-1 text-xs leading-5 text-gray-600">
+                잘못 만든 기간을 되돌릴 때 사용하세요. 바꾸면 SHARE 기본 화면이 이 기간 기준으로 다시 계산되고, 데이터는 삭제되지 않습니다.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setActivatePeriodTarget(null)}>취소</Button>
+              <Button onClick={confirmActivatePeriod} disabled={activatePeriod.isPending}>
+                {activatePeriod.isPending ? '변경 중...' : '현재로 변경'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 기간 삭제 확인 다이얼로그 */}
+      <Dialog open={!!deletePeriodTarget} onOpenChange={(v) => { if (!v) setDeletePeriodTarget(null) }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>기간을 삭제할까요?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div className="rounded-2xl bg-red-50 px-4 py-3">
+              <p className="text-sm font-bold text-red-600">{deletePeriodTarget?.label}</p>
+              <p className="mt-1 text-xs leading-5 text-gray-600">
+                기간 기록만 삭제됩니다. 주차, 성적, 오답, 출결 데이터는 삭제되지 않지만 SHARE의 지난 기록 선택에서는 이 기간이 사라집니다.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setDeletePeriodTarget(null)}>취소</Button>
+              <Button variant="destructive" onClick={confirmDeletePeriod} disabled={deletePeriod.isPending}>
+                {deletePeriod.isPending ? '삭제 중...' : '삭제'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 학생 추가 다이얼로그 */}
       <Dialog open={addOpen} onOpenChange={(v) => { setAddOpen(v); if (!v) setAddStep(null) }}>

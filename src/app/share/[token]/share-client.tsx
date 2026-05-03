@@ -1,13 +1,13 @@
 'use client'
 
-import { use, useState, useEffect } from 'react'
+import { use, useState, useEffect, type ReactNode } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
 import {
-  GraduationCap, BookOpen, BookText, ClipboardCheck, UserCheck,
-  ChevronDown, ChevronUp, X,
-  Home, BarChart2, PieChart, MessageSquare, BookX, AlertTriangle,
+  GraduationCap, BookOpen, BookText, ClipboardCheck,
+  ChevronDown, ChevronLeft, ChevronRight, ChevronUp, X,
+  Home, BarChart2, PieChart, MessageSquare, BookX,
   RotateCcw, History, CalendarDays,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -66,6 +66,97 @@ function formatCorrectAnswer(q: StudentAnswer['exam_question']): string {
   return q.correct_answer_text ?? '?'
 }
 
+const CHART_PAGE_SIZE = 8
+
+function PagedChartCard({
+  id,
+  title,
+  subtitle,
+  rangeLabel,
+  canOlder,
+  canNewer,
+  onOlder,
+  onNewer,
+  children,
+}: {
+  id?: string
+  title: string
+  subtitle: string
+  rangeLabel: string
+  canOlder: boolean
+  canNewer: boolean
+  onOlder: () => void
+  onNewer: () => void
+  children: ReactNode
+}) {
+  const [touchStartX, setTouchStartX] = useState<number | null>(null)
+  const showControls = canOlder || canNewer
+
+  return (
+    <Card id={id} title={title} subtitle={subtitle}>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <span className="rounded-full bg-gray-50 dark:bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold text-[#8B95A1] dark:text-[#94A3B8]">
+          {rangeLabel}
+        </span>
+        {showControls && (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onOlder}
+              disabled={!canOlder}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 text-gray-500 transition-colors hover:bg-gray-100 disabled:opacity-30 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+              aria-label="이전 기록 보기"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onNewer}
+              disabled={!canNewer}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 text-gray-500 transition-colors hover:bg-gray-100 disabled:opacity-30 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+              aria-label="최근 기록 보기"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+      </div>
+      <div
+        className="touch-pan-y"
+        onTouchStart={(e) => setTouchStartX(e.changedTouches[0]?.clientX ?? null)}
+        onTouchEnd={(e) => {
+          if (touchStartX === null) return
+          const endX = e.changedTouches[0]?.clientX
+          if (endX === undefined) return
+          const delta = endX - touchStartX
+          if (delta > 44 && canOlder) onOlder()
+          if (delta < -44 && canNewer) onNewer()
+          setTouchStartX(null)
+        }}
+      >
+        {children}
+      </div>
+    </Card>
+  )
+}
+
+function getPagedChartData<T>(items: T[], pageFromLatest: number) {
+  const pageCount = Math.max(1, Math.ceil(items.length / CHART_PAGE_SIZE))
+  const page = Math.min(Math.max(pageFromLatest, 0), pageCount - 1)
+  const end = items.length - page * CHART_PAGE_SIZE
+  const start = Math.max(0, end - CHART_PAGE_SIZE)
+
+  return {
+    items: items.slice(start, end),
+    pageCount,
+    canOlder: start > 0,
+    canNewer: end < items.length,
+    rangeLabel: items.length <= CHART_PAGE_SIZE
+      ? `전체 ${items.length}회`
+      : `${start + 1}-${end}회 / 전체 ${items.length}회`,
+  }
+}
+
 // ── 메인 ──────────────────────────────────────────────────────────────────────
 export default function ShareClient({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
@@ -73,7 +164,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const searchParams = useSearchParams()
   const selectedPeriodId = searchParams.get('periodId')
   const { data, isLoading, error } = useShareData(token, selectedPeriodId)
-  const [expandedWeekId, setExpandedWeekId] = useState<string | null>(null)
   const [expandedWrongWeekIds, setExpandedWrongWeekIds] = useState<Set<string>>(new Set())
   const [expandedVocabWeekIds, setExpandedVocabWeekIds] = useState<Set<string>>(new Set())
   const [drawerTag, setDrawerTag] = useState<{ id: string; name: string; weekId?: string | null } | null>(null)
@@ -83,6 +173,9 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const [wrongNoteTab, setWrongNoteTab] = useState<'reading' | 'vocab'>('reading')
   const [commentExpanded, setCommentExpanded] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [readingChartPage, setReadingChartPage] = useState(0)
+  const [vocabChartPage, setVocabChartPage] = useState(0)
+  const [homeworkChartPage, setHomeworkChartPage] = useState(0)
   const scrollTo = (id: string, delay = 0) => {
     const go = () => {
       const el = document.getElementById(id)
@@ -91,17 +184,21 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
       const top = el.getBoundingClientRect().top + window.scrollY - headerHeight - 12
       window.scrollTo({ top, behavior: 'smooth' })
     }
-    delay > 0 ? setTimeout(go, delay) : go()
+    if (delay > 0) setTimeout(go, delay)
+    else go()
   }
 
   useEffect(() => {
-    const saved = localStorage.getItem('share-theme')
-    if (saved) {
-      setIsDark(saved === 'dark')
-    } else {
-      setIsDark(window.matchMedia('(prefers-color-scheme: dark)').matches)
-    }
-    setThemeReady(true)
+    const frame = window.requestAnimationFrame(() => {
+      const saved = localStorage.getItem('share-theme')
+      if (saved) {
+        setIsDark(saved === 'dark')
+      } else {
+        setIsDark(window.matchMedia('(prefers-color-scheme: dark)').matches)
+      }
+      setThemeReady(true)
+    })
+    return () => window.cancelAnimationFrame(frame)
   }, [])
 
 
@@ -133,7 +230,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     classes,
     currentPeriod,
     periodOptions = [],
-    cumulative,
     weeks,
     weekScores = [],
     studentAnswers = [],
@@ -235,6 +331,11 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
       return { label: fmtWeekLabel(w), rate: Math.round(s.homework_done / w.homework_total * 100), done: s.homework_done, total: w.homework_total }
     })
     .filter((d): d is HomeworkItem => d !== null)
+  const readingTrendData = trendData.filter((d) => d.readingRate !== null || d.classReadingRate !== null)
+  const vocabTrendData = trendData.filter((d) => d.vocabRate !== null || d.classVocabRate !== null)
+  const readingChart = getPagedChartData(readingTrendData, readingChartPage)
+  const vocabChart = getPagedChartData(vocabTrendData, vocabChartPage)
+  const homeworkChart = getPagedChartData(homeworkData, homeworkChartPage)
 
   const typeWrongMap = new Map<string, { id: string; name: string; wrong: number; total: number }>()
   studentAnswers.filter((a) => a.exam_question?.exam_type === 'reading').forEach((a) => {
@@ -335,21 +436,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
       memo: scoreByWeek.get(w.id)!.memo!,
       className: classes.find((c) => c.id === w.class_id)?.name ?? '',
     }))
-
-  // ── 주차 답안 ────────────────────────────────────────────────────────────
-  function getWeekAnswers(weekId: string) {
-    const score = scoreByWeek.get(weekId)
-    if (!score) return { wrong: [] as StudentAnswer[], correct: [] as StudentAnswer[] }
-    const answers = (answersByScore.get(score.id) ?? [])
-      .filter((a) => a.exam_question?.exam_type === 'reading')
-      .sort((a, b) => {
-        const qa = a.exam_question, qb = b.exam_question
-        if (!qa || !qb) return 0
-        if (qa.question_number !== qb.question_number) return qa.question_number - qb.question_number
-        return (qa.sub_label ?? '').localeCompare(qb.sub_label ?? '')
-      })
-    return { wrong: answers.filter((a) => !a.is_correct), correct: answers.filter((a) => a.is_correct) }
-  }
 
   const scoreColor = (correct: number, total: number) =>
     total === 0 ? '' : correct / total >= 0.8
@@ -542,50 +628,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 )
               })()}
 
-              {cumulative && (
-                <Card title="누적 습관 지표" subtitle="현재 선택한 반 전체 기록 기준">
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="rounded-2xl bg-blue-50 dark:bg-blue-950/40 px-3 py-3">
-                      <p className="text-[11px] font-semibold text-blue-500 dark:text-blue-300">과제 성실도</p>
-                      <p className="mt-1 text-2xl font-black text-[#2463EB] dark:text-blue-300">
-                        {cumulative.homework.rate !== null ? `${cumulative.homework.rate}%` : '-'}
-                      </p>
-                      <p className="mt-1 text-[11px] text-[#8B95A1] dark:text-[#94A3B8]">
-                        {cumulative.homework.done}/{cumulative.homework.total}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 px-3 py-3">
-                      <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-300">재시험 완료율</p>
-                      <p className="mt-1 text-2xl font-black text-emerald-600 dark:text-emerald-300">
-                        {cumulative.retake.rate !== null ? `${cumulative.retake.rate}%` : '-'}
-                      </p>
-                      <p className="mt-1 text-[11px] text-[#8B95A1] dark:text-[#94A3B8]">
-                        남은 단어 {cumulative.retake.remaining}개
-                      </p>
-                    </div>
-                    <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/40 px-3 py-3">
-                      <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-300">장기 약점</p>
-                      <p className="mt-1 text-2xl font-black text-amber-600 dark:text-amber-300">
-                        {cumulative.longTermWeakness.length}
-                      </p>
-                      <p className="mt-1 text-[11px] text-[#8B95A1] dark:text-[#94A3B8]">반복 유형</p>
-                    </div>
-                  </div>
-                  {cumulative.longTermWeakness.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {cumulative.longTermWeakness.slice(0, 4).map((item) => (
-                        <span
-                          key={item.id}
-                          className="rounded-full bg-gray-50 dark:bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold text-gray-600 dark:text-gray-300"
-                        >
-                          {item.name} · {item.weeks}회차
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </Card>
-              )}
-
               {/* 성장 하이라이트 */}
               {highlights.length > 0 && (
                 <div className="rounded-3xl bg-white dark:bg-[#1E293B] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none dark:ring-1 dark:ring-white/[0.06] px-5 py-4">
@@ -603,9 +645,18 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
               {/* 과제 제출률 */}
               {homeworkData.length >= 1 && (
-                <Card id="section-homework" title="과제 제출률" subtitle="주차별 (%)">
-                  <HomeworkBarChart data={homeworkData} isDark={isDark} />
-                </Card>
+                <PagedChartCard
+                  id="section-homework"
+                  title="과제 제출률"
+                  subtitle="8회씩 보기 · 좌우로 넘길 수 있어요"
+                  rangeLabel={homeworkChart.rangeLabel}
+                  canOlder={homeworkChart.canOlder}
+                  canNewer={homeworkChart.canNewer}
+                  onOlder={() => setHomeworkChartPage((page) => Math.min(page + 1, homeworkChart.pageCount - 1))}
+                  onNewer={() => setHomeworkChartPage((page) => Math.max(page - 1, 0))}
+                >
+                  <HomeworkBarChart data={homeworkChart.items} isDark={isDark} />
+                </PagedChartCard>
               )}
 
               {/* 출석 현황 */}
@@ -662,16 +713,34 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
           {/* ── 성적 탭 ─────────────────────────────────────────────── */}
           {activeTab === 'score' && (
             <>
-              {trendData.filter((d) => d.readingRate !== null || d.classReadingRate !== null).length >= 1 && (
-                <Card id="section-reading-chart" title="시험 점수 추이" subtitle="진단평가 정답률 (%) · 점선은 반 평균">
-                  <ScoreTrendChart data={trendData} isDark={isDark} series="reading" />
-                </Card>
+              {readingTrendData.length >= 1 && (
+                <PagedChartCard
+                  id="section-reading-chart"
+                  title="시험 점수"
+                  subtitle="8회씩 보기 · 점선은 반 평균"
+                  rangeLabel={readingChart.rangeLabel}
+                  canOlder={readingChart.canOlder}
+                  canNewer={readingChart.canNewer}
+                  onOlder={() => setReadingChartPage((page) => Math.min(page + 1, readingChart.pageCount - 1))}
+                  onNewer={() => setReadingChartPage((page) => Math.max(page - 1, 0))}
+                >
+                  <ScoreTrendChart data={readingChart.items} isDark={isDark} series="reading" />
+                </PagedChartCard>
               )}
 
-              {trendData.filter((d) => d.vocabRate !== null || d.classVocabRate !== null).length >= 1 && (
-                <Card id="section-vocab-chart" title="단어 점수 추이" subtitle="단어시험 정답률 (%) · 점선은 반 평균">
-                  <ScoreTrendChart data={trendData} isDark={isDark} series="vocab" />
-                </Card>
+              {vocabTrendData.length >= 1 && (
+                <PagedChartCard
+                  id="section-vocab-chart"
+                  title="단어 점수"
+                  subtitle="8회씩 보기 · 점선은 반 평균"
+                  rangeLabel={vocabChart.rangeLabel}
+                  canOlder={vocabChart.canOlder}
+                  canNewer={vocabChart.canNewer}
+                  onOlder={() => setVocabChartPage((page) => Math.min(page + 1, vocabChart.pageCount - 1))}
+                  onNewer={() => setVocabChartPage((page) => Math.max(page - 1, 0))}
+                >
+                  <ScoreTrendChart data={vocabChart.items} isDark={isDark} series="vocab" />
+                </PagedChartCard>
               )}
 
               {visibleWeeks.length > 0 && (
@@ -830,15 +899,15 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
               {repeatPatterns.length > 0 && (
                 <Card
-                  title="약점 패턴 분석"
-                  subtitle="2회 이상 출제된 유형 분석 · 탭하면 문제 확인"
+                  title="보완하면 좋은 유형"
+                  subtitle="여러 번 나온 유형을 기준으로 정리했어요"
                   infoNode={
                     <div className="rounded-lg border border-gray-100 dark:border-white/[0.07] overflow-hidden">
                       {[
-                        { label: '고착', accent: '#f43f5e', color: 'text-rose-500 dark:text-rose-400', desc: '반복 출제에도 오답이 지속 — 개념 보완 필요' },
-                        { label: '악화', accent: '#f97316', color: 'text-orange-500 dark:text-orange-400', desc: '최근으로 갈수록 정답률 하락 추세' },
-                        { label: '기복', accent: '#a855f7', color: 'text-purple-500 dark:text-purple-400', desc: '맞을 때도 있고 틀릴 때도 있어 불안정' },
-                        { label: '개선', accent: '#10b981', color: 'text-emerald-500 dark:text-emerald-400', desc: '최근 회차에서 정답률 상승세 확인' },
+                        { label: '집중', accent: '#f43f5e', color: 'text-rose-500 dark:text-rose-400', desc: '반복해서 틀린 유형이라 개념 확인이 필요해요' },
+                        { label: '주의', accent: '#f97316', color: 'text-orange-500 dark:text-orange-400', desc: '최근 회차에서 더 살펴보면 좋은 유형이에요' },
+                        { label: '점검', accent: '#a855f7', color: 'text-purple-500 dark:text-purple-400', desc: '맞고 틀림이 섞여 있어 한 번 더 확인해요' },
+                        { label: '개선', accent: '#10b981', color: 'text-emerald-500 dark:text-emerald-400', desc: '최근 회차에서 좋아지고 있는 유형이에요' },
                       ].map(({ label, accent, color, desc }, i, arr) => (
                         <div
                           key={label}
@@ -1077,7 +1146,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                       .map((va) => {
                                         const vw = va.vocab_word
                                         if (!vw) return null
-                                        const retaken = va.retake_is_correct !== null
                                         return (
                                           <div key={va.id} className={`px-5 py-3 ${va.retake_is_correct === true ? 'opacity-60' : ''}`}>
                                             <div className="flex items-center justify-between gap-2">

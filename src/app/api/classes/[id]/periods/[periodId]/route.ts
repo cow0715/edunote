@@ -1,5 +1,5 @@
 import { getAuth, getTeacherId, assertClassOwner, err, ok } from '@/lib/api'
-import { closeCurrentPeriods } from '@/lib/class-period-api'
+import { closeCurrentPeriods, previousDate } from '@/lib/class-period-api'
 
 const EXAM_TYPES = new Set(['midterm', 'final', 'other'])
 
@@ -57,7 +57,31 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   if (body.is_current === true) {
     const closeError = await closeCurrentPeriods(supabase, classId, nextStartDate, periodId)
-    if (closeError) return err(closeError.message ?? '湲곌컙 ?꾪솚 ?ㅽ뙣', 500)
+    if (closeError) return err(closeError.message ?? '기간 전환 실패', 500)
+    const { data: previousPeriods, error: previousFetchError } = await supabase
+      .from('class_period')
+      .select('id, start_date')
+      .eq('class_id', classId)
+      .neq('id', periodId)
+      .lt('start_date', nextStartDate)
+      .order('start_date', { ascending: false })
+      .limit(1)
+
+    if (previousFetchError) return err(previousFetchError.message, 500)
+
+    const previousPeriod = previousPeriods?.[0]
+    if (previousPeriod) {
+      const previousEndDate = previousDate(nextStartDate)
+      if (previousEndDate >= previousPeriod.start_date) {
+        const { error: previousUpdateError } = await supabase
+          .from('class_period')
+          .update({ end_date: previousEndDate, is_current: false })
+          .eq('id', previousPeriod.id)
+          .eq('class_id', classId)
+
+        if (previousUpdateError) return err(previousUpdateError.message, 500)
+      }
+    }
     patch.is_current = true
   } else if (body.is_current === false) {
     patch.is_current = false

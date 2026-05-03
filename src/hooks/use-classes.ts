@@ -121,6 +121,52 @@ export function useActivateClassPeriod(classId: string) {
   })
 }
 
+export function useUpdateClassPeriod(classId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ periodId, ...body }: {
+      periodId: string
+      label?: string
+      semester?: 1 | 2
+      exam_type?: 'midterm' | 'final' | 'other'
+      start_date?: string
+      end_date?: string | null
+      is_current?: boolean
+    }) => {
+      const res = await fetch(`/api/classes/${classId}/periods/${periodId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      return res.json()
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['class-periods', classId] })
+      qc.invalidateQueries({ queryKey: ['weeks', classId] })
+      toast.success('기간 정보가 수정되었습니다')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
+export function useDeleteClassPeriod(classId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (periodId: string) => {
+      const res = await fetch(`/api/classes/${classId}/periods/${periodId}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error((await res.json()).error)
+      return res.json()
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['class-periods', classId] })
+      qc.invalidateQueries({ queryKey: ['weeks', classId] })
+      toast.success('기간이 삭제되었습니다')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
 export function useCreateClass() {
   const qc = useQueryClient()
   return useMutation({

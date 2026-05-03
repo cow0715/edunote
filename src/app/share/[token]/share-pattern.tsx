@@ -10,18 +10,18 @@ export const PATTERN_META: Record<PatternType, {
   insightFn: (p: PatternItem) => string
 }> = {
   persistent: {
-    label: '고착',
+    label: '집중',
     color: 'text-rose-500 dark:text-rose-400',
     accent: '#f43f5e',
     insightFn: (p) =>
-      `${p.weekCount}회 출제 중 ${p.wrongWeekCount}회 오답 · 평균 ${p.overallAccuracy}%`,
+      `${p.weekCount}회 중 ${p.wrongWeekCount}회 점검 필요 · 평균 ${p.overallAccuracy}%`,
   },
   deteriorating: {
-    label: '악화',
+    label: '주의',
     color: 'text-orange-500 dark:text-orange-400',
     accent: '#f97316',
     insightFn: (p) =>
-      `최근 정답률 ${p.recentAccuracy}% · ${Math.abs(p.trend)}%p 하락 추세`,
+      `최근 정답률 ${p.recentAccuracy}% · ${Math.abs(p.trend)}%p 낮아졌어요`,
   },
   improving: {
     label: '개선',
@@ -31,7 +31,7 @@ export const PATTERN_META: Record<PatternType, {
       `${p.trend}%p 상승 중 · 현재 ${p.recentAccuracy}%`,
   },
   unstable: {
-    label: '기복',
+    label: '점검',
     color: 'text-purple-500 dark:text-purple-400',
     accent: '#a855f7',
     insightFn: (p) => {

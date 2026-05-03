@@ -31,7 +31,7 @@ type ClassPeriodTable = {
   update: (values: Record<string, unknown>) => UpdateQuery
 }
 
-function previousDate(startDate: string): string {
+export function previousDate(startDate: string): string {
   const d = new Date(`${startDate}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() - 1)
   return d.toISOString().slice(0, 10)

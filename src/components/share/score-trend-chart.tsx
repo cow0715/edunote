@@ -1,6 +1,6 @@
 'use client'
 
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts'
+import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Cell, LabelList, ReferenceLine } from 'recharts'
 import { ChartContainer, ChartTooltip, type ChartConfig } from '@/components/ui/chart'
 
 export type TrendItem = {
@@ -22,6 +22,17 @@ const chartConfig = {
   vocabRate:        { label: '단어',      color: '#10b981' },
   classVocabRate:   { label: '반평균 단어', color: '#6ee7b7' },
 } satisfies ChartConfig
+
+const scoreColor = (rate: number, series: 'reading' | 'vocab', isDark?: boolean) => {
+  if (series === 'vocab') {
+    if (rate >= 80) return isDark ? '#34d399' : '#10b981'
+    if (rate >= 60) return isDark ? '#fbbf24' : '#f59e0b'
+    return '#f87171'
+  }
+  if (rate >= 80) return isDark ? '#818cf8' : '#6366f1'
+  if (rate >= 60) return isDark ? '#fbbf24' : '#f59e0b'
+  return '#f87171'
+}
 
 function CustomTooltip({ active, payload, label, isDark }: {
   active?: boolean
@@ -54,24 +65,25 @@ function CustomTooltip({ active, payload, label, isDark }: {
 }
 
 export function ScoreTrendChart({ data, isDark, series }: { data: TrendItem[]; isDark?: boolean; series?: 'reading' | 'vocab' }) {
-  const SERIES = series === 'reading' ? [ALL_SERIES[0]]
-    : series === 'vocab' ? [ALL_SERIES[1]]
-    : ALL_SERIES
+  const currentSeries = series === 'vocab' ? ALL_SERIES[1] : ALL_SERIES[0]
+  const dataKey = currentSeries.key
+  const classKey = currentSeries.classKey
   const grid = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'
   const tick = isDark ? '#94A3B8' : '#8B95A1'
-  const bg   = isDark ? '#1E293B' : '#FFFFFF'
+  const label = isDark ? '#94a3b8' : '#6b7280'
 
   return (
     <div>
       <ChartContainer config={chartConfig} className="h-[200px] w-full">
-        <AreaChart data={data} margin={{ top: 8, right: 12, left: -20, bottom: 4 }}>
+        <ComposedChart data={data} margin={{ top: 18, right: 8, left: -24, bottom: 0 }}>
           <defs>
-            {SERIES.map((s) => {
-              const solid = isDark ? s.darkColor : s.color
+            {data.map((d, i) => {
+              const rate = d[dataKey] ?? 0
+              const color = scoreColor(rate, series ?? 'reading', isDark)
               return (
-                <linearGradient key={s.key} id={`area-${s.key}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%"   stopColor={solid} stopOpacity={0.3} />
-                  <stop offset="100%" stopColor={solid} stopOpacity={0.02} />
+                <linearGradient key={i} id={`score-grad-${dataKey}-${i}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={color} stopOpacity={1} />
+                  <stop offset="100%" stopColor={color} stopOpacity={0.5} />
                 </linearGradient>
               )
             })}
@@ -80,43 +92,36 @@ export function ScoreTrendChart({ data, isDark, series }: { data: TrendItem[]; i
           <XAxis dataKey="label" tick={{ fontSize: 11, fill: tick }} axisLine={false} tickLine={false} />
           <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: tick }} unit="%" axisLine={false} tickLine={false} />
           <ChartTooltip content={<CustomTooltip isDark={isDark} />} />
-          {SERIES.flatMap((s) => {
-            const solid = isDark ? s.darkColor : s.color
-            const dash  = isDark ? s.darkClassColor : s.classColor
-            return [
-              /* 반평균 — 점선, 면적 없음 */
-              <Area key={s.classKey} type="monotone" dataKey={s.classKey}
-                stroke={dash} strokeWidth={1.5} strokeDasharray="5 4"
-                fill="none" dot={false} connectNulls />,
-              /* 본인 — 면적 + 강조 dot */
-              <Area key={s.key} type="monotone" dataKey={s.key}
-                stroke={solid} strokeWidth={2.5}
-                fill={`url(#area-${s.key})`}
-                dot={{ r: 4, fill: solid, strokeWidth: 2, stroke: bg }}
-                activeDot={{ r: 6, fill: solid, strokeWidth: 2, stroke: bg }}
-                connectNulls />,
-            ]
-          })}
-        </AreaChart>
+          <ReferenceLine y={80} stroke={isDark ? 'rgba(255,255,255,0.12)' : 'rgba(36,99,235,0.16)'} strokeDasharray="4 4" />
+          <Line
+            type="monotone"
+            dataKey={classKey}
+            stroke={isDark ? currentSeries.darkClassColor : currentSeries.classColor}
+            strokeWidth={1.6}
+            strokeDasharray="5 4"
+            dot={false}
+            connectNulls
+          />
+          <Bar dataKey={dataKey} radius={[5, 5, 0, 0]} maxBarSize={40}>
+            {data.map((d, i) => (
+              <Cell key={i} fill={d[dataKey] === null ? 'transparent' : `url(#score-grad-${dataKey}-${i})`} />
+            ))}
+            <LabelList dataKey={dataKey} position="top" style={{ fontSize: 10, fill: label, fontWeight: 600 }} formatter={(v) => v != null ? `${v}%` : ''} />
+          </Bar>
+        </ComposedChart>
       </ChartContainer>
 
       <div className="mt-2 flex flex-wrap justify-center gap-4">
-        {SERIES.map((s) => {
-          const solid = isDark ? s.darkColor : s.color
-          const dash  = isDark ? s.darkClassColor : s.classColor
-          return (
-            <div key={s.key} className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5">
-                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: solid }} />
-                <span className="text-xs text-gray-500 dark:text-gray-400">내 점수</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <svg width="16" height="8"><line x1="0" y1="4" x2="16" y2="4" stroke={dash} strokeWidth="1.5" strokeDasharray="4 3" /></svg>
-                <span className="text-xs text-gray-400 dark:text-gray-500">반평균</span>
-              </div>
-            </div>
-          )
-        })}
+        <div className="flex items-center gap-1.5">
+          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: isDark ? currentSeries.darkColor : currentSeries.color }} />
+          <span className="text-xs text-gray-500 dark:text-gray-400">내 점수</span>
+        </div>
+        {data.some((d) => d[classKey] !== null) && (
+          <div className="flex items-center gap-1.5">
+            <svg width="16" height="8"><line x1="0" y1="4" x2="16" y2="4" stroke={isDark ? currentSeries.darkClassColor : currentSeries.classColor} strokeWidth="1.5" strokeDasharray="4 3" /></svg>
+            <span className="text-xs text-gray-400 dark:text-gray-500">반평균</span>
+          </div>
+        )}
       </div>
     </div>
   )

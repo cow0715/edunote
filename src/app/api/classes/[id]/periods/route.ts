@@ -46,7 +46,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   if (isCurrent) {
     const closeError = await closeCurrentPeriods(supabase, classId, startDate)
-    if (closeError) return err(closeError.message ?? '湲곌컙 ?꾪솚 ?ㅽ뙣', 500)
+    if (closeError) return err(closeError.message ?? '기간 전환 실패', 500)
   }
 
   const { data: latest } = await supabase
