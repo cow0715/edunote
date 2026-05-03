@@ -19,7 +19,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   if (!period) return err('기간을 찾을 수 없습니다', 404)
 
   const closeError = await closeCurrentPeriods(supabase, classId, period.start_date, periodId)
-  if (closeError) return err(closeError.message ?? '湲곌컙 ?꾪솚 ?ㅽ뙣', 500)
+  if (closeError) return err(closeError.message ?? '기간 전환 실패', 500)
 
   const { data, error } = await supabase
     .from('class_period')

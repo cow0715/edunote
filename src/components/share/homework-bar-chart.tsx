@@ -7,7 +7,7 @@ import { homeworkColor } from '@/lib/chart-colors'
 export type HomeworkItem = { label: string; rate: number; done: number; total: number }
 
 const chartConfig = {
-  rate: { label: '과제 완료율', color: '#f59e0b' },
+  rate: { label: '과제 제출률', color: '#f59e0b' },
 } satisfies ChartConfig
 
 function CustomTooltip({ active, payload, label, isDark }: {
@@ -27,7 +27,7 @@ function CustomTooltip({ active, payload, label, isDark }: {
   return (
     <div style={{ background: bg, border: `1px solid ${border}`, borderRadius: 10, padding: '8px 12px', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
       <p style={{ fontSize: 11, fontWeight: 600, color: text, marginBottom: 4 }}>{label}</p>
-      <p style={{ fontSize: 11, color: sub }}>완료율 <span style={{ fontWeight: 700, color: accent }}>{d.rate}%</span></p>
+      <p style={{ fontSize: 11, color: sub }}>제출률 <span style={{ fontWeight: 700, color: accent }}>{d.rate}%</span></p>
       <p style={{ fontSize: 11, color: sub }}>{d.done} / {d.total} 개</p>
     </div>
   )
