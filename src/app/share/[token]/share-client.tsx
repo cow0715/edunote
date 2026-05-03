@@ -1,12 +1,12 @@
 'use client'
 
-import { use, useState, useEffect, type ReactNode } from 'react'
+import { use, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
 import {
   GraduationCap, BookOpen, BookText, ClipboardCheck,
-  ChevronDown, ChevronLeft, ChevronRight, ChevronUp, X,
+  ChevronDown, ChevronUp, X,
   Home, BarChart2, PieChart, MessageSquare, BookX,
   RotateCcw, History, CalendarDays,
 } from 'lucide-react'
@@ -66,95 +66,45 @@ function formatCorrectAnswer(q: StudentAnswer['exam_question']): string {
   return q.correct_answer_text ?? '?'
 }
 
-const CHART_PAGE_SIZE = 8
+const CHART_VISIBLE_COUNT = 8
 
-function PagedChartCard({
+function SwipeChartCard({
   id,
   title,
   subtitle,
-  rangeLabel,
-  canOlder,
-  canNewer,
-  onOlder,
-  onNewer,
+  itemCount,
   children,
 }: {
   id?: string
   title: string
   subtitle: string
-  rangeLabel: string
-  canOlder: boolean
-  canNewer: boolean
-  onOlder: () => void
-  onNewer: () => void
+  itemCount: number
   children: ReactNode
 }) {
-  const [touchStartX, setTouchStartX] = useState<number | null>(null)
-  const showControls = canOlder || canNewer
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const width = itemCount > CHART_VISIBLE_COUNT ? `${(itemCount / CHART_VISIBLE_COUNT) * 100}%` : '100%'
+
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    const frame = window.requestAnimationFrame(() => {
+      el.scrollLeft = el.scrollWidth - el.clientWidth
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [itemCount])
 
   return (
     <Card id={id} title={title} subtitle={subtitle}>
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <span className="rounded-full bg-gray-50 dark:bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold text-[#8B95A1] dark:text-[#94A3B8]">
-          {rangeLabel}
-        </span>
-        {showControls && (
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={onOlder}
-              disabled={!canOlder}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 text-gray-500 transition-colors hover:bg-gray-100 disabled:opacity-30 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
-              aria-label="이전 기록 보기"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={onNewer}
-              disabled={!canNewer}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 text-gray-500 transition-colors hover:bg-gray-100 disabled:opacity-30 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
-              aria-label="최근 기록 보기"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        )}
-      </div>
       <div
-        className="touch-pan-y"
-        onTouchStart={(e) => setTouchStartX(e.changedTouches[0]?.clientX ?? null)}
-        onTouchEnd={(e) => {
-          if (touchStartX === null) return
-          const endX = e.changedTouches[0]?.clientX
-          if (endX === undefined) return
-          const delta = endX - touchStartX
-          if (delta > 44 && canOlder) onOlder()
-          if (delta < -44 && canNewer) onNewer()
-          setTouchStartX(null)
-        }}
+        ref={scrollerRef}
+        className="-mx-1 overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {children}
+        <div style={{ width, minWidth: '100%' }}>
+          {children}
+        </div>
       </div>
     </Card>
   )
-}
-
-function getPagedChartData<T>(items: T[], pageFromLatest: number) {
-  const pageCount = Math.max(1, Math.ceil(items.length / CHART_PAGE_SIZE))
-  const page = Math.min(Math.max(pageFromLatest, 0), pageCount - 1)
-  const end = items.length - page * CHART_PAGE_SIZE
-  const start = Math.max(0, end - CHART_PAGE_SIZE)
-
-  return {
-    items: items.slice(start, end),
-    pageCount,
-    canOlder: start > 0,
-    canNewer: end < items.length,
-    rangeLabel: items.length <= CHART_PAGE_SIZE
-      ? `전체 ${items.length}회`
-      : `${start + 1}-${end}회 / 전체 ${items.length}회`,
-  }
 }
 
 // ── 메인 ──────────────────────────────────────────────────────────────────────
@@ -173,9 +123,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const [wrongNoteTab, setWrongNoteTab] = useState<'reading' | 'vocab'>('reading')
   const [commentExpanded, setCommentExpanded] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [readingChartPage, setReadingChartPage] = useState(0)
-  const [vocabChartPage, setVocabChartPage] = useState(0)
-  const [homeworkChartPage, setHomeworkChartPage] = useState(0)
   const scrollTo = (id: string, delay = 0) => {
     const go = () => {
       const el = document.getElementById(id)
@@ -333,9 +280,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     .filter((d): d is HomeworkItem => d !== null)
   const readingTrendData = trendData.filter((d) => d.readingRate !== null || d.classReadingRate !== null)
   const vocabTrendData = trendData.filter((d) => d.vocabRate !== null || d.classVocabRate !== null)
-  const readingChart = getPagedChartData(readingTrendData, readingChartPage)
-  const vocabChart = getPagedChartData(vocabTrendData, vocabChartPage)
-  const homeworkChart = getPagedChartData(homeworkData, homeworkChartPage)
 
   const typeWrongMap = new Map<string, { id: string; name: string; wrong: number; total: number }>()
   studentAnswers.filter((a) => a.exam_question?.exam_type === 'reading').forEach((a) => {
@@ -645,18 +589,14 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
               {/* 과제 제출률 */}
               {homeworkData.length >= 1 && (
-                <PagedChartCard
+                <SwipeChartCard
                   id="section-homework"
                   title="과제 제출률"
-                  subtitle="8회씩 보기 · 좌우로 넘길 수 있어요"
-                  rangeLabel={homeworkChart.rangeLabel}
-                  canOlder={homeworkChart.canOlder}
-                  canNewer={homeworkChart.canNewer}
-                  onOlder={() => setHomeworkChartPage((page) => Math.min(page + 1, homeworkChart.pageCount - 1))}
-                  onNewer={() => setHomeworkChartPage((page) => Math.max(page - 1, 0))}
+                  subtitle="주차별 (%)"
+                  itemCount={homeworkData.length}
                 >
-                  <HomeworkBarChart data={homeworkChart.items} isDark={isDark} />
-                </PagedChartCard>
+                  <HomeworkBarChart data={homeworkData} isDark={isDark} />
+                </SwipeChartCard>
               )}
 
               {/* 출석 현황 */}
@@ -714,33 +654,25 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
           {activeTab === 'score' && (
             <>
               {readingTrendData.length >= 1 && (
-                <PagedChartCard
+                <SwipeChartCard
                   id="section-reading-chart"
-                  title="시험 점수"
-                  subtitle="8회씩 보기 · 점선은 반 평균"
-                  rangeLabel={readingChart.rangeLabel}
-                  canOlder={readingChart.canOlder}
-                  canNewer={readingChart.canNewer}
-                  onOlder={() => setReadingChartPage((page) => Math.min(page + 1, readingChart.pageCount - 1))}
-                  onNewer={() => setReadingChartPage((page) => Math.max(page - 1, 0))}
+                  title="시험 점수 추이"
+                  subtitle="진단평가 정답률 (%) · 점선은 반 평균"
+                  itemCount={readingTrendData.length}
                 >
-                  <ScoreTrendChart data={readingChart.items} isDark={isDark} series="reading" />
-                </PagedChartCard>
+                  <ScoreTrendChart data={readingTrendData} isDark={isDark} series="reading" />
+                </SwipeChartCard>
               )}
 
               {vocabTrendData.length >= 1 && (
-                <PagedChartCard
+                <SwipeChartCard
                   id="section-vocab-chart"
-                  title="단어 점수"
-                  subtitle="8회씩 보기 · 점선은 반 평균"
-                  rangeLabel={vocabChart.rangeLabel}
-                  canOlder={vocabChart.canOlder}
-                  canNewer={vocabChart.canNewer}
-                  onOlder={() => setVocabChartPage((page) => Math.min(page + 1, vocabChart.pageCount - 1))}
-                  onNewer={() => setVocabChartPage((page) => Math.max(page - 1, 0))}
+                  title="단어 점수 추이"
+                  subtitle="단어시험 정답률 (%) · 점선은 반 평균"
+                  itemCount={vocabTrendData.length}
                 >
-                  <ScoreTrendChart data={vocabChart.items} isDark={isDark} series="vocab" />
-                </PagedChartCard>
+                  <ScoreTrendChart data={vocabTrendData} isDark={isDark} series="vocab" />
+                </SwipeChartCard>
               )}
 
               {visibleWeeks.length > 0 && (
