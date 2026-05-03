@@ -21,16 +21,31 @@ import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
-const navItems = [
-  { href: '/dashboard', label: '수업 목록', icon: BookOpen },
-  { href: '/students', label: '학생 관리', icon: Users },
-  { href: '/concept-tags', label: '문제 유형', icon: Tag },
-  { href: '/analysis', label: '학생 현황', icon: TrendingUp },
-  { href: '/messages', label: '메시지 내역', icon: MessageSquare },
-  { href: '/exam-bank', label: '기출문제 은행', icon: LibraryBig },
-  { href: '/pdf-extract', label: 'PDF 텍스트 추출', icon: ScanText },
-  { href: '/text-compare', label: '시험 변형 분석', icon: FileSearch },
-  { href: '/settings', label: '학원 정보 설정', icon: Settings },
+const navSections = [
+  {
+    title: '수업 운영',
+    items: [
+      { href: '/dashboard', label: '수업 목록', icon: BookOpen },
+      { href: '/students', label: '학생 관리', icon: Users },
+      { href: '/analysis', label: '학생 현황', icon: TrendingUp },
+      { href: '/messages', label: '메시지 내역', icon: MessageSquare },
+    ],
+  },
+  {
+    title: '문항 / 자료',
+    items: [
+      { href: '/exam-bank', label: '기출문제 은행', icon: LibraryBig },
+      { href: '/concept-tags', label: '문제 유형', icon: Tag },
+      { href: '/text-compare', label: '시험 변형 분석', icon: FileSearch },
+      { href: '/pdf-extract', label: 'PDF 텍스트 추출', icon: ScanText },
+    ],
+  },
+  {
+    title: '설정',
+    items: [
+      { href: '/settings', label: '학원 정보 설정', icon: Settings },
+    ],
+  },
 ]
 
 const devItems = [
@@ -56,21 +71,28 @@ export function Sidebar() {
         <span className="font-semibold text-gray-900">학원 관리</span>
       </div>
 
-      <nav className="flex-1 space-y-1 p-3">
-        {navItems.map(({ href, label, icon: Icon }) => (
-          <Link
-            key={href}
-            href={href}
-            className={cn(
-              'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-              pathname === href || pathname.startsWith(`${href}/`)
-                ? 'bg-primary/10 text-primary'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-            )}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </Link>
+      <nav className="flex-1 space-y-5 overflow-y-auto p-3">
+        {navSections.map((section) => (
+          <div key={section.title} className="space-y-1">
+            <p className="px-3 pb-1 text-xs font-semibold text-gray-400">
+              {section.title}
+            </p>
+            {section.items.map(({ href, label, icon: Icon }) => (
+              <Link
+                key={href}
+                href={href}
+                className={cn(
+                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                  pathname === href || pathname.startsWith(`${href}/`)
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </Link>
+            ))}
+          </div>
         ))}
       </nav>
 
