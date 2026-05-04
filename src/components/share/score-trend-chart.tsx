@@ -21,6 +21,10 @@ const VISIBLE_POINT_COUNT = 8
 const CHART_HEIGHT_CLASS = 'h-[200px]'
 const CHART_MARGIN = { top: 8, right: 12, left: 0, bottom: 4 }
 const Y_AXIS_WIDTH = 38
+const CHART_HEIGHT = 200
+const PLOT_TOP = 8
+const X_AXIS_HEIGHT = 30
+const PLOT_BOTTOM = CHART_MARGIN.bottom + X_AXIS_HEIGHT
 
 const chartConfig = {
   readingRate:      { label: '시험',      color: '#6366f1' },
@@ -68,6 +72,8 @@ export function ScoreTrendChart({ data, isDark, series }: { data: TrendItem[]; i
   const tick = isDark ? '#94A3B8' : '#8B95A1'
   const bg   = isDark ? '#1E293B' : '#FFFFFF'
   const chartWidth = data.length > VISIBLE_POINT_COUNT ? `${(data.length / VISIBLE_POINT_COUNT) * 100}%` : '100%'
+  const yTickTop = (value: number) =>
+    PLOT_TOP + ((100 - value) / 100) * (CHART_HEIGHT - PLOT_TOP - PLOT_BOTTOM)
 
   useEffect(() => {
     const el = scrollerRef.current
@@ -85,8 +91,8 @@ export function ScoreTrendChart({ data, isDark, series }: { data: TrendItem[]; i
           {[100, 75, 50, 25, 0].map((value) => (
             <span
               key={value}
-              className="absolute right-1 translate-y-1/2 text-[11px] leading-none"
-              style={{ bottom: `${value}%`, color: tick }}
+              className="absolute right-1 -translate-y-1/2 text-[11px] leading-none"
+              style={{ top: yTickTop(value), color: tick }}
             >
               {value}%
             </span>
@@ -109,7 +115,7 @@ export function ScoreTrendChart({ data, isDark, series }: { data: TrendItem[]; i
                   })}
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: tick }} axisLine={false} tickLine={false} />
+                <XAxis dataKey="label" height={X_AXIS_HEIGHT} tick={{ fontSize: 11, fill: tick }} axisLine={false} tickLine={false} />
                 <YAxis hide domain={[0, 100]} />
                 <ChartTooltip content={<CustomTooltip isDark={isDark} />} />
                 {SERIES.flatMap((s) => {
