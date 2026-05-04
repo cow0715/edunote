@@ -1,7 +1,28 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
-import { gradeVocabItems, generateVocabExamples } from '@/lib/anthropic'
+import { gradeVocabItems } from '@/lib/anthropic'
 
 export const maxDuration = 60
+
+type VocabWordInput = {
+  number: number
+  passage_label?: string | null
+  english_word: string
+  part_of_speech?: string | null
+  correct_answer: string | null
+  synonyms?: string[] | null
+  antonyms?: string[] | null
+  derivatives?: string | null
+  source_row_index?: number | null
+}
+
+type OldWordRow = {
+  id: string
+  number: number
+  english_word: string
+  example_sentence: string | null
+  example_translation: string | null
+  example_source: string | null
+}
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
@@ -13,7 +34,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   const { data, error } = await supabase
     .from('vocab_word')
-    .select('number, english_word, correct_answer, synonyms, antonyms')
+    .select('number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, source_row_index, example_sentence, example_translation, example_source')
     .eq('week_id', weekId)
     .order('number')
 
@@ -29,16 +50,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!teacherId) return err('강사 정보 없음', 404)
   if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
-  const { words } = await request.json()
+  const { words, sourceType, sourceFileName } = await request.json() as {
+    words?: VocabWordInput[]
+    sourceType?: 'xlsx' | 'legacy_ai'
+    sourceFileName?: string | null
+  }
   if (!words?.length) return err('단어 없음')
 
   // ── 1. 기존 vocab_word ID 조회 ────────────────────────────────────────
   const { data: oldWords } = await supabase
     .from('vocab_word')
-    .select('id, number, english_word')
+    .select('id, number, english_word, example_sentence, example_translation, example_source')
     .eq('week_id', weekId)
 
-  const oldWordIds = (oldWords ?? []).map((w) => w.id)
+  const oldRows = (oldWords ?? []) as OldWordRow[]
+
+  const oldWordIds = oldRows.map((w) => w.id)
 
   // ── 2. 학생 답안 백업 (기존 단어가 있을 때만) ──────────────────────────
   type AnswerBackup = {
@@ -60,7 +87,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       .in('vocab_word_id', oldWordIds)
 
     if (answerRows && answerRows.length > 0) {
-      const oldWordMap = new Map((oldWords ?? []).map((w) => [w.id, w]))
+      const oldWordMap = new Map(oldRows.map((w) => [w.id, w]))
       backup = answerRows
         .map((a) => {
           const word = oldWordMap.get(a.vocab_word_id)
@@ -86,17 +113,30 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   // ── 4. 새 vocab_word insert ───────────────────────────────────────────
-  const { data: newWords, error: insertError } = await supabase
+  const shouldPreserveExistingExamples = !sourceType
+  const oldWordByStableKey = new Map(oldRows.map((w) => [`${w.number}::${w.english_word.trim().toLowerCase()}`, w]))
+
+  const { data: insertedWords, error: insertError } = await supabase
     .from('vocab_word')
     .insert(
-      words.map((w: { number: number; english_word: string; correct_answer: string | null; synonyms: string[]; antonyms: string[] }) => ({
-        week_id: weekId,
-        number: w.number,
-        english_word: w.english_word,
-        correct_answer: w.correct_answer ?? null,
-        synonyms: w.synonyms ?? [],
-        antonyms: w.antonyms ?? [],
-      }))
+      words.map((w) => {
+        const oldWord = oldWordByStableKey.get(`${w.number}::${w.english_word.trim().toLowerCase()}`)
+        return {
+          week_id: weekId,
+          number: w.number,
+          passage_label: w.passage_label ?? null,
+          english_word: w.english_word,
+          part_of_speech: w.part_of_speech ?? null,
+          correct_answer: w.correct_answer ?? null,
+          synonyms: w.synonyms ?? [],
+          antonyms: w.antonyms ?? [],
+          derivatives: w.derivatives ?? null,
+          source_row_index: w.source_row_index ?? null,
+          example_sentence: shouldPreserveExistingExamples ? oldWord?.example_sentence ?? null : null,
+          example_translation: shouldPreserveExistingExamples ? oldWord?.example_translation ?? null : null,
+          example_source: shouldPreserveExistingExamples ? oldWord?.example_source ?? null : null,
+        }
+      })
     )
     .select('id, number, english_word, correct_answer, synonyms')
 
@@ -104,6 +144,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     console.error('[vocab-words] insert 실패', insertError)
     return err(insertError.message, 500)
   }
+
+  const newWords = (insertedWords ?? []) as {
+    id: string
+    number: number
+    english_word: string
+    correct_answer: string | null
+    synonyms: string[] | null
+  }[]
 
   // ── 5. 백업된 답안 재채점 후 재삽입 ──────────────────────────────────
   const { data: promptRow } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
@@ -120,8 +168,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     for (const [weekScoreId, answers] of byScore) {
-      // teacher_locked 분리: 잠긴 답안은 AI 채점 없이 기존 is_correct 유지
-      const lockedAnswers = answers.filter((a) => a.teacher_locked)
+      // teacher_locked 답안은 AI 채점 없이 기존 is_correct 유지
       const unlocked = answers.filter((a) => !a.teacher_locked)
 
       // unlocked 답안만 AI 재채점
@@ -183,21 +230,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
   }
 
-  // ── 6. 예문 생성 ────────────────────────────────────────────────────
-  if (newWords && newWords.length > 0) {
-    const examples = await generateVocabExamples(newWords)
-    await Promise.all(
-      examples.map((u) =>
-        supabase.from('vocab_word').update({ example_sentence: u.sentence, example_translation: u.translation }).eq('id', u.id)
-      )
-    )
+  // ── 6. vocab_total 및 원본 메타데이터 업데이트 ───────────────────────
+  const weekUpdate: Record<string, unknown> = { vocab_total: words.length }
+  if (sourceType) {
+    weekUpdate.vocab_source_type = sourceType
+    weekUpdate.vocab_source_file_name = sourceFileName ?? null
+    weekUpdate.vocab_source_uploaded_at = new Date().toISOString()
+    weekUpdate.vocab_examples_generated_at = null
   }
 
-  // ── 7. vocab_total 업데이트 ───────────────────────────────────────────
-  await supabase
-    .from('week')
-    .update({ vocab_total: words.length })
-    .eq('id', weekId)
+  await supabase.from('week').update(weekUpdate).eq('id', weekId)
 
   return ok({ ok: true, saved: words.length, regraded: backup.length > 0 })
 }

@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { ChartContainer, ChartTooltip, type ChartConfig } from '@/components/ui/chart'
 
@@ -15,6 +16,8 @@ const ALL_SERIES = [
   { key: 'readingRate', classKey: 'classReadingRate', label: '시험', color: '#6366f1', classColor: '#a5b4fc', darkColor: '#818cf8', darkClassColor: '#6366f155' },
   { key: 'vocabRate',   classKey: 'classVocabRate',   label: '단어', color: '#10b981', classColor: '#6ee7b7', darkColor: '#34d399', darkClassColor: '#10b98155' },
 ] as const
+
+const VISIBLE_POINT_COUNT = 8
 
 const chartConfig = {
   readingRate:      { label: '시험',      color: '#6366f1' },
@@ -54,49 +57,64 @@ function CustomTooltip({ active, payload, label, isDark }: {
 }
 
 export function ScoreTrendChart({ data, isDark, series }: { data: TrendItem[]; isDark?: boolean; series?: 'reading' | 'vocab' }) {
+  const scrollerRef = useRef<HTMLDivElement>(null)
   const SERIES = series === 'reading' ? [ALL_SERIES[0]]
     : series === 'vocab' ? [ALL_SERIES[1]]
     : ALL_SERIES
   const grid = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'
   const tick = isDark ? '#94A3B8' : '#8B95A1'
   const bg   = isDark ? '#1E293B' : '#FFFFFF'
+  const chartWidth = data.length > VISIBLE_POINT_COUNT ? `${(data.length / VISIBLE_POINT_COUNT) * 100}%` : '100%'
+
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    const frame = window.requestAnimationFrame(() => {
+      el.scrollLeft = el.scrollWidth - el.clientWidth
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [data.length])
 
   return (
     <div>
-      <ChartContainer config={chartConfig} className="h-[200px] w-full">
-        <AreaChart data={data} margin={{ top: 8, right: 12, left: -20, bottom: 4 }}>
-          <defs>
-            {SERIES.map((s) => {
-              const solid = isDark ? s.darkColor : s.color
-              return (
-                <linearGradient key={s.key} id={`area-${s.key}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%"   stopColor={solid} stopOpacity={0.3} />
-                  <stop offset="100%" stopColor={solid} stopOpacity={0.02} />
-                </linearGradient>
-              )
-            })}
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: tick }} axisLine={false} tickLine={false} />
-          <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: tick }} unit="%" axisLine={false} tickLine={false} />
-          <ChartTooltip content={<CustomTooltip isDark={isDark} />} />
-          {SERIES.flatMap((s) => {
-            const solid = isDark ? s.darkColor : s.color
-            const dash  = isDark ? s.darkClassColor : s.classColor
-            return [
-              <Area key={s.classKey} type="monotone" dataKey={s.classKey}
-                stroke={dash} strokeWidth={1.5} strokeDasharray="5 4"
-                fill="none" dot={false} connectNulls />,
-              <Area key={s.key} type="monotone" dataKey={s.key}
-                stroke={solid} strokeWidth={2.5}
-                fill={`url(#area-${s.key})`}
-                dot={{ r: 4, fill: solid, strokeWidth: 2, stroke: bg }}
-                activeDot={{ r: 6, fill: solid, strokeWidth: 2, stroke: bg }}
-                connectNulls />,
-            ]
-          })}
-        </AreaChart>
-      </ChartContainer>
+      <div ref={scrollerRef} className="-mx-1 overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div style={{ width: chartWidth, minWidth: '100%' }}>
+          <ChartContainer config={chartConfig} className="h-[200px] w-full">
+            <AreaChart data={data} margin={{ top: 8, right: 12, left: -20, bottom: 4 }}>
+              <defs>
+                {SERIES.map((s) => {
+                  const solid = isDark ? s.darkColor : s.color
+                  return (
+                    <linearGradient key={s.key} id={`area-${s.key}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%"   stopColor={solid} stopOpacity={0.3} />
+                      <stop offset="100%" stopColor={solid} stopOpacity={0.02} />
+                    </linearGradient>
+                  )
+                })}
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: tick }} axisLine={false} tickLine={false} />
+              <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: tick }} unit="%" axisLine={false} tickLine={false} />
+              <ChartTooltip content={<CustomTooltip isDark={isDark} />} />
+              {SERIES.flatMap((s) => {
+                const solid = isDark ? s.darkColor : s.color
+                const dash  = isDark ? s.darkClassColor : s.classColor
+                return [
+                  <Area key={s.classKey} type="monotone" dataKey={s.classKey}
+                    stroke={dash} strokeWidth={1.5} strokeDasharray="5 4"
+                    fill="none" dot={false} connectNulls />,
+                  <Area key={s.key} type="monotone" dataKey={s.key}
+                    stroke={solid} strokeWidth={2.5}
+                    fill={`url(#area-${s.key})`}
+                    dot={{ r: 4, fill: solid, strokeWidth: 2, stroke: bg }}
+                    activeDot={{ r: 6, fill: solid, strokeWidth: 2, stroke: bg }}
+                    connectNulls />,
+                ]
+              })}
+            </AreaChart>
+          </ChartContainer>
+        </div>
+      </div>
 
       <div className="mt-2 flex flex-wrap justify-center gap-4">
         {SERIES.map((s) => {
