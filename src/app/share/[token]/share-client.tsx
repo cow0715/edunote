@@ -8,7 +8,7 @@ import {
   GraduationCap, BookOpen, BookText, ClipboardCheck,
   ChevronDown, ChevronUp, X,
   Home, BarChart2, PieChart, MessageSquare, BookX,
-  RotateCcw, History, CalendarDays,
+  RotateCcw, History, CalendarDays, LibraryBig,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { classifyPatterns } from '@/hooks/weakness/useAnalysis'
@@ -181,6 +181,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     weekScores = [],
     studentAnswers = [],
     vocabAnswers = [],
+    vocabWords = [],
     attendance = [],
     classAverages = {},
   } = data
@@ -372,6 +373,22 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   }
   vocabWrongGroups.sort((a, b) => b.week.week_number - a.week.week_number)
 
+  // ── 사전학습 단어장 그룹 ────────────────────────────────────────────────
+  const vocabWordsByWeek = new Map<string, typeof vocabWords>()
+  vocabWords.forEach((word) => {
+    const list = vocabWordsByWeek.get(word.week_id) ?? []
+    list.push(word)
+    vocabWordsByWeek.set(word.week_id, list)
+  })
+  const vocabStudyGroups = weeks
+    .filter((week) => (vocabWordsByWeek.get(week.id)?.length ?? 0) > 0)
+    .map((week) => ({
+      week,
+      className: classes.find((c) => c.id === week.class_id)?.name ?? '',
+      words: (vocabWordsByWeek.get(week.id) ?? []).slice().sort((a, b) => a.number - b.number),
+    }))
+    .sort((a, b) => b.week.week_number - a.week.week_number)
+
   // ── 강사 코멘트 피드 ──────────────────────────────────────────────────────
   const commentFeed = visibleWeeks
     .filter((w) => scoreByWeek.get(w.id)?.memo)
@@ -415,6 +432,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     { id: 'home' as TabId, label: '홈', Icon: Home },
     { id: 'score' as TabId, label: '성적', Icon: BarChart2 },
     { id: 'analysis' as TabId, label: '분석', Icon: PieChart },
+    { id: 'vocab' as TabId, label: '단어장', Icon: LibraryBig },
     { id: 'wrongnote' as TabId, label: '오답', Icon: BookX },
   ]
 
@@ -864,6 +882,118 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               {typeData.length === 0 && repeatPatterns.length === 0 && (
                 <div className="rounded-3xl bg-white dark:bg-[#1E293B] p-10 text-center text-sm text-[#8B95A1] dark:text-[#94A3B8] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none">
                   분석 데이터가 없습니다
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── 단어장 탭 ─────────────────────────────────────────────── */}
+          {activeTab === 'vocab' && (
+            <>
+              {vocabStudyGroups.length === 0 ? (
+                <Card title="사전학습 단어장">
+                  <p className="py-8 text-center text-sm text-[#8B95A1] dark:text-gray-500">
+                    아직 공개된 단어장이 없습니다.
+                  </p>
+                </Card>
+              ) : (
+                <div className="space-y-4">
+                  {vocabStudyGroups.map(({ week, words, className }) => {
+                    const byPassage = new Map<string, typeof words>()
+                    words.forEach((word) => {
+                      const key = word.passage_label ?? ''
+                      const list = byPassage.get(key) ?? []
+                      list.push(word)
+                      byPassage.set(key, list)
+                    })
+
+                    return (
+                      <Card
+                        key={week.id}
+                        title={`${getWeekLabel(week)} 단어장`}
+                        subtitle={`${className ? `${className} · ` : ''}${words.length}개`}
+                        noPad
+                      >
+                        <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
+                          {[...byPassage.entries()].map(([passage, passageWords]) => (
+                            <div key={passage || 'none'}>
+                              {passage && (
+                                <div className="bg-blue-50/70 dark:bg-blue-950/30 px-5 py-2 text-[11px] font-bold text-[#2463EB] dark:text-blue-300">
+                                  지문 {passage}
+                                </div>
+                              )}
+                              <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
+                                {passageWords.map((word) => (
+                                  <div key={word.id} className="px-5 py-4">
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                          <span className="text-[11px] font-semibold text-gray-300 dark:text-gray-600">#{word.number}</span>
+                                          <p className="break-words text-base font-black leading-tight text-[#1A1C1E] dark:text-[#F8FAFC]">
+                                            {word.english_word}
+                                          </p>
+                                          {word.part_of_speech && (
+                                            <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500 dark:bg-white/[0.08] dark:text-gray-300">
+                                              {word.part_of_speech}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {word.correct_answer && (
+                                          <p className="mt-1 text-sm font-semibold leading-relaxed text-gray-600 dark:text-gray-300">
+                                            {word.correct_answer}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {(word.synonyms?.length ?? 0) > 0 && (
+                                      <div className="mt-3 flex flex-wrap gap-1.5">
+                                        {(word.synonyms ?? []).map((synonym) => (
+                                          <span key={synonym} className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                                            유의 {synonym}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {(word.antonyms?.length ?? 0) > 0 && (
+                                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                        {(word.antonyms ?? []).map((antonym) => (
+                                          <span key={antonym} className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                            반의 {antonym}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {word.derivatives && (
+                                      <div className="mt-2 rounded-xl bg-gray-50 px-3 py-2 text-xs leading-relaxed text-gray-500 dark:bg-white/[0.05] dark:text-gray-300">
+                                        <span className="mr-1 font-bold text-gray-400 dark:text-gray-500">파생/변형</span>
+                                        {word.derivatives}
+                                      </div>
+                                    )}
+
+                                    {word.example_sentence && (
+                                      <div className="mt-2 rounded-xl bg-sky-50 px-3 py-2 dark:bg-sky-950/30">
+                                        <p className="text-xs italic leading-relaxed text-sky-900 dark:text-sky-200">
+                                          {word.example_sentence}
+                                        </p>
+                                        {word.example_translation && (
+                                          <p className="mt-1 text-[11px] leading-relaxed text-sky-600/70 dark:text-sky-300/70">
+                                            {word.example_translation}
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </Card>
+                    )
+                  })}
                 </div>
               )}
             </>

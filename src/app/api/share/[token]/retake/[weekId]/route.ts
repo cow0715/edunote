@@ -8,9 +8,9 @@ type Params = { token: string; weekId: string }
 type VocabWordRow = {
   number: number
   english_word: string
-  correct_answer: string
-  synonyms: string | null
-  antonyms: string | null
+  correct_answer: string | null
+  synonyms: string[] | null
+  antonyms: string[] | null
   example_sentence: string | null
   example_translation: string | null
 }
@@ -133,10 +133,23 @@ export async function POST(request: Request, { params }: { params: Promise<Param
   const customRules = promptRow?.content ?? undefined
 
   // AI 채점
+  const { data: answerDetails } = await supabase
+    .from('student_vocab_answer')
+    .select('id, vocab_word(correct_answer)')
+    .in('id', answers.map((a) => a.answer_id))
+
+  const correctAnswerById = new Map(
+    (answerDetails ?? []).map((a) => {
+      const vw = one(a.vocab_word) as { correct_answer: string | null } | null
+      return [a.id, vw?.correct_answer ?? null]
+    })
+  )
+
   const gradingItems = answers.map((a) => ({
     number: 0,
     english_word: a.english_word,
     student_answer: a.retake_answer || null,
+    correct_answer: correctAnswerById.get(a.answer_id) ?? null,
   }))
 
   let graded: { number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]

@@ -76,6 +76,10 @@ export interface Week {
   reading_total: number;
   homework_total: number;
   answer_sheet_path: string | null;
+  vocab_source_type?: string | null;
+  vocab_source_file_name?: string | null;
+  vocab_source_uploaded_at?: string | null;
+  vocab_examples_generated_at?: string | null;
   created_at: string;
   display_label?: string;
   period_label?: string | null;
@@ -180,7 +184,17 @@ export interface VocabWord {
   id: string
   week_id: string
   number: number
+  passage_label: string | null
   english_word: string
+  part_of_speech: string | null
+  correct_answer: string | null
+  synonyms: string[] | null
+  antonyms: string[] | null
+  derivatives: string | null
+  source_row_index: number | null
+  example_sentence: string | null
+  example_translation: string | null
+  example_source: string | null
   created_at: string
 }
 
