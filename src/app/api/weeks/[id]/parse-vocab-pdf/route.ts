@@ -1,4 +1,4 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { parseVocabPdf } from '@/lib/anthropic'
 
 export const maxDuration = 60
@@ -7,12 +7,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
   const { fileData, mimeType } = await request.json()
   if (!fileData || !mimeType) return err('파일 없음')
-
-  // 기존 등록된 단어 수 확인 (weekId용)
-  void weekId
 
   try {
     const words = await parseVocabPdf(fileData, mimeType)

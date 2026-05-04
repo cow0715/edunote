@@ -79,6 +79,7 @@ function emptyShare(student: unknown, periodOptions: unknown[] = []) {
     weekScores: [],
     studentAnswers: [],
     vocabAnswers: [],
+    vocabWords: [],
     attendance: [],
     classAverages: {},
   })
@@ -255,9 +256,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const { data: vocabAnswers } = scoreIds.length > 0
     ? await supabase
         .from('student_vocab_answer')
-        .select('id, week_score_id, is_correct, student_answer, retake_answer, retake_is_correct, vocab_word(id, number, english_word, correct_answer, synonyms, antonyms, example_sentence, example_translation)')
+        .select('id, week_score_id, is_correct, student_answer, retake_answer, retake_is_correct, vocab_word(id, week_id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, example_sentence, example_translation)')
         .in('week_score_id', scoreIds)
         .eq('is_correct', false)
+    : { data: [] }
+
+  const { data: vocabWords } = weekIds.length > 0
+    ? await supabase
+        .from('vocab_word')
+        .select('id, week_id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, example_sentence, example_translation')
+        .in('week_id', weekIds)
+        .order('week_id')
+        .order('number')
     : { data: [] }
 
   const { data: attendanceRecords } = selectedClassIds.length > 0
@@ -309,6 +319,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     weekScores: weekScores ?? [],
     studentAnswers,
     vocabAnswers: vocabAnswers ?? [],
+    vocabWords: vocabWords ?? [],
     attendance: attendanceRecords ?? [],
     classAverages,
   })

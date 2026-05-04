@@ -25,8 +25,10 @@ export type StudentAnswer = {
 }
 export type AttendanceRecord = { id: string; class_id: string; date: string; status: 'present' | 'late' | 'absent' }
 export type VocabWord = {
-  id: string; number: number; english_word: string
+  id: string; week_id: string; number: number; passage_label: string | null; english_word: string
+  part_of_speech: string | null
   correct_answer: string | null; synonyms: string[] | null; antonyms: string[] | null
+  derivatives: string | null
   example_sentence: string | null; example_translation: string | null
 }
 export type VocabAnswer = {
@@ -41,9 +43,9 @@ export type ShareData = {
   currentPeriod: { id: string; class_id: string; label: string; start_date: string; end_date: string | null; is_current: boolean } | null
   periodOptions: { id: string; class_id: string; class_name: string; label: string; start_date: string; end_date: string | null; is_current: boolean; is_active_class: boolean }[]
   weeks: Week[]; weekScores: WeekScore[]; studentAnswers: StudentAnswer[]
-  vocabAnswers: VocabAnswer[]; attendance: AttendanceRecord[]
+  vocabAnswers: VocabAnswer[]; vocabWords: VocabWord[]; attendance: AttendanceRecord[]
   classAverages: Record<string, { readingRate: number | null; vocabRate: number | null }>
 }
 
 export const CIRCLE_NUM = ['①', '②', '③', '④', '⑤']
-export type TabId = 'home' | 'score' | 'analysis' | 'wrongnote'
+export type TabId = 'home' | 'score' | 'analysis' | 'vocab' | 'wrongnote'

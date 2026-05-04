@@ -8,11 +8,12 @@ import {
   GraduationCap, BookOpen, BookText, ClipboardCheck,
   ChevronDown, ChevronUp, X,
   Home, BarChart2, PieChart, MessageSquare, BookX,
-  RotateCcw, History, CalendarDays,
+  RotateCcw, History, CalendarDays, LibraryBig,
+  Filter, Search, List, Layers2,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { classifyPatterns } from '@/hooks/weakness/useAnalysis'
-import { ShareData, StudentAnswer, VocabAnswer, TabId, CIRCLE_NUM } from './share-types'
+import { ShareData, StudentAnswer, VocabAnswer, VocabWord, TabId, CIRCLE_NUM } from './share-types'
 import { Card, StatCard, AttendanceCalendar, ThemeToggle } from './share-components'
 import { PatternCard } from './share-pattern'
 
@@ -68,41 +69,176 @@ function formatCorrectAnswer(q: StudentAnswer['exam_question']): string {
 
 const CHART_VISIBLE_COUNT = 8
 
+type VocabStudyItem = {
+  word: VocabWord
+  week: ShareData['weeks'][number]
+  className: string
+  weekLabel: string
+  wrongAnswer: VocabAnswer | null
+}
+
+type VocabViewMode = 'all' | 'weekly'
+type VocabStudyMode = 'all' | 'wrong_only' | 'retake_pending'
+type VocabWrongFilter = 'all' | 'wrong' | 'not_wrong'
+type VocabExampleFilter = 'all' | 'with' | 'without'
+
+function normalizeVocabText(value: string | null | undefined) {
+  return (value ?? '').trim().toLocaleLowerCase('ko-KR')
+}
+
+function joinVocabList(values: string[] | null | undefined) {
+  return (values ?? []).filter(Boolean).join(', ')
+}
+
+function matchesVocabSearch(word: VocabWord, query: string) {
+  if (!query) return true
+  return [
+    word.english_word,
+    word.correct_answer,
+    joinVocabList(word.synonyms),
+    joinVocabList(word.antonyms),
+  ].some((value) => normalizeVocabText(value).includes(query))
+}
+
+function VocabStudyWordCard({ item, showWeekLabel }: { item: VocabStudyItem; showWeekLabel?: boolean }) {
+  const { word, wrongAnswer, weekLabel } = item
+  const isRetakeDone = wrongAnswer?.retake_is_correct === true
+  const isRetakePending = !!wrongAnswer && !isRetakeDone
+
+  return (
+    <div className={`px-5 py-4 ${isRetakeDone ? 'opacity-70' : ''}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-gray-300 dark:text-gray-600">#{word.number}</span>
+            <p className="break-words text-base font-black leading-tight text-[#1A1C1E] dark:text-[#F8FAFC]">
+              {word.english_word}
+            </p>
+            {word.part_of_speech && (
+              <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500 dark:bg-white/[0.08] dark:text-gray-300">
+                {word.part_of_speech}
+              </span>
+            )}
+            {showWeekLabel && (
+              <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-[#2463EB] dark:bg-blue-950/40 dark:text-blue-300">
+                {weekLabel}
+              </span>
+            )}
+            {word.passage_label && (
+              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/[0.08] dark:text-slate-300">
+                지문 {word.passage_label}
+              </span>
+            )}
+          </div>
+          {word.correct_answer && (
+            <p className="mt-1 text-sm font-semibold leading-relaxed text-gray-600 dark:text-gray-300">
+              {word.correct_answer}
+            </p>
+          )}
+        </div>
+
+        {wrongAnswer && (
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+            isRetakeDone
+              ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400'
+              : 'bg-rose-50 text-rose-500 dark:bg-rose-950/50 dark:text-rose-400'
+          }`}>
+            {isRetakeDone ? '재시험 완료' : isRetakePending ? '재시험 남음' : '오답'}
+          </span>
+        )}
+      </div>
+
+      {wrongAnswer && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-xs text-gray-400 dark:text-gray-500">내 답</span>
+          <span className="text-sm text-rose-400 line-through dark:text-rose-500">
+            {wrongAnswer.student_answer || '미작성'}
+          </span>
+        </div>
+      )}
+
+      {(word.synonyms?.length ?? 0) > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {(word.synonyms ?? []).map((synonym, index) => (
+            <span key={`${synonym}-${index}`} className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+              유의 {synonym}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {(word.antonyms?.length ?? 0) > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {(word.antonyms ?? []).map((antonym, index) => (
+            <span key={`${antonym}-${index}`} className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+              반의 {antonym}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {word.derivatives && (
+        <div className="mt-2 rounded-xl bg-gray-50 px-3 py-2 text-xs leading-relaxed text-gray-500 dark:bg-white/[0.05] dark:text-gray-300">
+          <span className="mr-1 font-bold text-gray-400 dark:text-gray-500">파생/변형</span>
+          {word.derivatives}
+        </div>
+      )}
+
+      {word.example_sentence && (
+        <div className="mt-2 rounded-xl bg-sky-50 px-3 py-2 dark:bg-sky-950/30">
+          <p className="text-xs italic leading-relaxed text-sky-900 dark:text-sky-200">
+            {word.example_sentence}
+          </p>
+          {word.example_translation && (
+            <p className="mt-1 text-[11px] leading-relaxed text-sky-600/70 dark:text-sky-300/70">
+              {word.example_translation}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SwipeChartCard({
   id,
   title,
   subtitle,
   itemCount,
   children,
+  scrollBody = true,
 }: {
   id?: string
   title: string
   subtitle: string
   itemCount: number
   children: ReactNode
+  scrollBody?: boolean
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null)
   const width = itemCount > CHART_VISIBLE_COUNT ? `${(itemCount / CHART_VISIBLE_COUNT) * 100}%` : '100%'
 
   useEffect(() => {
     const el = scrollerRef.current
-    if (!el) return
+    if (!el || !scrollBody) return
     const frame = window.requestAnimationFrame(() => {
       el.scrollLeft = el.scrollWidth - el.clientWidth
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [itemCount])
+  }, [itemCount, scrollBody])
 
   return (
     <Card id={id} title={title} subtitle={subtitle}>
-      <div
-        ref={scrollerRef}
-        className="-mx-1 overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
-        <div style={{ width, minWidth: '100%' }}>
-          {children}
+      {scrollBody ? (
+        <div
+          ref={scrollerRef}
+          className="-mx-1 overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          <div style={{ width, minWidth: '100%' }}>
+            {children}
+          </div>
         </div>
-      </div>
+      ) : children}
     </Card>
   )
 }
@@ -121,6 +257,14 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const [themeReady, setThemeReady] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('home')
   const [wrongNoteTab, setWrongNoteTab] = useState<'reading' | 'vocab'>('reading')
+  const [vocabViewMode, setVocabViewMode] = useState<VocabViewMode>('all')
+  const [vocabStudyMode, setVocabStudyMode] = useState<VocabStudyMode>('all')
+  const [vocabSearch, setVocabSearch] = useState('')
+  const [vocabWeekFilter, setVocabWeekFilter] = useState('all')
+  const [vocabPassageFilter, setVocabPassageFilter] = useState('all')
+  const [vocabPosFilter, setVocabPosFilter] = useState('all')
+  const [vocabWrongFilter, setVocabWrongFilter] = useState<VocabWrongFilter>('all')
+  const [vocabExampleFilter, setVocabExampleFilter] = useState<VocabExampleFilter>('all')
   const [commentExpanded, setCommentExpanded] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const scrollTo = (id: string, delay = 0) => {
@@ -181,6 +325,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     weekScores = [],
     studentAnswers = [],
     vocabAnswers = [],
+    vocabWords = [],
     attendance = [],
     classAverages = {},
   } = data
@@ -371,6 +516,90 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     vocabWrongGroups.push({ week, answers, className })
   }
   vocabWrongGroups.sort((a, b) => b.week.week_number - a.week.week_number)
+  const vocabAnswerByWordId = new Map<string, VocabAnswer>()
+  vocabAnswers.forEach((answer) => {
+    if (answer.vocab_word?.id) vocabAnswerByWordId.set(answer.vocab_word.id, answer)
+  })
+
+  // ── 사전학습 단어장 그룹 ────────────────────────────────────────────────
+  const vocabWordsByWeek = new Map<string, typeof vocabWords>()
+  vocabWords.forEach((word) => {
+    const list = vocabWordsByWeek.get(word.week_id) ?? []
+    list.push(word)
+    vocabWordsByWeek.set(word.week_id, list)
+  })
+  const vocabStudyGroups = weeks
+    .filter((week) => (vocabWordsByWeek.get(week.id)?.length ?? 0) > 0)
+    .map((week) => ({
+      week,
+      className: classes.find((c) => c.id === week.class_id)?.name ?? '',
+      words: (vocabWordsByWeek.get(week.id) ?? []).slice().sort((a, b) => a.number - b.number),
+    }))
+    .sort((a, b) => b.week.week_number - a.week.week_number)
+  const vocabStudyItems: VocabStudyItem[] = vocabStudyGroups
+    .flatMap(({ week, words, className }) => words.map((word) => ({
+      word,
+      week,
+      className,
+      weekLabel: getWeekLabel(week),
+      wrongAnswer: vocabAnswerByWordId.get(word.id) ?? null,
+    })))
+    .sort((a, b) =>
+      a.week.week_number - b.week.week_number ||
+      a.word.number - b.word.number
+    )
+  const vocabSearchQuery = normalizeVocabText(vocabSearch)
+  const vocabWeekOptions = vocabStudyGroups
+    .slice()
+    .sort((a, b) => a.week.week_number - b.week.week_number)
+    .map(({ week }) => ({ id: week.id, label: getWeekLabel(week) }))
+  const vocabPassageOptions = [...new Set(
+    vocabStudyItems
+      .map((item) => item.word.passage_label?.trim())
+      .filter((value): value is string => !!value)
+  )].sort((a, b) => a.localeCompare(b, 'ko-KR', { numeric: true }))
+  const vocabPosOptions = [...new Set(
+    vocabStudyItems
+      .map((item) => item.word.part_of_speech?.trim())
+      .filter((value): value is string => !!value)
+  )].sort((a, b) => a.localeCompare(b, 'ko-KR', { numeric: true }))
+  const filteredVocabItems = vocabStudyItems.filter((item) => {
+    const hasWrong = !!item.wrongAnswer
+    const hasExample = !!item.word.example_sentence
+    if (vocabStudyMode === 'wrong_only' && !hasWrong) return false
+    if (vocabStudyMode === 'retake_pending' && (!item.wrongAnswer || item.wrongAnswer.retake_is_correct === true)) return false
+    if (vocabWeekFilter !== 'all' && item.week.id !== vocabWeekFilter) return false
+    if (vocabPassageFilter !== 'all' && (item.word.passage_label ?? '') !== vocabPassageFilter) return false
+    if (vocabPosFilter !== 'all' && (item.word.part_of_speech ?? '') !== vocabPosFilter) return false
+    if (vocabWrongFilter === 'wrong' && !hasWrong) return false
+    if (vocabWrongFilter === 'not_wrong' && hasWrong) return false
+    if (vocabExampleFilter === 'with' && !hasExample) return false
+    if (vocabExampleFilter === 'without' && hasExample) return false
+    return matchesVocabSearch(item.word, vocabSearchQuery)
+  })
+  const filteredVocabByWeek = new Map<string, VocabStudyItem[]>()
+  filteredVocabItems.forEach((item) => {
+    const list = filteredVocabByWeek.get(item.week.id) ?? []
+    list.push(item)
+    filteredVocabByWeek.set(item.week.id, list)
+  })
+  const hasVocabFilters =
+    vocabStudyMode !== 'all' ||
+    vocabSearch.trim() ||
+    vocabWeekFilter !== 'all' ||
+    vocabPassageFilter !== 'all' ||
+    vocabPosFilter !== 'all' ||
+    vocabWrongFilter !== 'all' ||
+    vocabExampleFilter !== 'all'
+  const resetVocabFilters = () => {
+    setVocabStudyMode('all')
+    setVocabSearch('')
+    setVocabWeekFilter('all')
+    setVocabPassageFilter('all')
+    setVocabPosFilter('all')
+    setVocabWrongFilter('all')
+    setVocabExampleFilter('all')
+  }
 
   // ── 강사 코멘트 피드 ──────────────────────────────────────────────────────
   const commentFeed = visibleWeeks
@@ -415,6 +644,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     { id: 'home' as TabId, label: '홈', Icon: Home },
     { id: 'score' as TabId, label: '성적', Icon: BarChart2 },
     { id: 'analysis' as TabId, label: '분석', Icon: PieChart },
+    { id: 'vocab' as TabId, label: '단어장', Icon: LibraryBig },
     { id: 'wrongnote' as TabId, label: '오답', Icon: BookX },
   ]
 
@@ -659,6 +889,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                   title="시험 점수 추이"
                   subtitle="진단평가 정답률 (%) · 점선은 반 평균"
                   itemCount={readingTrendData.length}
+                  scrollBody={false}
                 >
                   <ScoreTrendChart data={readingTrendData} isDark={isDark} series="reading" />
                 </SwipeChartCard>
@@ -670,6 +901,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                   title="단어 점수 추이"
                   subtitle="단어시험 정답률 (%) · 점선은 반 평균"
                   itemCount={vocabTrendData.length}
+                  scrollBody={false}
                 >
                   <ScoreTrendChart data={vocabTrendData} isDark={isDark} series="vocab" />
                 </SwipeChartCard>
@@ -864,6 +1096,209 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               {typeData.length === 0 && repeatPatterns.length === 0 && (
                 <div className="rounded-3xl bg-white dark:bg-[#1E293B] p-10 text-center text-sm text-[#8B95A1] dark:text-[#94A3B8] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none">
                   분석 데이터가 없습니다
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── 단어장 탭 ─────────────────────────────────────────────── */}
+          {activeTab === 'vocab' && (
+            <>
+              {vocabStudyGroups.length === 0 ? (
+                <Card title="사전학습 단어장">
+                  <p className="py-8 text-center text-sm text-[#8B95A1] dark:text-gray-500">
+                    아직 공개된 단어장이 없습니다.
+                  </p>
+                </Card>
+              ) : (
+                <div className="space-y-4">
+                  <Card title="사전학습 단어장" subtitle={`${filteredVocabItems.length}/${vocabStudyItems.length}개 표시`}>
+                    <div className="space-y-3">
+                      <div className="flex rounded-2xl bg-gray-50 p-1 dark:bg-white/[0.06]">
+                        {([
+                          { id: 'all' as const, label: '전체', Icon: List },
+                          { id: 'weekly' as const, label: '주차별', Icon: Layers2 },
+                        ]).map(({ id, label, Icon }) => (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => setVocabViewMode(id)}
+                            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-bold transition-all ${
+                              vocabViewMode === id
+                                ? 'bg-[#2463EB] text-white shadow-sm dark:bg-[#3B82F6]'
+                                : 'text-[#8B95A1] hover:text-[#1A1C1E] dark:text-[#94A3B8] dark:hover:text-white'
+                            }`}
+                          >
+                            <Icon className="h-3.5 w-3.5" />
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-300 dark:text-gray-500" />
+                        <input
+                          value={vocabSearch}
+                          onChange={(e) => setVocabSearch(e.target.value)}
+                          placeholder="단어, 뜻, 유의어, 반의어 검색"
+                          className="h-11 w-full rounded-2xl bg-gray-50 pl-9 pr-3 text-sm font-medium text-[#1A1C1E] outline-none transition-colors placeholder:text-gray-300 focus:bg-white focus:ring-2 focus:ring-[#2463EB]/15 dark:bg-white/[0.06] dark:text-white dark:placeholder:text-gray-500 dark:focus:bg-white/[0.08]"
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5">
+                        {([
+                          { id: 'all' as const, label: '전체 학습' },
+                          { id: 'wrong_only' as const, label: '내가 틀린 단어' },
+                          { id: 'retake_pending' as const, label: '재시험 남은 단어' },
+                        ]).map((mode) => (
+                          <button
+                            key={mode.id}
+                            type="button"
+                            onClick={() => setVocabStudyMode(mode.id)}
+                            className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                              vocabStudyMode === mode.id
+                                ? 'bg-[#2463EB] text-white dark:bg-[#3B82F6]'
+                                : 'bg-gray-50 text-[#8B95A1] hover:bg-blue-50 hover:text-[#2463EB] dark:bg-white/[0.06] dark:text-[#94A3B8] dark:hover:bg-blue-950/40 dark:hover:text-blue-300'
+                            }`}
+                          >
+                            {mode.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="space-y-1">
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-gray-400 dark:text-gray-500">
+                            <Filter className="h-3 w-3" /> 주차
+                          </span>
+                          <select
+                            value={vocabWeekFilter}
+                            onChange={(e) => setVocabWeekFilter(e.target.value)}
+                            className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
+                          >
+                            <option value="all">전체</option>
+                            {vocabWeekOptions.map((option) => (
+                              <option key={option.id} value={option.id}>{option.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500">지문</span>
+                          <select
+                            value={vocabPassageFilter}
+                            onChange={(e) => setVocabPassageFilter(e.target.value)}
+                            className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
+                          >
+                            <option value="all">전체</option>
+                            {vocabPassageOptions.map((passage) => (
+                              <option key={passage} value={passage}>지문 {passage}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500">품사</span>
+                          <select
+                            value={vocabPosFilter}
+                            onChange={(e) => setVocabPosFilter(e.target.value)}
+                            className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
+                          >
+                            <option value="all">전체</option>
+                            {vocabPosOptions.map((pos) => (
+                              <option key={pos} value={pos}>{pos}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500">오답</span>
+                          <select
+                            value={vocabWrongFilter}
+                            onChange={(e) => setVocabWrongFilter(e.target.value as VocabWrongFilter)}
+                            className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
+                          >
+                            <option value="all">전체</option>
+                            <option value="wrong">오답만</option>
+                            <option value="not_wrong">오답 제외</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500">예문</span>
+                          <select
+                            value={vocabExampleFilter}
+                            onChange={(e) => setVocabExampleFilter(e.target.value as VocabExampleFilter)}
+                            className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
+                          >
+                            <option value="all">전체</option>
+                            <option value="with">예문 있음</option>
+                            <option value="without">예문 없음</option>
+                          </select>
+                        </label>
+                        <div className="flex items-end">
+                          <button
+                            type="button"
+                            onClick={resetVocabFilters}
+                            disabled={!hasVocabFilters}
+                            className="h-9 w-full rounded-xl bg-gray-900 px-3 text-xs font-bold text-white transition-colors disabled:bg-gray-100 disabled:text-gray-300 dark:bg-white dark:text-gray-900 dark:disabled:bg-white/[0.06] dark:disabled:text-gray-600"
+                          >
+                            초기화
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+
+                  {filteredVocabItems.length === 0 ? (
+                    <Card title="검색 결과">
+                      <p className="py-8 text-center text-sm text-[#8B95A1] dark:text-gray-500">
+                        조건에 맞는 단어가 없습니다.
+                      </p>
+                    </Card>
+                  ) : vocabViewMode === 'all' ? (
+                    <Card title="전체 단어" subtitle={`${filteredVocabItems.length}개`} noPad>
+                      <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
+                        {filteredVocabItems.map((item) => (
+                          <VocabStudyWordCard key={item.word.id} item={item} showWeekLabel />
+                        ))}
+                      </div>
+                    </Card>
+                  ) : (
+                    vocabStudyGroups.map(({ week, words, className }) => {
+                      const items = filteredVocabByWeek.get(week.id) ?? []
+                      if (items.length === 0) return null
+                      const byPassage = new Map<string, VocabStudyItem[]>()
+                      items.forEach((item) => {
+                        const key = item.word.passage_label ?? ''
+                        const list = byPassage.get(key) ?? []
+                        list.push(item)
+                        byPassage.set(key, list)
+                      })
+
+                      return (
+                        <Card
+                          key={week.id}
+                          title={`${getWeekLabel(week)} 단어장`}
+                          subtitle={`${className ? `${className} · ` : ''}${items.length}/${words.length}개`}
+                          noPad
+                        >
+                          <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
+                            {[...byPassage.entries()].map(([passage, passageItems]) => (
+                              <div key={passage || 'none'}>
+                                {passage && (
+                                  <div className="bg-blue-50/70 px-5 py-2 text-[11px] font-bold text-[#2463EB] dark:bg-blue-950/30 dark:text-blue-300">
+                                    지문 {passage}
+                                  </div>
+                                )}
+                                <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
+                                  {passageItems.map((item) => (
+                                    <VocabStudyWordCard key={item.word.id} item={item} />
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </Card>
+                      )
+                    })
+                  )}
                 </div>
               )}
             </>

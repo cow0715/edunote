@@ -9,9 +9,11 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Download,
   Link as LinkIcon,
   Pencil,
   Plus,
+  Printer,
   RefreshCw,
   RotateCcw,
   Trash2,
@@ -110,6 +112,48 @@ type PeriodDraft = {
   startDate: string
   endDate: string
   isCurrent: boolean
+}
+
+type ClassVocabExportWord = {
+  id: string
+  week_id: string
+  number: number
+  passage_label: string | null
+  english_word: string
+  part_of_speech: string | null
+  correct_answer: string | null
+  synonyms: string[] | null
+  antonyms: string[] | null
+  derivatives: string | null
+  example_sentence: string | null
+  example_translation: string | null
+}
+
+type ClassVocabExportData = {
+  weeks: Pick<Week, 'id' | 'class_id' | 'week_number' | 'start_date'>[]
+  words: ClassVocabExportWord[]
+}
+
+function csvEscape(value: unknown) {
+  const text = Array.isArray(value) ? value.join(', ') : String(value ?? '')
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+function sanitizeFileName(value: string) {
+  return value.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'vocab'
+}
+
+function formatVocabList(values: string[] | null | undefined) {
+  return (values ?? []).filter(Boolean).join(', ')
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 // ── 달력 컴포넌트 (pointer events 드래그) ─────────────────────────────────────
@@ -389,6 +433,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
   if (classLoading) return <div className="h-8 w-48 rounded bg-gray-100 animate-pulse" />
   if (!cls) return <p className="text-sm text-gray-500">수업을 찾을 수 없습니다</p>
 
+  const className = cls.name
   const scheduleDays = cls.schedule_days ?? []
   const scheduleLabel = scheduleDays.length > 0
     ? `주 ${scheduleDays.length}회 (${scheduleDays.map((d) => DAY_LABEL[d] ?? d).join('·')})`
@@ -523,6 +568,141 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     })
   }
 
+  async function loadClassVocabExport() {
+    const res = await fetch(`/api/classes/${classId}/vocab-words`)
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? '단어장을 불러올 수 없습니다')
+    return res.json() as Promise<ClassVocabExportData>
+  }
+
+  function getExportVocabRows(data: ClassVocabExportData) {
+    const exportWeekIds = new Set(
+      currentPeriod
+        ? sortedClassWeeks
+            .filter((week) => {
+              const startDate = week.start_date ?? ''
+              return startDate >= currentPeriod.start_date && (!currentPeriod.end_date || startDate <= currentPeriod.end_date)
+            })
+            .map((week) => week.id)
+        : sortedClassWeeks.map((week) => week.id)
+    )
+    const weekById = new Map(data.weeks.map((week) => [week.id, week]))
+    return data.words
+      .filter((word) => exportWeekIds.has(word.week_id))
+      .map((word) => {
+        const week = weekById.get(word.week_id)
+        const display = week ? weekDisplayMap.get(week.id)?.displayLabel ?? `${week.week_number}주차` : ''
+        return { word, week, display }
+      })
+      .sort((a, b) =>
+        (a.week?.start_date ?? '').localeCompare(b.week?.start_date ?? '') ||
+        (a.week?.week_number ?? 0) - (b.week?.week_number ?? 0) ||
+        a.word.number - b.word.number
+      )
+  }
+
+  async function downloadClassVocabCsv() {
+    try {
+      const data = await loadClassVocabExport()
+      const rows = getExportVocabRows(data)
+      if (rows.length === 0) {
+        window.alert('다운로드할 단어장이 없습니다.')
+        return
+      }
+      const header = ['주차', '수업일', '지문', '번호', '본문 단어', '품사', '본문 의미', '문맥 동의어', '반의어', '파생어/변형 주의', '예문', '예문 해석']
+      const csvRows = rows.map(({ word, week, display }) => [
+        display,
+        week?.start_date ?? '',
+        word.passage_label ?? '',
+        word.number,
+        word.english_word,
+        word.part_of_speech ?? '',
+        word.correct_answer ?? '',
+        formatVocabList(word.synonyms),
+        formatVocabList(word.antonyms),
+        word.derivatives ?? '',
+        word.example_sentence ?? '',
+        word.example_translation ?? '',
+      ].map(csvEscape).join(','))
+      const csv = ['\uFEFF' + header.map(csvEscape).join(','), ...csvRows].join('\r\n')
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = sanitizeFileName(`${className}_${currentPeriod?.label ?? '전체'}_단어장`) + '.csv'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '단어장 다운로드에 실패했습니다.')
+    }
+  }
+
+  async function printClassVocab() {
+    try {
+      const data = await loadClassVocabExport()
+      const rows = getExportVocabRows(data)
+      if (rows.length === 0) {
+        window.alert('인쇄할 단어장이 없습니다.')
+        return
+      }
+      const title = `${className} ${currentPeriod?.label ?? '전체'} 단어장`
+      const htmlRows = rows.map(({ word, week, display }) => `
+        <tr>
+          <td>${escapeHtml(display)}</td>
+          <td>${escapeHtml(week?.start_date ?? '')}</td>
+          <td>${escapeHtml(word.passage_label ?? '')}</td>
+          <td>${escapeHtml(word.number)}</td>
+          <td class="word">${escapeHtml(word.english_word)}</td>
+          <td>${escapeHtml(word.part_of_speech ?? '')}</td>
+          <td>${escapeHtml(word.correct_answer ?? '')}</td>
+          <td>${escapeHtml(formatVocabList(word.synonyms))}</td>
+          <td>${escapeHtml(formatVocabList(word.antonyms))}</td>
+          <td>${escapeHtml(word.derivatives ?? '')}</td>
+        </tr>
+      `).join('')
+      const printWindow = window.open('', '_blank')
+      if (!printWindow) {
+        window.alert('팝업을 허용한 뒤 다시 시도해 주세요.')
+        return
+      }
+      printWindow.document.write(`
+        <!doctype html>
+        <html lang="ko">
+          <head>
+            <meta charset="utf-8" />
+            <title>${escapeHtml(title)}</title>
+            <style>
+              body { font-family: Arial, "Noto Sans KR", sans-serif; margin: 24px; color: #111827; }
+              h1 { margin: 0 0 6px; font-size: 22px; }
+              p { margin: 0 0 18px; color: #6b7280; font-size: 12px; }
+              table { width: 100%; border-collapse: collapse; font-size: 11px; }
+              th, td { border: 1px solid #e5e7eb; padding: 6px 7px; vertical-align: top; }
+              th { background: #eff6ff; color: #1d4ed8; text-align: left; }
+              .word { font-weight: 700; color: #111827; }
+              @media print { body { margin: 12mm; } }
+            </style>
+          </head>
+          <body>
+            <h1>${escapeHtml(title)}</h1>
+            <p>${rows.length}개 단어</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>주차</th><th>수업일</th><th>지문</th><th>번호</th><th>본문 단어</th><th>품사</th><th>본문 의미</th><th>문맥 동의어</th><th>반의어</th><th>파생어/변형 주의</th>
+                </tr>
+              </thead>
+              <tbody>${htmlRows}</tbody>
+            </table>
+          </body>
+        </html>
+      `)
+      printWindow.document.close()
+      printWindow.focus()
+      printWindow.print()
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '단어장 인쇄에 실패했습니다.')
+    }
+  }
+
   return (
     <div>
       {/* 헤더 */}
@@ -535,14 +715,26 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
         </Button>
       </div>
 
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">{cls.name}</h1>
-        {cls.description && <p className="mt-1 text-sm text-gray-500">{cls.description}</p>}
-        <p className="mt-1 text-xs text-gray-400">
-          {new Date(cls.start_date).toLocaleDateString('ko-KR')} ~{' '}
-          {new Date(cls.end_date).toLocaleDateString('ko-KR')}
-          <span className="ml-2">{scheduleLabel}</span>
-        </p>
+      <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{cls.name}</h1>
+          {cls.description && <p className="mt-1 text-sm text-gray-500">{cls.description}</p>}
+          <p className="mt-1 text-xs text-gray-400">
+            {new Date(cls.start_date).toLocaleDateString('ko-KR')} ~{' '}
+            {new Date(cls.end_date).toLocaleDateString('ko-KR')}
+            <span className="ml-2">{scheduleLabel}</span>
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={downloadClassVocabCsv}>
+            <Download className="h-4 w-4" />
+            단어장 CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={printClassVocab}>
+            <Printer className="h-4 w-4" />
+            단어장 인쇄
+          </Button>
+        </div>
       </div>
 
       <div className="mb-6 rounded-3xl bg-white p-5 shadow-[0_10px_40px_rgba(0,75,198,0.03)]">

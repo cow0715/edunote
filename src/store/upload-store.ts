@@ -10,10 +10,17 @@ export type AnswerSheetStatus =
 // ── 단어 세팅 상태 ────────────────────────────────────────────────────────────
 export type VocabEntry = {
   number: number
+  passage_label?: string | null
   english_word: string
+  part_of_speech?: string | null
   correct_answer: string | null
   synonyms: string[]
   antonyms: string[]
+  derivatives?: string | null
+  source_row_index?: number | null
+  example_sentence?: string | null
+  example_translation?: string | null
+  example_source?: string | null
 }
 
 export type VocabSetupStatus =
