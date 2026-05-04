@@ -18,6 +18,9 @@ const ALL_SERIES = [
 ] as const
 
 const VISIBLE_POINT_COUNT = 8
+const CHART_HEIGHT_CLASS = 'h-[200px]'
+const CHART_MARGIN = { top: 8, right: 12, left: 0, bottom: 4 }
+const Y_AXIS_WIDTH = 34
 
 const chartConfig = {
   readingRate:      { label: '시험',      color: '#6366f1' },
@@ -77,42 +80,60 @@ export function ScoreTrendChart({ data, isDark, series }: { data: TrendItem[]; i
 
   return (
     <div>
-      <div ref={scrollerRef} className="-mx-1 overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div style={{ width: chartWidth, minWidth: '100%' }}>
-          <ChartContainer config={chartConfig} className="h-[200px] w-full">
-            <AreaChart data={data} margin={{ top: 8, right: 12, left: -20, bottom: 4 }}>
-              <defs>
-                {SERIES.map((s) => {
-                  const solid = isDark ? s.darkColor : s.color
-                  return (
-                    <linearGradient key={s.key} id={`area-${s.key}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%"   stopColor={solid} stopOpacity={0.3} />
-                      <stop offset="100%" stopColor={solid} stopOpacity={0.02} />
-                    </linearGradient>
-                  )
-                })}
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: tick }} axisLine={false} tickLine={false} />
-              <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: tick }} unit="%" axisLine={false} tickLine={false} />
-              <ChartTooltip content={<CustomTooltip isDark={isDark} />} />
-              {SERIES.flatMap((s) => {
-                const solid = isDark ? s.darkColor : s.color
-                const dash  = isDark ? s.darkClassColor : s.classColor
-                return [
-                  <Area key={s.classKey} type="monotone" dataKey={s.classKey}
-                    stroke={dash} strokeWidth={1.5} strokeDasharray="5 4"
-                    fill="none" dot={false} connectNulls />,
-                  <Area key={s.key} type="monotone" dataKey={s.key}
-                    stroke={solid} strokeWidth={2.5}
-                    fill={`url(#area-${s.key})`}
-                    dot={{ r: 4, fill: solid, strokeWidth: 2, stroke: bg }}
-                    activeDot={{ r: 6, fill: solid, strokeWidth: 2, stroke: bg }}
-                    connectNulls />,
-                ]
-              })}
+      <div className="flex">
+        <div className="shrink-0" style={{ width: Y_AXIS_WIDTH }}>
+          <ChartContainer config={chartConfig} className={`${CHART_HEIGHT_CLASS} w-full`}>
+            <AreaChart data={data} margin={{ ...CHART_MARGIN, right: 0 }}>
+              <XAxis dataKey="label" hide />
+              <YAxis
+                domain={[0, 100]}
+                tick={{ fontSize: 11, fill: tick }}
+                unit="%"
+                axisLine={false}
+                tickLine={false}
+                width={Y_AXIS_WIDTH}
+              />
             </AreaChart>
           </ChartContainer>
+        </div>
+
+        <div ref={scrollerRef} className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div style={{ width: chartWidth, minWidth: '100%' }}>
+            <ChartContainer config={chartConfig} className={`${CHART_HEIGHT_CLASS} w-full`}>
+              <AreaChart data={data} margin={CHART_MARGIN}>
+                <defs>
+                  {SERIES.map((s) => {
+                    const solid = isDark ? s.darkColor : s.color
+                    return (
+                      <linearGradient key={s.key} id={`area-${s.key}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%"   stopColor={solid} stopOpacity={0.3} />
+                        <stop offset="100%" stopColor={solid} stopOpacity={0.02} />
+                      </linearGradient>
+                    )
+                  })}
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: tick }} axisLine={false} tickLine={false} />
+                <YAxis hide domain={[0, 100]} />
+                <ChartTooltip content={<CustomTooltip isDark={isDark} />} />
+                {SERIES.flatMap((s) => {
+                  const solid = isDark ? s.darkColor : s.color
+                  const dash  = isDark ? s.darkClassColor : s.classColor
+                  return [
+                    <Area key={s.classKey} type="monotone" dataKey={s.classKey}
+                      stroke={dash} strokeWidth={1.5} strokeDasharray="5 4"
+                      fill="none" dot={false} connectNulls />,
+                    <Area key={s.key} type="monotone" dataKey={s.key}
+                      stroke={solid} strokeWidth={2.5}
+                      fill={`url(#area-${s.key})`}
+                      dot={{ r: 4, fill: solid, strokeWidth: 2, stroke: bg }}
+                      activeDot={{ r: 6, fill: solid, strokeWidth: 2, stroke: bg }}
+                      connectNulls />,
+                  ]
+                })}
+              </AreaChart>
+            </ChartContainer>
+          </div>
         </div>
       </div>
 
