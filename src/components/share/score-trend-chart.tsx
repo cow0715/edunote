@@ -20,7 +20,7 @@ const ALL_SERIES = [
 const VISIBLE_POINT_COUNT = 8
 const CHART_HEIGHT_CLASS = 'h-[200px]'
 const CHART_MARGIN = { top: 8, right: 12, left: 0, bottom: 4 }
-const Y_AXIS_WIDTH = 34
+const Y_AXIS_WIDTH = 38
 
 const chartConfig = {
   readingRate:      { label: '시험',      color: '#6366f1' },
@@ -81,20 +81,16 @@ export function ScoreTrendChart({ data, isDark, series }: { data: TrendItem[]; i
   return (
     <div>
       <div className="flex">
-        <div className="shrink-0" style={{ width: Y_AXIS_WIDTH }}>
-          <ChartContainer config={chartConfig} className={`${CHART_HEIGHT_CLASS} w-full`}>
-            <AreaChart data={data} margin={{ ...CHART_MARGIN, right: 0 }}>
-              <XAxis dataKey="label" hide />
-              <YAxis
-                domain={[0, 100]}
-                tick={{ fontSize: 11, fill: tick }}
-                unit="%"
-                axisLine={false}
-                tickLine={false}
-                width={Y_AXIS_WIDTH}
-              />
-            </AreaChart>
-          </ChartContainer>
+        <div className={`relative shrink-0 ${CHART_HEIGHT_CLASS}`} style={{ width: Y_AXIS_WIDTH }}>
+          {[100, 75, 50, 25, 0].map((value) => (
+            <span
+              key={value}
+              className="absolute right-1 translate-y-1/2 text-[11px] leading-none"
+              style={{ bottom: `${value}%`, color: tick }}
+            >
+              {value}%
+            </span>
+          ))}
         </div>
 
         <div ref={scrollerRef} className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
