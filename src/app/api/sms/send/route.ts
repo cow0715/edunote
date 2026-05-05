@@ -1,6 +1,12 @@
 import { getAuth, err, ok } from '@/lib/api'
 import { sendMessages, SendTarget } from '@/lib/solapi'
 
+type MessageLogInsert = {
+  student_id: string
+  week_id: string | null
+  message: string
+}
+
 export async function POST(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
@@ -16,18 +22,22 @@ export async function POST(request: Request) {
   const targetsWithSchedule = targets.map((t) => ({ ...t, scheduledDate }))
   const results = await sendMessages(targetsWithSchedule)
 
-  // 예약 발송이 아닌 경우에만 성공 건 즉시 message_log 저장
-  if (!scheduledDate) {
-    const successTargets = results.filter((r) => r.success)
-    if (successTargets.length > 0) {
-      await supabase.from('message_log').insert(
-        successTargets.map((r) => ({
-          student_id: r.studentId,
-          week_id: weekId ?? null,
-          message: r.message,
-        }))
-      )
+  // The history tab is student-based, while one student can have multiple recipients.
+  const successLogs = new Map<string, MessageLogInsert>()
+  for (const r of results) {
+    if (!r.success) continue
+    const key = `${r.studentId}:${weekId ?? ''}:${r.message}`
+    if (!successLogs.has(key)) {
+      successLogs.set(key, {
+        student_id: r.studentId,
+        week_id: weekId ?? null,
+        message: r.message,
+      })
     }
+  }
+
+  if (successLogs.size > 0) {
+    await supabase.from('message_log').insert(Array.from(successLogs.values()))
   }
 
   return ok(results)
