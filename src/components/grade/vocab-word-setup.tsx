@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, FileSpreadsheet, FileText, Loader2, RotateCcw, Save, Sparkles, Upload } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, FileSpreadsheet, FileText, Loader2, Printer, RotateCcw, Save, Search, Sparkles, Upload } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,22 @@ type SourceMeta = {
   sourceFileName: string
 }
 
+type VocabTestItem = {
+  id: string
+  vocab_word_id: string
+  test_number: number
+  sort_order: number
+  vocab_word: VocabEntry | null
+}
+
+type VocabTest = {
+  id: string
+  title: string
+  item_count: number
+  is_active: boolean
+  items: VocabTestItem[]
+}
+
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -32,6 +48,10 @@ function splitList(value: string) {
   return value.split(/[,/]+/).map((s) => s.trim()).filter(Boolean)
 }
 
+function normalizeSearch(value: string | null | undefined) {
+  return (value ?? '').trim().toLocaleLowerCase('ko-KR')
+}
+
 export function VocabWordSetup({ weekId }: { weekId: string }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const legacyInputRef = useRef<HTMLInputElement>(null)
@@ -40,6 +60,11 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const [elapsed, setElapsed] = useState(0)
   const [regenLoading, setRegenLoading] = useState(false)
   const [editWords, setEditWords] = useState<VocabEntry[]>([])
+  const [activeTest, setActiveTest] = useState<VocabTest | null>(null)
+  const [selectedWordIds, setSelectedWordIds] = useState<string[]>([])
+  const [testSearch, setTestSearch] = useState('')
+  const [testPassageFilter, setTestPassageFilter] = useState('all')
+  const [testSaving, setTestSaving] = useState(false)
   const [promptText, setPromptText] = useState(VOCAB_GRADING_RULES)
   const [promptOpen, setPromptOpen] = useState(false)
 
@@ -75,6 +100,20 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     }
   }, [setVocabSaved, weekId])
 
+  const loadActiveTest = useCallback(async () => {
+    const res = await fetch(`/api/weeks/${weekId}/vocab-tests`)
+    if (!res.ok) return
+    const data = await res.json() as { activeTest: VocabTest | null }
+    const test = data.activeTest ?? null
+    setActiveTest(test)
+    setSelectedWordIds(
+      (test?.items ?? [])
+        .slice()
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((item) => item.vocab_word_id)
+    )
+  }, [weekId])
+
   useEffect(() => {
     if (savedWords.length > 0) {
       setEditWords(savedWords)
@@ -83,6 +122,11 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     if (status.type !== 'idle') return
     loadSavedWords().catch(() => {})
   }, [loadSavedWords, savedWords, status.type])
+
+  useEffect(() => {
+    if (status.type !== 'ready') return
+    loadActiveTest().catch(() => {})
+  }, [loadActiveTest, status.type])
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>, mode: 'xlsx' | 'legacy_ai') {
     const selected = e.target.files?.[0]
@@ -112,8 +156,9 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       }
       qc.invalidateQueries({ queryKey: ['week', weekId] })
       qc.invalidateQueries({ queryKey: ['weeks'] })
-      setVocabSaved(weekId, words, { type: 'ready', savedCount: data.saved })
       toast.success(`단어 ${data.saved}개 저장 완료`)
+      await loadSavedWords()
+      await loadActiveTest()
     } catch {
       setVocabStatus(weekId, { type: 'error', message: '저장 중 오류가 발생했습니다' })
     }
@@ -166,6 +211,56 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     } finally {
       setRegenLoading(false)
     }
+  }
+
+  async function saveVocabTest() {
+    if (selectedWordIds.length === 0) {
+      toast.error('시험에 넣을 단어를 선택해주세요')
+      return
+    }
+    setTestSaving(true)
+    try {
+      const res = await fetch(`/api/weeks/${weekId}/vocab-tests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `단어시험 ${selectedWordIds.length}문항`,
+          wordIds: selectedWordIds,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error ?? '시험지 저장 실패')
+        return
+      }
+      toast.success(`${selectedWordIds.length}문항 시험지가 저장되었습니다`)
+      qc.invalidateQueries({ queryKey: ['week', weekId] })
+      qc.invalidateQueries({ queryKey: ['weeks'] })
+      await loadActiveTest()
+    } catch {
+      toast.error('시험지 저장 중 오류가 발생했습니다')
+    } finally {
+      setTestSaving(false)
+    }
+  }
+
+  function toggleTestWord(wordId: string) {
+    setSelectedWordIds((prev) =>
+      prev.includes(wordId)
+        ? prev.filter((id) => id !== wordId)
+        : [...prev, wordId]
+    )
+  }
+
+  function moveSelectedWord(wordId: string, direction: -1 | 1) {
+    setSelectedWordIds((prev) => {
+      const index = prev.indexOf(wordId)
+      const nextIndex = index + direction
+      if (index < 0 || nextIndex < 0 || nextIndex >= prev.length) return prev
+      const next = [...prev]
+      ;[next[index], next[nextIndex]] = [next[nextIndex], next[index]]
+      return next
+    })
   }
 
   function updateWord(index: number, field: keyof VocabEntry, value: string) {
@@ -257,6 +352,26 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     </div>
   )
 
+  const savedWordsWithIds = editWords.filter((word): word is VocabEntry & { id: string } => !!word.id)
+  const selectedSet = new Set(selectedWordIds)
+  const selectedWords = selectedWordIds
+    .map((id) => savedWordsWithIds.find((word) => word.id === id))
+    .filter((word): word is VocabEntry & { id: string } => !!word)
+  const passageOptions = [...new Set(savedWordsWithIds.map((word) => word.passage_label?.trim()).filter((value): value is string => !!value))]
+    .sort((a, b) => a.localeCompare(b, 'ko-KR', { numeric: true }))
+  const searchQuery = normalizeSearch(testSearch)
+  const filteredTestWords = savedWordsWithIds.filter((word) => {
+    if (testPassageFilter !== 'all' && (word.passage_label ?? '') !== testPassageFilter) return false
+    if (!searchQuery) return true
+    return [
+      word.english_word,
+      word.correct_answer,
+      (word.synonyms ?? []).join(', '),
+      (word.antonyms ?? []).join(', '),
+    ].some((value) => normalizeSearch(value).includes(searchQuery))
+  })
+  const allFilteredSelected = filteredTestWords.length > 0 && filteredTestWords.every((word) => selectedSet.has(word.id))
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -282,6 +397,136 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
             <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
             다시 올리기
           </Button>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-blue-100 bg-blue-50/40">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-blue-100 bg-white px-4 py-3">
+          <div>
+            <p className="text-sm font-bold text-gray-900">시험지 선택</p>
+            <p className="mt-0.5 text-xs text-gray-500">
+              원본 단어장 {savedWordsWithIds.length}개 중 실제 시험에 낼 단어만 선택합니다.
+              {activeTest && <span className="ml-1 text-blue-600">현재 시험지 {activeTest.item_count}문항</span>}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {activeTest && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const url = window.location.pathname.replace(/\/$/, '') + `/vocab-test/${activeTest.id}/print`
+                  window.open(url, '_blank')
+                }}
+              >
+                <Printer className="mr-1.5 h-3.5 w-3.5" />
+                시험지 인쇄
+              </Button>
+            )}
+            <Button size="sm" onClick={saveVocabTest} disabled={testSaving || selectedWordIds.length === 0}>
+              {testSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />}
+              {selectedWordIds.length}문항 저장
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid gap-0 bg-white lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="border-b border-gray-100 lg:border-b-0 lg:border-r">
+            <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3">
+              <div className="relative min-w-[220px] flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-300" />
+                <Input
+                  value={testSearch}
+                  onChange={(e) => setTestSearch(e.target.value)}
+                  placeholder="단어, 뜻, 유의어 검색"
+                  className="h-8 pl-8 text-xs"
+                />
+              </div>
+              <select
+                value={testPassageFilter}
+                onChange={(e) => setTestPassageFilter(e.target.value)}
+                className="h-8 rounded-md border border-gray-200 bg-white px-2 text-xs text-gray-600"
+              >
+                <option value="all">전체 지문</option>
+                {passageOptions.map((passage) => (
+                  <option key={passage} value={passage}>지문 {passage}</option>
+                ))}
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSelectedWordIds((prev) => {
+                    if (allFilteredSelected) {
+                      const visibleIds = new Set(filteredTestWords.map((word) => word.id))
+                      return prev.filter((id) => !visibleIds.has(id))
+                    }
+                    const next = [...prev]
+                    for (const word of filteredTestWords) {
+                      if (!next.includes(word.id)) next.push(word.id)
+                    }
+                    return next
+                  })
+                }}
+              >
+                {allFilteredSelected ? '보이는 단어 해제' : '보이는 단어 선택'}
+              </Button>
+            </div>
+
+            <div className="max-h-[280px] divide-y divide-gray-100 overflow-y-auto">
+              {filteredTestWords.length === 0 ? (
+                <p className="px-4 py-8 text-center text-xs text-gray-400">조건에 맞는 단어가 없습니다.</p>
+              ) : filteredTestWords.map((word) => (
+                <label key={word.id} className="flex cursor-pointer items-center gap-3 px-4 py-2.5 transition-colors hover:bg-blue-50/50">
+                  <input
+                    type="checkbox"
+                    checked={selectedSet.has(word.id)}
+                    onChange={() => toggleTestWord(word.id)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                  />
+                  <span className="w-9 shrink-0 text-xs font-bold text-gray-300">#{word.number}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-bold text-gray-900">{word.english_word}</span>
+                    <span className="block truncate text-xs text-gray-400">
+                      {[word.passage_label ? `지문 ${word.passage_label}` : null, word.correct_answer].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                  {word.part_of_speech && (
+                    <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500">{word.part_of_speech}</span>
+                  )}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <aside className="bg-gray-50">
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+              <p className="text-xs font-bold text-gray-700">선택된 시험 문항</p>
+              <button type="button" onClick={() => setSelectedWordIds([])} className="text-[11px] font-semibold text-gray-400 hover:text-gray-600">
+                비우기
+              </button>
+            </div>
+            <div className="max-h-[280px] divide-y divide-gray-100 overflow-y-auto">
+              {selectedWords.length === 0 ? (
+                <p className="px-4 py-8 text-center text-xs text-gray-400">선택한 단어가 없습니다.</p>
+              ) : selectedWords.map((word, index) => (
+                <div key={word.id} className="flex items-center gap-2 px-3 py-2">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-bold text-gray-900">{word.english_word}</p>
+                    <p className="truncate text-[11px] text-gray-400">{word.correct_answer}</p>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <button type="button" onClick={() => moveSelectedWord(word.id, -1)} className="rounded px-1 text-xs text-gray-400 hover:bg-white hover:text-gray-700">↑</button>
+                    <button type="button" onClick={() => moveSelectedWord(word.id, 1)} className="rounded px-1 text-xs text-gray-400 hover:bg-white hover:text-gray-700">↓</button>
+                    <button type="button" onClick={() => toggleTestWord(word.id)} className="rounded px-1 text-xs text-rose-400 hover:bg-white hover:text-rose-600">×</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </aside>
         </div>
       </div>
 

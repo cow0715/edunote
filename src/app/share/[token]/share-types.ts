@@ -33,6 +33,7 @@ export type VocabWord = {
 }
 export type VocabAnswer = {
   id: string; week_score_id: string; is_correct: boolean
+  test_number: number | null
   student_answer: string | null
   retake_answer: string | null; retake_is_correct: boolean | null
   vocab_word: VocabWord | null

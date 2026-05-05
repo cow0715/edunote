@@ -3,6 +3,23 @@ import { gradeVocabPhoto } from '@/lib/anthropic'
 
 export const maxDuration = 60
 
+type VocabWordForGrading = {
+  id: string
+  number: number
+  english_word: string
+  correct_answer: string | null
+}
+
+type VocabTestItemForGrading = {
+  test_number: number
+  sort_order: number
+  vocab_word: VocabWordForGrading | VocabWordForGrading[] | null
+}
+
+function one<T>(value: T | T[] | null | undefined): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
@@ -13,14 +30,42 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return err('필수 파라미터 없음')
   }
 
-  // ── 1. 기존 vocab_word에서 correct_answer + id + english_word 미리 조회 ──
+  // ── 1. 활성 시험지가 있으면 시험지 문항 기준, 없으면 기존 vocab_word 기준 ──
+  const { data: activeTest } = await supabase
+    .from('vocab_test')
+    .select('id, item_count')
+    .eq('week_id', weekId)
+    .eq('is_active', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  let testItems: VocabTestItemForGrading[] = []
+  if (activeTest) {
+    const { data } = await supabase
+      .from('vocab_test_item')
+      .select('test_number, sort_order, vocab_word(id, number, english_word, correct_answer)')
+      .eq('vocab_test_id', activeTest.id)
+      .order('sort_order')
+    testItems = (data ?? []) as unknown as VocabTestItemForGrading[]
+  }
+
   const { data: existingVocabWords } = await supabase
     .from('vocab_word')
     .select('id, number, english_word, correct_answer')
     .eq('week_id', weekId)
 
+  const gradingWords: VocabWordForGrading[] = testItems.length > 0
+    ? testItems
+        .map((item) => {
+          const word = one(item.vocab_word)
+          return word ? { ...word, number: item.test_number } : null
+        })
+        .filter((word): word is VocabWordForGrading => word !== null)
+    : (existingVocabWords ?? []) as VocabWordForGrading[]
+
   const correctAnswerMap = new Map<number, string | null>(
-    (existingVocabWords ?? []).map((w) => [w.number, w.correct_answer ?? null])
+    gradingWords.map((w) => [w.number, w.correct_answer ?? null])
   )
 
   // ── 2. AI 채점 (correct_answer를 채점 기준으로 전달) ────────────────────
@@ -44,13 +89,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // 기존 단어가 없으면 OCR 결과로 생성
   let vocabWordMap: Map<number, string>
 
-  if (existingVocabWords && existingVocabWords.length > 0) {
-    vocabWordMap = new Map(existingVocabWords.map((w) => [w.number, w.id]))
+  if (gradingWords.length > 0) {
+    vocabWordMap = new Map(gradingWords.map((w) => [w.number, w.id]))
 
-    // OCR에서 기존에 없는 번호가 나왔을 경우에만 새로 삽입
-    const existingNumbers = new Set(existingVocabWords.map((w) => w.number))
+    // 활성 시험지가 없을 때만 OCR에서 기존에 없는 번호를 새 단어로 보강
+    const existingNumbers = new Set(gradingWords.map((w) => w.number))
     const newWordRows = results.filter((r) => !existingNumbers.has(r.number))
-    if (newWordRows.length > 0) {
+    if (!activeTest && newWordRows.length > 0) {
       const { data: inserted } = await supabase
         .from('vocab_word')
         .insert(newWordRows.map((r) => ({ week_id: weekId, number: r.number, english_word: r.english_word })))
@@ -104,16 +149,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // teacher_locked=true 항목은 AI 결과로 덮어쓰지 않음 (is_correct + student_answer 모두 보존)
   const { data: lockedAnswers } = await supabase
     .from('student_vocab_answer')
-    .select('vocab_word_id, is_correct, student_answer')
+    .select('vocab_word_id, is_correct, student_answer, test_number')
     .eq('week_score_id', score.id)
     .eq('teacher_locked', true)
   const lockedMap = new Map(
-    (lockedAnswers ?? []).map((a) => [a.vocab_word_id, { is_correct: a.is_correct, student_answer: a.student_answer }])
+    (lockedAnswers ?? []).map((a) => [a.vocab_word_id, { is_correct: a.is_correct, student_answer: a.student_answer, test_number: a.test_number as number | null }])
   )
 
   // OCR 번호 이탈 대비: 번호 매칭 실패 시 english_word로 fallback 매칭
   const vocabWordByEnglish = new Map(
-    (existingVocabWords ?? []).map((w) => [w.english_word.toLowerCase(), w.id])
+    gradingWords.map((w) => [w.english_word.toLowerCase(), w.id])
   )
   const answerInserts = results
     .map((r) => {
@@ -131,6 +176,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return {
         week_score_id: score.id,
         vocab_word_id: vocabWordId,
+        test_number: locked ? locked.test_number : r.number,
         student_answer: locked ? locked.student_answer : (r.student_answer || null),
         is_correct: locked ? locked.is_correct : r.is_correct,
       }
@@ -150,7 +196,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   // ── 6. week.vocab_total 자동 업데이트 ────────────────────────────────
   // 기존 단어가 있으면 그 수를 기준으로, 없으면 OCR 결과 수 사용
-  const vocabTotal = (existingVocabWords?.length ?? 0) > 0 ? existingVocabWords!.length : results.length
+  const vocabTotal = gradingWords.length > 0 ? gradingWords.length : results.length
   await supabase.from('week').update({ vocab_total: vocabTotal }).eq('id', weekId)
 
   // ── 7. 사진 Storage 업로드 (채점과 독립적으로 처리) ───────────────────

@@ -24,6 +24,20 @@ type OldWordRow = {
   example_source: string | null
 }
 
+type OldTestRow = {
+  id: string
+  title: string
+  is_active: boolean
+  item_count: number
+}
+
+type OldTestItemRow = {
+  vocab_test_id: string
+  test_number: number
+  sort_order: number
+  vocab_word_id: string
+}
+
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
@@ -34,7 +48,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   const { data, error } = await supabase
     .from('vocab_word')
-    .select('number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, source_row_index, example_sentence, example_translation, example_source')
+    .select('id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, source_row_index, example_sentence, example_translation, example_source')
     .eq('week_id', weekId)
     .order('number')
 
@@ -66,10 +80,34 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const oldRows = (oldWords ?? []) as OldWordRow[]
 
   const oldWordIds = oldRows.map((w) => w.id)
+  const oldWordById = new Map(oldRows.map((w) => [w.id, w]))
+  const { data: oldTests } = await supabase
+    .from('vocab_test')
+    .select('id, title, is_active, item_count')
+    .eq('week_id', weekId)
+  const { data: oldTestItems } = oldWordIds.length > 0
+    ? await supabase
+        .from('vocab_test_item')
+        .select('vocab_test_id, test_number, sort_order, vocab_word_id')
+        .in('vocab_word_id', oldWordIds)
+    : { data: [] }
+  const testItemsToRestore = ((oldTestItems ?? []) as OldTestItemRow[])
+    .map((item) => {
+      const word = oldWordById.get(item.vocab_word_id)
+      if (!word) return null
+      return {
+        vocab_test_id: item.vocab_test_id,
+        test_number: item.test_number,
+        sort_order: item.sort_order,
+        stableKey: `${word.number}::${word.english_word.trim().toLowerCase()}`,
+      }
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null)
 
   // ── 2. 학생 답안 백업 (기존 단어가 있을 때만) ──────────────────────────
   type AnswerBackup = {
     week_score_id: string
+    test_number: number | null
     number: number
     english_word: string
     student_answer: string | null
@@ -83,7 +121,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (oldWordIds.length > 0) {
     const { data: answerRows } = await supabase
       .from('student_vocab_answer')
-      .select('week_score_id, vocab_word_id, student_answer, is_correct, teacher_locked, retake_answer, retake_is_correct')
+      .select('week_score_id, vocab_word_id, test_number, student_answer, is_correct, teacher_locked, retake_answer, retake_is_correct')
       .in('vocab_word_id', oldWordIds)
 
     if (answerRows && answerRows.length > 0) {
@@ -94,6 +132,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           if (!word) return null
           return {
             week_score_id: a.week_score_id,
+            test_number: a.test_number ?? null,
             number: word.number,
             english_word: word.english_word,
             student_answer: a.student_answer,
@@ -152,6 +191,33 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     correct_answer: string | null
     synonyms: string[] | null
   }[]
+  const newWordByStableKey = new Map(newWords.map((w) => [`${w.number}::${w.english_word.trim().toLowerCase()}`, w]))
+
+  // 업로드/수정으로 vocab_word id가 바뀌므로 시험지 문항 FK를 복구하거나 새 원본 업로드 시 초기화
+  if (sourceType) {
+    await supabase.from('vocab_test').delete().eq('week_id', weekId)
+  } else if ((oldTests ?? []).length > 0 && testItemsToRestore.length > 0) {
+    const restoredItems = testItemsToRestore
+      .map((item) => {
+        const newWord = newWordByStableKey.get(item.stableKey)
+        if (!newWord) return null
+        return {
+          vocab_test_id: item.vocab_test_id,
+          vocab_word_id: newWord.id,
+          test_number: item.test_number,
+          sort_order: item.sort_order,
+        }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+    if (restoredItems.length > 0) {
+      await supabase.from('vocab_test_item').insert(restoredItems)
+      const countByTestId = new Map<string, number>()
+      restoredItems.forEach((item) => countByTestId.set(item.vocab_test_id, (countByTestId.get(item.vocab_test_id) ?? 0) + 1))
+      for (const [testId, count] of countByTestId.entries()) {
+        await supabase.from('vocab_test').update({ item_count: count, updated_at: new Date().toISOString() }).eq('id', testId)
+      }
+    }
+  }
 
   // ── 5. 백업된 답안 재채점 후 재삽입 ──────────────────────────────────
   const { data: promptRow } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
@@ -208,6 +274,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           return {
             week_score_id: weekScoreId,
             vocab_word_id: newWord.id,
+            test_number: a.test_number,
             student_answer: a.student_answer,
             is_correct: isCorrect,
             teacher_locked: a.teacher_locked,
@@ -231,7 +298,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   // ── 6. vocab_total 및 원본 메타데이터 업데이트 ───────────────────────
-  const weekUpdate: Record<string, unknown> = { vocab_total: words.length }
+  const activeRestoredTest = ((oldTests ?? []) as OldTestRow[]).find((test) => test.is_active)
+  const restoredActiveCount = activeRestoredTest
+    ? testItemsToRestore.filter((item) => item.vocab_test_id === activeRestoredTest.id && newWordByStableKey.has(item.stableKey)).length
+    : 0
+  const weekUpdate: Record<string, unknown> = { vocab_total: !sourceType && restoredActiveCount > 0 ? restoredActiveCount : words.length }
   if (sourceType) {
     weekUpdate.vocab_source_type = sourceType
     weekUpdate.vocab_source_file_name = sourceFileName ?? null
@@ -241,5 +312,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   await supabase.from('week').update(weekUpdate).eq('id', weekId)
 
-  return ok({ ok: true, saved: words.length, regraded: backup.length > 0 })
+  return ok({ ok: true, saved: words.length, regraded: backup.length > 0, words: newWords })
 }

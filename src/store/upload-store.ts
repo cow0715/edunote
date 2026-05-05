@@ -9,6 +9,7 @@ export type AnswerSheetStatus =
 
 // ── 단어 세팅 상태 ────────────────────────────────────────────────────────────
 export type VocabEntry = {
+  id?: string
   number: number
   passage_label?: string | null
   english_word: string
