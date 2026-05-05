@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, FileSpreadsheet, FileText, Loader2, Printer, RotateCcw, Save, Search, Sparkles, Upload } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, FileSpreadsheet, FileText, Loader2, Printer, RotateCcw, Save, Search, Sparkles, Upload, X } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -50,6 +50,10 @@ function splitList(value: string) {
 
 function normalizeSearch(value: string | null | undefined) {
   return (value ?? '').trim().toLocaleLowerCase('ko-KR')
+}
+
+function formatWordList(value: string[] | null | undefined) {
+  return (value ?? []).filter(Boolean).join(', ')
 }
 
 export function VocabWordSetup({ weekId }: { weekId: string }) {
@@ -366,8 +370,11 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     return [
       word.english_word,
       word.correct_answer,
-      (word.synonyms ?? []).join(', '),
-      (word.antonyms ?? []).join(', '),
+      word.passage_label,
+      word.part_of_speech,
+      word.derivatives,
+      formatWordList(word.synonyms),
+      formatWordList(word.antonyms),
     ].some((value) => normalizeSearch(value).includes(searchQuery))
   })
   const allFilteredSelected = filteredTestWords.length > 0 && filteredTestWords.every((word) => selectedSet.has(word.id))
@@ -430,7 +437,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
           </div>
         </div>
 
-        <div className="grid gap-0 bg-white lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="grid gap-0 bg-white lg:grid-cols-[minmax(0,1fr)_380px]">
           <div className="border-b border-gray-100 lg:border-b-0 lg:border-r">
             <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3">
               <div className="relative min-w-[220px] flex-1">
@@ -438,7 +445,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                 <Input
                   value={testSearch}
                   onChange={(e) => setTestSearch(e.target.value)}
-                  placeholder="단어, 뜻, 유의어 검색"
+                  placeholder="단어, 뜻, 유의어, 반의어, 파생어 검색"
                   className="h-8 pl-8 text-xs"
                 />
               </div>
@@ -455,6 +462,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
               <Button
                 variant="outline"
                 size="sm"
+                className="shrink-0"
                 onClick={() => {
                   setSelectedWordIds((prev) => {
                     if (allFilteredSelected) {
@@ -473,27 +481,51 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
               </Button>
             </div>
 
-            <div className="max-h-[280px] divide-y divide-gray-100 overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/70 px-4 py-2 text-[11px] font-semibold text-gray-500">
+              <span>{filteredTestWords.length}개 표시</span>
+              <span>{selectedWordIds.length}개 선택됨</span>
+            </div>
+
+            <div className="max-h-[520px] divide-y divide-gray-100 overflow-y-auto">
               {filteredTestWords.length === 0 ? (
                 <p className="px-4 py-8 text-center text-xs text-gray-400">조건에 맞는 단어가 없습니다.</p>
               ) : filteredTestWords.map((word) => (
-                <label key={word.id} className="flex cursor-pointer items-center gap-3 px-4 py-2.5 transition-colors hover:bg-blue-50/50">
+                <label key={word.id} className="flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors hover:bg-blue-50/50">
                   <input
                     type="checkbox"
                     checked={selectedSet.has(word.id)}
                     onChange={() => toggleTestWord(word.id)}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                    className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600"
                   />
-                  <span className="w-9 shrink-0 text-xs font-bold text-gray-300">#{word.number}</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-bold text-gray-900">{word.english_word}</span>
-                    <span className="block truncate text-xs text-gray-400">
-                      {[word.passage_label ? `지문 ${word.passage_label}` : null, word.correct_answer].filter(Boolean).join(' · ')}
-                    </span>
+                  <span className="flex h-7 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-500">
+                    {word.number}
                   </span>
-                  {word.part_of_speech && (
-                    <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500">{word.part_of_speech}</span>
-                  )}
+                  <span className="min-w-0 flex-1 space-y-1.5">
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      {word.passage_label && (
+                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-600">지문 {word.passage_label}</span>
+                      )}
+                      {word.part_of_speech && (
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">{word.part_of_speech}</span>
+                      )}
+                      {selectedSet.has(word.id) && (
+                        <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                          {selectedWordIds.indexOf(word.id) + 1}번
+                        </span>
+                      )}
+                    </span>
+                    <span className="block text-sm font-bold text-gray-950">{word.english_word}</span>
+                    <span className="block text-xs leading-5 text-gray-600">
+                      <b className="font-semibold text-gray-900">뜻</b> {word.correct_answer || '-'}
+                    </span>
+                    {(formatWordList(word.synonyms) || formatWordList(word.antonyms) || word.derivatives) && (
+                      <span className="grid gap-1 text-[11px] leading-4 text-gray-500 sm:grid-cols-3">
+                        <span className="min-w-0"><b className="font-semibold text-gray-700">유의어</b> <span className="break-words">{formatWordList(word.synonyms) || '-'}</span></span>
+                        <span className="min-w-0"><b className="font-semibold text-gray-700">반의어</b> <span className="break-words">{formatWordList(word.antonyms) || '-'}</span></span>
+                        <span className="min-w-0"><b className="font-semibold text-gray-700">파생/주의</b> <span className="break-words">{word.derivatives || '-'}</span></span>
+                      </span>
+                    )}
+                  </span>
                 </label>
               ))}
             </div>
@@ -506,22 +538,31 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                 비우기
               </button>
             </div>
-            <div className="max-h-[280px] divide-y divide-gray-100 overflow-y-auto">
+            <div className="max-h-[520px] divide-y divide-gray-100 overflow-y-auto">
               {selectedWords.length === 0 ? (
                 <p className="px-4 py-8 text-center text-xs text-gray-400">선택한 단어가 없습니다.</p>
               ) : selectedWords.map((word, index) => (
-                <div key={word.id} className="flex items-center gap-2 px-3 py-2">
+                <div key={word.id} className="flex items-start gap-2 px-3 py-2.5">
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
                     {index + 1}
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-bold text-gray-900">{word.english_word}</p>
-                    <p className="truncate text-[11px] text-gray-400">{word.correct_answer}</p>
+                    <p className="truncate text-[11px] text-gray-500">{word.correct_answer}</p>
+                    <p className="truncate text-[10px] text-gray-400">
+                      {[word.passage_label ? `지문 ${word.passage_label}` : null, word.part_of_speech, formatWordList(word.synonyms)].filter(Boolean).join(' · ')}
+                    </p>
                   </div>
                   <div className="flex shrink-0 gap-1">
-                    <button type="button" onClick={() => moveSelectedWord(word.id, -1)} className="rounded px-1 text-xs text-gray-400 hover:bg-white hover:text-gray-700">↑</button>
-                    <button type="button" onClick={() => moveSelectedWord(word.id, 1)} className="rounded px-1 text-xs text-gray-400 hover:bg-white hover:text-gray-700">↓</button>
-                    <button type="button" onClick={() => toggleTestWord(word.id)} className="rounded px-1 text-xs text-rose-400 hover:bg-white hover:text-rose-600">×</button>
+                    <button type="button" aria-label="위로 이동" onClick={() => moveSelectedWord(word.id, -1)} className="rounded p-1 text-gray-400 hover:bg-white hover:text-gray-700">
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button type="button" aria-label="아래로 이동" onClick={() => moveSelectedWord(word.id, 1)} className="rounded p-1 text-gray-400 hover:bg-white hover:text-gray-700">
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </button>
+                    <button type="button" aria-label="선택 해제" onClick={() => toggleTestWord(word.id)} className="rounded p-1 text-rose-400 hover:bg-white hover:text-rose-600">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -531,73 +572,93 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       </div>
 
       <div className="overflow-hidden rounded-lg border border-gray-200">
-        <div className="overflow-x-auto">
-          <div className="min-w-[1120px]">
-            <div className="grid grid-cols-[4rem_5rem_minmax(11rem,1fr)_5rem_minmax(12rem,1fr)_minmax(12rem,1fr)_minmax(10rem,1fr)_minmax(13rem,1.2fr)] gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-              <span>#</span>
-              <span>지문</span>
-              <span>본문 단어</span>
-              <span>품사</span>
-              <span>본문 의미</span>
-              <span>문맥 동의어</span>
-              <span>반의어</span>
-              <span>파생어 / 변형 주의</span>
+        <div className="hidden grid-cols-[3.5rem_4.25rem_1.3fr_4.25rem_1.4fr_1.4fr_1.2fr_1.5fr] gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 xl:grid">
+          <span>#</span>
+          <span>지문</span>
+          <span>본문 단어</span>
+          <span>품사</span>
+          <span>본문 의미</span>
+          <span>문맥 동의어</span>
+          <span>반의어</span>
+          <span>파생어 / 변형 주의</span>
+        </div>
+        <div className="max-h-[52vh] divide-y divide-gray-100 overflow-y-auto overflow-x-hidden">
+          {editWords.map((word, index) => (
+            <div key={`${word.number}-${index}`} className="grid grid-cols-2 items-end gap-2 px-3 py-3 md:grid-cols-6 xl:grid-cols-[3.5rem_4.25rem_1.3fr_4.25rem_1.4fr_1.4fr_1.2fr_1.5fr] xl:py-2">
+              <label className="min-w-0">
+                <span className="mb-1 block text-[10px] font-semibold text-gray-400 xl:hidden">번호</span>
+                <Input
+                  value={word.number}
+                  type="number"
+                  min={1}
+                  className="h-8 w-full min-w-0 px-2 text-xs"
+                  onChange={(e) => updateWord(index, 'number', e.target.value)}
+                />
+              </label>
+              <label className="min-w-0">
+                <span className="mb-1 block text-[10px] font-semibold text-gray-400 xl:hidden">지문</span>
+                <Input
+                  value={word.passage_label ?? ''}
+                  placeholder="20"
+                  className="h-8 w-full min-w-0 px-2 text-xs"
+                  onChange={(e) => updateWord(index, 'passage_label', e.target.value)}
+                />
+              </label>
+              <label className="col-span-2 min-w-0 md:col-span-2 xl:col-span-1">
+                <span className="mb-1 block text-[10px] font-semibold text-gray-400 xl:hidden">본문 단어</span>
+                <Input
+                  value={word.english_word}
+                  className="h-8 w-full min-w-0 px-2 text-xs font-medium"
+                  onChange={(e) => updateWord(index, 'english_word', e.target.value)}
+                />
+              </label>
+              <label className="min-w-0">
+                <span className="mb-1 block text-[10px] font-semibold text-gray-400 xl:hidden">품사</span>
+                <Input
+                  value={word.part_of_speech ?? ''}
+                  placeholder="v."
+                  className="h-8 w-full min-w-0 px-2 text-xs"
+                  onChange={(e) => updateWord(index, 'part_of_speech', e.target.value)}
+                />
+              </label>
+              <label className="col-span-2 min-w-0 md:col-span-3 xl:col-span-1">
+                <span className="mb-1 block text-[10px] font-semibold text-gray-400 xl:hidden">본문 의미</span>
+                <Input
+                  value={word.correct_answer ?? ''}
+                  placeholder="뜻 입력"
+                  className="h-8 w-full min-w-0 px-2 text-xs"
+                  onChange={(e) => updateWord(index, 'correct_answer', e.target.value)}
+                />
+              </label>
+              <label className="col-span-2 min-w-0 md:col-span-3 xl:col-span-1">
+                <span className="mb-1 block text-[10px] font-semibold text-gray-400 xl:hidden">문맥 동의어</span>
+                <Input
+                  value={(word.synonyms ?? []).join(', ')}
+                  placeholder="쉼표로 구분"
+                  className="h-8 w-full min-w-0 px-2 text-xs"
+                  onChange={(e) => updateWord(index, 'synonyms', e.target.value)}
+                />
+              </label>
+              <label className="col-span-2 min-w-0 md:col-span-3 xl:col-span-1">
+                <span className="mb-1 block text-[10px] font-semibold text-gray-400 xl:hidden">반의어</span>
+                <Input
+                  value={(word.antonyms ?? []).join(', ')}
+                  placeholder="쉼표로 구분"
+                  className="h-8 w-full min-w-0 px-2 text-xs"
+                  onChange={(e) => updateWord(index, 'antonyms', e.target.value)}
+                />
+              </label>
+              <label className="col-span-2 min-w-0 md:col-span-3 xl:col-span-1">
+                <span className="mb-1 block text-[10px] font-semibold text-gray-400 xl:hidden">파생어 / 변형 주의</span>
+                <Input
+                  value={word.derivatives ?? ''}
+                  placeholder="파생어 / 변형"
+                  className="h-8 w-full min-w-0 px-2 text-xs"
+                  onChange={(e) => updateWord(index, 'derivatives', e.target.value)}
+                />
+              </label>
             </div>
-            <div className="max-h-[52vh] divide-y divide-gray-100 overflow-y-auto">
-              {editWords.map((word, index) => (
-                <div key={`${word.number}-${index}`} className="grid grid-cols-[4rem_5rem_minmax(11rem,1fr)_5rem_minmax(12rem,1fr)_minmax(12rem,1fr)_minmax(10rem,1fr)_minmax(13rem,1.2fr)] items-center gap-2 px-3 py-2">
-                  <Input
-                    value={word.number}
-                    type="number"
-                    min={1}
-                    className="h-8 px-2 text-xs"
-                    onChange={(e) => updateWord(index, 'number', e.target.value)}
-                  />
-                  <Input
-                    value={word.passage_label ?? ''}
-                    placeholder="20"
-                    className="h-8 px-2 text-xs"
-                    onChange={(e) => updateWord(index, 'passage_label', e.target.value)}
-                  />
-                  <Input
-                    value={word.english_word}
-                    className="h-8 px-2 text-xs font-medium"
-                    onChange={(e) => updateWord(index, 'english_word', e.target.value)}
-                  />
-                  <Input
-                    value={word.part_of_speech ?? ''}
-                    placeholder="v."
-                    className="h-8 px-2 text-xs"
-                    onChange={(e) => updateWord(index, 'part_of_speech', e.target.value)}
-                  />
-                  <Input
-                    value={word.correct_answer ?? ''}
-                    placeholder="뜻 입력"
-                    className="h-8 px-2 text-xs"
-                    onChange={(e) => updateWord(index, 'correct_answer', e.target.value)}
-                  />
-                  <Input
-                    value={(word.synonyms ?? []).join(', ')}
-                    placeholder="쉼표로 구분"
-                    className="h-8 px-2 text-xs"
-                    onChange={(e) => updateWord(index, 'synonyms', e.target.value)}
-                  />
-                  <Input
-                    value={(word.antonyms ?? []).join(', ')}
-                    placeholder="쉼표로 구분"
-                    className="h-8 px-2 text-xs"
-                    onChange={(e) => updateWord(index, 'antonyms', e.target.value)}
-                  />
-                  <Input
-                    value={word.derivatives ?? ''}
-                    placeholder="파생어 / 변형"
-                    className="h-8 px-2 text-xs"
-                    onChange={(e) => updateWord(index, 'derivatives', e.target.value)}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
+          ))}
         </div>
       </div>
 
