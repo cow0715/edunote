@@ -1,4 +1,5 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
+import { createServiceClient } from '@/lib/supabase/server'
 
 type VocabTestRow = {
   id: string
@@ -38,7 +39,7 @@ async function requireOwner(weekId: string) {
   const teacherId = await getTeacherId(supabase, user.id)
   if (!teacherId) return { error: err('강사 정보 없음', 404) }
   if (!await assertWeekOwner(supabase, weekId, teacherId)) return { error: err('접근 권한 없음', 403) }
-  return { supabase }
+  return { supabase: createServiceClient() }
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {

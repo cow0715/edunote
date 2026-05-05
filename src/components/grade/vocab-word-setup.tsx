@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, FileSpreadsheet, FileText, Loader2, Printer, RotateCcw, Save, Search, Sparkles, Upload, X } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Dice5, FileSpreadsheet, FileText, Loader2, Printer, RotateCcw, Save, Search, Sparkles, Upload, X } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -68,6 +68,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const [selectedWordIds, setSelectedWordIds] = useState<string[]>([])
   const [testSearch, setTestSearch] = useState('')
   const [testPassageFilter, setTestPassageFilter] = useState('all')
+  const [randomPickCount, setRandomPickCount] = useState(50)
   const [testSaving, setTestSaving] = useState(false)
   const [promptText, setPromptText] = useState(VOCAB_GRADING_RULES)
   const [promptOpen, setPromptOpen] = useState(false)
@@ -267,6 +268,21 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     })
   }
 
+  function selectRandomTestWords() {
+    if (filteredTestWords.length === 0) {
+      toast.error('랜덤으로 선택할 단어가 없습니다')
+      return
+    }
+    const count = Math.max(1, Math.min(randomPickCount, filteredTestWords.length))
+    const pool = [...filteredTestWords]
+    for (let i = pool.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[pool[i], pool[j]] = [pool[j], pool[i]]
+    }
+    setSelectedWordIds(pool.slice(0, count).map((word) => word.id))
+    toast.success(`${count}개 단어를 랜덤 선택했습니다`)
+  }
+
   function updateWord(index: number, field: keyof VocabEntry, value: string) {
     setEditWords((prev) => prev.map((word, i) => {
       if (i !== index) return word
@@ -459,6 +475,30 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                   <option key={passage} value={passage}>지문 {passage}</option>
                 ))}
               </select>
+              <div className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-gray-200 bg-white px-2">
+                <Input
+                  type="number"
+                  min={1}
+                  max={Math.max(1, filteredTestWords.length)}
+                  value={randomPickCount}
+                  onChange={(e) => {
+                    const parsed = Number(e.target.value)
+                    setRandomPickCount(Number.isFinite(parsed) ? parsed : 1)
+                  }}
+                  className="h-6 w-12 border-0 px-0 text-center text-xs shadow-none focus-visible:ring-0"
+                />
+                <span className="text-[11px] text-gray-400">개</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-1.5 text-xs"
+                  onClick={selectRandomTestWords}
+                >
+                  <Dice5 className="mr-1 h-3.5 w-3.5" />
+                  랜덤
+                </Button>
+              </div>
               <Button
                 variant="outline"
                 size="sm"
