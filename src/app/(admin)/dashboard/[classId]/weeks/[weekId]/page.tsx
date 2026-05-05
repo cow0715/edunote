@@ -22,7 +22,6 @@ import { useClassStudents } from '@/hooks/use-students'
 import { ClassStudent } from '@/lib/types'
 import { buildWeekDisplayMap } from '@/lib/class-periods'
 import { generateSessionDates } from '@/lib/schedule'
-import { cn } from '@/lib/utils'
 
 interface WeekFormValues {
   start_date: string
@@ -57,7 +56,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
   async function onSubmit(values: WeekFormValues) {
     await updateWeek.mutateAsync({
       start_date: values.start_date,
-      vocab_total: Number(values.vocab_total),
+      vocab_total: week?.vocab_total ?? 0,
       reading_total: week?.reading_total ?? 0,
       homework_total: Number(values.homework_total),
     })
@@ -67,7 +66,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
   async function onSubmitWithoutClose(values: WeekFormValues) {
     await updateWeek.mutateAsync({
       start_date: values.start_date,
-      vocab_total: Number(values.vocab_total),
+      vocab_total: week?.vocab_total ?? 0,
       reading_total: week?.reading_total ?? 0,
       homework_total: Number(values.homework_total),
     })
@@ -84,6 +83,15 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
   if (!week) return <p className="text-sm text-gray-500">주차 정보를 찾을 수 없습니다</p>
 
   const weekDisplay = buildWeekDisplayMap([week], periods).get(week.id)?.displayLabel ?? `${week.week_number}주차`
+  const scheduledDates = cls && (cls.schedule_days?.length ?? 0) > 0
+    ? (() => {
+        const base = generateSessionDates(cls.start_date, cls.end_date, cls.schedule_days)
+        if (week.start_date && !base.includes(week.start_date)) {
+          return [...base, week.start_date].sort()
+        }
+        return base
+      })()
+    : undefined
 
   return (
     <div>
@@ -151,10 +159,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
       {/* 설정 모달 */}
       <Dialog open={settingsOpen} onOpenChange={(v) => { setSettingsOpen(v); if (!v) setActiveTab('basic') }}>
         <DialogContent
-          className={cn(
-            'max-h-[90vh] max-w-[95vw] overflow-y-auto',
-            activeTab === 'question-types' ? 'sm:max-w-[98vw] xl:max-w-7xl' : 'sm:max-w-4xl',
-          )}
+          className="max-h-[90vh] max-w-[95vw] overflow-y-auto sm:max-w-[98vw] xl:max-w-7xl"
         >
           <DialogHeader>
             <DialogTitle>{weekDisplay} 설정</DialogTitle>
@@ -166,7 +171,6 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
               <TabsTrigger value="answer-sheet" className="flex-1">해설지</TabsTrigger>
               <TabsTrigger value="vocab-words" className="flex-1">단어 세팅</TabsTrigger>
               <TabsTrigger value="question-types" className="flex-1">문항/정답 편집</TabsTrigger>
-              <TabsTrigger value="attendance" className="flex-1">출결</TabsTrigger>
             </TabsList>
 
             <TabsContent value="basic" forceMount className="data-[state=inactive]:hidden space-y-4 pt-4">
@@ -177,16 +181,12 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="vocab_total">단어시험 총 개수</Label>
+                    <Label>단어시험 총 개수</Label>
                     <div className="flex items-center gap-2">
-                      <Input
-                        id="vocab_total"
-                        type="number"
-                        min={0}
-                        className="w-24"
-                        {...register('vocab_total', { valueAsNumber: true })}
-                      />
-                      <span className="text-sm text-gray-400">개</span>
+                      <div className="flex h-9 w-24 items-center justify-center rounded-md border bg-gray-50 text-sm text-gray-500">
+                        {week.vocab_total}
+                      </div>
+                      <span className="text-sm text-gray-400">개 (단어 세팅 기준)</span>
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -218,6 +218,19 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
                   </Button>
                 </div>
               </form>
+
+              <div className="border-t border-gray-100 pt-4">
+                <div className="mb-3">
+                  <h3 className="text-sm font-bold text-gray-900">출결</h3>
+                  <p className="mt-0.5 text-xs text-gray-400">수업일 기준 출석/지각/결석을 함께 관리합니다.</p>
+                </div>
+                <AttendanceManager
+                  classId={classId}
+                  classStudents={classStudents as ClassStudent[]}
+                  defaultDate={week.start_date ?? undefined}
+                  scheduledDates={scheduledDates}
+                />
+              </div>
             </TabsContent>
 
             <TabsContent value="answer-sheet" forceMount className="data-[state=inactive]:hidden pt-4 space-y-0">
@@ -245,22 +258,6 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
               <QuestionTypeEditor weekId={weekId} />
             </TabsContent>
 
-            <TabsContent value="attendance" forceMount className="data-[state=inactive]:hidden pt-4">
-              <AttendanceManager
-                classId={classId}
-                classStudents={classStudents as ClassStudent[]}
-                defaultDate={week.start_date ?? undefined}
-                scheduledDates={cls && (cls.schedule_days?.length ?? 0) > 0
-                  ? (() => {
-                      const base = generateSessionDates(cls.start_date, cls.end_date, cls.schedule_days)
-                      if (week.start_date && !base.includes(week.start_date)) {
-                        return [...base, week.start_date].sort()
-                      }
-                      return base
-                    })()
-                  : undefined}
-              />
-            </TabsContent>
           </Tabs>
         </DialogContent>
       </Dialog>
