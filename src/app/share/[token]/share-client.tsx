@@ -1529,7 +1529,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                                   </span>
                                                 )}
                                               </div>
-                                              <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">#{vw.number}</span>
+                                              <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">#{va.test_number ?? vw.number}</span>
                                             </div>
                                             {vw.correct_answer && (
                                               <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
