@@ -7,7 +7,6 @@ import { Textarea } from '@/components/ui/textarea'
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
-import { useSaveMessageLog } from '@/hooks/use-message-logs'
 import { usePrompt, useSavePrompt } from '@/hooks/use-prompts'
 import { SMS_RULES } from '@/lib/prompts'
 
@@ -65,7 +64,6 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   const [scheduleTime, setScheduleTime] = useState(() => getNearestSchedule().time)
   const [promptText, setPromptText] = useState(SMS_RULES)
   const [promptOpen, setPromptOpen] = useState(false)
-  const saveMessageLog = useSaveMessageLog()
   const { data: savedPrompt } = usePrompt(PROMPT_KEY)
   const savePrompt = useSavePrompt(PROMPT_KEY)
 
@@ -249,7 +247,6 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
 
       if (allSuccess) {
         setSendStatus((prev) => ({ ...prev, [m.student_id]: 'success' }))
-        await saveMessageLog.mutateAsync({ student_id: m.student_id, week_id: weekId, message: m.message })
       } else {
         const failedResults = results.filter((r: { success: boolean; error?: string }) => !r.success)
         const errorMsg = failedResults[0]?.error ?? '발송 실패'
