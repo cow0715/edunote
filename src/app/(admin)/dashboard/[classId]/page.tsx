@@ -728,11 +728,11 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={downloadClassVocabCsv}>
             <Download className="h-4 w-4" />
-            단어장 CSV
+            {currentPeriod ? '현재 기간 단어 CSV' : '전체 단어 CSV'}
           </Button>
           <Button variant="outline" size="sm" onClick={printClassVocab}>
             <Printer className="h-4 w-4" />
-            단어장 인쇄
+            {currentPeriod ? '현재 기간 단어 인쇄' : '전체 단어 인쇄'}
           </Button>
         </div>
       </div>
