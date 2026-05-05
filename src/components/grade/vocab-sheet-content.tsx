@@ -8,7 +8,7 @@ import { GradeRow } from '@/hooks/use-grade'
 import { cn } from '@/lib/utils'
 import { VocabPhotoButton } from './vocab-photo-button'
 
-export type VocabAnswerRow = { id: string; number: number; english_word: string; student_answer: string | null; is_correct: boolean; teacher_locked: boolean }
+export type VocabAnswerRow = { id: string; number: number; source_number?: number; english_word: string; student_answer: string | null; is_correct: boolean; teacher_locked: boolean }
 
 export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, vocabPhotoPath, updateRow }: {
   row: GradeRow

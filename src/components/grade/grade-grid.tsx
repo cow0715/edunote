@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -51,6 +51,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     }
     type SavedVocabAnswer = {
       vocab_word_id: string
+      test_number: number | null
       student_answer: string | null
       is_correct: boolean
       vocab_word: { number: number; english_word: string } | null
@@ -75,6 +76,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       ((data.attendance ?? []) as { student_id: string; status: string }[]).map((a) => [a.student_id, a.status])
     )
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRows((prev) => {
       const prevMap = new Map(prev.map((r) => [r.student_id, r]))
       return (classStudents ?? []).map((cs: { student_id: string; student: { name: string } }) => {
@@ -129,6 +131,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       const answers: VocabAnswerRow[] = (
         (score.student_vocab_answer ?? []) as {
           id: string
+          test_number: number | null
           student_answer: string | null
           is_correct: boolean
           teacher_locked: boolean
@@ -138,7 +141,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
         .filter((a) => a.vocab_word)
         .map((a) => ({
           id: a.id,
-          number: a.vocab_word!.number,
+          number: a.test_number ?? a.vocab_word!.number,
+          source_number: a.vocab_word!.number,
           english_word: a.vocab_word!.english_word,
           student_answer: a.student_answer,
           is_correct: a.is_correct,
@@ -148,7 +152,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       m.set(score.student_id, answers)
     }
     return m
-  }, [data?.weekScores])
+  }, [data])
 
   const weekScoreIdMap = useMemo(() => {
     const m = new Map<string, string>()
@@ -214,7 +218,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [sheetView, sheetRow, rows.length])
+  }, [saveDraft, sheetView, sheetRow, rows.length])
 
   if (isLoading) return <div className="h-40 animate-pulse rounded-lg bg-gray-100" />
 
