@@ -49,12 +49,30 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     csQuery = csQuery.is('left_at', null)
   }
 
-  const [{ data: classStudents }, { data: weekScores }, { data: questions }, { data: vocabWords }] = await Promise.all([
+  const [{ data: classStudents }, { data: weekScores }, { data: questions }, { data: vocabWords }, { data: activeVocabTest }] = await Promise.all([
     csQuery,
     supabase.from('week_score').select('*, student_answer(*), student_vocab_answer(*, vocab_word(*))').eq('week_id', weekId),
     supabase.from('exam_question').select('*, exam_question_tag(concept_tag(*, concept_category(*)))').eq('week_id', weekId).eq('exam_type', 'reading').order('question_number').order('sub_label', { nullsFirst: true }),
     supabase.from('vocab_word').select('id, number, english_word').eq('week_id', weekId).order('number'),
+    supabase.from('vocab_test').select('id').eq('week_id', weekId).eq('is_active', true).order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ])
+
+  let vocabTestNumberByWordId = new Map<string, number>()
+  if (activeVocabTest?.id) {
+    const { data: testItems } = await supabase
+      .from('vocab_test_item')
+      .select('vocab_word_id, test_number')
+      .eq('vocab_test_id', activeVocabTest.id)
+    vocabTestNumberByWordId = new Map((testItems ?? []).map((item) => [item.vocab_word_id, item.test_number]))
+  }
+
+  const displayWeekScores = (weekScores ?? []).map((score) => ({
+    ...score,
+    student_vocab_answer: (score.student_vocab_answer ?? []).map((answer: { vocab_word_id: string; test_number: number | null }) => ({
+      ...answer,
+      test_number: answer.test_number ?? vocabTestNumberByWordId.get(answer.vocab_word_id) ?? null,
+    })),
+  }))
 
   let attendance: { student_id: string; status: string }[] = []
   if (week.start_date) {
@@ -72,7 +90,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     )
   )
 
-  return ok({ classStudents: sortedClassStudents, weekScores, questions, attendance, vocabWords })
+  return ok({ classStudents: sortedClassStudents, weekScores: displayWeekScores, questions, attendance, vocabWords })
 }
 
 // 일괄 저장 + 서술형 AI 배치 채점
