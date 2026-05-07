@@ -16,6 +16,8 @@ type VocabTestItemRow = {
   vocab_word_id: string
   test_number: number
   sort_order: number
+  prompt_source: string | null
+  prompt_text: string | null
   vocab_word: {
     id: string
     number: number
@@ -27,6 +29,20 @@ type VocabTestItemRow = {
     antonyms: string[] | null
     derivatives: string | null
   } | { id: string; number: number; passage_label: string | null; english_word: string; part_of_speech: string | null; correct_answer: string | null; synonyms: string[] | null; antonyms: string[] | null; derivatives: string | null }[] | null
+}
+
+type ActiveTestItemRow = {
+  vocab_test_id: string
+  vocab_word_id: string
+  sort_order: number
+  prompt_source: string | null
+  prompt_text: string | null
+}
+
+type RequestedTestItem = {
+  wordId: string
+  promptSource?: string
+  promptText?: string
 }
 
 function one<T>(value: T | T[] | null | undefined): T | null {
@@ -65,7 +81,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { data: items, error: itemError } = testIds.length > 0
     ? await supabase
         .from('vocab_test_item')
-        .select('id, vocab_test_id, vocab_word_id, test_number, sort_order, vocab_word(id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives)')
+        .select('id, vocab_test_id, vocab_word_id, test_number, sort_order, prompt_source, prompt_text, vocab_word(id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives)')
         .in('vocab_test_id', testIds)
         .order('sort_order')
     : { data: [], error: null }
@@ -96,8 +112,26 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const body = await request.json().catch(() => ({})) as {
     title?: string
     wordIds?: string[]
+    items?: RequestedTestItem[]
   }
-  const wordIds = [...new Set((body.wordIds ?? []).filter(Boolean))]
+  const requestedItems = (body.items?.length ? body.items.map((item) => item.wordId) : body.wordIds ?? [])
+    .filter(Boolean)
+    .map((wordId, index) => {
+      const item = body.items?.find((candidate) => candidate.wordId === wordId)
+      return {
+        wordId,
+        promptSource: item?.promptSource === 'synonym' || item?.promptSource === 'derivative' ? item.promptSource : 'word',
+        promptText: item?.promptText?.trim() || '',
+        index,
+      }
+    })
+  const seen = new Set<string>()
+  const uniqueRequestedItems = requestedItems.filter((item) => {
+    if (seen.has(item.wordId)) return false
+    seen.add(item.wordId)
+    return true
+  })
+  const wordIds = uniqueRequestedItems.map((item) => item.wordId)
   if (wordIds.length === 0) return err('시험 단어를 선택해주세요')
 
   const { data: words, error: wordError } = await supabase
@@ -110,8 +144,36 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const allowedIds = new Set((words ?? []).map((word) => word.id))
   const validWordIds = wordIds.filter((id) => allowedIds.has(id))
   if (validWordIds.length === 0) return err('선택한 단어를 찾을 수 없습니다', 422)
+  const validItems = uniqueRequestedItems.filter((item) => allowedIds.has(item.wordId))
 
-  await supabase.from('vocab_test').update({ is_active: false }).eq('week_id', weekId)
+  const { data: previousActiveTests } = await supabase
+    .from('vocab_test')
+    .select('id')
+    .eq('week_id', weekId)
+    .eq('is_active', true)
+    .order('created_at', { ascending: false })
+
+  const previousActiveIds = (previousActiveTests ?? []).map((test) => test.id)
+  const { data: previousItems } = previousActiveIds.length > 0
+    ? await supabase
+        .from('vocab_test_item')
+        .select('vocab_test_id, vocab_word_id, sort_order, prompt_source, prompt_text')
+        .in('vocab_test_id', previousActiveIds)
+    : { data: [] }
+
+  const previousActiveItemIds = ((previousItems ?? []) as ActiveTestItemRow[])
+    .filter((item) => item.vocab_test_id === previousActiveIds[0])
+    .sort((a, b) => a.sort_order - b.sort_order)
+  const sameSelection = previousActiveItemIds.length === validItems.length &&
+    previousActiveItemIds.every((item, index) => {
+      const next = validItems[index]
+      return item.vocab_word_id === next.wordId &&
+        (item.prompt_source ?? 'word') === next.promptSource &&
+        (item.prompt_text ?? '') === next.promptText
+    })
+
+  const { error: deactivateError } = await supabase.from('vocab_test').update({ is_active: false }).eq('week_id', weekId)
+  if (deactivateError) return err(deactivateError.message, 500)
 
   const { data: test, error: testError } = await supabase
     .from('vocab_test')
@@ -124,20 +186,45 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .select('id, week_id, title, is_active, item_count, created_at')
     .single()
 
-  if (testError || !test) return err(testError?.message ?? '시험지 생성 실패', 500)
+  if (testError || !test) {
+    if (previousActiveIds.length > 0) {
+      await supabase.from('vocab_test').update({ is_active: true }).in('id', previousActiveIds)
+    }
+    return err(testError?.message ?? '시험지 생성 실패', 500)
+  }
 
   const { error: itemError } = await supabase
     .from('vocab_test_item')
-    .insert(validWordIds.map((vocabWordId, index) => ({
+    .insert(validItems.map((item, index) => ({
       vocab_test_id: test.id,
-      vocab_word_id: vocabWordId,
+      vocab_word_id: item.wordId,
       test_number: index + 1,
       sort_order: index + 1,
+      prompt_source: item.promptSource,
+      prompt_text: item.promptText || null,
     })))
 
   if (itemError) {
     await supabase.from('vocab_test').delete().eq('id', test.id)
+    if (previousActiveIds.length > 0) {
+      await supabase.from('vocab_test').update({ is_active: true }).in('id', previousActiveIds)
+    }
     return err(itemError.message, 500)
+  }
+
+  if (!sameSelection) {
+    const { data: scores } = await supabase
+      .from('week_score')
+      .select('id')
+      .eq('week_id', weekId)
+    const scoreIds = (scores ?? []).map((score) => score.id)
+    if (scoreIds.length > 0) {
+      await supabase.from('student_vocab_answer').delete().in('week_score_id', scoreIds)
+      await supabase
+        .from('week_score')
+        .update({ vocab_correct: null, vocab_retake_correct: null, vocab_photo_path: null })
+        .in('id', scoreIds)
+    }
   }
 
   await supabase.from('week').update({ vocab_total: validWordIds.length }).eq('id', weekId)

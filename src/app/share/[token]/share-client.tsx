@@ -1509,7 +1509,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                   <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
                                     {answers
                                       .slice()
-                                      .sort((a, b) => (a.vocab_word?.number ?? 0) - (b.vocab_word?.number ?? 0))
+                                      .sort((a, b) => (a.test_number ?? a.vocab_word?.number ?? 0) - (b.test_number ?? b.vocab_word?.number ?? 0))
                                       .map((va) => {
                                         const vw = va.vocab_word
                                         if (!vw) return null
@@ -1517,7 +1517,12 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                           <div key={va.id} className={`px-5 py-3 ${va.retake_is_correct === true ? 'opacity-60' : ''}`}>
                                             <div className="flex items-center justify-between gap-2">
                                               <div className="flex items-center gap-2 flex-wrap min-w-0">
-                                                <span className="text-sm font-bold text-gray-900 dark:text-white">{vw.english_word}</span>
+                                                <span className="text-sm font-bold text-gray-900 dark:text-white">{va.test_word ?? vw.english_word}</span>
+                                                {va.test_word && va.test_word !== vw.english_word && (
+                                                  <span className="shrink-0 text-[10px] font-medium text-gray-400 dark:text-gray-500">
+                                                    원본 {vw.english_word}
+                                                  </span>
+                                                )}
                                                 {va.retake_is_correct === true && (
                                                   <span className="shrink-0 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded-full">
                                                     재시험 ✓

@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 type VocabTestItem = {
   id: string
   test_number: number
+  prompt_text: string | null
+  prompt_source: string | null
   vocab_word: {
     english_word: string
   } | null
@@ -93,7 +95,7 @@ export default function VocabTestPrintPage({
                 {[left, right].map((column, columnIndex) => (
                   <div key={columnIndex} className="space-y-0">
                     {column.map((item) => {
-                      const word = item.vocab_word?.english_word ?? ''
+                      const word = item.prompt_text || item.vocab_word?.english_word || ''
                       return (
                         <div key={item.id} className="grid h-[27px] grid-cols-[31px_minmax(0,1fr)_124px] items-end gap-2">
                           <span className="pb-0.5 text-right text-[11px] font-bold text-gray-900">{item.test_number}.</span>

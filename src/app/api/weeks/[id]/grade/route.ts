@@ -57,21 +57,26 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     supabase.from('vocab_test').select('id').eq('week_id', weekId).eq('is_active', true).order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ])
 
-  let vocabTestNumberByWordId = new Map<string, number>()
+  let vocabTestItemByWordId = new Map<string, { test_number: number; prompt_text: string | null; prompt_source: string | null }>()
   if (activeVocabTest?.id) {
     const { data: testItems } = await supabase
       .from('vocab_test_item')
-      .select('vocab_word_id, test_number')
+      .select('vocab_word_id, test_number, prompt_text, prompt_source')
       .eq('vocab_test_id', activeVocabTest.id)
-    vocabTestNumberByWordId = new Map((testItems ?? []).map((item) => [item.vocab_word_id, item.test_number]))
+    vocabTestItemByWordId = new Map((testItems ?? []).map((item) => [item.vocab_word_id, item]))
   }
 
   const displayWeekScores = (weekScores ?? []).map((score) => ({
     ...score,
-    student_vocab_answer: (score.student_vocab_answer ?? []).map((answer: { vocab_word_id: string; test_number: number | null }) => ({
-      ...answer,
-      test_number: answer.test_number ?? vocabTestNumberByWordId.get(answer.vocab_word_id) ?? null,
-    })),
+    student_vocab_answer: (score.student_vocab_answer ?? []).map((answer: { vocab_word_id: string; test_number: number | null; test_word: string | null; test_source: string | null }) => {
+      const testItem = vocabTestItemByWordId.get(answer.vocab_word_id)
+      return {
+        ...answer,
+        test_number: answer.test_number ?? testItem?.test_number ?? null,
+        test_word: answer.test_word ?? testItem?.prompt_text ?? null,
+        test_source: answer.test_source ?? testItem?.prompt_source ?? null,
+      }
+    }),
   }))
 
   let attendance: { student_id: string; status: string }[] = []

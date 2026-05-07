@@ -52,6 +52,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     type SavedVocabAnswer = {
       vocab_word_id: string
       test_number: number | null
+      test_word: string | null
+      test_source: string | null
       student_answer: string | null
       is_correct: boolean
       vocab_word: { number: number; english_word: string } | null
@@ -132,6 +134,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
         (score.student_vocab_answer ?? []) as {
           id: string
           test_number: number | null
+          test_word: string | null
+          test_source: string | null
           student_answer: string | null
           is_correct: boolean
           teacher_locked: boolean
@@ -144,6 +148,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           number: a.test_number ?? a.vocab_word!.number,
           source_number: a.vocab_word!.number,
           english_word: a.vocab_word!.english_word,
+          test_word: a.test_word ?? a.vocab_word!.english_word,
+          test_source: a.test_source ?? null,
           student_answer: a.student_answer,
           is_correct: a.is_correct,
           teacher_locked: a.teacher_locked ?? false,

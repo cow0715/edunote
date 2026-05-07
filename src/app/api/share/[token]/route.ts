@@ -256,10 +256,46 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const { data: vocabAnswers } = scoreIds.length > 0
     ? await supabase
         .from('student_vocab_answer')
-        .select('id, week_score_id, is_correct, test_number, student_answer, retake_answer, retake_is_correct, vocab_word(id, week_id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, example_sentence, example_translation)')
+        .select('id, week_score_id, is_correct, test_number, test_word, test_source, student_answer, retake_answer, retake_is_correct, vocab_word(id, week_id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, example_sentence, example_translation)')
         .in('week_score_id', scoreIds)
         .eq('is_correct', false)
     : { data: [] }
+
+  const { data: activeVocabTests } = weekIds.length > 0
+    ? await supabase
+        .from('vocab_test')
+        .select('id, week_id')
+        .in('week_id', weekIds)
+        .eq('is_active', true)
+    : { data: [] }
+  const activeVocabTestIds = (activeVocabTests ?? []).map((test) => test.id)
+  const { data: activeVocabTestItems } = activeVocabTestIds.length > 0
+    ? await supabase
+        .from('vocab_test_item')
+        .select('vocab_test_id, vocab_word_id, test_number, prompt_text, prompt_source')
+        .in('vocab_test_id', activeVocabTestIds)
+    : { data: [] }
+  const activeVocabTestIdSet = new Set(activeVocabTestIds)
+  const vocabTestItemByWordId = new Map(
+    (activeVocabTestItems ?? [])
+      .filter((item) => activeVocabTestIdSet.has(item.vocab_test_id))
+      .map((item) => [item.vocab_word_id, item])
+  )
+  const displayVocabAnswers = ((vocabAnswers ?? []) as {
+    test_number: number | null
+    test_word: string | null
+    test_source: string | null
+    vocab_word: { id: string } | { id: string }[] | null
+  }[]).map((answer) => {
+    const vocabWord = one(answer.vocab_word)
+    const testItem = vocabWord ? vocabTestItemByWordId.get(vocabWord.id) : null
+    return {
+      ...answer,
+      test_number: answer.test_number ?? testItem?.test_number ?? null,
+      test_word: answer.test_word ?? testItem?.prompt_text ?? null,
+      test_source: answer.test_source ?? testItem?.prompt_source ?? null,
+    }
+  })
 
   const { data: vocabWords } = weekIds.length > 0
     ? await supabase
@@ -318,7 +354,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     weeks,
     weekScores: weekScores ?? [],
     studentAnswers,
-    vocabAnswers: vocabAnswers ?? [],
+    vocabAnswers: displayVocabAnswers,
     vocabWords: vocabWords ?? [],
     attendance: attendanceRecords ?? [],
     classAverages,
