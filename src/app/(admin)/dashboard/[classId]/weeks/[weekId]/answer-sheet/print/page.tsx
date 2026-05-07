@@ -69,6 +69,7 @@ function AnswerCells({ row, maxSubs }: { row: RowInfo; maxSubs: number }) {
   const style = first?.question_style
   const hasSub = row.group.length > 1 || first?.sub_label !== null
   const answerColSpan = maxSubs * 2
+  const remainingColSpan = Math.max(1, answerColSpan - row.group.length * 2)
 
   if ((style === 'objective' || style === 'multi_select') && !hasSub) {
     return (
@@ -84,9 +85,7 @@ function AnswerCells({ row, maxSubs }: { row: RowInfo; maxSubs: number }) {
         {row.group.map((q) => (
           <FragmentCells key={`${q.question_number}-${q.sub_label ?? 'none'}`} label={q.sub_label} objective />
         ))}
-        {Array.from({ length: Math.max(0, maxSubs - row.group.length) }).map((_, index) => (
-          <FragmentCells key={`empty-${index}`} label={null} />
-        ))}
+        {row.group.length < maxSubs && <td className="answer-cell" colSpan={remainingColSpan} />}
       </>
     )
   }
@@ -105,9 +104,7 @@ function AnswerCells({ row, maxSubs }: { row: RowInfo; maxSubs: number }) {
         {row.group.map((q) => (
           <FragmentCells key={`${q.question_number}-${q.sub_label ?? 'none'}`} label={q.sub_label} />
         ))}
-        {Array.from({ length: Math.max(0, maxSubs - row.group.length) }).map((_, index) => (
-          <FragmentCells key={`empty-${index}`} label={null} />
-        ))}
+        {row.group.length < maxSubs && <td className="answer-cell" colSpan={remainingColSpan} />}
       </>
     )
   }
@@ -225,7 +222,7 @@ export default async function AnswerSheetPrintPage({
         }
 
         .q-number {
-          width: 36pt;
+          width: 28pt;
           text-align: center;
           font-weight: 800;
           background: #fde3c4;
@@ -236,9 +233,9 @@ export default async function AnswerSheetPrintPage({
         }
 
         .sub-header {
-          width: 26pt;
+          width: 18pt;
           text-align: center;
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 800;
           background: #f5f5f5;
         }

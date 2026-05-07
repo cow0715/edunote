@@ -78,8 +78,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const answerColSpan = maxSubs * 2
 
   const trStyle = (h: number) => `style="height:${h}pt;mso-height-rule:exactly;"`
-  const qnumAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:4pt 3pt;width:36pt;text-align:center;font-weight:bold;background:#fde3c4;vertical-align:middle;"`
-  const subHdrAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:4pt 3pt;font-size:13px;width:22pt;text-align:center;font-weight:bold;background:#f5f5f5;vertical-align:middle;"`
+  const qnumAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:4pt 2pt;width:28pt;text-align:center;font-weight:bold;background:#fde3c4;vertical-align:middle;"`
+  const subHdrAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:4pt 2pt;font-size:12px;width:18pt;text-align:center;font-weight:bold;background:#f5f5f5;vertical-align:middle;"`
   const subCellAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:4pt 3pt;font-size:14px;vertical-align:middle;"`
   const answerAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:4pt 5pt;font-size:14px;vertical-align:middle;"`
 
@@ -97,7 +97,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       const cells = group.map((q) =>
         `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}><span style="font-size:14px;">① ② ③ ④ ⑤</span></td>`
       ).join('')
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td>${cells}</tr>`)
+      const remainingColSpan = Math.max(0, answerColSpan - group.length * 2)
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td>${cells}${remainingColSpan > 0 ? `<td ${answerAttr} colspan="${remainingColSpan}">&nbsp;</td>` : ''}</tr>`)
     } else if (style === 'ox') {
       rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}">O &nbsp;/&nbsp; X &nbsp;&nbsp; 수정어: </td></tr>`)
     } else if (style === 'multi_select') {
@@ -106,7 +107,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       const cells = group.map((q) =>
         `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}>&nbsp;</td>`
       ).join('')
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td>${cells}</tr>`)
+      const remainingColSpan = Math.max(0, answerColSpan - group.length * 2)
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td>${cells}${remainingColSpan > 0 ? `<td ${answerAttr} colspan="${remainingColSpan}">&nbsp;</td>` : ''}</tr>`)
     } else {
       rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}">&nbsp;</td></tr>`)
     }
