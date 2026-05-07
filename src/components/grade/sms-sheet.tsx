@@ -7,6 +7,11 @@ import { Textarea } from '@/components/ui/textarea'
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
+import { usePrompt } from '@/hooks/use-prompts'
+import { SMS_RULES } from '@/lib/prompts'
+
+const PROMPT_KEY = 'sms_rules'
+
 type SmsMessage = {
   student_id: string
   student_name: string
@@ -64,6 +69,44 @@ function formatWrongItems(data: SmsStudentData) {
   return [...wrongObjective, ...wrongSubjective]
 }
 
+function formatWrongSummary(data: SmsStudentData) {
+  const wrongItems = formatWrongItems(data)
+  if (wrongItems.length === 0) return '없음'
+  return wrongItems.slice(0, 3).join(', ') + (wrongItems.length > 3 ? ` 외 ${wrongItems.length - 3}개` : '')
+}
+
+function buildMessageFromTemplate(template: string, data: SmsStudentData | null) {
+  const trimmedTemplate = template.trim()
+  if (!data) return trimmedTemplate
+
+  const vocabChange = data.vocab.prev_correct !== null
+    ? ` (${data.vocab.correct - data.vocab.prev_correct >= 0 ? '+' : ''}${data.vocab.correct - data.vocab.prev_correct})`
+    : ''
+  const statusLine = data.is_absent
+    ? '상태: 결석'
+    : data.is_unexamined
+    ? '상태: 미응시'
+    : null
+  const homeworkLine = data.homework.total > 0
+    ? `${data.homework.done}/${data.homework.total}`
+    : '완료'
+
+  const lines = [
+    trimmedTemplate,
+    '',
+    '[이번 주 학습 데이터]',
+    statusLine,
+    `단어: ${data.vocab.correct}/${data.vocab.total}${vocabChange}`,
+    `독해: ${data.reading.correct}/${data.reading.total}`,
+    `오답 포인트: ${formatWrongSummary(data)}`,
+    `숙제: ${homeworkLine}`,
+    data.teacher_memo ? `메모: ${data.teacher_memo}` : null,
+    `확인 링크: ${data.share_url}`,
+  ].filter(Boolean)
+
+  return lines.join('\n')
+}
+
 interface Props {
   weekId: string
   weekNumber: number
@@ -85,6 +128,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   const [scheduleDate, setScheduleDate] = useState(() => getNearestSchedule().date)
   const [scheduleTime, setScheduleTime] = useState(() => getNearestSchedule().time)
   const [templateMessage, setTemplateMessage] = useState('')
+  const { data: savedPrompt } = usePrompt(PROMPT_KEY)
   const sentCount = Object.values(sendStatus).filter((s) => s === 'success').length
   const hasSendableMessage = messages.some((m) => m.message.trim() && sendStatus[m.student_id] !== 'success')
 
@@ -126,15 +170,32 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
       const ok = window.confirm(`이미 ${sentCount}명에게 발송되었습니다.\nAI로 다시 생성하면 발송 상태가 초기화됩니다. 계속할까요?`)
       if (!ok) return
     }
+    const basePrompt = savedPrompt ?? SMS_RULES
     const customPrompt = templateMessage.trim()
-      ? `아래 강사 공통 문구를 기본 흐름으로 삼아 학생별 데이터를 자연스럽게 반영해 주세요.
-- 모든 학생에게 같은 문장을 반복하지 말고, 점수/오답/숙제/메모 중 의미 있는 데이터만 골라 1~2문장 정도 다르게 작성하세요.
-- 공통 문구의 말투와 핵심 안내는 유지하세요.
-- 개인 결과 확인 링크는 반드시 포함하세요.
+      ? `${basePrompt}
+
+추가 지시:
+아래 강사 메시지를 문자 맨 앞에 먼저 배치하고, 그 아래에 학생별 데이터를 정돈된 형식으로 붙여 주세요.
+- 강사 메시지는 핵심 의미와 말투를 유지하되 너무 어색한 부분만 가볍게 다듬으세요.
+- 학생별 본문을 새로 길게 창작하지 말고, 데이터 요약은 아래 형식을 최대한 지키세요.
+- 데이터가 없는 항목은 억지로 평가하지 말고 자연스럽게 생략하거나 "없음"으로 처리하세요.
+- 문항 번호와 원점수 나열은 피하고, 오답은 개념/유형 중심으로 짧게 적으세요.
+- 개인 결과 확인 링크는 반드시 마지막 줄에 포함하세요.
+
+권장 형식:
+{강사 메시지}
+
+[이번 주 학습 데이터]
+단어: n/n
+독해: n/n
+오답 포인트: 개념/유형 요약
+숙제: n/n
+메모: 필요한 경우만
+확인 링크: {링크}
 
 [강사 공통 문구]
 ${templateMessage.trim()}`
-      : undefined
+      : basePrompt
 
     setLoading(true)
     setAiGenerating(true)
@@ -196,9 +257,9 @@ ${templateMessage.trim()}`
     const hasEditedMessages = messages.some((m) => m.message.trim() && sendStatus[m.student_id] !== 'success')
     if (hasEditedMessages && !window.confirm('작성된 학생별 문자를 공통 내용으로 덮어쓸까요?')) return
     setMessages((prev) => prev.map((m) => (
-      sendStatus[m.student_id] === 'success' ? m : { ...m, message: text }
+      sendStatus[m.student_id] === 'success' ? m : { ...m, message: buildMessageFromTemplate(text, m.student_data) }
     )))
-    toast.success(`${messages.length}명에게 공통 문자를 적용했습니다`)
+    toast.success(`${messages.length}명에게 학생별 데이터 문자를 적용했습니다`)
   }
 
   function toggleRecipient(studentId: string, key: RecipientKey) {
@@ -380,27 +441,27 @@ ${templateMessage.trim()}`
             <div className="mb-2 flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-gray-900">공통 문자 템플릿</p>
-                <p className="mt-0.5 text-xs text-gray-400">강사가 직접 쓴 내용을 전체 학생 문자에 적용합니다.</p>
+                <p className="mt-0.5 text-xs text-gray-400">강사 메시지를 먼저 두고, 아래에 학생별 학습 데이터를 붙입니다.</p>
               </div>
               <div className="flex items-center gap-1.5">
                 <Button size="sm" variant="outline" onClick={generateWithAi} disabled={loading || sendingAll} className="h-8 text-xs">
                   {aiGenerating ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
-                  AI로 학생별 생성
+                  AI로 다듬기
                 </Button>
                 <Button size="sm" onClick={applyTemplateToAll} disabled={!templateMessage.trim()} className="h-8 text-xs">
-                  <Check className="mr-1.5 h-3.5 w-3.5" />전체 적용
+                  <Check className="mr-1.5 h-3.5 w-3.5" />데이터 붙이기
                 </Button>
               </div>
             </div>
             <Textarea
               value={templateMessage}
               onChange={(e) => setTemplateMessage(e.target.value)}
-              placeholder="예) 오늘 수업 내용과 과제 안내입니다. 아래 링크에서 개인 결과를 확인해주세요."
+              placeholder="예) 오늘 수업에서는 지난주보다 문장 해석 흐름을 더 안정적으로 잡는 연습을 했습니다. 아래 개인 결과를 확인하고 부족한 부분만 복습해주세요."
               rows={4}
               className="resize-none text-sm"
             />
             <div className="mt-1.5 flex items-center justify-between text-xs text-gray-400">
-              <span>적용 후에도 학생별 문자 칸에서 개별 수정할 수 있습니다.</span>
+              <span>데이터 붙이기는 정해진 형식으로 만들고, AI는 같은 형식을 조금 더 자연스럽게 다듬습니다.</span>
               <span className={templateMessage.length > 90 ? 'text-amber-500' : ''}>{templateMessage.length}자</span>
             </div>
           </div>
