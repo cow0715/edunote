@@ -992,11 +992,55 @@ export async function ocrExamAnswers(
   const raw = res.content[0].type === 'text' ? res.content[0].text : ''
 
   try {
-    return JSON.parse(jsonrepair(raw.replace(/```json\n?|\n?```/g, '').trim()))
+    const parsed = JSON.parse(jsonrepair(raw.replace(/```json\n?|\n?```/g, '').trim())) as ExamOcrResult[]
+    return normalizeExamOcrResults(parsed, questions)
   } catch (e) {
     console.error('[ocrExamAnswers] JSON parse 실패:', e)
     throw e
   }
+}
+
+function normalizeExamOcrResults(
+  results: ExamOcrResult[],
+  questions: ExamOcrQuestion[],
+): ExamOcrResult[] {
+  const questionMap = new Map(
+    questions.map((question) => [
+      `${question.question_number}|${question.sub_label ?? ''}`,
+      question,
+    ]),
+  )
+
+  return results.map((result) => {
+    const question = questionMap.get(getExamOcrResultKey(result))
+    if (question?.question_style !== 'multi_select') return result
+
+    const normalizedText = normalizeMultiSelectOcrAnswer(
+      result.student_answer_text ?? (typeof result.student_answer === 'number' ? String(result.student_answer) : ''),
+    )
+
+    return {
+      question_number: result.question_number,
+      sub_label: result.sub_label ?? null,
+      student_answer_text: normalizedText,
+    }
+  })
+}
+
+function normalizeMultiSelectOcrAnswer(text: string): string {
+  const symbolMap: Record<string, string> = {
+    '①': '1',
+    '②': '2',
+    '③': '3',
+    '④': '4',
+    '⑤': '5',
+  }
+
+  const normalized = text.replace(/[①②③④⑤]/g, (match) => symbolMap[match] ?? match)
+  const picks = [...new Set(normalized.match(/[1-5]/g) ?? [])]
+    .sort((a, b) => Number(a) - Number(b))
+
+  return picks.join(',')
 }
 
 async function splitPdfToSinglePageBase64(fileData: string): Promise<string[]> {

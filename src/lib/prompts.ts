@@ -445,9 +445,12 @@ function buildExamQuestionList(questions: ExamOcrQuestion[]): string {
 
 const EXAM_OCR_RULES = `규칙:
 - 객관식: student_answer에 숫자(1~5). 동그라미 또는 숫자 기입 모두 인식
+- 객관식/복수정답에서 X표, 취소선, 지운 흔적이 있는 번호는 취소된 답으로 보고 최종 선택에서 제외. 예: ①에 X표가 있고 ④가 다시 동그라미/색칠되어 있으면 student_answer는 4
+- 단일 객관식에서 여러 표시가 보이면 취소되지 않은 가장 명확한 최종 동그라미/색칠/체크 1개만 student_answer로 반환
 - 서술형/오류교정: student_answer_text에 영어 텍스트 그대로
 - O/X 교정형: student_answer_text에 "O" 또는 "X 수정어" (예: "X has been")
-- 복수정답: student_answer_text에 쉼표 구분 (예: "1,3")
+- 복수정답: 학생이 ①~⑤ 중 여러 개를 동그라미/색칠/체크한 것을 모두 읽고 student_answer_text에 쉼표 구분 숫자로 저장 (예: ①과 ③이 표시됨 → "1,3")
+- 복수정답은 student_answer를 쓰지 말고 반드시 student_answer_text를 사용. "①③", "①,③", "1 3"처럼 보이면 모두 "1,3"으로 변환
 - sub_label 있는 문항: (a)(b) 표기 찾아 분리. 표기 없으면 첫 번째 sub_label에 전체 텍스트, 나머지는 제외
 - 이미지에 보이지 않는 문항(뒷면 등)은 결과에서 제외
 - 빈 답안은 결과에서 제외
