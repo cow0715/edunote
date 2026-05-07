@@ -153,6 +153,12 @@ export function normalizeParsedAnswers(parsedAnswers: ParsedAnswer[]): ParsedAns
 
   const normalized: ParsedAnswer[] = []
   for (const [, group] of grouped) {
+    const collapsed = collapseSplitObjectiveQuestion(group)
+    if (collapsed) {
+      normalized.push(collapsed)
+      continue
+    }
+
     const hasFindError = group.some((g) => g.question_style === 'find_error')
     if (group.length === 1 || hasFindError) {
       normalized.push(...group)
@@ -167,6 +173,54 @@ export function normalizeParsedAnswers(parsedAnswers: ParsedAnswer[]): ParsedAns
   }
 
   return normalized
+}
+
+function collapseSplitObjectiveQuestion(group: ParsedAnswer[]): ParsedAnswer | null {
+  if (group.length < 2) return null
+
+  const objectiveAnswers = group.filter(
+    (answer) => answer.question_style === 'objective' && answer.correct_answer >= 1 && answer.correct_answer <= 5,
+  )
+  if (objectiveAnswers.length !== 1) return null
+
+  const objective = objectiveAnswers[0]
+  const nonObjectiveAnswers = group.filter((answer) => answer !== objective)
+  if (!nonObjectiveAnswers.every((answer) => answer.question_style === 'subjective')) return null
+
+  const text = [
+    objective.question_text,
+    objective.explanation,
+    ...nonObjectiveAnswers.flatMap((answer) => [
+      answer.question_text,
+      answer.correct_answer_text,
+      answer.explanation,
+      answer.grading_criteria,
+    ]),
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  if (!looksLikeSummaryBlankObjective(text)) return null
+
+  return {
+    ...objective,
+    sub_label: null,
+  }
+}
+
+function looksLikeSummaryBlankObjective(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ')
+
+  const hasBlankLabels =
+    /\(\s*A\s*\)/i.test(normalized) &&
+    /\(\s*B\s*\)/i.test(normalized)
+  const hasChoiceMarker = /[①②③④⑤]/.test(normalized) || /(?:^|\s)[1-5][.)]\s+\S/.test(normalized)
+  const asksBestChoice =
+    /가장\s*적절한\s*것/.test(normalized) ||
+    /가장\s*알맞은\s*것/.test(normalized) ||
+    /들어갈\s*말/.test(normalized)
+
+  return hasBlankLabels && hasChoiceMarker && asksBestChoice
 }
 
 export async function extractPdfText(fileData: string): Promise<string> {
