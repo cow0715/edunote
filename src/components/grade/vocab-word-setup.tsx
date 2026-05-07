@@ -636,17 +636,30 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
           </div>
           <div className="flex flex-wrap gap-2">
             {activeTest && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const url = window.location.pathname.replace(/\/$/, '') + `/vocab-test/${activeTest.id}/print`
-                  window.open(url, '_blank')
-                }}
-              >
-                <Printer className="mr-1.5 h-3.5 w-3.5" />
-                시험지 인쇄
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const url = window.location.pathname.replace(/\/$/, '') + `/vocab-test/${activeTest.id}/print`
+                    window.open(url, '_blank')
+                  }}
+                >
+                  <Printer className="mr-1.5 h-3.5 w-3.5" />
+                  학생 답안용
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const url = window.location.pathname.replace(/\/$/, '') + `/vocab-test/${activeTest.id}/grading-print`
+                    window.open(url, '_blank')
+                  }}
+                >
+                  <Printer className="mr-1.5 h-3.5 w-3.5" />
+                  채점용 인쇄
+                </Button>
+              </>
             )}
             <Button size="sm" onClick={saveVocabTest} disabled={testSaving || selectedWordIds.length === 0}>
               {testSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />}
