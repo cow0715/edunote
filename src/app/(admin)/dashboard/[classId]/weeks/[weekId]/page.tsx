@@ -242,9 +242,10 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
               <div className="px-4 py-2">
                 <button
                   type="button"
-                  onClick={() => window.open(`/api/weeks/${weekId}/answer-sheet-html`, '_blank')}
-                  className="text-xs text-indigo-500 hover:text-indigo-700 underline"
+                  onClick={() => window.open(`/dashboard/${classId}/weeks/${weekId}/answer-sheet/print`, '_blank')}
+                  className="text-[0px] text-transparent underline"
                 >
+                  <span className="text-xs text-indigo-500 hover:text-indigo-700">답안지 인쇄 화면 열기</span>
                   답안지 표 다운로드 (한글로 열기)
                 </button>
               </div>
