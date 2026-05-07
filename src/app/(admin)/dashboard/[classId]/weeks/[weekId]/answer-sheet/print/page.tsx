@@ -1,5 +1,6 @@
 import { assertWeekOwner, getAuth, getTeacherId } from '@/lib/api'
 import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
+import { Fragment } from 'react'
 import { PrintButton } from './print-button'
 
 type QuestionRow = {
@@ -183,6 +184,15 @@ export default async function AnswerSheetPrintPage({
         </header>
 
         <table className="answer-table">
+          <colgroup>
+            <col className="q-number-col" />
+            {Array.from({ length: maxSubs }).map((_, index) => (
+              <Fragment key={index}>
+                <col className="sub-header-col" />
+                <col className="sub-answer-col" />
+              </Fragment>
+            ))}
+          </colgroup>
           <tbody>
             {rows.map((row) => (
               <tr key={row.qNum} style={{ height: `${row.heightPt}pt` }}>
@@ -221,8 +231,15 @@ export default async function AnswerSheetPrintPage({
           vertical-align: middle;
         }
 
-        .q-number {
+        .q-number-col {
           width: 28pt;
+        }
+
+        .sub-header-col {
+          width: 18pt;
+        }
+
+        .q-number {
           text-align: center;
           font-weight: 800;
           background: #fde3c4;
@@ -233,7 +250,8 @@ export default async function AnswerSheetPrintPage({
         }
 
         .sub-header {
-          width: 18pt;
+          padding-left: 2pt;
+          padding-right: 2pt;
           text-align: center;
           font-size: 12px;
           font-weight: 800;

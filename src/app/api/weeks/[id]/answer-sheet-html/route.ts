@@ -76,6 +76,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   // 모든 행에 걸쳐 필요한 최대 컬럼 수 계산 (소문항 수 * 2)
   const maxSubs = Math.max(1, ...rowInfos.map(r => r.group.length))
   const answerColSpan = maxSubs * 2
+  const colgroup = `<colgroup><col style="width:28pt;">${Array.from({ length: maxSubs }).map(() => '<col style="width:18pt;"><col>').join('')}</colgroup>`
 
   const trStyle = (h: number) => `style="height:${h}pt;mso-height-rule:exactly;"`
   const qnumAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:4pt 2pt;width:28pt;text-align:center;font-weight:bold;background:#fde3c4;vertical-align:middle;"`
@@ -133,7 +134,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 <div class="Section1">
 <p style="text-align:center;font-size:18px;font-weight:bold;margin:4pt 0 2pt 0;">${weekLabel} 진단평가 답안지</p>
 <p style="text-align:right;font-size:12px;margin:0 0 4pt 0;">학교: ______________&nbsp;&nbsp;&nbsp;&nbsp;이름: ______________</p>
-<table border="1" bordercolor="#000000" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;border:2px solid #000;">
+<table border="1" bordercolor="#000000" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;border:2px solid #000;table-layout:fixed;">
+${colgroup}
 ${rows.join('\n')}
 </table>
 </div>
