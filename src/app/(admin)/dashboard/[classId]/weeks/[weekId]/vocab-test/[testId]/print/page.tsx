@@ -78,12 +78,12 @@ export default function VocabTestPrintPage({
           const right = pageItems.slice(ITEMS_PER_COLUMN)
           return (
             <section key={pageIndex} className="vocab-print-page bg-white shadow-sm print:shadow-none">
-              <header className="mb-5 flex items-end justify-between border-b-2 border-gray-900 pb-3">
+              <header className="mb-6 flex items-end justify-between border-b-2 border-gray-900 pb-4">
                 <div>
                   <p className="text-[10px] font-bold tracking-[0.28em] text-gray-500">Vocabulary Test</p>
                   <h2 className="mt-1 text-2xl font-black text-gray-950">어휘 Test</h2>
                 </div>
-                <div className="grid grid-cols-[44px_150px] gap-y-2 text-sm">
+                <div className="grid grid-cols-[44px_150px] gap-y-3 text-sm">
                   <span className="font-bold text-gray-700">이름</span>
                   <span className="border-b border-gray-700" />
                   <span className="font-bold text-gray-700">점수</span>
@@ -97,12 +97,12 @@ export default function VocabTestPrintPage({
                     {column.map((item) => {
                       const word = item.prompt_text || item.vocab_word?.english_word || ''
                       return (
-                        <div key={item.id} className="grid h-[27px] grid-cols-[31px_minmax(0,1fr)_124px] items-end gap-2">
-                          <span className="pb-0.5 text-right text-[11px] font-bold text-gray-900">{item.test_number}.</span>
-                          <span className="truncate pb-0.5 text-[12px] font-semibold text-gray-900" title={word}>
+                        <div key={item.id} className="grid h-[34px] grid-cols-[36px_minmax(0,1fr)_132px] items-end gap-2">
+                          <span className="pb-1 text-right text-[13px] font-bold text-gray-900">{item.test_number}.</span>
+                          <span className="truncate pb-1 text-[15px] font-semibold text-gray-900" title={word}>
                             {word}
                           </span>
-                          <span className="h-[17px] border-b border-gray-500" />
+                          <span className="h-[22px] border-b border-gray-500" />
                         </div>
                       )
                     })}
@@ -117,13 +117,13 @@ export default function VocabTestPrintPage({
       <style jsx global>{`
         @page {
           size: A4 portrait;
-          margin: 9mm;
+          margin: 10mm;
         }
 
         .vocab-print-page {
           width: 210mm;
           min-height: 297mm;
-          padding: 11mm 12mm 10mm;
+          padding: 12mm 12mm 11mm;
           box-sizing: border-box;
           page-break-after: always;
         }

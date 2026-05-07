@@ -18,11 +18,13 @@ export default async function AdminLayout({
   }
 
   return (
-    <div className="flex h-screen flex-col bg-gray-50 md:flex-row">
-      <Sidebar />
-      <MobileNav />
-      <main className="flex-1 overflow-auto">
-        <div className="p-4 md:p-6">{children}</div>
+    <div className="flex h-screen flex-col bg-gray-50 print:block print:h-auto print:bg-white md:flex-row">
+      <div className="print:hidden">
+        <Sidebar />
+        <MobileNav />
+      </div>
+      <main className="flex-1 overflow-auto print:block print:overflow-visible">
+        <div className="p-4 print:p-0 md:p-6">{children}</div>
       </main>
     </div>
   )
