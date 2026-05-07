@@ -96,7 +96,8 @@ function normalizePromptCandidate(value: string | null | undefined) {
 
   text = text.split('※')[0] ?? text
   text = text
-    .replace(/\((?:n|v|adj|adv|prep|conj|phr|phrase)\.?\)/gi, ' ')
+    .replace(/\((?:n|v|a|ad|adj|adv|prep|conj|phr|phrase)\.?\)/gi, ' ')
+    .replace(/\b(?:n|v|a|ad|adj|adv|prep|conj|phr|phrase)\.\s*$/gi, ' ')
     .replace(/\[[^\]]*[가-힣][^\]]*\]/g, ' ')
     .replace(/\([^)]*[가-힣][^)]*\)/g, ' ')
     .replace(/^[=+@]+/, '')
@@ -390,6 +391,19 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     })
   }
 
+  function selectPromptForWord(word: VocabEntry & { id: string }, source: VocabTestPromptSource) {
+    const option = getPromptOptions(word).find((candidate) => candidate.prompt_source === source)
+    if (!option) {
+      toast.error(`${promptLabel(source)} 후보가 없습니다`)
+      return
+    }
+    setSelectedWordIds((prev) => prev.includes(word.id) ? prev : [...prev, word.id])
+    setSelectedPrompts((prev) => ({
+      ...prev,
+      [word.id]: { prompt_source: option.prompt_source, prompt_text: option.prompt_text },
+    }))
+  }
+
   function updateSelectedPrompt(word: VocabEntry & { id: string }, optionIndex: number) {
     const option = getPromptOptions(word)[optionIndex] ?? getPromptOptions(word)[0]
     if (!option) return
@@ -560,6 +574,11 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const selectedWords = selectedWordIds
     .map((id) => savedWordsWithIds.find((word) => word.id === id))
     .filter((word): word is VocabEntry & { id: string } => !!word)
+  const selectedPromptCounts = selectedWords.reduce<Record<VocabTestPromptSource, number>>((acc, word) => {
+    const source = selectedPrompts[word.id]?.prompt_source ?? 'word'
+    acc[source] += 1
+    return acc
+  }, { word: 0, synonym: 0, derivative: 0 })
   const passageOptions = [...new Set(savedWordsWithIds.map((word) => word.passage_label?.trim()).filter((value): value is string => !!value))]
     .sort((a, b) => a.localeCompare(b, 'ko-KR', { numeric: true }))
   const searchQuery = normalizeSearch(testSearch)
@@ -636,7 +655,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
           </div>
         </div>
 
-        <div className="grid gap-0 bg-white lg:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="grid gap-0 bg-white lg:grid-cols-[minmax(0,1fr)_420px]">
           <div className="border-b border-gray-100 lg:border-b-0 lg:border-r">
             <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3">
               <div className="relative min-w-[220px] flex-1">
@@ -659,6 +678,18 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                 ))}
               </select>
               <div className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-gray-200 bg-white px-2">
+                {[30, 40, 50].map((count) => (
+                  <button
+                    key={count}
+                    type="button"
+                    onClick={() => setRandomPickCount(count)}
+                    className={`rounded px-1.5 py-0.5 text-[11px] font-bold transition-colors ${
+                      randomPickCount === count ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'
+                    }`}
+                  >
+                    {count}
+                  </button>
+                ))}
                 <Input
                   type="number"
                   min={1}
@@ -720,57 +751,94 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
 
             <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/70 px-4 py-2 text-[11px] font-semibold text-gray-500">
               <span>{filteredTestWords.length}개 표시</span>
-              <span>{selectedWordIds.length}개 선택됨</span>
+              <span>
+                {selectedWordIds.length}개 선택됨 · 원본 {selectedPromptCounts.word} · 유의어 {selectedPromptCounts.synonym} · 파생어 {selectedPromptCounts.derivative}
+              </span>
             </div>
 
             <div className="max-h-[520px] divide-y divide-gray-100 overflow-y-auto">
               {filteredTestWords.length === 0 ? (
                 <p className="px-4 py-8 text-center text-xs text-gray-400">조건에 맞는 단어가 없습니다.</p>
-              ) : filteredTestWords.map((word) => (
-                <label key={word.id} className="flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors hover:bg-blue-50/50">
-                  <input
-                    type="checkbox"
-                    checked={selectedSet.has(word.id)}
-                    onChange={() => toggleTestWord(word.id)}
-                    className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600"
-                  />
-                  <span className="flex h-7 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-500">
-                    {word.number}
-                  </span>
-                  <span className="min-w-0 flex-1 space-y-1.5">
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      {word.passage_label && (
-                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-600">지문 {word.passage_label}</span>
-                      )}
-                      {word.part_of_speech && (
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">{word.part_of_speech}</span>
-                      )}
-                      {selectedSet.has(word.id) && (
-                        <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-bold text-white">
-                          {selectedWordIds.indexOf(word.id) + 1}번
-                        </span>
-                      )}
+              ) : filteredTestWords.map((word) => {
+                const promptOptions = getPromptOptions(word)
+                const selectedPrompt = selectedPrompts[word.id]
+                const isSelected = selectedSet.has(word.id)
+                const availableSources: VocabTestPromptSource[] = ['word', 'synonym', 'derivative']
+                return (
+                  <div key={word.id} className={`flex items-start gap-3 px-4 py-3 transition-colors hover:bg-blue-50/50 ${isSelected ? 'bg-blue-50/35' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleTestWord(word.id)}
+                      className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600"
+                    />
+                    <span className="flex h-7 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-500">
+                      {word.number}
                     </span>
-                    <span className="block text-sm font-bold text-gray-950">{word.english_word}</span>
-                    <span className="block text-xs leading-5 text-gray-600">
-                      <b className="font-semibold text-gray-900">뜻</b> {word.correct_answer || '-'}
-                    </span>
-                    {(formatWordList(word.synonyms) || formatWordList(word.antonyms) || word.derivatives) && (
-                      <span className="grid gap-1 text-[11px] leading-4 text-gray-500 sm:grid-cols-3">
-                        <span className="min-w-0"><b className="font-semibold text-gray-700">유의어</b> <span className="break-words">{formatWordList(word.synonyms) || '-'}</span></span>
-                        <span className="min-w-0"><b className="font-semibold text-gray-700">반의어</b> <span className="break-words">{formatWordList(word.antonyms) || '-'}</span></span>
-                        <span className="min-w-0"><b className="font-semibold text-gray-700">파생/주의</b> <span className="break-words">{word.derivatives || '-'}</span></span>
-                      </span>
-                    )}
-                  </span>
-                </label>
-              ))}
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {word.passage_label && (
+                          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-600">지문 {word.passage_label}</span>
+                        )}
+                        {word.part_of_speech && (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">{word.part_of_speech}</span>
+                        )}
+                        {isSelected && (
+                          <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                            시험 {selectedWordIds.indexOf(word.id) + 1}번
+                          </span>
+                        )}
+                      </div>
+                      <div>
+                        <p className="break-words text-sm font-bold text-gray-950">{word.english_word}</p>
+                        <p className="mt-0.5 text-xs leading-5 text-gray-600">
+                          <b className="font-semibold text-gray-900">뜻</b> {word.correct_answer || '-'}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {availableSources.map((source) => {
+                          const options = promptOptions.filter((option) => option.prompt_source === source)
+                          const isActive = isSelected && (selectedPrompt?.prompt_source ?? 'word') === source
+                          return (
+                            <button
+                              key={source}
+                              type="button"
+                              disabled={options.length === 0}
+                              onClick={() => selectPromptForWord(word, source)}
+                              className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-300 ${
+                                isActive
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-gray-100 text-gray-600 hover:bg-blue-100 hover:text-blue-700'
+                              }`}
+                            >
+                              {promptLabel(source)}{options.length > 1 ? ` ${options.length}` : ''}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {(formatWordList(word.synonyms) || formatWordList(word.antonyms) || word.derivatives) && (
+                        <div className="grid gap-1 text-[11px] leading-4 text-gray-500 sm:grid-cols-3">
+                          <span className="min-w-0"><b className="font-semibold text-gray-700">유의어</b> <span className="break-words">{formatWordList(word.synonyms) || '-'}</span></span>
+                          <span className="min-w-0"><b className="font-semibold text-gray-700">반의어</b> <span className="break-words">{formatWordList(word.antonyms) || '-'}</span></span>
+                          <span className="min-w-0"><b className="font-semibold text-gray-700">파생/주의</b> <span className="break-words">{word.derivatives || '-'}</span></span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
 
           <aside className="bg-gray-50">
-            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-              <p className="text-xs font-bold text-gray-700">선택된 시험 문항</p>
+            <div className="border-b border-gray-100 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold text-gray-700">시험지 미리보기</p>
+                  <p className="mt-0.5 text-[11px] text-gray-400">
+                    원본 {selectedPromptCounts.word} · 유의어 {selectedPromptCounts.synonym} · 파생어 {selectedPromptCounts.derivative}
+                  </p>
+                </div>
               <button
                 type="button"
                 onClick={() => {
@@ -781,10 +849,11 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
               >
                 비우기
               </button>
+              </div>
             </div>
             <div className="max-h-[520px] divide-y divide-gray-100 overflow-y-auto">
               {selectedWords.length === 0 ? (
-                <p className="px-4 py-8 text-center text-xs text-gray-400">선택한 단어가 없습니다.</p>
+                <p className="px-4 py-8 text-center text-xs text-gray-400">왼쪽에서 시험에 낼 항목을 선택하세요.</p>
               ) : selectedWords.map((word, index) => {
                 const prompt = selectedPrompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word }
                 const promptOptions = getPromptOptions(word)
@@ -792,15 +861,17 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                   option.prompt_source === prompt.prompt_source && option.prompt_text === prompt.prompt_text
                 ))
                 return (
-                  <div key={word.id} className="flex items-start gap-2 px-3 py-2.5">
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
+                  <div key={word.id} className="flex items-start gap-2 px-3 py-3">
+                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
                       {index + 1}
                     </span>
                     <div className="min-w-0 flex-1 space-y-1.5">
-                      <p className="truncate text-xs font-bold text-gray-900">{prompt.prompt_text}</p>
-                      <p className="truncate text-[11px] text-gray-500">
-                        {promptLabel(prompt.prompt_source)} · 뜻 {word.correct_answer || '-'}
-                      </p>
+                      <div className="min-w-0 rounded-lg bg-white px-3 py-2 shadow-[0_1px_8px_rgba(15,23,42,0.04)]">
+                        <p className="break-words text-sm font-black text-gray-950">{prompt.prompt_text}</p>
+                        <p className="mt-1 break-words text-[11px] font-medium text-gray-500">
+                          {promptLabel(prompt.prompt_source)} · 정답 {word.correct_answer || '-'}
+                        </p>
+                      </div>
                       <select
                         value={selectedPromptIndex}
                         onChange={(e) => updateSelectedPrompt(word, Number(e.target.value))}
@@ -816,7 +887,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                         {[word.passage_label ? `지문 ${word.passage_label}` : null, word.part_of_speech, prompt.prompt_source !== 'word' ? `원본 ${word.english_word}` : formatWordList(word.synonyms)].filter(Boolean).join(' · ')}
                       </p>
                     </div>
-                    <div className="flex shrink-0 gap-1">
+                    <div className="flex shrink-0 flex-col gap-1">
                       <button type="button" aria-label="위로 이동" onClick={() => moveSelectedWord(word.id, -1)} className="rounded p-1 text-gray-400 hover:bg-white hover:text-gray-700">
                         <ArrowUp className="h-3.5 w-3.5" />
                       </button>

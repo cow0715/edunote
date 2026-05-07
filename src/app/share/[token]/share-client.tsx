@@ -258,6 +258,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const [activeTab, setActiveTab] = useState<TabId>('home')
   const [wrongNoteTab, setWrongNoteTab] = useState<'reading' | 'vocab'>('reading')
   const [vocabViewMode, setVocabViewMode] = useState<VocabViewMode>('all')
+  const [expandedAllVocabWeekIds, setExpandedAllVocabWeekIds] = useState<Set<string>>(new Set())
   const [vocabStudyMode, setVocabStudyMode] = useState<VocabStudyMode>('all')
   const [vocabSearch, setVocabSearch] = useState('')
   const [vocabWeekFilter, setVocabWeekFilter] = useState('all')
@@ -583,6 +584,14 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     list.push(item)
     filteredVocabByWeek.set(item.week.id, list)
   })
+  const filteredAllVocabGroups = vocabStudyGroups
+    .map(({ week, words, className }) => ({
+      week,
+      className,
+      totalCount: words.length,
+      items: filteredVocabByWeek.get(week.id) ?? [],
+    }))
+    .filter((group) => group.items.length > 0)
   const hasVocabFilters =
     vocabStudyMode !== 'all' ||
     vocabSearch.trim() ||
@@ -1253,11 +1262,60 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                       </p>
                     </Card>
                   ) : vocabViewMode === 'all' ? (
-                    <Card title="전체 단어" subtitle={`${filteredVocabItems.length}개`} noPad>
+                    <Card title="전체 단어" subtitle={`${filteredAllVocabGroups.length}개 주차 · ${filteredVocabItems.length}개`} noPad>
                       <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
-                        {filteredVocabItems.map((item) => (
-                          <VocabStudyWordCard key={item.word.id} item={item} showWeekLabel />
-                        ))}
+                        {filteredAllVocabGroups.map(({ week, className, totalCount, items }) => {
+                          const isOpen = expandedAllVocabWeekIds.has(week.id)
+                          const wrongCount = items.filter((item) => !!item.wrongAnswer).length
+                          const exampleCount = items.filter((item) => !!item.word.example_sentence).length
+                          const previewWords = items.slice(0, 4).map((item) => item.word.english_word).join(', ')
+                          const toggle = () => setExpandedAllVocabWeekIds((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(week.id)) next.delete(week.id)
+                            else next.add(week.id)
+                            return next
+                          })
+
+                          return (
+                            <section key={week.id}>
+                              <button
+                                type="button"
+                                onClick={toggle}
+                                className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors hover:bg-blue-50/50 dark:hover:bg-white/[0.04]"
+                                aria-expanded={isOpen}
+                              >
+                                <span className="min-w-0">
+                                  <span className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-sm font-black text-[#1A1C1E] dark:text-[#F8FAFC]">{getWeekLabel(week)}</span>
+                                    {className && (
+                                      <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/[0.08] dark:text-slate-300">
+                                        {className}
+                                      </span>
+                                    )}
+                                    {wrongCount > 0 && (
+                                      <span className="rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-500 dark:bg-rose-950/30 dark:text-rose-300">
+                                        오답 {wrongCount}
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="mt-1 block truncate text-xs text-[#8B95A1] dark:text-gray-500">
+                                    {items.length}/{totalCount}개 표시{exampleCount > 0 ? ` · 예문 ${exampleCount}` : ''}{previewWords ? ` · ${previewWords}` : ''}
+                                  </span>
+                                </span>
+                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-500 dark:bg-white/[0.08] dark:text-gray-300">
+                                  {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                </span>
+                              </button>
+                              {isOpen && (
+                                <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-white/[0.06] dark:border-white/[0.08]">
+                                  {items.map((item) => (
+                                    <VocabStudyWordCard key={item.word.id} item={item} />
+                                  ))}
+                                </div>
+                              )}
+                            </section>
+                          )
+                        })}
                       </div>
                     </Card>
                   ) : (
