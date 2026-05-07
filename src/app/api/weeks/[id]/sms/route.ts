@@ -11,6 +11,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
   const body = await request.json().catch(() => ({}))
+  const mode: 'data' | 'ai' = body?.mode === 'ai' ? 'ai' : 'data'
   const customPrompt: string | undefined = body?.customPrompt || undefined
 
   // 주차 + 수업 정보
@@ -207,36 +208,79 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     })
   }
 
-  try {
-    const generated = await generateSmsMessages(
-      { week_number: week.week_number, week_label: weekLabel, class_name: className, start_date: week.start_date },
-      studentInputs,
-      customPrompt
-    )
+  const studentDataByName = new Map(studentInputs.map((input) => [input.student_name, input]))
+  const studentMetaByName = new Map(classStudents.flatMap((cs) => {
+    const student = (cs.student as unknown) as {
+      id: string; name: string; phone: string | null
+      father_phone: string | null; mother_phone: string | null
+    } | null
+    if (!student) return []
 
-    // 학생 정보와 합치기
-    const messages = generated.map((g) => {
-      const cs = classStudents.find((c) => {
-        const s = (c.student as unknown) as { name: string } | null
-        return s?.name === g.student_name
+    return [[student.name, {
+      student_id: cs.student_id,
+      student_name: student.name,
+      phone: student.phone,
+      father_phone: student.father_phone,
+      mother_phone: student.mother_phone,
+      student_data: studentDataByName.get(student.name) ?? null,
+    }]]
+  }))
+
+  if (mode === 'ai') {
+    try {
+      const generated = await generateSmsMessages(
+        { week_number: week.week_number, week_label: weekLabel, class_name: className, start_date: week.start_date },
+        studentInputs,
+        customPrompt
+      )
+
+      const aiMessages = generated.map((g) => {
+        const meta = studentMetaByName.get(g.student_name)
+        return {
+          student_id: meta?.student_id ?? '',
+          student_name: g.student_name,
+          phone: meta?.phone ?? null,
+          father_phone: meta?.father_phone ?? null,
+          mother_phone: meta?.mother_phone ?? null,
+          message: g.message,
+          student_data: meta?.student_data ?? studentDataByName.get(g.student_name) ?? null,
+        }
       })
-      const student = (cs?.student as unknown) as {
-        id: string; name: string; phone: string | null
-        father_phone: string | null; mother_phone: string | null
-      } | null
-      return {
-        student_id: cs?.student_id ?? '',
-        student_name: g.student_name,
-        phone: student?.phone ?? null,
-        father_phone: student?.father_phone ?? null,
-        mother_phone: student?.mother_phone ?? null,
-        message: g.message,
-      }
-    })
 
-    return ok({ messages })
-  } catch (e) {
-    console.error('[POST /api/weeks/[id]/sms]', e)
-    return err('SMS 생성 실패', 500)
+      return ok({
+        class_name: className,
+        week_label: weekLabel,
+        start_date: week.start_date,
+        messages: aiMessages,
+      })
+    } catch (e) {
+      console.error('[POST /api/weeks/[id]/sms]', e)
+      return err('SMS 생성 실패', 500)
+    }
   }
+
+  const templateMessages = classStudents.flatMap((cs) => {
+    const student = (cs.student as unknown) as {
+      id: string; name: string; phone: string | null
+      father_phone: string | null; mother_phone: string | null
+    } | null
+    if (!student) return []
+
+    return [{
+      student_id: cs.student_id,
+      student_name: student.name,
+      phone: student.phone,
+      father_phone: student.father_phone,
+      mother_phone: student.mother_phone,
+      message: '',
+      student_data: studentDataByName.get(student.name) ?? null,
+    }]
+  })
+
+  return ok({
+    class_name: className,
+    week_label: weekLabel,
+    start_date: week.start_date,
+    messages: templateMessages,
+  })
 }
