@@ -1,4 +1,4 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeVocabPhoto } from '@/lib/anthropic'
 
 export const maxDuration = 60
@@ -8,11 +8,15 @@ type VocabWordForGrading = {
   number: number
   english_word: string
   correct_answer: string | null
+  test_word?: string | null
+  test_source?: string | null
 }
 
 type VocabTestItemForGrading = {
   test_number: number
   sort_order: number
+  prompt_source: string | null
+  prompt_text: string | null
   vocab_word: VocabWordForGrading | VocabWordForGrading[] | null
 }
 
@@ -29,6 +33,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!fileData || !mimeType || !studentId) {
     return err('필수 파라미터 없음')
   }
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보 없음', 404)
+  if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
+
+  const { data: weekRow } = await supabase
+    .from('week')
+    .select('class_id, vocab_source_type')
+    .eq('id', weekId)
+    .single()
+  if (!weekRow) return err('주차 없음', 404)
+  const { data: classStudent } = await supabase
+    .from('class_student')
+    .select('student_id')
+    .eq('class_id', weekRow.class_id)
+    .eq('student_id', studentId)
+    .maybeSingle()
+  if (!classStudent) return err('해당 수업 학생이 아닙니다', 403)
 
   // ── 1. 활성 시험지가 있으면 시험지 문항 기준, 없으면 기존 vocab_word 기준 ──
   const { data: activeTest } = await supabase
@@ -44,7 +65,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (activeTest) {
     const { data } = await supabase
       .from('vocab_test_item')
-      .select('test_number, sort_order, vocab_word(id, number, english_word, correct_answer)')
+      .select('test_number, sort_order, prompt_source, prompt_text, vocab_word(id, number, english_word, correct_answer)')
       .eq('vocab_test_id', activeTest.id)
       .order('sort_order')
     testItems = (data ?? []) as unknown as VocabTestItemForGrading[]
@@ -55,13 +76,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .select('id, number, english_word, correct_answer')
     .eq('week_id', weekId)
 
+  if (!activeTest && weekRow.vocab_source_type && weekRow.vocab_source_type !== 'legacy' && (existingVocabWords?.length ?? 0) > 0) {
+    return err('시험용 단어를 먼저 선택해주세요', 422)
+  }
+
   const gradingWords: VocabWordForGrading[] = testItems.length > 0
     ? testItems
-        .map((item) => {
+        .flatMap((item) => {
           const word = one(item.vocab_word)
-          return word ? { ...word, number: item.test_number } : null
+          if (!word) return []
+          return [{
+            ...word,
+            number: item.test_number,
+            test_word: item.prompt_text || word.english_word,
+            test_source: item.prompt_source ?? 'word',
+          }]
         })
-        .filter((word): word is VocabWordForGrading => word !== null)
     : (existingVocabWords ?? []) as VocabWordForGrading[]
 
   const correctAnswerMap = new Map<number, string | null>(
@@ -158,8 +188,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   // OCR 번호 이탈 대비: 번호 매칭 실패 시 english_word로 fallback 매칭
   const vocabWordByEnglish = new Map(
-    gradingWords.map((w) => [w.english_word.toLowerCase(), w.id])
+    gradingWords.flatMap((w) => [
+      [w.english_word.toLowerCase(), w.id] as const,
+      ...(w.test_word ? [[w.test_word.toLowerCase(), w.id] as const] : []),
+    ])
   )
+  const gradingWordById = new Map(gradingWords.map((w) => [w.id, w]))
   const answerInserts = results
     .map((r) => {
       let vocabWordId = vocabWordMap.get(r.number)
@@ -173,10 +207,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       if (!vocabWordId) return null
       // teacher_locked 항목은 기존 is_correct + student_answer 모두 보존
       const locked = lockedMap.get(vocabWordId)
+      const gradingWord = gradingWordById.get(vocabWordId)
       return {
         week_score_id: score.id,
         vocab_word_id: vocabWordId,
-        test_number: locked ? locked.test_number : r.number,
+        test_number: r.number,
+        test_word: gradingWord?.test_word ?? r.english_word,
+        test_source: gradingWord?.test_source ?? (activeTest ? 'word' : null),
         student_answer: locked ? locked.student_answer : (r.student_answer || null),
         is_correct: locked ? locked.is_correct : r.is_correct,
       }

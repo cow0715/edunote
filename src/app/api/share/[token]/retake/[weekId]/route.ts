@@ -6,6 +6,7 @@ import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
 type Params = { token: string; weekId: string }
 
 type VocabWordRow = {
+  id: string
   number: number
   english_word: string
   correct_answer: string | null
@@ -61,19 +62,36 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
   // 원본 오답 전체 조회
   const { data: wrongAnswers } = await supabase
     .from('student_vocab_answer')
-    .select('id, test_number, retake_answer, retake_is_correct, vocab_word(id, number, english_word, correct_answer, synonyms, antonyms, example_sentence, example_translation)')
+    .select('id, test_number, test_word, test_source, retake_answer, retake_is_correct, vocab_word(id, number, english_word, correct_answer, synonyms, antonyms, example_sentence, example_translation)')
     .eq('week_score_id', score.id)
     .eq('is_correct', false)
     .order('id')
+
+  const { data: activeTest } = await supabase
+    .from('vocab_test')
+    .select('id')
+    .eq('week_id', weekId)
+    .eq('is_active', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const { data: activeTestItems } = activeTest?.id
+    ? await supabase
+        .from('vocab_test_item')
+        .select('vocab_word_id, test_number, prompt_text, prompt_source')
+        .eq('vocab_test_id', activeTest.id)
+    : { data: [] }
+  const testItemByWordId = new Map((activeTestItems ?? []).map((item) => [item.vocab_word_id, item]))
 
   const allWrong = (wrongAnswers ?? [])
     .filter((a) => a.vocab_word)
     .map((a) => {
       const vw = one(a.vocab_word) as VocabWordRow
+      const testItem = testItemByWordId.get(vw.id)
       return {
         answer_id: a.id,
-        number: a.test_number ?? vw.number,
-        english_word: vw.english_word,
+        number: a.test_number ?? testItem?.test_number ?? vw.number,
+        english_word: a.test_word ?? testItem?.prompt_text ?? vw.english_word,
         correct_answer: vw.correct_answer,
         synonyms: vw.synonyms ?? null,
         antonyms: vw.antonyms ?? null,

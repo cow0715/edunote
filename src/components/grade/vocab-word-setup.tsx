@@ -24,6 +24,8 @@ type VocabTestItem = {
   vocab_word_id: string
   test_number: number
   sort_order: number
+  prompt_source?: VocabTestPromptSource | null
+  prompt_text?: string | null
   vocab_word: VocabEntry | null
 }
 
@@ -33,6 +35,13 @@ type VocabTest = {
   item_count: number
   is_active: boolean
   items: VocabTestItem[]
+}
+
+type VocabTestPromptSource = 'word' | 'synonym' | 'derivative'
+
+type SelectedPrompt = {
+  prompt_source: VocabTestPromptSource
+  prompt_text: string
 }
 
 function readFileAsBase64(file: File): Promise<string> {
@@ -56,6 +65,32 @@ function formatWordList(value: string[] | null | undefined) {
   return (value ?? []).filter(Boolean).join(', ')
 }
 
+function splitVariantText(value: string | null | undefined) {
+  return (value ?? '')
+    .split(/[,/;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function shuffle<T>(items: T[]) {
+  const next = [...items]
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[next[i], next[j]] = [next[j], next[i]]
+  }
+  return next
+}
+
+function randomItem(items: string[]) {
+  return items[Math.floor(Math.random() * items.length)]
+}
+
+function promptLabel(source: VocabTestPromptSource | null | undefined) {
+  if (source === 'synonym') return '유의어'
+  if (source === 'derivative') return '파생어'
+  return '원본'
+}
+
 export function VocabWordSetup({ weekId }: { weekId: string }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const legacyInputRef = useRef<HTMLInputElement>(null)
@@ -66,6 +101,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const [editWords, setEditWords] = useState<VocabEntry[]>([])
   const [activeTest, setActiveTest] = useState<VocabTest | null>(null)
   const [selectedWordIds, setSelectedWordIds] = useState<string[]>([])
+  const [selectedPrompts, setSelectedPrompts] = useState<Record<string, SelectedPrompt>>({})
   const [testSearch, setTestSearch] = useState('')
   const [testPassageFilter, setTestPassageFilter] = useState('all')
   const [randomPickCount, setRandomPickCount] = useState(50)
@@ -110,13 +146,19 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     if (!res.ok) return
     const data = await res.json() as { activeTest: VocabTest | null }
     const test = data.activeTest ?? null
+    const sortedItems = (test?.items ?? []).slice().sort((a, b) => a.sort_order - b.sort_order)
     setActiveTest(test)
-    setSelectedWordIds(
-      (test?.items ?? [])
-        .slice()
-        .sort((a, b) => a.sort_order - b.sort_order)
-        .map((item) => item.vocab_word_id)
-    )
+    setSelectedWordIds(sortedItems.map((item) => item.vocab_word_id))
+    setSelectedPrompts(Object.fromEntries(sortedItems.map((item) => {
+      const fallback = item.vocab_word?.english_word ?? ''
+      return [
+        item.vocab_word_id,
+        {
+          prompt_source: item.prompt_source ?? 'word',
+          prompt_text: item.prompt_text ?? fallback,
+        } satisfies SelectedPrompt,
+      ]
+    })))
   }, [weekId])
 
   useEffect(() => {
@@ -161,6 +203,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       }
       qc.invalidateQueries({ queryKey: ['week', weekId] })
       qc.invalidateQueries({ queryKey: ['weeks'] })
+      qc.invalidateQueries({ queryKey: ['grade', weekId] })
       toast.success(`단어 ${data.saved}개 저장 완료`)
       await loadSavedWords()
       await loadActiveTest()
@@ -231,6 +274,15 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         body: JSON.stringify({
           title: `단어시험 ${selectedWordIds.length}문항`,
           wordIds: selectedWordIds,
+          items: selectedWordIds.map((wordId) => {
+            const word = savedWordsWithIds.find((item) => item.id === wordId)
+            const prompt = selectedPrompts[wordId]
+            return {
+              wordId,
+              promptSource: prompt?.prompt_source ?? 'word',
+              promptText: prompt?.prompt_text ?? word?.english_word ?? '',
+            }
+          }),
         }),
       })
       const data = await res.json()
@@ -241,6 +293,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       toast.success(`${selectedWordIds.length}문항 시험지가 저장되었습니다`)
       qc.invalidateQueries({ queryKey: ['week', weekId] })
       qc.invalidateQueries({ queryKey: ['weeks'] })
+      qc.invalidateQueries({ queryKey: ['grade', weekId] })
       await loadActiveTest()
     } catch {
       toast.error('시험지 저장 중 오류가 발생했습니다')
@@ -250,11 +303,22 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   }
 
   function toggleTestWord(wordId: string) {
-    setSelectedWordIds((prev) =>
-      prev.includes(wordId)
-        ? prev.filter((id) => id !== wordId)
-        : [...prev, wordId]
-    )
+    setSelectedWordIds((prev) => {
+      if (prev.includes(wordId)) {
+        setSelectedPrompts((prompts) => {
+          const next = { ...prompts }
+          delete next[wordId]
+          return next
+        })
+        return prev.filter((id) => id !== wordId)
+      }
+      const word = savedWordsWithIds.find((item) => item.id === wordId)
+      setSelectedPrompts((prompts) => ({
+        ...prompts,
+        [wordId]: { prompt_source: 'word', prompt_text: word?.english_word ?? '' },
+      }))
+      return [...prev, wordId]
+    })
   }
 
   function moveSelectedWord(wordId: string, direction: -1 | 1) {
@@ -274,13 +338,44 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       return
     }
     const count = Math.max(1, Math.min(randomPickCount, filteredTestWords.length))
-    const pool = [...filteredTestWords]
-    for (let i = pool.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1))
-      ;[pool[i], pool[j]] = [pool[j], pool[i]]
+    const selected: Array<VocabEntry & { id: string }> = []
+    const prompts: Record<string, SelectedPrompt> = {}
+    const usedIds = new Set<string>()
+    const originalTarget = Math.round(count * 0.5)
+    const synonymTarget = Math.round(count * 0.25)
+    const derivativeTarget = count - originalTarget - synonymTarget
+
+    function addWords(
+      source: VocabTestPromptSource,
+      target: number,
+      candidates: Array<VocabEntry & { id: string }>,
+      getPromptText: (word: VocabEntry & { id: string }) => string
+    ) {
+      for (const word of shuffle(candidates)) {
+        if (selected.length >= count || target <= 0) break
+        if (usedIds.has(word.id)) continue
+        const promptText = getPromptText(word)
+        if (!promptText) continue
+        selected.push(word)
+        usedIds.add(word.id)
+        prompts[word.id] = { prompt_source: source, prompt_text: promptText }
+        target -= 1
+      }
     }
-    setSelectedWordIds(pool.slice(0, count).map((word) => word.id))
-    toast.success(`${count}개 단어를 랜덤 선택했습니다`)
+
+    addWords('derivative', derivativeTarget, filteredTestWords.filter((word) => splitVariantText(word.derivatives).length > 0), (word) => randomItem(splitVariantText(word.derivatives)))
+    addWords('synonym', synonymTarget, filteredTestWords.filter((word) => (word.synonyms ?? []).length > 0), (word) => randomItem(word.synonyms ?? []))
+    addWords('word', originalTarget, filteredTestWords, (word) => word.english_word)
+    addWords('word', count - selected.length, filteredTestWords, (word) => word.english_word)
+
+    setSelectedWordIds(selected.map((word) => word.id))
+    setSelectedPrompts(prompts)
+    const counts = selected.reduce<Record<VocabTestPromptSource, number>>((acc, word) => {
+      const source = prompts[word.id]?.prompt_source ?? 'word'
+      acc[source] += 1
+      return acc
+    }, { word: 0, synonym: 0, derivative: 0 })
+    toast.success(`${selected.length}개 선택: 원본 ${counts.word}, 유의어 ${counts.synonym}, 파생어 ${counts.derivative}`)
   }
 
   function updateWord(index: number, field: keyof VocabEntry, value: string) {
@@ -504,14 +599,28 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                 size="sm"
                 className="shrink-0"
                 onClick={() => {
+                  const visibleIds = new Set(filteredTestWords.map((word) => word.id))
                   setSelectedWordIds((prev) => {
                     if (allFilteredSelected) {
-                      const visibleIds = new Set(filteredTestWords.map((word) => word.id))
                       return prev.filter((id) => !visibleIds.has(id))
                     }
                     const next = [...prev]
                     for (const word of filteredTestWords) {
                       if (!next.includes(word.id)) next.push(word.id)
+                    }
+                    return next
+                  })
+                  setSelectedPrompts((prev) => {
+                    if (allFilteredSelected) {
+                      const next = { ...prev }
+                      for (const id of visibleIds) delete next[id]
+                      return next
+                    }
+                    const next = { ...prev }
+                    for (const word of filteredTestWords) {
+                      if (!next[word.id]) {
+                        next[word.id] = { prompt_source: 'word', prompt_text: word.english_word }
+                      }
                     }
                     return next
                   })
@@ -574,38 +683,50 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
           <aside className="bg-gray-50">
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
               <p className="text-xs font-bold text-gray-700">선택된 시험 문항</p>
-              <button type="button" onClick={() => setSelectedWordIds([])} className="text-[11px] font-semibold text-gray-400 hover:text-gray-600">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedWordIds([])
+                  setSelectedPrompts({})
+                }}
+                className="text-[11px] font-semibold text-gray-400 hover:text-gray-600"
+              >
                 비우기
               </button>
             </div>
             <div className="max-h-[520px] divide-y divide-gray-100 overflow-y-auto">
               {selectedWords.length === 0 ? (
                 <p className="px-4 py-8 text-center text-xs text-gray-400">선택한 단어가 없습니다.</p>
-              ) : selectedWords.map((word, index) => (
-                <div key={word.id} className="flex items-start gap-2 px-3 py-2.5">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
-                    {index + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-bold text-gray-900">{word.english_word}</p>
-                    <p className="truncate text-[11px] text-gray-500">{word.correct_answer}</p>
-                    <p className="truncate text-[10px] text-gray-400">
-                      {[word.passage_label ? `지문 ${word.passage_label}` : null, word.part_of_speech, formatWordList(word.synonyms)].filter(Boolean).join(' · ')}
-                    </p>
+              ) : selectedWords.map((word, index) => {
+                const prompt = selectedPrompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word }
+                return (
+                  <div key={word.id} className="flex items-start gap-2 px-3 py-2.5">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-bold text-gray-900">{prompt.prompt_text}</p>
+                      <p className="truncate text-[11px] text-gray-500">
+                        {promptLabel(prompt.prompt_source)} · 뜻 {word.correct_answer || '-'}
+                      </p>
+                      <p className="truncate text-[10px] text-gray-400">
+                        {[word.passage_label ? `지문 ${word.passage_label}` : null, word.part_of_speech, prompt.prompt_source !== 'word' ? `원본 ${word.english_word}` : formatWordList(word.synonyms)].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <button type="button" aria-label="위로 이동" onClick={() => moveSelectedWord(word.id, -1)} className="rounded p-1 text-gray-400 hover:bg-white hover:text-gray-700">
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button type="button" aria-label="아래로 이동" onClick={() => moveSelectedWord(word.id, 1)} className="rounded p-1 text-gray-400 hover:bg-white hover:text-gray-700">
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </button>
+                      <button type="button" aria-label="선택 해제" onClick={() => toggleTestWord(word.id)} className="rounded p-1 text-rose-400 hover:bg-white hover:text-rose-600">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex shrink-0 gap-1">
-                    <button type="button" aria-label="위로 이동" onClick={() => moveSelectedWord(word.id, -1)} className="rounded p-1 text-gray-400 hover:bg-white hover:text-gray-700">
-                      <ArrowUp className="h-3.5 w-3.5" />
-                    </button>
-                    <button type="button" aria-label="아래로 이동" onClick={() => moveSelectedWord(word.id, 1)} className="rounded p-1 text-gray-400 hover:bg-white hover:text-gray-700">
-                      <ArrowDown className="h-3.5 w-3.5" />
-                    </button>
-                    <button type="button" aria-label="선택 해제" onClick={() => toggleTestWord(word.id)} className="rounded p-1 text-rose-400 hover:bg-white hover:text-rose-600">
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </aside>
         </div>

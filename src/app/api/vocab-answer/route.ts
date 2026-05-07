@@ -1,7 +1,39 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertWeekOwner, err, ok, SupabaseServerClient } from '@/lib/api'
 import { gradeVocabItems } from '@/lib/anthropic'
 
 export const maxDuration = 60
+
+type AnswerOwnerRow = {
+  id: string
+  week_score_id: string
+  week_score: { week_id: string } | { week_id: string }[] | null
+}
+
+function one<T>(value: T | T[] | null | undefined): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null
+}
+
+async function getOwnedAnswerRows(supabase: SupabaseServerClient, authId: string, answerIds: string[]) {
+  const teacherId = await getTeacherId(supabase, authId)
+  if (!teacherId) return { error: err('강사 정보 없음', 404) }
+
+  const { data, error } = await supabase
+    .from('student_vocab_answer')
+    .select('id, week_score_id, week_score(week_id)')
+    .in('id', answerIds)
+
+  if (error) return { error: err(error.message, 500) }
+  const rows = (data ?? []) as unknown as AnswerOwnerRow[]
+  if (rows.length !== answerIds.length) return { error: err('답안을 찾을 수 없습니다', 404) }
+
+  const weekIds = [...new Set(rows.map((row) => one(row.week_score)?.week_id).filter((id): id is string => !!id))]
+  if (weekIds.length === 0) return { error: err('답안 주차를 찾을 수 없습니다', 404) }
+  for (const weekId of weekIds) {
+    if (!await assertWeekOwner(supabase, weekId, teacherId)) return { error: err('접근 권한 없음', 403) }
+  }
+
+  return { rows }
+}
 
 export async function PATCH(request: Request) {
   const { supabase, user } = await getAuth()
@@ -9,6 +41,9 @@ export async function PATCH(request: Request) {
 
   const { id, week_score_id, student_answer, is_correct, teacher_locked } = await request.json()
   if (!id) return err('id 필요')
+  const owned = await getOwnedAnswerRows(supabase, user.id, [id])
+  if ('error' in owned) return owned.error
+  const actualWeekScoreId = owned.rows[0]?.week_score_id
 
   const { error } = await supabase
     .from('student_vocab_answer')
@@ -22,13 +57,13 @@ export async function PATCH(request: Request) {
   if (error) return err(error.message, 500)
 
   // vocab_correct 재계산 (빈 문자열 방어)
-  if (week_score_id) {
+  if (actualWeekScoreId || week_score_id) {
     const { data: all } = await supabase
       .from('student_vocab_answer')
       .select('is_correct')
-      .eq('week_score_id', week_score_id)
+      .eq('week_score_id', actualWeekScoreId ?? week_score_id)
     const vocabCorrect = (all ?? []).filter((a) => a.is_correct).length
-    await supabase.from('week_score').update({ vocab_correct: vocabCorrect }).eq('id', week_score_id)
+    await supabase.from('week_score').update({ vocab_correct: vocabCorrect }).eq('id', actualWeekScoreId ?? week_score_id)
   }
 
   return ok({ ok: true })
@@ -44,6 +79,9 @@ export async function POST(request: Request) {
     items: { id: string; number: number; english_word: string; student_answer: string | null }[]
   }
   if (!items?.length) return err('items 필요')
+  const owned = await getOwnedAnswerRows(supabase, user.id, items.map((i) => i.id))
+  if ('error' in owned) return owned.error
+  const actualWeekScoreId = owned.rows[0]?.week_score_id
 
   // correct_answer 조회 (student_vocab_answer → vocab_word)
   const { data: answerDetails } = await supabase
@@ -79,13 +117,13 @@ export async function POST(request: Request) {
   }))
 
   // vocab_correct 재계산 (weekScoreId 빈 문자열 방어)
-  if (weekScoreId) {
+  if (actualWeekScoreId || weekScoreId) {
     const { data: all } = await supabase
       .from('student_vocab_answer')
       .select('is_correct')
-      .eq('week_score_id', weekScoreId)
+      .eq('week_score_id', actualWeekScoreId ?? weekScoreId)
     const vocabCorrect = (all ?? []).filter((a) => a.is_correct).length
-    await supabase.from('week_score').update({ vocab_correct: vocabCorrect }).eq('id', weekScoreId)
+    await supabase.from('week_score').update({ vocab_correct: vocabCorrect }).eq('id', actualWeekScoreId ?? weekScoreId)
   }
 
   return ok({ ok: true, results: graded })

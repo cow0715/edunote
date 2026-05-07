@@ -8,7 +8,7 @@ import { GradeRow } from '@/hooks/use-grade'
 import { cn } from '@/lib/utils'
 import { VocabPhotoButton } from './vocab-photo-button'
 
-export type VocabAnswerRow = { id: string; number: number; source_number?: number; english_word: string; student_answer: string | null; is_correct: boolean; teacher_locked: boolean }
+export type VocabAnswerRow = { id: string; number: number; source_number?: number; english_word: string; test_word?: string | null; test_source?: string | null; student_answer: string | null; is_correct: boolean; teacher_locked: boolean }
 
 export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, vocabPhotoPath, updateRow }: {
   row: GradeRow
@@ -67,7 +67,7 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           weekScoreId: weekScoreId || undefined,
-          items: itemsToRegrade.map((a) => ({ id: a.id, number: a.number, english_word: a.english_word, student_answer: a.student_answer })),
+          items: itemsToRegrade.map((a) => ({ id: a.id, number: a.number, english_word: a.test_word ?? a.english_word, student_answer: a.student_answer })),
         }),
       })
       const data = await resp.json()
@@ -159,7 +159,7 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
                 a.teacher_locked ? 'bg-blue-50' : dirtyIds.has(a.id) ? 'bg-amber-50' : ''
               )}>
                 <span className="text-gray-300 w-5 shrink-0 text-right">{a.number}.</span>
-                <span className="font-mono text-gray-600 shrink-0 w-24 truncate">{a.english_word}</span>
+                <span className="font-mono text-gray-600 shrink-0 w-24 truncate">{a.test_word ?? a.english_word}</span>
                 <span className="text-gray-300 shrink-0">→</span>
                 <input
                   className="flex-1 min-w-0 border-b border-gray-200 bg-transparent text-xs outline-none focus:border-indigo-400 px-0.5"
