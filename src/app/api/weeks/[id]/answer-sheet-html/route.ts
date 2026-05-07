@@ -66,7 +66,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   // A4(297mm) - 상하마진(20mm) - 제목+학교/이름(16mm) - 여유(6mm) = 255mm
   // 객관식: 고정 높이 / 서술형: 남은 공간 균등 분배, 단 상한값으로 캡
   const availMm = 255
-  const shortPt = 28
+  const shortPt = 36
   const tallMaxPt = 120
   const shortMm = shortPt / 2.835
   const remainingMm = Math.max(0, availMm - shortCount * shortMm)
@@ -78,10 +78,10 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const answerColSpan = maxSubs * 2
 
   const trStyle = (h: number) => `style="height:${h}pt;mso-height-rule:exactly;"`
-  const qnumAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:2pt;width:36pt;text-align:center;font-weight:bold;background:#fde3c4;vertical-align:middle;"`
-  const subHdrAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:2pt;font-size:12px;width:22pt;text-align:center;font-weight:bold;background:#f5f5f5;vertical-align:middle;"`
-  const subCellAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:2pt;font-size:12px;vertical-align:middle;"`
-  const answerAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:2pt 4pt;font-size:13px;vertical-align:middle;"`
+  const qnumAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:4pt 3pt;width:36pt;text-align:center;font-weight:bold;background:#fde3c4;vertical-align:middle;"`
+  const subHdrAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:4pt 3pt;font-size:13px;width:22pt;text-align:center;font-weight:bold;background:#f5f5f5;vertical-align:middle;"`
+  const subCellAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:4pt 3pt;font-size:14px;vertical-align:middle;"`
+  const answerAttr = `border="1" bordercolor="#000000" style="border:1px solid #000;padding:4pt 5pt;font-size:14px;vertical-align:middle;"`
 
   // 테이블 행 생성
   const rows: string[] = []
@@ -92,7 +92,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     const tr = trStyle(isShort ? shortPt : tallPt)
 
     if ((style === 'objective' || style === 'multi_select') && !hasSub) {
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:16px;">① &nbsp; ② &nbsp; ③ &nbsp; ④ &nbsp; ⑤</span></td></tr>`)
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:18px;">① &nbsp;&nbsp; ② &nbsp;&nbsp; ③ &nbsp;&nbsp; ④ &nbsp;&nbsp; ⑤</span></td></tr>`)
     } else if ((style === 'objective' || style === 'multi_select') && hasSub) {
       const cells = group.map((q) =>
         `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}><span style="font-size:14px;">① ② ③ ④ ⑤</span></td>`
