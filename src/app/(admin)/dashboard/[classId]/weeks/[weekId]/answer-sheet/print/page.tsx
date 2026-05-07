@@ -57,8 +57,8 @@ function buildRows(questions: QuestionRow[]): RowInfo[] {
 function ObjectiveMarks() {
   return (
     <div className="flex items-center gap-5 text-[16px] font-semibold">
-      {[1, 2, 3, 4, 5].map((n) => (
-        <span key={n}>{n}</span>
+      {['①', '②', '③', '④', '⑤'].map((mark) => (
+        <span key={mark}>{mark}</span>
       ))}
     </div>
   )

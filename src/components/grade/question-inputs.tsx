@@ -6,107 +6,26 @@ import { Textarea } from '@/components/ui/textarea'
 import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
-const OBJECTIVE_CHOICES = [1, 2, 3, 4, 5] as const
-const CIRCLED_NUMBERS = ['', '①', '②', '③', '④', '⑤'] as const
-const CIRCLED_TO_NUMBER: Record<string, number> = {
-  '①': 1,
-  '②': 2,
-  '③': 3,
-  '④': 4,
-  '⑤': 5,
-}
-
-function formatChoiceToken(token: string) {
-  const trimmed = token.trim()
-  const n = Number.parseInt(trimmed, 10)
-  return Number.isFinite(n) && n >= 1 && n <= 5
-    ? CIRCLED_NUMBERS[n as 1 | 2 | 3 | 4 | 5]
-    : trimmed
-}
-
-function formatChoiceText(text: string) {
-  return text
-    .split(',')
-    .map(formatChoiceToken)
-    .filter(Boolean)
-    .join(' ')
-}
-
-function parseSelectedChoices(text: string) {
-  return new Set(
-    text
-      .split(',')
-      .flatMap((part) => part.trim().split(/\s+/))
-      .map((part) => CIRCLED_TO_NUMBER[part] ?? Number.parseInt(part, 10))
-      .filter((n) => Number.isFinite(n) && n >= 1 && n <= 5),
-  )
-}
-
 // ── 객관식 버튼 ────────────────────────────────────────
 export const ObjectiveInput = memo(function ObjectiveInput({
   value, onChange, disabled,
 }: { value: number | null; onChange: (n: number | null) => void; disabled: boolean }) {
   return (
-    <div className="flex gap-1.5">
-      {OBJECTIVE_CHOICES.map((n) => (
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map((n) => (
         <button
           key={n}
           type="button"
-          aria-label={`${n}번 선택`}
-          aria-pressed={value === n}
           disabled={disabled}
           onClick={() => onChange(value === n ? null : n)}
           className={cn(
-            'flex h-9 w-9 items-center justify-center rounded-full border text-[17px] font-semibold leading-none transition-colors',
-            value === n
-              ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
-              : 'border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:bg-blue-50',
-            disabled && 'cursor-not-allowed opacity-50 hover:border-gray-300 hover:bg-white',
+            'flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium transition-colors',
+            value === n ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
           )}
         >
-          {CIRCLED_NUMBERS[n]}
+          {n}
         </button>
       ))}
-    </div>
-  )
-})
-
-export const MultiSelectInput = memo(function MultiSelectInput({
-  value, onChange, disabled,
-}: { value: string; onChange: (text: string) => void; disabled: boolean }) {
-  const selected = parseSelectedChoices(value)
-
-  function toggle(n: number) {
-    const next = new Set(selected)
-    if (next.has(n)) next.delete(n)
-    else next.add(n)
-    onChange([...next].sort((a, b) => a - b).join(','))
-  }
-
-  return (
-    <div className="flex gap-1.5">
-      {OBJECTIVE_CHOICES.map((n) => {
-        const checked = selected.has(n)
-        return (
-          <button
-            key={n}
-            type="button"
-            aria-label={`${n}번 선택`}
-            aria-pressed={checked}
-            disabled={disabled}
-            onClick={() => toggle(n)}
-            className={cn(
-              'flex h-9 w-9 items-center justify-center rounded-full border text-[17px] font-semibold leading-none transition-colors',
-              checked
-                ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
-                : 'border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:bg-blue-50',
-              disabled && 'cursor-not-allowed opacity-50 hover:border-gray-300 hover:bg-white',
-            )}
-          >
-            {CIRCLED_NUMBERS[n]}
-          </button>
-        )
-      })}
     </div>
   )
 })
@@ -224,10 +143,7 @@ export const GroupedQuestionRow = memo(function GroupedQuestionRow({
               )}
               {q.correct_answer ? (
                 <span className="text-xs text-indigo-400 font-medium shrink-0">
-                  {[q.correct_answer, ...(q.extra_correct_answers ?? [])]
-                    .filter((n) => n > 0)
-                    .map((n) => CIRCLED_NUMBERS[n as 1 | 2 | 3 | 4 | 5] ?? String(n))
-                    .join(' ')}
+                  {[q.correct_answer, ...(q.extra_correct_answers ?? [])].filter((n) => n > 0).join(',')}번
                 </span>
               ) : null}
             </div>
@@ -245,12 +161,8 @@ function AnswerKey({ q }: { q: ExamQuestion }) {
     if (!q.correct_answer) { text = null }
     else {
       const all = [q.correct_answer, ...(q.extra_correct_answers ?? [])].filter((n) => n > 0)
-      text = all
-        .map((n) => CIRCLED_NUMBERS[n as 1 | 2 | 3 | 4 | 5] ?? String(n))
-        .join(' ')
+      text = all.length > 1 ? all.join(',') + '번' : `${q.correct_answer}번`
     }
-  } else if (q.question_style === 'multi_select') {
-    text = q.correct_answer_text ? formatChoiceText(q.correct_answer_text) : null
   } else {
     text = q.correct_answer_text || null
   }
@@ -350,7 +262,13 @@ export const QuestionRow = memo(function QuestionRow({
         })()}
         {q.question_style === 'multi_select' && (
           <>
-            <MultiSelectInput value={answer?.student_answer_text ?? ''} onChange={onChangeText} disabled={disabled} />
+            <Input
+              value={answer?.student_answer_text ?? ''}
+              onChange={(e) => onChangeText(e.target.value)}
+              disabled={disabled}
+              placeholder={`예: ${q.correct_answer_text ?? '1,3'}`}
+              className="h-8 w-36 text-sm"
+            />
             {hasAnswer && <CorrectChip isCorrect={answer?.is_correct} />}
             <AnswerKey q={q} />
           </>
