@@ -41,12 +41,12 @@ function buildRows(questions: QuestionRow[]): RowInfo[] {
   const shortCount = baseRows.filter((row) => row.isShort).length
   const tallCount = baseRows.length - shortCount
   const availMm = 255
-  const shortPt = 28
+  const shortPt = 36
   const tallMaxPt = 120
   const shortMm = shortPt / 2.835
   const remainingMm = Math.max(0, availMm - shortCount * shortMm)
   const tallPtRaw = tallCount > 0 ? Math.floor((remainingMm / tallCount) * 2.835) : 0
-  const tallPt = Math.max(36, Math.min(tallPtRaw, tallMaxPt))
+  const tallPt = Math.max(44, Math.min(tallPtRaw, tallMaxPt))
 
   return baseRows.map((row) => ({
     ...row,
@@ -56,7 +56,7 @@ function buildRows(questions: QuestionRow[]): RowInfo[] {
 
 function ObjectiveMarks() {
   return (
-    <div className="flex items-center gap-5 text-[16px] font-semibold">
+    <div className="flex items-center gap-6 text-[18px] font-semibold">
       {['①', '②', '③', '④', '⑤'].map((mark) => (
         <span key={mark}>{mark}</span>
       ))}
@@ -220,7 +220,7 @@ export default async function AnswerSheetPrintPage({
 
         .answer-table td {
           border: 1px solid #000;
-          padding: 2pt 4pt;
+          padding: 4pt 5pt;
           vertical-align: middle;
         }
 
@@ -232,19 +232,19 @@ export default async function AnswerSheetPrintPage({
         }
 
         .answer-cell {
-          font-size: 13px;
+          font-size: 14px;
         }
 
         .sub-header {
           width: 26pt;
           text-align: center;
-          font-size: 12px;
+          font-size: 13px;
           font-weight: 800;
           background: #f5f5f5;
         }
 
         .sub-answer {
-          font-size: 12px;
+          font-size: 14px;
         }
 
         @media print {
