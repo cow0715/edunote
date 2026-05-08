@@ -1145,8 +1145,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                             {hasVocabFilters ? `${vocabActiveFilterCount}개 조건 적용 중` : '전체 단어 표시 중'}
                           </span>
                         </span>
-                        <span className="flex shrink-0 items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#2463EB] shadow-sm dark:bg-[#0F172A] dark:text-blue-300">
-                          {vocabLookupOpen ? '접기' : '펼치기'}
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[#2463EB] shadow-sm dark:bg-[#0F172A] dark:text-blue-300">
                           {vocabLookupOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                         </span>
                       </button>
