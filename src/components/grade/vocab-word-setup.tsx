@@ -505,7 +505,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
 
     const key = `clinic-vocab-test:${weekId}:${Date.now()}`
     const payload = {
-      title: `클리닉 단어시험 ${selected.length}문항`,
+      title: `어휘시험 ${selected.length}문항`,
       createdAt: new Date().toISOString(),
       items: selected.map((word, index) => {
         const prompt = prompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word }
@@ -644,8 +644,6 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   })
   const allFilteredSelected = filteredTestWords.length > 0 && filteredTestWords.every((word) => selectedSet.has(word.id))
   const clinicPickCount = Math.max(1, Math.min(randomPickCount, Math.max(1, filteredTestWords.length)))
-  const clinicScopeLabel = testPassageFilter === 'all' ? '전체 지문' : `지문 ${testPassageFilter}`
-  const clinicSearchLabel = searchQuery ? `검색 "${testSearch.trim()}"` : '검색어 없음'
 
   return (
     <div className="space-y-4">
@@ -684,36 +682,39 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
               {activeTest && <span className="ml-1 text-blue-600">현재 시험지 {activeTest.item_count}문항</span>}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {activeTest && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const url = window.location.pathname.replace(/\/$/, '') + `/vocab-test/${activeTest.id}/print`
-                    window.open(url, '_blank')
-                  }}
-                >
-                  <Printer className="mr-1.5 h-3.5 w-3.5" />
-                  학생 답안용
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const url = window.location.pathname.replace(/\/$/, '') + `/vocab-test/${activeTest.id}/grading-print`
-                    window.open(url, '_blank')
-                  }}
-                >
-                  <Printer className="mr-1.5 h-3.5 w-3.5" />
-                  채점용 인쇄
-                </Button>
-              </>
-            )}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-bold text-gray-400">시험지 인쇄</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (!activeTest) {
+                    alert('먼저 시험지를 저장해 주세요.')
+                    return
+                  }
+                  const url = window.location.pathname.replace(/\/$/, '') + `/vocab-test/${activeTest.id}/print`
+                  window.open(url, '_blank')
+                }}
+              >
+                <Printer className="mr-1.5 h-3.5 w-3.5" />
+                정규 시험지
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openClinicPrint('student')}
+                disabled={filteredTestWords.length === 0}
+                title={`현재 표시된 단어 ${filteredTestWords.length}개 중 ${clinicPickCount}문항을 뽑아 저장 없이 인쇄합니다.`}
+              >
+                <Dice5 className="mr-1.5 h-3.5 w-3.5" />
+                보충 시험지
+              </Button>
+            </div>
+            <span className="mx-1 hidden h-6 w-px bg-gray-200 sm:block" />
             <Button size="sm" onClick={saveVocabTest} disabled={testSaving || selectedWordIds.length === 0}>
               {testSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />}
-              {selectedWordIds.length}문항 저장
+              {selectedWordIds.length}문항 시험지 저장
             </Button>
           </div>
         </div>
@@ -810,44 +811,6 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
               >
                 {allFilteredSelected ? '보이는 단어 해제' : '보이는 단어 선택'}
               </Button>
-            </div>
-
-            <div className="border-b border-blue-100 bg-blue-50/45 px-4 py-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-xs font-black text-blue-950">클리닉 랜덤 출력</p>
-                    <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-blue-600 shadow-[0_1px_8px_rgba(36,99,235,0.06)]">
-                      저장 안 함
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[11px] leading-4 text-blue-700">
-                    {clinicScopeLabel} · {clinicSearchLabel} · {filteredTestWords.length}개 중 {clinicPickCount}문항 랜덤
-                  </p>
-                </div>
-                <div className="flex shrink-0 flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-blue-200 bg-white text-blue-700 hover:bg-blue-50 hover:text-blue-800"
-                    onClick={() => openClinicPrint('student')}
-                    disabled={filteredTestWords.length === 0}
-                  >
-                    <Dice5 className="mr-1.5 h-3.5 w-3.5" />
-                    학생용 바로 인쇄
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-blue-200 bg-white text-blue-700 hover:bg-blue-50 hover:text-blue-800"
-                    onClick={() => openClinicPrint('grading')}
-                    disabled={filteredTestWords.length === 0}
-                  >
-                    <Printer className="mr-1.5 h-3.5 w-3.5" />
-                    정답지 바로 인쇄
-                  </Button>
-                </div>
-              </div>
             </div>
 
             <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/70 px-4 py-2 text-[11px] font-semibold text-gray-500">
