@@ -170,6 +170,53 @@ export interface Attendance {
   student?: Student;
 }
 
+export type ClinicWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+export interface ClinicSlot {
+  id: string;
+  teacher_id: string;
+  weekday: ClinicWeekday;
+  starts_at: string;
+  ends_at: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClinicEnrollment {
+  id: string;
+  teacher_id: string;
+  student_id: string;
+  clinic_slot_id: string;
+  start_date: string;
+  end_date: string | null;
+  created_at: string;
+  updated_at: string;
+  clinic_slot?: ClinicSlot | null;
+}
+
+export interface ClinicAttendance {
+  id: string;
+  teacher_id: string;
+  student_id: string;
+  clinic_slot_id: string;
+  date: string;
+  status: 'present' | 'absent';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClinicStudent {
+  id: string;
+  name: string;
+  phone: string | null;
+  father_phone: string | null;
+  mother_phone: string | null;
+  school: string | null;
+  grade: string | null;
+  classes: { id: string; name: string }[];
+}
+
 export interface MessageLog {
   id: string;
   student_id: string;
