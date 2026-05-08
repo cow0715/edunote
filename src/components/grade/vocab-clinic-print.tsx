@@ -67,9 +67,15 @@ export function VocabClinicPrint({ mode }: { mode: 'student' | 'grading' }) {
   const pages = chunk(items, ITEMS_PER_PAGE)
   const isGrading = mode === 'grading'
 
-  if (!loaded) return <div className="p-8 text-sm text-gray-500">클리닉 시험지를 불러오는 중...</div>
+  function switchMode(nextMode: 'student' | 'grading') {
+    const nextPath = nextMode === 'grading' ? 'clinic-grading-print' : 'clinic-print'
+    const url = window.location.pathname.replace(/clinic(?:-grading)?-print$/, nextPath) + window.location.search
+    window.location.href = url
+  }
+
+  if (!loaded) return <div className="p-8 text-sm text-gray-500">시험지를 불러오는 중...</div>
   if (!test || items.length === 0) {
-    return <div className="p-8 text-sm text-red-500">클리닉 시험지 데이터를 찾을 수 없습니다. 설정 탭에서 다시 인쇄해 주세요.</div>
+    return <div className="p-8 text-sm text-red-500">시험지 데이터를 찾을 수 없습니다. 설정 탭에서 다시 인쇄해 주세요.</div>
   }
 
   return (
@@ -78,10 +84,18 @@ export function VocabClinicPrint({ mode }: { mode: 'student' | 'grading' }) {
         <div>
           <h1 className="text-lg font-bold text-gray-900">{test.title}</h1>
           <p className="text-xs text-gray-500">
-            {items.length}문항 · {isGrading ? '클리닉 정답지' : '클리닉 학생용'}
+            {items.length}문항 · {isGrading ? '채점용 인쇄' : 'A4 인쇄 전용'}
           </p>
         </div>
-        <Button onClick={() => window.print()}>인쇄</Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => switchMode(isGrading ? 'student' : 'grading')}
+          >
+            {isGrading ? '시험지 보기' : '정답지 보기'}
+          </Button>
+          <Button onClick={() => window.print()}>인쇄</Button>
+        </div>
       </div>
 
       <div className="mx-auto space-y-4 print:space-y-0">
@@ -93,10 +107,10 @@ export function VocabClinicPrint({ mode }: { mode: 'student' | 'grading' }) {
               <header className="mb-5 flex items-end justify-between border-b-2 border-gray-900 pb-3">
                 <div>
                   <p className="text-[10px] font-bold tracking-[0.24em] text-gray-500">
-                    {isGrading ? 'Clinic Vocabulary Answers' : 'Clinic Vocabulary Test'}
+                    {isGrading ? 'Vocabulary Grading Sheet' : 'Vocabulary Test'}
                   </p>
                   <h2 className="mt-1 text-2xl font-black text-gray-950">
-                    {isGrading ? '클리닉 단어 정답' : '클리닉 단어 Test'}
+                    {isGrading ? '어휘 채점표' : '어휘 Test'}
                   </h2>
                 </div>
                 {isGrading ? (

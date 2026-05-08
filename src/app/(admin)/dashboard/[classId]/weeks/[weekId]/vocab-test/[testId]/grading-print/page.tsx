@@ -41,7 +41,7 @@ export default function VocabGradingPrintPage({
 }: {
   params: Promise<{ classId: string; weekId: string; testId: string }>
 }) {
-  const { weekId, testId } = use(params)
+  const { classId, weekId, testId } = use(params)
   const { data, isLoading, error } = useQuery<VocabTestResponse>({
     queryKey: ['vocab-test-grading-print', weekId, testId],
     queryFn: async () => {
@@ -70,7 +70,15 @@ export default function VocabGradingPrintPage({
           <h1 className="text-lg font-bold text-gray-900">{test.title}</h1>
           <p className="text-xs text-gray-500">{items.length}문항 · 채점용 인쇄</p>
         </div>
-        <Button onClick={() => window.print()}>인쇄</Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => window.location.href = `/dashboard/${classId}/weeks/${weekId}/vocab-test/${testId}/print`}
+          >
+            시험지 보기
+          </Button>
+          <Button onClick={() => window.print()}>인쇄</Button>
+        </div>
       </div>
 
       <div className="mx-auto space-y-4 print:space-y-0">
