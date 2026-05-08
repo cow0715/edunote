@@ -259,6 +259,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const [wrongNoteTab, setWrongNoteTab] = useState<'reading' | 'vocab'>('reading')
   const [vocabViewMode, setVocabViewMode] = useState<VocabViewMode>('all')
   const [expandedAllVocabWeekIds, setExpandedAllVocabWeekIds] = useState<Set<string>>(new Set())
+  const [vocabLookupOpen, setVocabLookupOpen] = useState(false)
   const [vocabStudyMode, setVocabStudyMode] = useState<VocabStudyMode>('all')
   const [vocabSearch, setVocabSearch] = useState('')
   const [vocabWeekFilter, setVocabWeekFilter] = useState('all')
@@ -600,6 +601,15 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     vocabPosFilter !== 'all' ||
     vocabWrongFilter !== 'all' ||
     vocabExampleFilter !== 'all'
+  const vocabActiveFilterCount = [
+    vocabStudyMode !== 'all',
+    !!vocabSearch.trim(),
+    vocabWeekFilter !== 'all',
+    vocabPassageFilter !== 'all',
+    vocabPosFilter !== 'all',
+    vocabWrongFilter !== 'all',
+    vocabExampleFilter !== 'all',
+  ].filter(Boolean).length
   const resetVocabFilters = () => {
     setVocabStudyMode('all')
     setVocabSearch('')
@@ -1123,135 +1133,157 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 <div className="space-y-4">
                   <Card title="사전학습 단어장" subtitle={`${filteredVocabItems.length}/${vocabStudyItems.length}개 표시`}>
                     <div className="space-y-3">
-                      <div className="flex rounded-2xl bg-gray-50 p-1 dark:bg-white/[0.06]">
-                        {([
-                          { id: 'all' as const, label: '전체', Icon: List },
-                          { id: 'weekly' as const, label: '주차별', Icon: Layers2 },
-                        ]).map(({ id, label, Icon }) => (
-                          <button
-                            key={id}
-                            type="button"
-                            onClick={() => setVocabViewMode(id)}
-                            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-bold transition-all ${
-                              vocabViewMode === id
-                                ? 'bg-[#2463EB] text-white shadow-sm dark:bg-[#3B82F6]'
-                                : 'text-[#8B95A1] hover:text-[#1A1C1E] dark:text-[#94A3B8] dark:hover:text-white'
-                            }`}
-                          >
-                            <Icon className="h-3.5 w-3.5" />
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="relative">
-                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-300 dark:text-gray-500" />
-                        <input
-                          value={vocabSearch}
-                          onChange={(e) => setVocabSearch(e.target.value)}
-                          placeholder="단어, 뜻, 유의어, 반의어 검색"
-                          className="h-11 w-full rounded-2xl bg-gray-50 pl-9 pr-3 text-sm font-medium text-[#1A1C1E] outline-none transition-colors placeholder:text-gray-300 focus:bg-white focus:ring-2 focus:ring-[#2463EB]/15 dark:bg-white/[0.06] dark:text-white dark:placeholder:text-gray-500 dark:focus:bg-white/[0.08]"
-                        />
-                      </div>
-
-                      <div className="flex flex-wrap gap-1.5">
-                        {([
-                          { id: 'all' as const, label: '전체 학습' },
-                          { id: 'wrong_only' as const, label: '내가 틀린 단어' },
-                          { id: 'retake_pending' as const, label: '재시험 남은 단어' },
-                        ]).map((mode) => (
-                          <button
-                            key={mode.id}
-                            type="button"
-                            onClick={() => setVocabStudyMode(mode.id)}
-                            className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
-                              vocabStudyMode === mode.id
-                                ? 'bg-[#2463EB] text-white dark:bg-[#3B82F6]'
-                                : 'bg-gray-50 text-[#8B95A1] hover:bg-blue-50 hover:text-[#2463EB] dark:bg-white/[0.06] dark:text-[#94A3B8] dark:hover:bg-blue-950/40 dark:hover:text-blue-300'
-                            }`}
-                          >
-                            {mode.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <label className="space-y-1">
-                          <span className="flex items-center gap-1 text-[10px] font-bold text-gray-400 dark:text-gray-500">
-                            <Filter className="h-3 w-3" /> 주차
+                      <button
+                        type="button"
+                        onClick={() => setVocabLookupOpen((open) => !open)}
+                        className="flex w-full items-center justify-between gap-3 rounded-2xl bg-gray-50 px-4 py-3 text-left transition-colors hover:bg-blue-50/70 dark:bg-white/[0.06] dark:hover:bg-white/[0.09]"
+                        aria-expanded={vocabLookupOpen}
+                      >
+                        <span className="min-w-0">
+                          <span className="block text-sm font-black text-[#1A1C1E] dark:text-[#F8FAFC]">조회 조건</span>
+                          <span className="mt-0.5 block text-xs font-semibold text-[#8B95A1] dark:text-[#94A3B8]">
+                            {hasVocabFilters ? `${vocabActiveFilterCount}개 조건 적용 중` : '전체 단어 표시 중'}
                           </span>
-                          <select
-                            value={vocabWeekFilter}
-                            onChange={(e) => setVocabWeekFilter(e.target.value)}
-                            className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
-                          >
-                            <option value="all">전체</option>
-                            {vocabWeekOptions.map((option) => (
-                              <option key={option.id} value={option.id}>{option.label}</option>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#2463EB] shadow-sm dark:bg-[#0F172A] dark:text-blue-300">
+                          {vocabLookupOpen ? '접기' : '펼치기'}
+                          {vocabLookupOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                        </span>
+                      </button>
+
+                      {vocabLookupOpen && (
+                        <div className="space-y-3">
+                          <div className="flex rounded-2xl bg-gray-50 p-1 dark:bg-white/[0.06]">
+                            {([
+                              { id: 'all' as const, label: '전체', Icon: List },
+                              { id: 'weekly' as const, label: '주차별', Icon: Layers2 },
+                            ]).map(({ id, label, Icon }) => (
+                              <button
+                                key={id}
+                                type="button"
+                                onClick={() => setVocabViewMode(id)}
+                                className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-bold transition-all ${
+                                  vocabViewMode === id
+                                    ? 'bg-[#2463EB] text-white shadow-sm dark:bg-[#3B82F6]'
+                                    : 'text-[#8B95A1] hover:text-[#1A1C1E] dark:text-[#94A3B8] dark:hover:text-white'
+                                }`}
+                              >
+                                <Icon className="h-3.5 w-3.5" />
+                                {label}
+                              </button>
                             ))}
-                          </select>
-                        </label>
-                        <label className="space-y-1">
-                          <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500">지문</span>
-                          <select
-                            value={vocabPassageFilter}
-                            onChange={(e) => setVocabPassageFilter(e.target.value)}
-                            className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
-                          >
-                            <option value="all">전체</option>
-                            {vocabPassageOptions.map((passage) => (
-                              <option key={passage} value={passage}>지문 {passage}</option>
+                          </div>
+
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-300 dark:text-gray-500" />
+                            <input
+                              value={vocabSearch}
+                              onChange={(e) => setVocabSearch(e.target.value)}
+                              placeholder="단어, 뜻, 유의어, 반의어 검색"
+                              className="h-11 w-full rounded-2xl bg-gray-50 pl-9 pr-3 text-sm font-medium text-[#1A1C1E] outline-none transition-colors placeholder:text-gray-300 focus:bg-white focus:ring-2 focus:ring-[#2463EB]/15 dark:bg-white/[0.06] dark:text-white dark:placeholder:text-gray-500 dark:focus:bg-white/[0.08]"
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap gap-1.5">
+                            {([
+                              { id: 'all' as const, label: '전체 학습' },
+                              { id: 'wrong_only' as const, label: '내가 틀린 단어' },
+                              { id: 'retake_pending' as const, label: '재시험 남은 단어' },
+                            ]).map((mode) => (
+                              <button
+                                key={mode.id}
+                                type="button"
+                                onClick={() => setVocabStudyMode(mode.id)}
+                                className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                                  vocabStudyMode === mode.id
+                                    ? 'bg-[#2463EB] text-white dark:bg-[#3B82F6]'
+                                    : 'bg-gray-50 text-[#8B95A1] hover:bg-blue-50 hover:text-[#2463EB] dark:bg-white/[0.06] dark:text-[#94A3B8] dark:hover:bg-blue-950/40 dark:hover:text-blue-300'
+                                }`}
+                              >
+                                {mode.label}
+                              </button>
                             ))}
-                          </select>
-                        </label>
-                        <label className="space-y-1">
-                          <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500">품사</span>
-                          <select
-                            value={vocabPosFilter}
-                            onChange={(e) => setVocabPosFilter(e.target.value)}
-                            className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
-                          >
-                            <option value="all">전체</option>
-                            {vocabPosOptions.map((pos) => (
-                              <option key={pos} value={pos}>{pos}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="space-y-1">
-                          <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500">오답</span>
-                          <select
-                            value={vocabWrongFilter}
-                            onChange={(e) => setVocabWrongFilter(e.target.value as VocabWrongFilter)}
-                            className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
-                          >
-                            <option value="all">전체</option>
-                            <option value="wrong">오답만</option>
-                            <option value="not_wrong">오답 제외</option>
-                          </select>
-                        </label>
-                        <label className="space-y-1">
-                          <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500">예문</span>
-                          <select
-                            value={vocabExampleFilter}
-                            onChange={(e) => setVocabExampleFilter(e.target.value as VocabExampleFilter)}
-                            className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
-                          >
-                            <option value="all">전체</option>
-                            <option value="with">예문 있음</option>
-                            <option value="without">예문 없음</option>
-                          </select>
-                        </label>
-                        <div className="flex items-end">
-                          <button
-                            type="button"
-                            onClick={resetVocabFilters}
-                            disabled={!hasVocabFilters}
-                            className="h-9 w-full rounded-xl bg-gray-900 px-3 text-xs font-bold text-white transition-colors disabled:bg-gray-100 disabled:text-gray-300 dark:bg-white dark:text-gray-900 dark:disabled:bg-white/[0.06] dark:disabled:text-gray-600"
-                          >
-                            초기화
-                          </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="space-y-1">
+                              <span className="flex items-center gap-1 text-[10px] font-bold text-gray-400 dark:text-gray-500">
+                                <Filter className="h-3 w-3" /> 주차
+                              </span>
+                              <select
+                                value={vocabWeekFilter}
+                                onChange={(e) => setVocabWeekFilter(e.target.value)}
+                                className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
+                              >
+                                <option value="all">전체</option>
+                                {vocabWeekOptions.map((option) => (
+                                  <option key={option.id} value={option.id}>{option.label}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="space-y-1">
+                              <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500">지문</span>
+                              <select
+                                value={vocabPassageFilter}
+                                onChange={(e) => setVocabPassageFilter(e.target.value)}
+                                className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
+                              >
+                                <option value="all">전체</option>
+                                {vocabPassageOptions.map((passage) => (
+                                  <option key={passage} value={passage}>지문 {passage}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="space-y-1">
+                              <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500">품사</span>
+                              <select
+                                value={vocabPosFilter}
+                                onChange={(e) => setVocabPosFilter(e.target.value)}
+                                className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
+                              >
+                                <option value="all">전체</option>
+                                {vocabPosOptions.map((pos) => (
+                                  <option key={pos} value={pos}>{pos}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="space-y-1">
+                              <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500">오답</span>
+                              <select
+                                value={vocabWrongFilter}
+                                onChange={(e) => setVocabWrongFilter(e.target.value as VocabWrongFilter)}
+                                className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
+                              >
+                                <option value="all">전체</option>
+                                <option value="wrong">오답만</option>
+                                <option value="not_wrong">오답 제외</option>
+                              </select>
+                            </label>
+                            <label className="space-y-1">
+                              <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500">예문</span>
+                              <select
+                                value={vocabExampleFilter}
+                                onChange={(e) => setVocabExampleFilter(e.target.value as VocabExampleFilter)}
+                                className="h-9 w-full rounded-xl bg-gray-50 px-3 text-xs font-semibold text-gray-700 outline-none dark:bg-white/[0.06] dark:text-gray-200"
+                              >
+                                <option value="all">전체</option>
+                                <option value="with">예문 있음</option>
+                                <option value="without">예문 없음</option>
+                              </select>
+                            </label>
+                            <div className="flex items-end">
+                              <button
+                                type="button"
+                                onClick={resetVocabFilters}
+                                disabled={!hasVocabFilters}
+                                className="h-9 w-full rounded-xl bg-gray-900 px-3 text-xs font-bold text-white transition-colors disabled:bg-gray-100 disabled:text-gray-300 dark:bg-white dark:text-gray-900 dark:disabled:bg-white/[0.06] dark:disabled:text-gray-600"
+                              >
+                                초기화
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </Card>
 
