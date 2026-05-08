@@ -105,7 +105,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
 
   const enrollments = (classStudents ?? []) as EnrollmentRow[]
   const allClassIds = [...new Set(enrollments.map((cs) => cs.class_id).filter(Boolean))]
-  if (allClassIds.length === 0) return emptyShare(student)
+  if (allClassIds.length === 0) {
+    return NextResponse.json({ error: '공유가 종료되었습니다' }, { status: 403 })
+  }
 
   const { data: allClassRows } = await supabase
     .from('class')
@@ -117,6 +119,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const activeClassIds = enrollments
     .filter((cs) => !cs.left_at && !classById.get(cs.class_id)?.archived_at)
     .map((cs) => cs.class_id)
+
+  if (activeClassIds.length === 0) {
+    return NextResponse.json({ error: '공유가 종료되었습니다' }, { status: 403 })
+  }
 
   const { data: allPeriodsData } = await supabase
     .from('class_period')
@@ -145,6 +151,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   if (periodId) {
     const selectedPeriod = allPeriods.find((period) => period.id === periodId)
     if (!selectedPeriod) return NextResponse.json({ error: '기간을 찾을 수 없습니다' }, { status: 404 })
+    if (!activeClassIds.includes(selectedPeriod.class_id)) {
+      return NextResponse.json({ error: '공유가 종료되었습니다' }, { status: 403 })
+    }
     selectedClassIds = [selectedPeriod.class_id]
     selectedPeriods = [selectedPeriod]
   }
