@@ -49,6 +49,11 @@ type PromptOption = SelectedPrompt & {
   raw_text: string
 }
 
+type RandomVocabSelection = {
+  selected: Array<VocabEntry & { id: string }>
+  prompts: Record<string, SelectedPrompt>
+}
+
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -159,6 +164,50 @@ function normalizeSelectedPrompt(word: VocabEntry | null | undefined, source: Vo
     prompt_source: option?.prompt_source ?? fallback?.prompt_source ?? 'word',
     prompt_text: option?.prompt_text ?? fallback?.prompt_text ?? word?.english_word ?? '',
   }
+}
+
+function buildRandomVocabSelection(words: Array<VocabEntry & { id: string }>, count: number): RandomVocabSelection {
+  const selected: Array<VocabEntry & { id: string }> = []
+  const prompts: Record<string, SelectedPrompt> = {}
+  const usedIds = new Set<string>()
+  const originalTarget = Math.round(count * 0.5)
+  const synonymTarget = Math.round(count * 0.25)
+  const derivativeTarget = count - originalTarget - synonymTarget
+
+  function addWords(
+    source: VocabTestPromptSource,
+    target: number,
+    candidates: Array<VocabEntry & { id: string }>,
+    getPromptText: (word: VocabEntry & { id: string }) => string
+  ) {
+    for (const word of shuffle(candidates)) {
+      if (selected.length >= count || target <= 0) break
+      if (usedIds.has(word.id)) continue
+      const promptText = getPromptText(word)
+      if (!promptText) continue
+      selected.push(word)
+      usedIds.add(word.id)
+      prompts[word.id] = { prompt_source: source, prompt_text: promptText }
+      target -= 1
+    }
+  }
+
+  addWords(
+    'derivative',
+    derivativeTarget,
+    words.filter((word) => getPromptOptions(word).some((option) => option.prompt_source === 'derivative')),
+    (word) => randomItem(getPromptOptions(word).filter((option) => option.prompt_source === 'derivative').map((option) => option.prompt_text))
+  )
+  addWords(
+    'synonym',
+    synonymTarget,
+    words.filter((word) => getPromptOptions(word).some((option) => option.prompt_source === 'synonym')),
+    (word) => randomItem(getPromptOptions(word).filter((option) => option.prompt_source === 'synonym').map((option) => option.prompt_text))
+  )
+  addWords('word', originalTarget, words, (word) => word.english_word)
+  addWords('word', count - selected.length, words, (word) => word.english_word)
+
+  return { selected, prompts }
 }
 
 export function VocabWordSetup({ weekId }: { weekId: string }) {
@@ -430,45 +479,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       return
     }
     const count = Math.max(1, Math.min(randomPickCount, filteredTestWords.length))
-    const selected: Array<VocabEntry & { id: string }> = []
-    const prompts: Record<string, SelectedPrompt> = {}
-    const usedIds = new Set<string>()
-    const originalTarget = Math.round(count * 0.5)
-    const synonymTarget = Math.round(count * 0.25)
-    const derivativeTarget = count - originalTarget - synonymTarget
-
-    function addWords(
-      source: VocabTestPromptSource,
-      target: number,
-      candidates: Array<VocabEntry & { id: string }>,
-      getPromptText: (word: VocabEntry & { id: string }) => string
-    ) {
-      for (const word of shuffle(candidates)) {
-        if (selected.length >= count || target <= 0) break
-        if (usedIds.has(word.id)) continue
-        const promptText = getPromptText(word)
-        if (!promptText) continue
-        selected.push(word)
-        usedIds.add(word.id)
-        prompts[word.id] = { prompt_source: source, prompt_text: promptText }
-        target -= 1
-      }
-    }
-
-    addWords(
-      'derivative',
-      derivativeTarget,
-      filteredTestWords.filter((word) => getPromptOptions(word).some((option) => option.prompt_source === 'derivative')),
-      (word) => randomItem(getPromptOptions(word).filter((option) => option.prompt_source === 'derivative').map((option) => option.prompt_text))
-    )
-    addWords(
-      'synonym',
-      synonymTarget,
-      filteredTestWords.filter((word) => getPromptOptions(word).some((option) => option.prompt_source === 'synonym')),
-      (word) => randomItem(getPromptOptions(word).filter((option) => option.prompt_source === 'synonym').map((option) => option.prompt_text))
-    )
-    addWords('word', originalTarget, filteredTestWords, (word) => word.english_word)
-    addWords('word', count - selected.length, filteredTestWords, (word) => word.english_word)
+    const { selected, prompts } = buildRandomVocabSelection(filteredTestWords, count)
 
     setSelectedWordIds(selected.map((word) => word.id))
     setSelectedPrompts(prompts)
@@ -478,6 +489,42 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       return acc
     }, { word: 0, synonym: 0, derivative: 0 })
     toast.success(`${selected.length}개 선택: 원본 ${counts.word}, 유의어 ${counts.synonym}, 파생어 ${counts.derivative}`)
+  }
+
+  function openClinicPrint(mode: 'student' | 'grading') {
+    if (filteredTestWords.length === 0) {
+      toast.error('클리닉 시험지로 뽑을 단어가 없습니다')
+      return
+    }
+    const count = Math.max(1, Math.min(randomPickCount, filteredTestWords.length))
+    const { selected, prompts } = buildRandomVocabSelection(filteredTestWords, count)
+    if (selected.length === 0) {
+      toast.error('클리닉 시험지로 뽑을 단어가 없습니다')
+      return
+    }
+
+    const key = `clinic-vocab-test:${weekId}:${Date.now()}`
+    const payload = {
+      title: `클리닉 단어시험 ${selected.length}문항`,
+      createdAt: new Date().toISOString(),
+      items: selected.map((word, index) => {
+        const prompt = prompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word }
+        return {
+          id: `${word.id}-${index}`,
+          test_number: index + 1,
+          prompt_text: prompt.prompt_text,
+          prompt_source: prompt.prompt_source,
+          vocab_word: {
+            english_word: word.english_word,
+            correct_answer: word.correct_answer,
+          },
+        }
+      }),
+    }
+    localStorage.setItem(key, JSON.stringify(payload))
+    const path = mode === 'student' ? 'clinic-print' : 'clinic-grading-print'
+    const url = window.location.pathname.replace(/\/$/, '') + `/vocab-test/${path}?draft=${encodeURIComponent(key)}`
+    window.open(url, '_blank')
   }
 
   function updateWord(index: number, field: keyof VocabEntry, value: string) {
@@ -596,6 +643,9 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     ].some((value) => normalizeSearch(value).includes(searchQuery))
   })
   const allFilteredSelected = filteredTestWords.length > 0 && filteredTestWords.every((word) => selectedSet.has(word.id))
+  const clinicPickCount = Math.max(1, Math.min(randomPickCount, Math.max(1, filteredTestWords.length)))
+  const clinicScopeLabel = testPassageFilter === 'all' ? '전체 지문' : `지문 ${testPassageFilter}`
+  const clinicSearchLabel = searchQuery ? `검색 "${testSearch.trim()}"` : '검색어 없음'
 
   return (
     <div className="space-y-4">
@@ -760,6 +810,44 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
               >
                 {allFilteredSelected ? '보이는 단어 해제' : '보이는 단어 선택'}
               </Button>
+            </div>
+
+            <div className="border-b border-blue-100 bg-blue-50/45 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs font-black text-blue-950">클리닉 랜덤 출력</p>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-blue-600 shadow-[0_1px_8px_rgba(36,99,235,0.06)]">
+                      저장 안 함
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-4 text-blue-700">
+                    {clinicScopeLabel} · {clinicSearchLabel} · {filteredTestWords.length}개 중 {clinicPickCount}문항 랜덤
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-blue-200 bg-white text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+                    onClick={() => openClinicPrint('student')}
+                    disabled={filteredTestWords.length === 0}
+                  >
+                    <Dice5 className="mr-1.5 h-3.5 w-3.5" />
+                    학생용 바로 인쇄
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-blue-200 bg-white text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+                    onClick={() => openClinicPrint('grading')}
+                    disabled={filteredTestWords.length === 0}
+                  >
+                    <Printer className="mr-1.5 h-3.5 w-3.5" />
+                    정답지 바로 인쇄
+                  </Button>
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/70 px-4 py-2 text-[11px] font-semibold text-gray-500">
