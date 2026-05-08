@@ -1,4 +1,5 @@
 import { getAuth, getTeacherId, assertClassOwner, err, ok } from '@/lib/api'
+import { closeClinicEnrollmentsIfNoActiveClass } from '@/lib/clinic'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string; studentId: string }> }) {
   const { supabase, user } = await getAuth()
@@ -32,5 +33,12 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     .eq('class_id', classId)
     .eq('student_id', studentId)
   if (error) { console.error('[DELETE /api/classes/[id]/students/[studentId]]', error); return err(error.message, 500) }
+  try {
+    await closeClinicEnrollmentsIfNoActiveClass(supabase, teacherId, studentId, left_at)
+  } catch (clinicError) {
+    const message = clinicError instanceof Error ? clinicError.message : '보충수업 배정 종료 실패'
+    console.error('[DELETE /api/classes/[id]/students/[studentId] clinic]', clinicError)
+    return err(message, 500)
+  }
   return ok({ ok: true })
 }

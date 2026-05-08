@@ -103,6 +103,8 @@ export function useWithdrawStudent() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['students'] })
       qc.invalidateQueries({ queryKey: ['class-students'] })
+      qc.invalidateQueries({ queryKey: ['clinic'] })
+      qc.invalidateQueries({ queryKey: ['clinic-attendance'] })
       toast.success('퇴원 처리되었습니다')
     },
     onError: (e: Error) => toast.error(e.message),
@@ -164,7 +166,12 @@ export function useRemoveClassStudent(classId: string) {
       })
       if (!res.ok) throw new Error((await res.json()).error)
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['class-students', classId] }); toast.success('학생이 퇴원 처리되었습니다') },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['class-students', classId] })
+      qc.invalidateQueries({ queryKey: ['clinic'] })
+      qc.invalidateQueries({ queryKey: ['clinic-attendance'] })
+      toast.success('학생이 퇴원 처리되었습니다')
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 }
