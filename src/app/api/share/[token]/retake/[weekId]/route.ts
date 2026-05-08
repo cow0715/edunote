@@ -21,6 +21,29 @@ function one<T>(value: T | T[] | null | undefined): T | null {
 }
 
 // ── GET: 아직 못 맞힌 단어만 반환 ────────────────────────────────────────────
+async function hasActiveEnrollment(
+  supabase: ReturnType<typeof createServiceClient>,
+  studentId: string,
+  classId: string,
+) {
+  const [{ data: enrollment }, { data: classRow }] = await Promise.all([
+    supabase
+      .from('class_student')
+      .select('student_id')
+      .eq('student_id', studentId)
+      .eq('class_id', classId)
+      .is('left_at', null)
+      .maybeSingle(),
+    supabase
+      .from('class')
+      .select('archived_at')
+      .eq('id', classId)
+      .maybeSingle(),
+  ])
+
+  return !!enrollment && !classRow?.archived_at
+}
+
 export async function GET(_: Request, { params }: { params: Promise<Params> }) {
   const supabase = createServiceClient()
   const { token, weekId } = await params
@@ -46,6 +69,9 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
     .eq('id', weekId)
     .single()
   if (!week) return NextResponse.json({ error: '주차 정보가 없습니다' }, { status: 404 })
+  if (!await hasActiveEnrollment(supabase, student.id, week.class_id)) {
+    return NextResponse.json({ error: '공유가 종료되었습니다' }, { status: 403 })
+  }
 
   const { data: classRow } = await supabase
     .from('class')
@@ -136,6 +162,16 @@ export async function POST(request: Request, { params }: { params: Promise<Param
     .eq('student_id', student.id)
     .single()
   if (!score) return NextResponse.json({ error: '성적 데이터가 없습니다' }, { status: 404 })
+
+  const { data: week } = await supabase
+    .from('week')
+    .select('class_id')
+    .eq('id', weekId)
+    .single()
+  if (!week) return NextResponse.json({ error: '주차 정보가 없습니다' }, { status: 404 })
+  if (!await hasActiveEnrollment(supabase, student.id, week.class_id)) {
+    return NextResponse.json({ error: '공유가 종료되었습니다' }, { status: 403 })
+  }
 
   const { answers } = await request.json() as {
     answers: { answer_id: string; english_word: string; retake_answer: string }[]
