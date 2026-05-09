@@ -29,7 +29,7 @@ const navSections = [
     title: '수업 운영',
     items: [
       { href: '/dashboard', label: '수업 목록', icon: BookOpen },
-      { href: '/clinic', label: '보충수업', icon: CalendarCheck },
+      { href: '/clinic', label: '클리닉 관리', icon: CalendarCheck },
       { href: '/students', label: '학생 관리', icon: Users },
       { href: '/analysis', label: '학생 현황', icon: TrendingUp },
       { href: '/messages', label: '메시지 내역', icon: MessageSquare },

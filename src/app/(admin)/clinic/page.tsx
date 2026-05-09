@@ -1,13 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { AlertCircle, CalendarCheck, ChevronLeft, ChevronRight, Clock, Save, Users } from 'lucide-react'
+import { AlertCircle, BarChart3, CalendarCheck, ChevronDown, ChevronLeft, ChevronRight, Clock, Loader2, Save, Search, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { useClinic, useClinicAttendance, useSaveClinicAttendance, useSaveClinicEnrollment, useSaveClinicSlots } from '@/hooks/use-clinic'
+import { useClinic, useClinicAttendance, useClinicAttendanceSummary, useSaveClinicAttendance, useSaveClinicEnrollment, useSaveClinicSlots } from '@/hooks/use-clinic'
 import { ClinicEnrollment, ClinicSlot, ClinicStudent, ClinicWeekday } from '@/lib/types'
 
 const WEEKDAYS: { key: ClinicWeekday; label: string; full: string }[] = [
@@ -143,16 +143,35 @@ export default function ClinicPage() {
   const [slotDraftsState, setSlotDraftsState] = useState<SlotDraft[] | null>(null)
   const [attendanceDraft, setAttendanceDraft] = useState<AttendanceDraft | null>(null)
   const [pendingEnrollmentChange, setPendingEnrollmentChange] = useState<PendingEnrollmentChange | null>(null)
+  const [slotSettingsOpen, setSlotSettingsOpen] = useState(true)
+  const [studentSearch, setStudentSearch] = useState('')
+  const [classFilter, setClassFilter] = useState('all')
+  const [savingStudentId, setSavingStudentId] = useState<string | null>(null)
 
   const { data, isLoading } = useClinic()
   const saveSlots = useSaveClinicSlots()
   const saveEnrollment = useSaveClinicEnrollment()
   const { data: attendanceData, isLoading: attendanceLoading } = useClinicAttendance(selectedDate)
+  const { data: attendanceSummary, isLoading: attendanceSummaryLoading } = useClinicAttendanceSummary()
   const saveAttendance = useSaveClinicAttendance(selectedDate)
 
   const slots = data?.slots ?? []
   const enrollments = data?.enrollments ?? []
   const students = data?.students ?? []
+  const normalizedStudentSearch = studentSearch.trim().toLocaleLowerCase('ko')
+  const classOptions = Array.from(
+    new Map(students.flatMap((student) => student.classes.map((cls) => [cls.id, cls]))).values()
+  ).sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+  const filteredStudents = students.filter((student) => {
+    const matchesClass = classFilter === 'all' || student.classes.some((cls) => cls.id === classFilter)
+    const searchable = [
+      student.name,
+      student.school ?? '',
+      student.grade ?? '',
+      student.classes.map((cls) => cls.name).join(' '),
+    ].join(' ').toLocaleLowerCase('ko')
+    return matchesClass && (!normalizedStudentSearch || searchable.includes(normalizedStudentSearch))
+  })
   const activeSlots = sortedSlots(slots.filter((slot) => slot.is_active))
   const defaultSlotDrafts = buildDefaultSlots(slots)
   const slotDrafts = slotDraftsState ?? defaultSlotDrafts
@@ -188,6 +207,13 @@ export default function ClinicPage() {
   }
   const slotById = new Map(slots.map((slot) => [slot.id, slot]))
   const slotByWeekday = new Map(slots.map((slot) => [slot.weekday, slot]))
+  const summaryTotals = attendanceSummary?.totals
+  const summaryRate = summaryTotals && summaryTotals.scheduled > 0
+    ? Math.round((summaryTotals.present / summaryTotals.scheduled) * 100)
+    : null
+  const attentionStudents = (attendanceSummary?.students ?? [])
+    .filter((student) => student.scheduled > 0 && (student.missing > 0 || student.absent > 0 || (student.attendance_rate ?? 100) < 80))
+    .slice(0, 5)
 
   function updateSlotDraft(weekday: ClinicWeekday, patch: Partial<SlotDraft>) {
     const base = slotDraftsState ?? defaultSlotDrafts
@@ -207,16 +233,21 @@ export default function ClinicPage() {
     })
   }
 
-  function requestEnrollmentChange(student: ClinicStudent, clinicSlotId: string | null) {
+  async function requestEnrollmentChange(student: ClinicStudent, clinicSlotId: string | null) {
     const enrollment = enrollmentsByStudent.get(student.id)
     if (enrollment?.clinic_slot_id === clinicSlotId) return
 
     if (!enrollment) {
-      saveEnrollment.mutate({
-        student_id: student.id,
-        clinic_slot_id: clinicSlotId,
-        start_date: todayStr(),
-      })
+      setSavingStudentId(student.id)
+      try {
+        await saveEnrollment.mutateAsync({
+          student_id: student.id,
+          clinic_slot_id: clinicSlotId,
+          start_date: todayStr(),
+        })
+      } finally {
+        setSavingStudentId(null)
+      }
       return
     }
 
@@ -230,12 +261,17 @@ export default function ClinicPage() {
 
   async function confirmEnrollmentChange() {
     if (!pendingEnrollmentChange) return
-    await saveEnrollment.mutateAsync({
-      student_id: pendingEnrollmentChange.student.id,
-      clinic_slot_id: pendingEnrollmentChange.clinic_slot_id,
-      start_date: pendingEnrollmentChange.start_date,
-    })
-    setPendingEnrollmentChange(null)
+    setSavingStudentId(pendingEnrollmentChange.student.id)
+    try {
+      await saveEnrollment.mutateAsync({
+        student_id: pendingEnrollmentChange.student.id,
+        clinic_slot_id: pendingEnrollmentChange.clinic_slot_id,
+        start_date: pendingEnrollmentChange.start_date,
+      })
+      setPendingEnrollmentChange(null)
+    } finally {
+      setSavingStudentId(null)
+    }
   }
 
   async function handleSaveAttendance() {
@@ -307,21 +343,111 @@ export default function ClinicPage() {
       </div>
 
       <section className="rounded-2xl bg-white p-4 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
+              <BarChart3 className="h-4 w-4 text-blue-600" />
+              클리닉 출석 현황
+            </div>
+            <p className="mt-0.5 text-xs text-gray-500">
+              최근 8주 기준으로 학생별 출석 흐름을 확인합니다.
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-2xl font-black text-gray-950">
+              {attendanceSummaryLoading ? '-' : summaryRate !== null ? `${summaryRate}%` : '-'}
+            </p>
+            <p className="text-xs font-semibold text-gray-400">전체 출석률</p>
+          </div>
+        </div>
+
+        {attendanceSummaryLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100" />)}
+          </div>
+        ) : !attendanceSummary || attendanceSummary.totals.scheduled === 0 ? (
+          <p className="rounded-xl bg-gray-50 px-4 py-8 text-center text-sm text-gray-400">
+            최근 8주 안에 확인할 클리닉 출석 대상이 없습니다.
+          </p>
+        ) : (
+          <>
+            <div className="grid gap-2 sm:grid-cols-4">
+              <div className="rounded-xl bg-blue-50 px-3 py-3">
+                <p className="text-lg font-black text-blue-700">{attendanceSummary.totals.present}</p>
+                <p className="text-[11px] font-bold text-blue-500">출석</p>
+              </div>
+              <div className="rounded-xl bg-red-50 px-3 py-3">
+                <p className="text-lg font-black text-red-600">{attendanceSummary.totals.absent}</p>
+                <p className="text-[11px] font-bold text-red-400">결석</p>
+              </div>
+              <div className="rounded-xl bg-amber-50 px-3 py-3">
+                <p className="text-lg font-black text-amber-700">{attendanceSummary.totals.missing}</p>
+                <p className="text-[11px] font-bold text-amber-500">미기록</p>
+              </div>
+              <div className="rounded-xl bg-gray-50 px-3 py-3">
+                <p className="text-lg font-black text-gray-950">{attendanceSummary.totals.scheduled}</p>
+                <p className="text-[11px] font-bold text-gray-400">예정 횟수</p>
+              </div>
+            </div>
+
+            <div className="mt-4 divide-y divide-gray-100">
+              {attentionStudents.length === 0 ? (
+                <p className="py-4 text-sm font-semibold text-blue-600">
+                  결석이나 미기록이 있는 학생이 없습니다.
+                </p>
+              ) : attentionStudents.map((student) => (
+                <div key={student.student_id} className="grid gap-2 py-3 md:grid-cols-[minmax(0,1fr)_220px] md:items-center">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-gray-900">{student.student_name}</p>
+                    <p className="mt-0.5 text-xs text-gray-400">
+                      출석 {student.present}/{student.scheduled} · 결석 {student.absent} · 미기록 {student.missing}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className={`h-full rounded-full ${student.attendance_rate !== null && student.attendance_rate < 80 ? 'bg-red-500' : 'bg-blue-600'}`}
+                        style={{ width: `${student.attendance_rate ?? 0}%` }}
+                      />
+                    </div>
+                    <span className="w-10 text-right text-xs font-black text-gray-700">
+                      {student.attendance_rate ?? 0}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+
+      <section className="rounded-2xl bg-white p-4 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-gray-950">요일 설정</h2>
             <p className="mt-0.5 text-xs text-gray-500">SMS 자동 알림을 고려해 시작/종료 시간을 함께 저장합니다.</p>
           </div>
-          <Button
-            size="sm"
-            onClick={() => saveSlots.mutate(slotDrafts)}
-            disabled={!hasSlotChanges || saveSlots.isPending}
-          >
-            <Save className="mr-1.5 h-3.5 w-3.5" />
-            요일 저장
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSlotSettingsOpen((open) => !open)}
+              aria-expanded={slotSettingsOpen}
+            >
+              <ChevronDown className={`h-4 w-4 transition-transform ${slotSettingsOpen ? 'rotate-180' : ''}`} />
+              {slotSettingsOpen ? '접기' : '펼치기'}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => saveSlots.mutate(slotDrafts)}
+              disabled={!hasSlotChanges || saveSlots.isPending}
+            >
+              {saveSlots.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+              요일 저장
+            </Button>
+          </div>
         </div>
-        <div className="grid gap-2 md:grid-cols-7">
+        {slotSettingsOpen && <div className="grid gap-2 md:grid-cols-7">
           {slotDrafts.map((slot) => (
             <div
               key={slot.weekday}
@@ -355,7 +481,7 @@ export default function ClinicPage() {
               </p>
             </div>
           ))}
-        </div>
+        </div>}
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.9fr)]">
@@ -364,19 +490,77 @@ export default function ClinicPage() {
             <h2 className="text-base font-bold text-gray-950">학생 배정</h2>
             <p className="mt-0.5 text-xs text-gray-500">재원 학생별 주 1회 보충수업 요일을 선택합니다.</p>
           </div>
+          {saveEnrollment.isPending && (
+            <div className="mb-4 h-1 overflow-hidden rounded-full bg-blue-50">
+              <div className="h-full w-1/2 animate-pulse rounded-full bg-blue-600" />
+            </div>
+          )}
+          <div className="mb-3 space-y-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                placeholder="학생 이름, 학교, 반 검색"
+                className="h-10 bg-white pl-9 pr-9"
+              />
+              {studentSearch && (
+                <button
+                  type="button"
+                  onClick={() => setStudentSearch('')}
+                  className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                  aria-label="검색어 지우기"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-1">
+              <button
+                type="button"
+                onClick={() => setClassFilter('all')}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                  classFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                }`}
+              >
+                전체 {students.length}
+              </button>
+              {classOptions.map((cls) => (
+                <button
+                  key={cls.id}
+                  type="button"
+                  onClick={() => setClassFilter(cls.id)}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                    classFilter === cls.id ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                  }`}
+                >
+                  {cls.name}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs font-semibold text-gray-400">
+              {filteredStudents.length}명 표시 · {assignedStudentCount}명 배정
+            </p>
+          </div>
           <div className="max-h-[620px] divide-y divide-gray-100 overflow-y-auto">
             {students.length === 0 ? (
               <p className="py-10 text-center text-sm text-gray-400">재원 학생이 없습니다.</p>
-            ) : students.map((student) => {
+            ) : filteredStudents.length === 0 ? (
+              <p className="py-10 text-center text-sm text-gray-400">조건에 맞는 학생이 없습니다.</p>
+            ) : filteredStudents.map((student) => {
               const enrollment = enrollmentsByStudent.get(student.id)
               const enrollmentSlot = enrollment ? slotById.get(enrollment.clinic_slot_id) : null
               const hasInactiveSelection = !!enrollmentSlot && !enrollmentSlot.is_active
               const startsInFuture = !!enrollment && enrollment.start_date > todayStr()
               const endsInFuture = !!enrollment?.end_date && enrollment.end_date > todayStr()
+              const isSavingStudent = savingStudentId === student.id
               return (
                 <div key={student.id} className="grid gap-3 py-3 md:grid-cols-[minmax(0,1fr)_180px] md:items-center">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-gray-900">{student.name}</p>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="truncate text-sm font-bold text-gray-900">{student.name}</p>
+                      {isSavingStudent && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-600" />}
+                    </div>
                     <p className="mt-0.5 truncate text-xs text-gray-400">
                       {[student.school, student.grade, student.classes.map((cls) => cls.name).join(', ')].filter(Boolean).join(' · ')}
                     </p>
