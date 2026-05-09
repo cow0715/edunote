@@ -265,7 +265,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const { data: vocabAnswers } = scoreIds.length > 0
     ? await supabase
         .from('student_vocab_answer')
-        .select('id, week_score_id, is_correct, test_number, test_word, test_source, student_answer, retake_answer, retake_is_correct, vocab_word(id, week_id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, example_sentence, example_translation)')
+        .select('id, week_score_id, is_correct, test_number, test_word, test_source, student_answer, retake_answer, retake_is_correct, vocab_word(id, week_id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, example_sentence, example_translation), vocab_word_variant(word, meaning, relation_type)')
         .in('week_score_id', scoreIds)
         .eq('is_correct', false)
     : { data: [] }
@@ -294,15 +294,20 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     test_number: number | null
     test_word: string | null
     test_source: string | null
-    vocab_word: { id: string } | { id: string }[] | null
+    vocab_word: { id: string; correct_answer?: string | null } | { id: string; correct_answer?: string | null }[] | null
+    vocab_word_variant?: { word: string; meaning: string | null; relation_type: string } | { word: string; meaning: string | null; relation_type: string }[] | null
   }[]).map((answer) => {
     const vocabWord = one(answer.vocab_word)
+    const variant = one(answer.vocab_word_variant)
     const testItem = vocabWord ? vocabTestItemByWordId.get(vocabWord.id) : null
     return {
       ...answer,
+      vocab_word: vocabWord && variant?.meaning
+        ? { ...vocabWord, correct_answer: variant.meaning }
+        : vocabWord,
       test_number: answer.test_number ?? testItem?.test_number ?? null,
-      test_word: answer.test_word ?? testItem?.prompt_text ?? null,
-      test_source: answer.test_source ?? testItem?.prompt_source ?? null,
+      test_word: variant?.word ?? answer.test_word ?? testItem?.prompt_text ?? null,
+      test_source: variant?.relation_type ?? answer.test_source ?? testItem?.prompt_source ?? null,
     }
   })
 
