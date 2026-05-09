@@ -13,6 +13,21 @@ type VocabWordInput = {
   antonyms?: string[] | null
   derivatives?: string | null
   source_row_index?: number | null
+  variants?: VocabVariantInput[] | null
+}
+
+type VocabVariantInput = {
+  word: string
+  part_of_speech?: string | null
+  meaning?: string | null
+  relation_type?: 'original' | 'synonym' | 'derivative' | 'antonym'
+  usage_note?: string | null
+  excluded_meanings?: string[] | null
+  raw_text?: string | null
+  exam_enabled?: boolean | null
+  needs_review?: boolean | null
+  confidence?: number | null
+  sort_order?: number | null
 }
 
 type OldWordRow = {
@@ -40,6 +55,40 @@ type OldTestItemRow = {
   vocab_word_id: string
 }
 
+function fallbackVariants(word: VocabWordInput): VocabVariantInput[] {
+  return [{
+    word: word.english_word,
+    part_of_speech: word.part_of_speech ?? null,
+    meaning: word.correct_answer ?? null,
+    relation_type: 'original',
+    raw_text: word.english_word,
+    exam_enabled: true,
+    needs_review: !word.correct_answer,
+    confidence: word.correct_answer ? 0.95 : null,
+    sort_order: 1,
+  }]
+}
+
+function cleanVariants(word: VocabWordInput) {
+  const variants = (word.variants?.length ? word.variants : fallbackVariants(word))
+    .map((variant, index) => ({
+      word: variant.word?.trim(),
+      part_of_speech: variant.part_of_speech?.trim() || null,
+      meaning: variant.meaning?.trim() || null,
+      relation_type: variant.relation_type ?? 'original',
+      usage_note: variant.usage_note?.trim() || null,
+      excluded_meanings: Array.isArray(variant.excluded_meanings) ? variant.excluded_meanings.filter(Boolean) : [],
+      raw_text: variant.raw_text?.trim() || null,
+      exam_enabled: variant.exam_enabled ?? variant.relation_type !== 'antonym',
+      needs_review: variant.needs_review ?? !variant.meaning,
+      confidence: typeof variant.confidence === 'number' ? variant.confidence : null,
+      sort_order: variant.sort_order ?? index + 1,
+    }))
+    .filter((variant) => variant.word)
+
+  return variants.length > 0 ? variants : fallbackVariants(word)
+}
+
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
@@ -55,7 +104,27 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     .order('number')
 
   if (error) return err(error.message, 500)
-  return ok(data)
+
+  const wordRows = data ?? []
+  const wordIds = wordRows.map((word) => word.id)
+  const { data: variants, error: variantError } = wordIds.length > 0
+    ? await supabase
+        .from('vocab_word_variant')
+        .select('id, vocab_word_id, word, part_of_speech, meaning, relation_type, usage_note, excluded_meanings, raw_text, exam_enabled, needs_review, confidence, sort_order')
+        .in('vocab_word_id', wordIds)
+        .order('sort_order')
+    : { data: [], error: null }
+
+  if (variantError) return err(variantError.message, 500)
+
+  const variantsByWordId = new Map<string, typeof variants>()
+  for (const variant of variants ?? []) {
+    const list = variantsByWordId.get(variant.vocab_word_id) ?? []
+    list.push(variant)
+    variantsByWordId.set(variant.vocab_word_id, list)
+  }
+
+  return ok(wordRows.map((word) => ({ ...word, variants: variantsByWordId.get(word.id) ?? [] })))
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -199,6 +268,33 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     synonyms: string[] | null
   }[]
   const newWordByStableKey = new Map(newWords.map((w) => [`${w.number}::${w.english_word.trim().toLowerCase()}`, w]))
+
+  const insertedWordByStableKey = new Map(newWords.map((w) => [`${w.number}::${w.english_word.trim().toLowerCase()}`, w]))
+  const variantRows = words.flatMap((word) => {
+    const inserted = insertedWordByStableKey.get(`${word.number}::${word.english_word.trim().toLowerCase()}`)
+    if (!inserted) return []
+    return cleanVariants(word).map((variant) => ({
+      vocab_word_id: inserted.id,
+      word: variant.word,
+      part_of_speech: variant.part_of_speech,
+      meaning: variant.meaning,
+      relation_type: variant.relation_type,
+      usage_note: variant.usage_note,
+      excluded_meanings: variant.excluded_meanings,
+      raw_text: variant.raw_text,
+      exam_enabled: variant.exam_enabled,
+      needs_review: variant.needs_review,
+      confidence: variant.confidence,
+      sort_order: variant.sort_order,
+    }))
+  })
+  if (variantRows.length > 0) {
+    const { error: variantError } = await supabase.from('vocab_word_variant').insert(variantRows)
+    if (variantError) {
+      console.error('[vocab-words] variant insert failed', variantError)
+      return err(variantError.message, 500)
+    }
+  }
 
   // 업로드/수정으로 vocab_word id가 바뀌므로 시험지 문항 FK를 복구하거나 새 원본 업로드 시 초기화
   if (isSourceUpload) {

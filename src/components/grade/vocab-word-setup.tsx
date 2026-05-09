@@ -146,6 +146,15 @@ function getPromptOptions(word: VocabEntry): PromptOption[] {
     options.push(option)
   }
 
+  for (const variant of word.variants ?? []) {
+    if (variant.exam_enabled === false || variant.relation_type === 'antonym') continue
+    const source: VocabTestPromptSource = variant.relation_type === 'synonym'
+      ? 'synonym'
+      : variant.relation_type === 'derivative'
+        ? 'derivative'
+        : 'word'
+    addOption(source, variant.word)
+  }
   addOption('word', word.english_word)
   for (const synonym of word.synonyms ?? []) {
     addOption('synonym', synonym)
@@ -331,7 +340,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     if (!file) return
     setVocabStatus(weekId, {
       type: 'loading',
-      step: uploadMode === 'xlsx' ? '엑셀 단어장을 읽는 중...' : 'AI가 단어장을 분석 중...',
+      step: '업로드 파일 처리 중...',
     })
 
     try {
@@ -509,6 +518,9 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       createdAt: new Date().toISOString(),
       items: selected.map((word, index) => {
         const prompt = prompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word }
+        const variant = (word.variants ?? []).find((candidate) =>
+          candidate.word.toLocaleLowerCase('en-US') === prompt.prompt_text.toLocaleLowerCase('en-US')
+        )
         return {
           id: `${word.id}-${index}`,
           test_number: index + 1,
@@ -516,7 +528,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
           prompt_source: prompt.prompt_source,
           vocab_word: {
             english_word: word.english_word,
-            correct_answer: word.correct_answer,
+            correct_answer: variant?.meaning ?? word.correct_answer,
           },
         }
       }),

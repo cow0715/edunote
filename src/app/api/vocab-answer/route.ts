@@ -86,13 +86,14 @@ export async function POST(request: Request) {
   // correct_answer 조회 (student_vocab_answer → vocab_word)
   const { data: answerDetails } = await supabase
     .from('student_vocab_answer')
-    .select('id, vocab_word(correct_answer)')
+    .select('id, vocab_word(correct_answer), vocab_word_variant(meaning)')
     .in('id', items.map((i) => i.id))
 
   const correctAnswerById = new Map(
     (answerDetails ?? []).map((a) => {
       const vw = a.vocab_word as unknown as { correct_answer: string | null } | null
-      return [a.id, vw?.correct_answer ?? null]
+      const variant = a.vocab_word_variant as unknown as { meaning: string | null } | null
+      return [a.id, variant?.meaning ?? vw?.correct_answer ?? null]
     })
   )
 

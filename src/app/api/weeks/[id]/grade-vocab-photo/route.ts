@@ -10,6 +10,7 @@ type VocabWordForGrading = {
   correct_answer: string | null
   test_word?: string | null
   test_source?: string | null
+  vocab_word_variant_id?: string | null
 }
 
 type VocabTestItemForGrading = {
@@ -18,6 +19,12 @@ type VocabTestItemForGrading = {
   prompt_source: string | null
   prompt_text: string | null
   vocab_word: VocabWordForGrading | VocabWordForGrading[] | null
+  vocab_word_variant: {
+    id: string
+    word: string
+    meaning: string | null
+    relation_type: string
+  } | { id: string; word: string; meaning: string | null; relation_type: string }[] | null
 }
 
 function one<T>(value: T | T[] | null | undefined): T | null {
@@ -65,7 +72,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (activeTest) {
     const { data } = await supabase
       .from('vocab_test_item')
-      .select('test_number, sort_order, prompt_source, prompt_text, vocab_word(id, number, english_word, correct_answer)')
+      .select('test_number, sort_order, prompt_source, prompt_text, vocab_word(id, number, english_word, correct_answer), vocab_word_variant(id, word, meaning, relation_type)')
       .eq('vocab_test_id', activeTest.id)
       .order('sort_order')
     testItems = (data ?? []) as unknown as VocabTestItemForGrading[]
@@ -85,11 +92,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         .flatMap((item) => {
           const word = one(item.vocab_word)
           if (!word) return []
+          const variant = one(item.vocab_word_variant)
           return [{
             ...word,
             number: item.test_number,
-            test_word: item.prompt_text || word.english_word,
-            test_source: item.prompt_source ?? 'word',
+            english_word: variant?.word ?? item.prompt_text ?? word.english_word,
+            correct_answer: variant?.meaning ?? word.correct_answer,
+            test_word: variant?.word ?? item.prompt_text ?? word.english_word,
+            test_source: variant?.relation_type ?? item.prompt_source ?? 'word',
+            vocab_word_variant_id: variant?.id ?? null,
           }]
         })
     : (existingVocabWords ?? []) as VocabWordForGrading[]
@@ -211,6 +222,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return {
         week_score_id: score.id,
         vocab_word_id: vocabWordId,
+        vocab_word_variant_id: gradingWord?.vocab_word_variant_id ?? null,
         test_number: r.number,
         test_word: gradingWord?.test_word ?? r.english_word,
         test_source: gradingWord?.test_source ?? (activeTest ? 'word' : null),

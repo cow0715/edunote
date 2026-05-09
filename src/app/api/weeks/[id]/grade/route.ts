@@ -2,6 +2,10 @@ import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeSubjectiveAnswers, SubjectiveStudentAnswer } from '@/lib/anthropic'
 import { recalcReadingCorrect, gradeOX, gradeMultiSelect } from '@/lib/grade-utils'
 
+function one<T>(value: T | T[] | null | undefined): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null
+}
+
 // 과제/메모 단순 저장 (AI 채점 없음)
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
@@ -51,30 +55,34 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   const [{ data: classStudents }, { data: weekScores }, { data: questions }, { data: vocabWords }, { data: activeVocabTest }] = await Promise.all([
     csQuery,
-    supabase.from('week_score').select('*, student_answer(*), student_vocab_answer(*, vocab_word(*))').eq('week_id', weekId),
+    supabase.from('week_score').select('*, student_answer(*), student_vocab_answer(*, vocab_word(*), vocab_word_variant(*))').eq('week_id', weekId),
     supabase.from('exam_question').select('*, exam_question_tag(concept_tag(*, concept_category(*)))').eq('week_id', weekId).eq('exam_type', 'reading').order('question_number').order('sub_label', { nullsFirst: true }),
     supabase.from('vocab_word').select('id, number, english_word').eq('week_id', weekId).order('number'),
     supabase.from('vocab_test').select('id').eq('week_id', weekId).eq('is_active', true).order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ])
 
-  let vocabTestItemByWordId = new Map<string, { test_number: number; prompt_text: string | null; prompt_source: string | null }>()
+  let vocabTestItemByWordId = new Map<string, { test_number: number; prompt_text: string | null; prompt_source: string | null; vocab_word_variant?: { word: string; meaning: string | null; relation_type: string } | null }>()
   if (activeVocabTest?.id) {
     const { data: testItems } = await supabase
       .from('vocab_test_item')
-      .select('vocab_word_id, test_number, prompt_text, prompt_source')
+      .select('vocab_word_id, test_number, prompt_text, prompt_source, vocab_word_variant(word, meaning, relation_type)')
       .eq('vocab_test_id', activeVocabTest.id)
-    vocabTestItemByWordId = new Map((testItems ?? []).map((item) => [item.vocab_word_id, item]))
+    vocabTestItemByWordId = new Map((testItems ?? []).map((item) => [
+      item.vocab_word_id,
+      { ...item, vocab_word_variant: one(item.vocab_word_variant) },
+    ]))
   }
 
   const displayWeekScores = (weekScores ?? []).map((score) => ({
     ...score,
-    student_vocab_answer: (score.student_vocab_answer ?? []).map((answer: { vocab_word_id: string; test_number: number | null; test_word: string | null; test_source: string | null }) => {
+    student_vocab_answer: (score.student_vocab_answer ?? []).map((answer: { vocab_word_id: string; test_number: number | null; test_word: string | null; test_source: string | null; vocab_word_variant?: { word: string; meaning: string | null; relation_type: string } | null }) => {
       const testItem = vocabTestItemByWordId.get(answer.vocab_word_id)
+      const variant = answer.vocab_word_variant ?? testItem?.vocab_word_variant ?? null
       return {
         ...answer,
         test_number: answer.test_number ?? testItem?.test_number ?? null,
-        test_word: answer.test_word ?? testItem?.prompt_text ?? null,
-        test_source: answer.test_source ?? testItem?.prompt_source ?? null,
+        test_word: variant?.word ?? answer.test_word ?? testItem?.prompt_text ?? null,
+        test_source: variant?.relation_type ?? answer.test_source ?? testItem?.prompt_source ?? null,
       }
     }),
   }))
