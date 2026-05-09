@@ -14,6 +14,28 @@ export type ClinicAttendanceResponse = {
   enrollments: ClinicEnrollment[]
 }
 
+export type ClinicAttendanceSummary = {
+  from_date: string
+  to_date: string
+  totals: {
+    scheduled: number
+    present: number
+    absent: number
+    missing: number
+  }
+  students: {
+    student_id: string
+    student_name: string
+    scheduled: number
+    present: number
+    absent: number
+    missing: number
+    attendance_rate: number | null
+    last_absent_date: string | null
+    last_missing_date: string | null
+  }[]
+}
+
 export function useClinic() {
   return useQuery<ClinicOverview>({
     queryKey: ['clinic'],
@@ -83,6 +105,17 @@ export function useClinicAttendance(date: string) {
   })
 }
 
+export function useClinicAttendanceSummary(days = 56) {
+  return useQuery<ClinicAttendanceSummary>({
+    queryKey: ['clinic-attendance-summary', days],
+    queryFn: async () => {
+      const res = await fetch(`/api/clinic/attendance-summary?days=${days}`)
+      if (!res.ok) throw new Error((await res.json()).error ?? '클리닉 출석 요약 조회 실패')
+      return res.json()
+    },
+  })
+}
+
 export function useSaveClinicAttendance(date: string) {
   const qc = useQueryClient()
   return useMutation({
@@ -101,6 +134,7 @@ export function useSaveClinicAttendance(date: string) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['clinic-attendance', date] })
+      qc.invalidateQueries({ queryKey: ['clinic-attendance-summary'] })
       toast.success('보충수업 출석이 저장되었습니다')
     },
     onError: (e: Error) => toast.error(e.message),
