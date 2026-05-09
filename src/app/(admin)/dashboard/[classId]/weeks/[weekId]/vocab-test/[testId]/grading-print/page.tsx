@@ -13,6 +13,10 @@ type VocabTestItem = {
     english_word: string
     correct_answer: string | null
   } | null
+  vocab_word_variant?: {
+    word: string
+    meaning: string | null
+  } | null
 }
 
 type VocabTest = {
@@ -99,8 +103,8 @@ export default function VocabGradingPrintPage({
                 {[left, right].map((column, columnIndex) => (
                   <div key={columnIndex} className="space-y-0">
                     {column.map((item) => {
-                      const word = item.prompt_text || item.vocab_word?.english_word || ''
-                      const answer = item.vocab_word?.correct_answer || '-'
+                      const word = item.vocab_word_variant?.word || item.prompt_text || item.vocab_word?.english_word || ''
+                      const answer = item.vocab_word_variant?.meaning || item.vocab_word?.correct_answer || '-'
                       return (
                         <div
                           key={item.id}
