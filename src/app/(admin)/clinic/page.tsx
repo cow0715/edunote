@@ -143,6 +143,7 @@ export default function ClinicPage() {
   const [slotDraftsState, setSlotDraftsState] = useState<SlotDraft[] | null>(null)
   const [attendanceDraft, setAttendanceDraft] = useState<AttendanceDraft | null>(null)
   const [pendingEnrollmentChange, setPendingEnrollmentChange] = useState<PendingEnrollmentChange | null>(null)
+  const [attendanceSummaryOpen, setAttendanceSummaryOpen] = useState(true)
   const [slotSettingsOpen, setSlotSettingsOpen] = useState(true)
   const [studentSearch, setStudentSearch] = useState('')
   const [classFilter, setClassFilter] = useState('all')
@@ -353,15 +354,26 @@ export default function ClinicPage() {
               최근 8주 기준으로 학생별 출석 흐름을 확인합니다.
             </p>
           </div>
-          <div className="text-right">
-            <p className="text-2xl font-black text-gray-950">
-              {attendanceSummaryLoading ? '-' : summaryRate !== null ? `${summaryRate}%` : '-'}
-            </p>
-            <p className="text-xs font-semibold text-gray-400">전체 출석률</p>
+          <div className="flex items-start gap-3">
+            <div className="text-right">
+              <p className="text-2xl font-black text-gray-950">
+                {attendanceSummaryLoading ? '-' : summaryRate !== null ? `${summaryRate}%` : '-'}
+              </p>
+              <p className="text-xs font-semibold text-gray-400">전체 출석률</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setAttendanceSummaryOpen((open) => !open)}
+              aria-expanded={attendanceSummaryOpen}
+            >
+              <ChevronDown className={`h-4 w-4 transition-transform ${attendanceSummaryOpen ? 'rotate-180' : ''}`} />
+              {attendanceSummaryOpen ? '접기' : '펼치기'}
+            </Button>
           </div>
         </div>
 
-        {attendanceSummaryLoading ? (
+        {attendanceSummaryOpen && (attendanceSummaryLoading ? (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100" />)}
           </div>
@@ -418,7 +430,7 @@ export default function ClinicPage() {
               ))}
             </div>
           </>
-        )}
+        ))}
       </section>
 
       <section className="rounded-2xl bg-white p-4 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">

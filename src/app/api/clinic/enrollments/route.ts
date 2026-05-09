@@ -52,7 +52,8 @@ export async function POST(request: Request) {
     start_date?: string
   }
   if (!body.student_id) return err('학생이 필요합니다')
-  const startDate = body.start_date || todayStr()
+  const today = todayStr()
+  const startDate = body.start_date || today
   if (!isDateString(startDate)) return err('적용 시작일 형식이 올바르지 않습니다')
 
   if (!await assertActiveStudent(supabase, teacherId, body.student_id)) {
@@ -82,6 +83,68 @@ export async function POST(request: Request) {
     .order('start_date', { ascending: true })
 
   if (overlappingEnrollmentError) return err(overlappingEnrollmentError.message, 500)
+
+  const correctionCandidate = (overlappingEnrollments ?? []).find((enrollment) => !enrollment.end_date && enrollment.start_date >= today)
+  if (correctionCandidate) {
+    let hasAttendance = false
+    if (correctionCandidate.start_date <= today) {
+      const { data: existingAttendance, error: attendanceError } = await supabase
+        .from('clinic_attendance')
+        .select('id')
+        .eq('teacher_id', teacherId)
+        .eq('student_id', body.student_id)
+        .gte('date', correctionCandidate.start_date)
+        .lte('date', today)
+        .limit(1)
+
+      if (attendanceError) return err(attendanceError.message, 500)
+      hasAttendance = (existingAttendance?.length ?? 0) > 0
+    }
+
+    if (!hasAttendance) {
+      if (!requestedSlotId) {
+        const { error: deleteError } = await supabase
+          .from('clinic_enrollment')
+          .delete()
+          .eq('id', correctionCandidate.id)
+
+        if (deleteError) return err(deleteError.message, 500)
+
+        const { error: reopenError } = await supabase
+          .from('clinic_enrollment')
+          .update({ end_date: null })
+          .eq('teacher_id', teacherId)
+          .eq('student_id', body.student_id)
+          .eq('end_date', correctionCandidate.start_date)
+
+        if (reopenError) return err(reopenError.message, 500)
+        return ok({ ok: true, enrollment: null })
+      }
+
+      const { error: previousError } = await supabase
+        .from('clinic_enrollment')
+        .update({ end_date: startDate })
+        .eq('teacher_id', teacherId)
+        .eq('student_id', body.student_id)
+        .eq('end_date', correctionCandidate.start_date)
+
+      if (previousError) return err(previousError.message, 500)
+
+      const { data, error } = await supabase
+        .from('clinic_enrollment')
+        .update({
+          clinic_slot_id: requestedSlotId,
+          start_date: startDate,
+          end_date: null,
+        })
+        .eq('id', correctionCandidate.id)
+        .select('*, clinic_slot(*)')
+        .single()
+
+      if (error) return err(error.message, 500)
+      return ok({ ok: true, enrollment: data })
+    }
+  }
 
   for (const enrollment of overlappingEnrollments ?? []) {
     const endDate = enrollment.start_date > startDate ? enrollment.start_date : startDate
