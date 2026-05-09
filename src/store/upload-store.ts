@@ -22,6 +22,23 @@ export type VocabEntry = {
   example_sentence?: string | null
   example_translation?: string | null
   example_source?: string | null
+  variants?: VocabVariant[]
+}
+
+export type VocabVariant = {
+  id?: string
+  vocab_word_id?: string
+  word: string
+  part_of_speech?: string | null
+  meaning?: string | null
+  relation_type: 'original' | 'synonym' | 'derivative' | 'antonym'
+  usage_note?: string | null
+  excluded_meanings?: string[]
+  raw_text?: string | null
+  exam_enabled?: boolean
+  needs_review?: boolean
+  confidence?: number | null
+  sort_order?: number
 }
 
 export type VocabSetupStatus =

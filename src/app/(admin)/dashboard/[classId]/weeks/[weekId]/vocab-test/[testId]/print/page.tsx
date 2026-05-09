@@ -12,6 +12,9 @@ type VocabTestItem = {
   vocab_word: {
     english_word: string
   } | null
+  vocab_word_variant?: {
+    word: string
+  } | null
 }
 
 type VocabTest = {
@@ -103,7 +106,7 @@ export default function VocabTestPrintPage({
                 {[left, right].map((column, columnIndex) => (
                   <div key={columnIndex} className="space-y-0">
                     {column.map((item) => {
-                      const word = item.prompt_text || item.vocab_word?.english_word || ''
+                      const word = item.vocab_word_variant?.word || item.prompt_text || item.vocab_word?.english_word || ''
                       return (
                         <div key={item.id} className="grid h-[34px] grid-cols-[36px_minmax(0,1fr)_132px] items-end gap-2">
                           <span className="pb-1 text-right text-[13px] font-bold text-gray-900">{item.test_number}.</span>

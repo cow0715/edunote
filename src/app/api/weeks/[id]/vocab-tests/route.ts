@@ -14,6 +14,7 @@ type VocabTestItemRow = {
   id: string
   vocab_test_id: string
   vocab_word_id: string
+  vocab_word_variant_id: string | null
   test_number: number
   sort_order: number
   prompt_source: string | null
@@ -29,11 +30,19 @@ type VocabTestItemRow = {
     antonyms: string[] | null
     derivatives: string | null
   } | { id: string; number: number; passage_label: string | null; english_word: string; part_of_speech: string | null; correct_answer: string | null; synonyms: string[] | null; antonyms: string[] | null; derivatives: string | null }[] | null
+  vocab_word_variant: {
+    id: string
+    word: string
+    part_of_speech: string | null
+    meaning: string | null
+    relation_type: string
+  } | { id: string; word: string; part_of_speech: string | null; meaning: string | null; relation_type: string }[] | null
 }
 
 type ActiveTestItemRow = {
   vocab_test_id: string
   vocab_word_id: string
+  vocab_word_variant_id: string | null
   sort_order: number
   prompt_source: string | null
   prompt_text: string | null
@@ -41,6 +50,7 @@ type ActiveTestItemRow = {
 
 type RequestedTestItem = {
   wordId: string
+  variantId?: string
   promptSource?: string
   promptText?: string
 }
@@ -81,7 +91,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { data: items, error: itemError } = testIds.length > 0
     ? await supabase
         .from('vocab_test_item')
-        .select('id, vocab_test_id, vocab_word_id, test_number, sort_order, prompt_source, prompt_text, vocab_word(id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives)')
+        .select('id, vocab_test_id, vocab_word_id, vocab_word_variant_id, test_number, sort_order, prompt_source, prompt_text, vocab_word(id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives), vocab_word_variant(id, word, part_of_speech, meaning, relation_type)')
         .in('vocab_test_id', testIds)
         .order('sort_order')
     : { data: [], error: null }
@@ -91,7 +101,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const itemsByTestId = new Map<string, VocabTestItemRow[]>()
   for (const item of (items ?? []) as unknown as VocabTestItemRow[]) {
     const list = itemsByTestId.get(item.vocab_test_id) ?? []
-    list.push({ ...item, vocab_word: one(item.vocab_word) })
+    list.push({ ...item, vocab_word: one(item.vocab_word), vocab_word_variant: one(item.vocab_word_variant) })
     itemsByTestId.set(item.vocab_test_id, list)
   }
 
@@ -120,6 +130,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const item = body.items?.find((candidate) => candidate.wordId === wordId)
       return {
         wordId,
+        variantId: item?.variantId,
         promptSource: item?.promptSource === 'synonym' || item?.promptSource === 'derivative' ? item.promptSource : 'word',
         promptText: item?.promptText?.trim() || '',
         index,
@@ -144,7 +155,30 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const allowedIds = new Set((words ?? []).map((word) => word.id))
   const validWordIds = wordIds.filter((id) => allowedIds.has(id))
   if (validWordIds.length === 0) return err('선택한 단어를 찾을 수 없습니다', 422)
-  const validItems = uniqueRequestedItems.filter((item) => allowedIds.has(item.wordId))
+  const { data: variants } = await supabase
+    .from('vocab_word_variant')
+    .select('id, vocab_word_id, word, relation_type, exam_enabled, sort_order')
+    .in('vocab_word_id', validWordIds)
+
+  type VariantRow = NonNullable<typeof variants>[number]
+  const variantsByWordId = new Map<string, VariantRow[]>()
+  for (const variant of variants ?? []) {
+    const list = variantsByWordId.get(variant.vocab_word_id) ?? []
+    list.push(variant)
+    variantsByWordId.set(variant.vocab_word_id, list)
+  }
+  const validItems = uniqueRequestedItems
+    .filter((item) => allowedIds.has(item.wordId))
+    .map((item) => {
+      const wordVariants = variantsByWordId.get(item.wordId) ?? []
+      const selectedVariant = wordVariants.find((variant) => variant.id === item.variantId)
+        ?? wordVariants.find((variant) =>
+          variant.relation_type === item.promptSource && variant.word.toLowerCase() === item.promptText.toLowerCase()
+        )
+        ?? wordVariants.find((variant) => variant.relation_type === 'original')
+        ?? null
+      return { ...item, variantId: selectedVariant?.id ?? null }
+    })
 
   const { data: previousActiveTests } = await supabase
     .from('vocab_test')
@@ -157,7 +191,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: previousItems } = previousActiveIds.length > 0
     ? await supabase
         .from('vocab_test_item')
-        .select('vocab_test_id, vocab_word_id, sort_order, prompt_source, prompt_text')
+        .select('vocab_test_id, vocab_word_id, vocab_word_variant_id, sort_order, prompt_source, prompt_text')
         .in('vocab_test_id', previousActiveIds)
     : { data: [] }
 
@@ -168,6 +202,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     previousActiveItemIds.every((item, index) => {
       const next = validItems[index]
       return item.vocab_word_id === next.wordId &&
+        (item.vocab_word_variant_id ?? null) === (next.variantId ?? null) &&
         (item.prompt_source ?? 'word') === next.promptSource &&
         (item.prompt_text ?? '') === next.promptText
     })
@@ -198,6 +233,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .insert(validItems.map((item, index) => ({
       vocab_test_id: test.id,
       vocab_word_id: item.wordId,
+      vocab_word_variant_id: item.variantId,
       test_number: index + 1,
       sort_order: index + 1,
       prompt_source: item.promptSource,

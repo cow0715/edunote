@@ -88,7 +88,7 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
   // 원본 오답 전체 조회
   const { data: wrongAnswers } = await supabase
     .from('student_vocab_answer')
-    .select('id, test_number, test_word, test_source, retake_answer, retake_is_correct, vocab_word(id, number, english_word, correct_answer, synonyms, antonyms, example_sentence, example_translation)')
+    .select('id, test_number, test_word, test_source, retake_answer, retake_is_correct, vocab_word(id, number, english_word, correct_answer, synonyms, antonyms, example_sentence, example_translation), vocab_word_variant(word, meaning)')
     .eq('week_score_id', score.id)
     .eq('is_correct', false)
     .order('id')
@@ -113,12 +113,13 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
     .filter((a) => a.vocab_word)
     .map((a) => {
       const vw = one(a.vocab_word) as VocabWordRow
+      const variant = one(a.vocab_word_variant) as { word: string; meaning: string | null } | null
       const testItem = testItemByWordId.get(vw.id)
       return {
         answer_id: a.id,
         number: a.test_number ?? testItem?.test_number ?? vw.number,
-        english_word: a.test_word ?? testItem?.prompt_text ?? vw.english_word,
-        correct_answer: vw.correct_answer,
+        english_word: variant?.word ?? a.test_word ?? testItem?.prompt_text ?? vw.english_word,
+        correct_answer: variant?.meaning ?? vw.correct_answer,
         synonyms: vw.synonyms ?? null,
         antonyms: vw.antonyms ?? null,
         example_sentence: vw.example_sentence ?? null,
@@ -189,13 +190,14 @@ export async function POST(request: Request, { params }: { params: Promise<Param
   // AI 채점
   const { data: answerDetails } = await supabase
     .from('student_vocab_answer')
-    .select('id, vocab_word(correct_answer)')
+    .select('id, vocab_word(correct_answer), vocab_word_variant(meaning)')
     .in('id', answers.map((a) => a.answer_id))
 
   const correctAnswerById = new Map(
     (answerDetails ?? []).map((a) => {
       const vw = one(a.vocab_word) as { correct_answer: string | null } | null
-      return [a.id, vw?.correct_answer ?? null]
+      const variant = one(a.vocab_word_variant) as { meaning: string | null } | null
+      return [a.id, variant?.meaning ?? vw?.correct_answer ?? null]
     })
   )
 
