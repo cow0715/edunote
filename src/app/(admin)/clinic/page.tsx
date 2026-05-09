@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useClinic, useClinicAttendance, useClinicAttendanceSummary, useSaveClinicAttendance, useSaveClinicEnrollment, useSaveClinicSlots } from '@/hooks/use-clinic'
 import { ClinicEnrollment, ClinicSlot, ClinicStudent, ClinicWeekday } from '@/lib/types'
 
@@ -143,7 +144,6 @@ export default function ClinicPage() {
   const [slotDraftsState, setSlotDraftsState] = useState<SlotDraft[] | null>(null)
   const [attendanceDraft, setAttendanceDraft] = useState<AttendanceDraft | null>(null)
   const [pendingEnrollmentChange, setPendingEnrollmentChange] = useState<PendingEnrollmentChange | null>(null)
-  const [attendanceSummaryOpen, setAttendanceSummaryOpen] = useState(true)
   const [slotSettingsOpen, setSlotSettingsOpen] = useState(true)
   const [studentSearch, setStudentSearch] = useState('')
   const [classFilter, setClassFilter] = useState('all')
@@ -344,96 +344,6 @@ export default function ClinicPage() {
       </div>
 
       <section className="rounded-2xl bg-white p-4 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
-              <BarChart3 className="h-4 w-4 text-blue-600" />
-              클리닉 출석 현황
-            </div>
-            <p className="mt-0.5 text-xs text-gray-500">
-              최근 8주 기준으로 학생별 출석 흐름을 확인합니다.
-            </p>
-          </div>
-          <div className="flex items-start gap-3">
-            <div className="text-right">
-              <p className="text-2xl font-black text-gray-950">
-                {attendanceSummaryLoading ? '-' : summaryRate !== null ? `${summaryRate}%` : '-'}
-              </p>
-              <p className="text-xs font-semibold text-gray-400">전체 출석률</p>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setAttendanceSummaryOpen((open) => !open)}
-              aria-expanded={attendanceSummaryOpen}
-            >
-              <ChevronDown className={`h-4 w-4 transition-transform ${attendanceSummaryOpen ? 'rotate-180' : ''}`} />
-              {attendanceSummaryOpen ? '접기' : '펼치기'}
-            </Button>
-          </div>
-        </div>
-
-        {attendanceSummaryOpen && (attendanceSummaryLoading ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map((i) => <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100" />)}
-          </div>
-        ) : !attendanceSummary || attendanceSummary.totals.scheduled === 0 ? (
-          <p className="rounded-xl bg-gray-50 px-4 py-8 text-center text-sm text-gray-400">
-            최근 8주 안에 확인할 클리닉 출석 대상이 없습니다.
-          </p>
-        ) : (
-          <>
-            <div className="grid gap-2 sm:grid-cols-4">
-              <div className="rounded-xl bg-blue-50 px-3 py-3">
-                <p className="text-lg font-black text-blue-700">{attendanceSummary.totals.present}</p>
-                <p className="text-[11px] font-bold text-blue-500">출석</p>
-              </div>
-              <div className="rounded-xl bg-red-50 px-3 py-3">
-                <p className="text-lg font-black text-red-600">{attendanceSummary.totals.absent}</p>
-                <p className="text-[11px] font-bold text-red-400">결석</p>
-              </div>
-              <div className="rounded-xl bg-amber-50 px-3 py-3">
-                <p className="text-lg font-black text-amber-700">{attendanceSummary.totals.missing}</p>
-                <p className="text-[11px] font-bold text-amber-500">미기록</p>
-              </div>
-              <div className="rounded-xl bg-gray-50 px-3 py-3">
-                <p className="text-lg font-black text-gray-950">{attendanceSummary.totals.scheduled}</p>
-                <p className="text-[11px] font-bold text-gray-400">예정 횟수</p>
-              </div>
-            </div>
-
-            <div className="mt-4 divide-y divide-gray-100">
-              {attentionStudents.length === 0 ? (
-                <p className="py-4 text-sm font-semibold text-blue-600">
-                  결석이나 미기록이 있는 학생이 없습니다.
-                </p>
-              ) : attentionStudents.map((student) => (
-                <div key={student.student_id} className="grid gap-2 py-3 md:grid-cols-[minmax(0,1fr)_220px] md:items-center">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-gray-900">{student.student_name}</p>
-                    <p className="mt-0.5 text-xs text-gray-400">
-                      출석 {student.present}/{student.scheduled} · 결석 {student.absent} · 미기록 {student.missing}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
-                      <div
-                        className={`h-full rounded-full ${student.attendance_rate !== null && student.attendance_rate < 80 ? 'bg-red-500' : 'bg-blue-600'}`}
-                        style={{ width: `${student.attendance_rate ?? 0}%` }}
-                      />
-                    </div>
-                    <span className="w-10 text-right text-xs font-black text-gray-700">
-                      {student.attendance_rate ?? 0}%
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        ))}
-      </section>
-
-      <section className="rounded-2xl bg-white p-4 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-gray-950">요일 설정</h2>
@@ -442,12 +352,12 @@ export default function ClinicPage() {
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
-              size="sm"
+              size="icon-sm"
               onClick={() => setSlotSettingsOpen((open) => !open)}
               aria-expanded={slotSettingsOpen}
+              aria-label={slotSettingsOpen ? '요일 설정 접기' : '요일 설정 펼치기'}
             >
               <ChevronDown className={`h-4 w-4 transition-transform ${slotSettingsOpen ? 'rotate-180' : ''}`} />
-              {slotSettingsOpen ? '접기' : '펼치기'}
             </Button>
             <Button
               size="sm"
@@ -613,83 +523,175 @@ export default function ClinicPage() {
         </section>
 
         <section className="rounded-2xl bg-white p-4 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-bold text-gray-950">출석 체크</h2>
-              <p className="mt-0.5 text-xs text-gray-500">
-                {selectedSlot
-                  ? `${formatDate(selectedDate)} · ${targetStudents.length}명 예정`
-                  : `${formatDate(selectedDate)} · 보충수업 없음`}
-              </p>
+          <Tabs defaultValue="check" className="gap-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-gray-950">클리닉 운영</h2>
+                <p className="mt-0.5 text-xs text-gray-500">출석 체크와 현황을 탭으로 전환합니다.</p>
+              </div>
+              <TabsList>
+                <TabsTrigger value="check">출석 체크</TabsTrigger>
+                <TabsTrigger value="summary">출석 현황</TabsTrigger>
+              </TabsList>
             </div>
-            <div className="flex items-center gap-1.5">
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => moveClinicDate(-1)} disabled={activeWeekdays.size === 0}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => { setSelectedDate(e.target.value); setAttendanceDraft(null) }}
-                className="h-8 w-36 text-xs"
-              />
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => moveClinicDate(1)} disabled={activeWeekdays.size === 0}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
 
-          {attendanceLoading ? (
-            <div className="space-y-2">
-              {[1, 2, 3].map((i) => <div key={i} className="h-12 animate-pulse rounded-lg bg-gray-100" />)}
-            </div>
-          ) : !selectedSlot ? (
-            <p className="rounded-xl bg-gray-50 px-4 py-10 text-center text-sm text-gray-400">선택한 날짜에는 활성화된 보충수업이 없습니다.</p>
-          ) : targetStudents.length === 0 ? (
-            <p className="rounded-xl bg-gray-50 px-4 py-10 text-center text-sm text-gray-400">이 요일에 신청한 학생이 없습니다.</p>
-          ) : (
-            <>
-              <div className="space-y-2">
-                {targetStudents.map((student) => {
-                  const status = attendanceStatuses[student.id] ?? 'present'
-                  return (
-                    <div key={student.id} className="flex items-center gap-3 rounded-xl border border-gray-100 px-3 py-2.5">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-black text-blue-600">
-                        {student.name[0]}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-bold text-gray-900">{student.name}</p>
-                        <p className="truncate text-[11px] text-gray-400">{student.classes.map((cls) => cls.name).join(', ')}</p>
-                      </div>
-                      <div className="flex rounded-lg bg-gray-50 p-1">
-                        {(['present', 'absent'] as const).map((item) => (
-                          <button
-                            key={item}
-                            type="button"
-                            onClick={() => changeAttendance(student.id, item)}
-                            className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
-                              status === item
-                                ? item === 'present'
-                                  ? 'bg-blue-600 text-white'
-                                  : 'bg-red-500 text-white'
-                                : 'text-gray-400 hover:text-gray-700'
-                            }`}
-                          >
-                            {item === 'present' ? '출석' : '결석'}
-                          </button>
-                        ))}
-                      </div>
+            <TabsContent value="check" className="mt-0">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold text-gray-950">출석 체크</p>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    {selectedSlot
+                      ? `${formatDate(selectedDate)} · ${targetStudents.length}명 예정`
+                      : `${formatDate(selectedDate)} · 보충수업 없음`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => moveClinicDate(-1)} disabled={activeWeekdays.size === 0}>
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => { setSelectedDate(e.target.value); setAttendanceDraft(null) }}
+                    className="h-8 w-36 text-xs"
+                  />
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => moveClinicDate(1)} disabled={activeWeekdays.size === 0}>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {attendanceLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => <div key={i} className="h-12 animate-pulse rounded-lg bg-gray-100" />)}
+                </div>
+              ) : !selectedSlot ? (
+                <p className="rounded-xl bg-gray-50 px-4 py-10 text-center text-sm text-gray-400">선택한 날짜에는 활성화된 보충수업이 없습니다.</p>
+              ) : targetStudents.length === 0 ? (
+                <p className="rounded-xl bg-gray-50 px-4 py-10 text-center text-sm text-gray-400">이 요일에 신청한 학생이 없습니다.</p>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    {targetStudents.map((student) => {
+                      const status = attendanceStatuses[student.id] ?? 'present'
+                      return (
+                        <div key={student.id} className="flex items-center gap-3 rounded-xl border border-gray-100 px-3 py-2.5">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-black text-blue-600">
+                            {student.name[0]}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-bold text-gray-900">{student.name}</p>
+                            <p className="truncate text-[11px] text-gray-400">{student.classes.map((cls) => cls.name).join(', ')}</p>
+                          </div>
+                          <div className="flex rounded-lg bg-gray-50 p-1">
+                            {(['present', 'absent'] as const).map((item) => (
+                              <button
+                                key={item}
+                                type="button"
+                                onClick={() => changeAttendance(student.id, item)}
+                                className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
+                                  status === item
+                                    ? item === 'present'
+                                      ? 'bg-blue-600 text-white'
+                                      : 'bg-red-500 text-white'
+                                    : 'text-gray-400 hover:text-gray-700'
+                                }`}
+                              >
+                                {item === 'present' ? '출석' : '결석'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <Button size="sm" onClick={handleSaveAttendance} disabled={saveAttendance.isPending}>
+                      <Save className="mr-1.5 h-3.5 w-3.5" />
+                      출석 저장
+                    </Button>
+                  </div>
+                </>
+              )}
+            </TabsContent>
+
+            <TabsContent value="summary" className="mt-0">
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
+                    <BarChart3 className="h-4 w-4 text-blue-600" />
+                    클리닉 출석 현황
+                  </div>
+                  <p className="mt-0.5 text-xs text-gray-500">최근 8주 기준으로 학생별 출석 흐름을 확인합니다.</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-black text-gray-950">
+                    {attendanceSummaryLoading ? '-' : summaryRate !== null ? `${summaryRate}%` : '-'}
+                  </p>
+                  <p className="text-xs font-semibold text-gray-400">전체 출석률</p>
+                </div>
+              </div>
+
+              {attendanceSummaryLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-100" />)}
+                </div>
+              ) : !attendanceSummary || attendanceSummary.totals.scheduled === 0 ? (
+                <p className="rounded-xl bg-gray-50 px-4 py-8 text-center text-sm text-gray-400">
+                  최근 8주 안에 확인할 클리닉 출석 대상이 없습니다.
+                </p>
+              ) : (
+                <>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-xl bg-blue-50 px-3 py-3">
+                      <p className="text-lg font-black text-blue-700">{attendanceSummary.totals.present}</p>
+                      <p className="text-[11px] font-bold text-blue-500">출석</p>
                     </div>
-                  )
-                })}
-              </div>
-              <div className="mt-4 flex justify-end">
-                <Button size="sm" onClick={handleSaveAttendance} disabled={saveAttendance.isPending}>
-                  <Save className="mr-1.5 h-3.5 w-3.5" />
-                  출석 저장
-                </Button>
-              </div>
-            </>
-          )}
+                    <div className="rounded-xl bg-red-50 px-3 py-3">
+                      <p className="text-lg font-black text-red-600">{attendanceSummary.totals.absent}</p>
+                      <p className="text-[11px] font-bold text-red-400">결석</p>
+                    </div>
+                    <div className="rounded-xl bg-amber-50 px-3 py-3">
+                      <p className="text-lg font-black text-amber-700">{attendanceSummary.totals.missing}</p>
+                      <p className="text-[11px] font-bold text-amber-500">미기록</p>
+                    </div>
+                    <div className="rounded-xl bg-gray-50 px-3 py-3">
+                      <p className="text-lg font-black text-gray-950">{attendanceSummary.totals.scheduled}</p>
+                      <p className="text-[11px] font-bold text-gray-400">예정 횟수</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 divide-y divide-gray-100">
+                    {attentionStudents.length === 0 ? (
+                      <p className="py-4 text-sm font-semibold text-blue-600">
+                        결석이나 미기록이 있는 학생이 없습니다.
+                      </p>
+                    ) : attentionStudents.map((student) => (
+                      <div key={student.student_id} className="space-y-2 py-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-gray-900">{student.student_name}</p>
+                          <p className="mt-0.5 text-xs text-gray-400">
+                            출석 {student.present}/{student.scheduled} · 결석 {student.absent} · 미기록 {student.missing}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
+                            <div
+                              className={`h-full rounded-full ${student.attendance_rate !== null && student.attendance_rate < 80 ? 'bg-red-500' : 'bg-blue-600'}`}
+                              style={{ width: `${student.attendance_rate ?? 0}%` }}
+                            />
+                          </div>
+                          <span className="w-10 text-right text-xs font-black text-gray-700">
+                            {student.attendance_rate ?? 0}%
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </TabsContent>
+          </Tabs>
         </section>
       </div>
     </div>
