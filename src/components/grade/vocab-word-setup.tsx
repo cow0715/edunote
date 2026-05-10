@@ -310,8 +310,12 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   }
 
   async function enrichVariantMeanings() {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      setVocabStatus(weekId, { type: 'saving', step: '단어 뜻 저장 중...' })
+    let remaining: number | null = null
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      setVocabStatus(weekId, {
+        type: 'saving',
+        step: remaining === null ? '단어 뜻 저장 중...' : `단어 뜻 저장 중... (${remaining}개 남음)`,
+      })
       const res = await fetch(`/api/weeks/${weekId}/vocab-words/enrich-variants`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -319,7 +323,8 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? '단어 뜻 저장 실패')
-      if (!data.remaining || data.processed === 0) return
+      remaining = Number(data.remaining ?? 0)
+      if (!remaining || data.processed === 0) return
     }
     throw new Error('단어 뜻 저장이 오래 걸리고 있습니다. 잠시 후 다시 시도해주세요.')
   }
