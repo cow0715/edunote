@@ -45,7 +45,7 @@ export type VocabSetupStatus =
   | { type: 'idle' }
   | { type: 'file-selected'; fileName: string }
   | { type: 'loading'; step: string }
-  | { type: 'saving' }
+  | { type: 'saving'; step?: string }
   | { type: 'ready'; savedCount: number }
   | { type: 'error'; message: string }
 

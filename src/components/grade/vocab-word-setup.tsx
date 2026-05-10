@@ -308,8 +308,23 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     setVocabStatus(weekId, { type: 'file-selected', fileName: selected.name })
   }
 
+  async function enrichVariantMeanings() {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      setVocabStatus(weekId, { type: 'saving', step: '단어 뜻 저장 중...' })
+      const res = await fetch(`/api/weeks/${weekId}/vocab-words/enrich-variants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 80 }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? '단어 뜻 저장 실패')
+      if (!data.remaining || data.processed === 0) return
+    }
+    throw new Error('단어 뜻 저장이 오래 걸리고 있습니다. 잠시 후 다시 시도해주세요.')
+  }
+
   async function saveWords(words: VocabEntry[], source?: SourceMeta) {
-    setVocabStatus(weekId, { type: 'saving' })
+    setVocabStatus(weekId, { type: 'saving', step: '단어 저장 중...' })
     try {
       const res = await fetch(`/api/weeks/${weekId}/vocab-words`, {
         method: 'POST',
@@ -324,6 +339,9 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       if (!res.ok) {
         setVocabStatus(weekId, { type: 'error', message: data.error ?? '저장 실패' })
         return
+      }
+      if (source?.sourceType === 'xlsx') {
+        await enrichVariantMeanings()
       }
       qc.invalidateQueries({ queryKey: ['week', weekId] })
       qc.invalidateQueries({ queryKey: ['weeks'] })
@@ -621,7 +639,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       <div className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/40 py-8">
         <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
         <div className="text-center">
-          <p className="text-sm font-medium text-gray-700">{status.type === 'saving' ? '저장 중...' : status.step}</p>
+          <p className="text-sm font-medium text-gray-700">{status.type === 'saving' ? status.step ?? '저장 중...' : status.step}</p>
           {status.type === 'loading' && <p className="mt-1 text-xs text-gray-400">{elapsed}초 경과</p>}
         </div>
       </div>
