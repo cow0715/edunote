@@ -35,8 +35,8 @@ function wordKey(value: string) {
   return value.trim().toLowerCase()
 }
 
-function cacheKey(value: { word: string; part_of_speech: string | null; relation_type: string }) {
-  return `${wordKey(value.word)}::${value.part_of_speech ?? ''}::${value.relation_type}`
+function cacheKey(value: { word: string; part_of_speech: string | null }) {
+  return `${wordKey(value.word)}::${value.part_of_speech ?? ''}`
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -46,10 +46,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const teacherId = await getTeacherId(supabase, user.id)
   if (!teacherId) return err('강사 정보 없음', 404)
   if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
-  if (!process.env.ANTHROPIC_API_KEY) return err('단어 뜻 저장 설정이 없습니다.', 500)
-
-  const body = await request.json().catch(() => ({})) as { limit?: number }
-  const limit = Math.max(1, Math.min(body.limit ?? 12, 20))
+  const body = await request.json().catch(() => ({})) as { limit?: number; cacheOnly?: boolean }
+  const cacheOnly = body.cacheOnly === true
+  const limit = Math.max(1, Math.min(body.limit ?? (cacheOnly ? 1000 : 30), cacheOnly ? 1000 : 30))
 
   const { data: words, error: wordError } = await supabase
     .from('vocab_word')
@@ -119,6 +118,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const uncachedRows = variantRows.filter((variant) => !cacheByKey.has(cacheKey(variant)))
+  if (cacheOnly || uncachedRows.length === 0) {
+    const { count } = await supabase
+      .from('vocab_word_variant')
+      .select('id', { count: 'exact', head: true })
+      .in('vocab_word_id', wordIds)
+      .or('meaning.is.null,meaning.eq.,needs_review.eq.true')
+
+    return ok({
+      ok: true,
+      processed: variantRows.length,
+      updated,
+      remaining: count ?? 0,
+    })
+  }
+
+  if (!process.env.ANTHROPIC_API_KEY) return err('단어 뜻 저장 설정이 없습니다.', 500)
+
   const candidates: VocabVariantMeaningCandidate[] = uncachedRows.flatMap((variant) => {
     const source = wordById.get(variant.vocab_word_id)
     if (!source) return []
@@ -152,7 +168,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (result.meaning) updated += 1
   }
 
-  const cacheInserts = generated
+  const cacheInsertCandidates = generated
     .filter((result) => result.meaning)
     .map((result) => {
       const source = uncachedRows.find((variant) => variant.id === result.id)
@@ -168,11 +184,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       }
     })
     .filter((row) => row.word_key && row.word && row.meaning)
+  const cacheInserts = [...new Map(cacheInsertCandidates.map((row) => [cacheKey(row), row])).values()]
 
   if (cacheInserts.length > 0) {
     const { error: upsertCacheError } = await supabase
       .from('vocab_variant_cache')
-      .upsert(cacheInserts, { onConflict: 'word_key,part_of_speech_key,relation_type' })
+      .upsert(cacheInserts, { onConflict: 'word_key,part_of_speech_key' })
     if (upsertCacheError) return err(upsertCacheError.message, 500)
   }
 
