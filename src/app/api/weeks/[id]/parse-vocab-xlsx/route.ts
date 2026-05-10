@@ -23,7 +23,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const buffer = Buffer.from(fileData, 'base64')
     const words = parseVocabWorkbookBuffer(buffer)
     if (!words.length) return err('단어를 찾을 수 없습니다.', 422)
-    const normalizedWords = await normalizeVocabEntries(words)
+    const normalizedWords = await normalizeVocabEntries(words, { useAi: false })
     return ok({ ok: true, words: normalizedWords })
   } catch (error) {
     console.error('[parse-vocab-xlsx] 파싱 실패', error)

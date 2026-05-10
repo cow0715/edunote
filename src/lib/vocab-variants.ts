@@ -248,11 +248,13 @@ Output shape:
   }))
 }
 
-export async function normalizeVocabEntries(entries: ParsedVocabEntry[]) {
+export async function normalizeVocabEntries(entries: ParsedVocabEntry[], options: { useAi?: boolean } = {}) {
   const withVariants = entries.map((entry) => ({
     ...entry,
     variants: buildRuleBasedVariants(entry),
   }))
+
+  if (!options.useAi) return withVariants
 
   const normalized: VocabEntryWithVariants[] = []
   const batchSize = 40
