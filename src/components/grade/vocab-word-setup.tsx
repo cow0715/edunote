@@ -226,6 +226,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const [uploadMode, setUploadMode] = useState<'xlsx' | 'legacy_ai'>('xlsx')
   const [elapsed, setElapsed] = useState(0)
   const [regenLoading, setRegenLoading] = useState(false)
+  const [meaningLoading, setMeaningLoading] = useState(false)
   const [editWords, setEditWords] = useState<VocabEntry[]>([])
   const [activeTest, setActiveTest] = useState<VocabTest | null>(null)
   const [selectedWordIds, setSelectedWordIds] = useState<string[]>([])
@@ -400,6 +401,20 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       toast.error('예문 생성 중 오류가 발생했습니다')
     } finally {
       setRegenLoading(false)
+    }
+  }
+
+  async function handleEnrichMeanings() {
+    setMeaningLoading(true)
+    try {
+      await enrichVariantMeanings()
+      toast.success('단어 뜻 보완 완료')
+      await loadSavedWords()
+      await loadActiveTest()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '단어 뜻 저장 중 오류가 발생했습니다')
+    } finally {
+      setMeaningLoading(false)
     }
   }
 
@@ -692,6 +707,10 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleEnrichMeanings} disabled={meaningLoading}>
+            {meaningLoading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
+            뜻 보완
+          </Button>
           <Button variant="outline" size="sm" onClick={handleRegenExamples} disabled={regenLoading}>
             {regenLoading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
             예문 생성
