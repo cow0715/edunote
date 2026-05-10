@@ -315,7 +315,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       const res = await fetch(`/api/weeks/${weekId}/vocab-words/enrich-variants`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ limit: 80 }),
+        body: JSON.stringify({ limit: 12 }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? '단어 뜻 저장 실패')

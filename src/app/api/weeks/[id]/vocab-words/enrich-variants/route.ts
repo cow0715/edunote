@@ -30,7 +30,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!process.env.ANTHROPIC_API_KEY) return err('단어 뜻 저장 설정이 없습니다.', 500)
 
   const body = await request.json().catch(() => ({})) as { limit?: number }
-  const limit = Math.max(1, Math.min(body.limit ?? 80, 120))
+  const limit = Math.max(1, Math.min(body.limit ?? 12, 20))
 
   const { data: words, error: wordError } = await supabase
     .from('vocab_word')
