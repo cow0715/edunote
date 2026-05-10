@@ -204,7 +204,7 @@ export async function generateVariantMeanings(candidates: VocabVariantMeaningCan
 
   const res = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 10000,
+    max_tokens: 2500,
     messages: [{
       role: 'user',
       content: `You fill Korean meanings for English vocabulary variants used by Korean middle/high school students. Return JSON only.
