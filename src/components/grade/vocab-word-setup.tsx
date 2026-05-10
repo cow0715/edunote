@@ -309,24 +309,45 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     setVocabStatus(weekId, { type: 'file-selected', fileName: selected.name })
   }
 
-  async function enrichVariantMeanings() {
+  async function enrichVariantMeanings(options: { cacheOnly?: boolean; limit?: number; maxAttempts?: number; updateStatus?: boolean } = {}) {
+    const { cacheOnly = false, limit = cacheOnly ? 1000 : 30, maxAttempts = cacheOnly ? 1 : 200, updateStatus = true } = options
     let remaining: number | null = null
-    for (let attempt = 0; attempt < 200; attempt += 1) {
-      setVocabStatus(weekId, {
-        type: 'saving',
-        step: remaining === null ? '단어 뜻 저장 중...' : `단어 뜻 저장 중... (${remaining}개 남음)`,
-      })
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      if (updateStatus) {
+        setVocabStatus(weekId, {
+          type: 'saving',
+          step: remaining === null ? '단어 뜻 저장 중...' : `단어 뜻 저장 중... (${remaining}개 남음)`,
+        })
+      }
       const res = await fetch(`/api/weeks/${weekId}/vocab-words/enrich-variants`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ limit: 12 }),
+        body: JSON.stringify({ limit, cacheOnly }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? '단어 뜻 저장 실패')
+      const previousRemaining: number | null = remaining
       remaining = Number(data.remaining ?? 0)
-      if (!remaining || data.processed === 0) return
+      if (!remaining || data.processed === 0 || (previousRemaining === remaining && data.updated === 0)) return remaining
     }
     throw new Error('단어 뜻 저장이 오래 걸리고 있습니다. 잠시 후 다시 시도해주세요.')
+  }
+
+  function startVariantMeaningEnrichment() {
+    if (meaningLoading) return
+    setMeaningLoading(true)
+    void (async () => {
+      try {
+        const remaining = await enrichVariantMeanings({ limit: 30 })
+        if (!remaining) toast.success('단어 뜻 저장 완료')
+        await loadSavedWords()
+        await loadActiveTest()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '단어 뜻 저장 중 오류가 발생했습니다')
+      } finally {
+        setMeaningLoading(false)
+      }
+    })()
   }
 
   async function saveWords(words: VocabEntry[], source?: SourceMeta) {
@@ -347,7 +368,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         return
       }
       if (source?.sourceType === 'xlsx') {
-        await enrichVariantMeanings()
+        await enrichVariantMeanings({ cacheOnly: true, updateStatus: false })
       }
       qc.invalidateQueries({ queryKey: ['week', weekId] })
       qc.invalidateQueries({ queryKey: ['weeks'] })
@@ -355,6 +376,9 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       toast.success(`단어 ${data.saved}개 저장 완료`)
       await loadSavedWords()
       await loadActiveTest()
+      if (source?.sourceType === 'xlsx') {
+        startVariantMeaningEnrichment()
+      }
     } catch {
       setVocabStatus(weekId, { type: 'error', message: '저장 중 오류가 발생했습니다' })
     }
@@ -410,17 +434,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   }
 
   async function handleEnrichMeanings() {
-    setMeaningLoading(true)
-    try {
-      await enrichVariantMeanings()
-      toast.success('단어 뜻 보완 완료')
-      await loadSavedWords()
-      await loadActiveTest()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '단어 뜻 저장 중 오류가 발생했습니다')
-    } finally {
-      setMeaningLoading(false)
-    }
+    startVariantMeaningEnrichment()
   }
 
   async function saveVocabTest() {
