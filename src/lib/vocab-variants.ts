@@ -23,6 +23,7 @@ export type VocabEntryWithVariants = ParsedVocabEntry & {
 }
 
 type AiVariant = {
+  id?: string
   source_word: string
   word: string
   relation_type: VocabVariantRelationType
@@ -32,6 +33,28 @@ type AiVariant = {
   excluded_meanings?: string[]
   needs_review?: boolean
   confidence?: number | null
+}
+
+export type VocabVariantMeaningCandidate = {
+  id: string
+  source_word: string
+  source_meaning: string | null
+  word: string
+  part_of_speech: string | null
+  relation_type: VocabVariantRelationType
+  usage_note: string | null
+  raw_text: string | null
+}
+
+export type VocabVariantMeaningResult = {
+  id: string
+  word: string
+  part_of_speech: string | null
+  meaning: string | null
+  usage_note: string | null
+  excluded_meanings: string[]
+  needs_review: boolean
+  confidence: number | null
 }
 
 const POS_PATTERN = /\b(n|v|a|ad|adj|adv|prep|conj|phr|phrase)\.?\b/i
@@ -174,6 +197,71 @@ function mergeAiVariant(base: VocabVariantInput, ai?: AiVariant): VocabVariantIn
     needs_review: Boolean(ai.needs_review ?? (!meaning || base.needs_review)),
     confidence: typeof ai.confidence === 'number' ? ai.confidence : (meaning ? 0.8 : base.confidence),
   }
+}
+
+export async function generateVariantMeanings(candidates: VocabVariantMeaningCandidate[]): Promise<VocabVariantMeaningResult[]> {
+  if (candidates.length === 0 || !process.env.ANTHROPIC_API_KEY) return []
+
+  const res = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 10000,
+    messages: [{
+      role: 'user',
+      content: `You fill Korean meanings for English vocabulary variants used by Korean middle/high school students. Return JSON only.
+
+Rules:
+- Preserve id and word exactly.
+- Fill part_of_speech using n., v., a., ad., prep., conj., phr. when clear.
+- Fill meaning in concise Korean.
+- For derivatives, do not blindly copy source_meaning when the part of speech changes.
+- For synonyms, use the source meaning only when it is truly appropriate.
+- For antonyms, fill the Korean opposite meaning, but do not mark as exam-enabled here.
+- usage_note is not meaning. Keep useful warnings such as "not the quarrel meaning".
+- If a note excludes a Korean meaning, put it in excluded_meanings.
+- Set needs_review true only if the item is genuinely ambiguous.
+- confidence is 0 to 1.
+
+Input:
+${JSON.stringify(candidates)}
+
+Output:
+[
+  {
+    "id": "uuid",
+    "word": "surprising",
+    "part_of_speech": "a.",
+    "meaning": "놀라운",
+    "usage_note": null,
+    "excluded_meanings": [],
+    "needs_review": false,
+    "confidence": 0.92
+  }
+]`,
+    }],
+  })
+
+  const raw = res.content[0]?.type === 'text' ? res.content[0].text : ''
+  const parsed = JSON.parse(jsonrepair(raw.replace(/```json\n?|\n?```/g, '').trim())) as unknown
+  if (!Array.isArray(parsed)) return []
+
+  const allowedIds = new Set(candidates.map((candidate) => candidate.id))
+  return parsed.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const data = item as Record<string, unknown>
+    const id = typeof data.id === 'string' ? data.id : ''
+    if (!allowedIds.has(id)) return []
+    const meaning = cleanText(data.meaning) || null
+    return [{
+      id,
+      word: typeof data.word === 'string' ? data.word : '',
+      part_of_speech: normalizePos(data.part_of_speech) ?? null,
+      meaning,
+      usage_note: cleanText(data.usage_note) || null,
+      excluded_meanings: Array.isArray(data.excluded_meanings) ? data.excluded_meanings.map(cleanText).filter(Boolean) : [],
+      needs_review: Boolean(data.needs_review ?? !meaning),
+      confidence: typeof data.confidence === 'number' ? data.confidence : (meaning ? 0.8 : null),
+    }]
+  })
 }
 
 async function enrichVariantsWithAi(entries: VocabEntryWithVariants[]) {
