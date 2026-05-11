@@ -3,6 +3,7 @@
 import { use, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
+import { PrintFitText } from '@/components/grade/print-fit-text'
 
 type VocabTestItem = {
   id: string
@@ -113,12 +114,8 @@ export default function VocabGradingPrintPage({
                           className="grid h-[34px] grid-cols-[34px_minmax(0,1fr)_minmax(0,1.05fr)] items-center gap-2 border-b border-gray-200"
                         >
                           <span className="text-right text-[13px] font-bold text-gray-900">{item.test_number}.</span>
-                          <span className="truncate text-[14px] font-semibold text-gray-900" title={word}>
-                            {word}
-                          </span>
-                          <span className="truncate text-[14px] font-bold text-gray-950" title={answer}>
-                            {answer}
-                          </span>
+                          <PrintFitText text={word} maxSize={14} minSize={9} className="font-semibold text-gray-900" />
+                          <PrintFitText text={answer} maxSize={14} minSize={9} className="font-bold text-gray-950" />
                         </div>
                       )
                     })}
