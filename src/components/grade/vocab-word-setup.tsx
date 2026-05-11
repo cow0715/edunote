@@ -338,6 +338,16 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         if (typeof variant.id === 'string') meanings.set(variant.id, variant.meaning ?? null)
       }
     }
+    if (meanings.size > 0) {
+      setEditWords((prev) => prev.map((word) => ({
+        ...word,
+        variants: word.variants?.map((variant) => (
+          variant.id && meanings.has(variant.id)
+            ? { ...variant, meaning: meanings.get(variant.id) ?? variant.meaning ?? null, needs_review: false }
+            : variant
+        )),
+      })))
+    }
     return meanings
   }
 
@@ -431,7 +441,10 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         )?.id ?? null
       })
       .filter((id): id is string => Boolean(id))
-    if (variantIds.length === 0) return
+    if (variantIds.length === 0) {
+      toast.error('뜻을 저장할 유의어/파생어를 먼저 선택해주세요')
+      return
+    }
     setMeaningLoading(true)
     try {
       await enrichSelectedVariantMeanings(variantIds)
@@ -445,8 +458,8 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     }
   }
 
-  async function saveVocabTest() {
-    if (selectedWordIds.length === 0) {
+  async function persistVocabTest(wordIds: string[], prompts: Record<string, SelectedPrompt>, options: { showToast?: boolean } = {}) {
+    if (wordIds.length === 0) {
       toast.error('시험에 넣을 단어를 선택해주세요')
       return
     }
@@ -456,11 +469,11 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: `단어시험 ${selectedWordIds.length}문항`,
-          wordIds: selectedWordIds,
-          items: selectedWordIds.map((wordId) => {
+          title: `단어시험 ${wordIds.length}문항`,
+          wordIds,
+          items: wordIds.map((wordId) => {
             const word = savedWordsWithIds.find((item) => item.id === wordId)
-            const prompt = selectedPrompts[wordId]
+            const prompt = prompts[wordId]
             const fallbackOption = word ? getPromptOptions(word)[0] : null
             const normalizedOption = prompt && word
               ? makePromptOption(prompt.prompt_source, prompt.prompt_text)
@@ -478,7 +491,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         toast.error(data.error ?? '시험지 저장 실패')
         return
       }
-      toast.success(`${selectedWordIds.length}문항 시험지가 저장되었습니다`)
+      if (options.showToast !== false) toast.success(`${wordIds.length}문항 시험지가 저장되었습니다`)
       qc.invalidateQueries({ queryKey: ['week', weekId] })
       qc.invalidateQueries({ queryKey: ['weeks'] })
       qc.invalidateQueries({ queryKey: ['grade', weekId] })
@@ -488,6 +501,10 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     } finally {
       setTestSaving(false)
     }
+  }
+
+  async function saveVocabTest() {
+    await persistVocabTest(selectedWordIds, selectedPrompts)
   }
 
   function toggleTestWord(wordId: string) {
@@ -572,6 +589,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         setMeaningLoading(false)
       }
     }
+    await persistVocabTest(selected.map((word) => word.id), prompts, { showToast: false })
     toast.success(`${selected.length}개 선택: 원본 ${counts.word}, 유의어 ${counts.synonym}, 파생어 ${counts.derivative}`)
   }
 
