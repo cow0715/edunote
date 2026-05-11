@@ -134,9 +134,9 @@ export async function enrichVocabVariantMeanings(
         .in('word_key', wordKeys)
     : { data: [], error: null }
 
-  if (cacheError) throw new Error(cacheError.message)
+  if (cacheError) console.error('[vocab-variant-enrichment] cache lookup failed', cacheError)
 
-  const cacheByKey = new Map<string, CacheRow>(((cacheRows ?? []) as CacheRow[]).map((row) => [cacheKey(row), row]))
+  const cacheByKey = new Map<string, CacheRow>((cacheError ? [] : ((cacheRows ?? []) as CacheRow[])).map((row) => [cacheKey(row), row]))
   let updated = 0
   const updatedVariantIds = new Set<string>()
 
@@ -219,7 +219,14 @@ export async function enrichVocabVariantMeanings(
       const { error: upsertCacheError } = await supabase
         .from('vocab_variant_cache')
         .upsert(cacheInserts, { onConflict: 'word_key,part_of_speech_key' })
-      if (upsertCacheError) throw new Error(upsertCacheError.message)
+      if (upsertCacheError) {
+        const { error: legacyUpsertCacheError } = await supabase
+          .from('vocab_variant_cache')
+          .upsert(cacheInserts, { onConflict: 'word_key,part_of_speech_key,relation_type' })
+        if (legacyUpsertCacheError) {
+          console.error('[vocab-variant-enrichment] cache upsert failed', legacyUpsertCacheError)
+        }
+      }
     }
   }
 
