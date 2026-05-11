@@ -99,10 +99,25 @@ function extractExcludedMeanings(note: string | null) {
 function splitItems(value: unknown) {
   const text = cleanText(value)
   if (!text || EMPTY_PATTERN.test(text)) return []
-  return text
-    .split(/\s*(?:\/|,|;)\s*/g)
-    .map((item) => cleanText(item))
-    .filter((item) => item && !EMPTY_PATTERN.test(item))
+  const items: string[] = []
+  let depth = 0
+  let current = ''
+
+  for (const char of text) {
+    if (char === '(') depth += 1
+    if (char === ')' && depth > 0) depth -= 1
+    if (depth === 0 && (char === '/' || char === ',' || char === ';')) {
+      const item = cleanText(current)
+      if (item && !EMPTY_PATTERN.test(item)) items.push(item)
+      current = ''
+      continue
+    }
+    current += char
+  }
+
+  const last = cleanText(current)
+  if (last && !EMPTY_PATTERN.test(last)) items.push(last)
+  return items
 }
 
 function parseItem(rawValue: string, relationType: VocabVariantRelationType, fallbackMeaning: string | null): VocabVariantInput | null {
