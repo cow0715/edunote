@@ -67,6 +67,7 @@ function cleanText(value: unknown) {
 function normalizePos(value: unknown) {
   const text = cleanText(value).toLowerCase().replace(/[()]/g, '').replace(/\s+/g, '')
   if (!text) return null
+  if (text.includes('/')) return null
   if (text === 'adj' || text === 'a') return 'a.'
   if (text === 'adv' || text === 'ad') return 'ad.'
   if (text === 'noun' || text === 'n') return 'n.'
