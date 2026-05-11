@@ -156,12 +156,6 @@ function getPromptOptions(word: VocabEntry): PromptOption[] {
     addOption(source, variant.word)
   }
   addOption('word', word.english_word)
-  for (const synonym of word.synonyms ?? []) {
-    addOption('synonym', synonym)
-  }
-  for (const derivative of splitVariantText(word.derivatives)) {
-    addOption('derivative', derivative)
-  }
   return options
 }
 
@@ -184,7 +178,8 @@ function findVariantForPrompt(word: VocabEntry, prompt: SelectedPrompt) {
 }
 
 function getPromptAnswer(word: VocabEntry, prompt: SelectedPrompt) {
-  return findVariantForPrompt(word, prompt)?.meaning ?? word.correct_answer
+  if (prompt.prompt_source === 'word') return word.correct_answer
+  return findVariantForPrompt(word, prompt)?.meaning ?? null
 }
 
 function buildRandomVocabSelection(words: Array<VocabEntry & { id: string }>, count: number): RandomVocabSelection {
@@ -434,11 +429,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         const word = savedWordsWithIds.find((item) => item.id === wordId)
         const prompt = selectedPrompts[wordId]
         if (!word || !prompt || prompt.prompt_source === 'word') return null
-        return (word.variants ?? []).find((variant) =>
-          variant.id &&
-          variant.relation_type === prompt.prompt_source &&
-          variant.word.toLocaleLowerCase('en-US') === prompt.prompt_text.toLocaleLowerCase('en-US')
-        )?.id ?? null
+        return findVariantForPrompt(word, prompt)?.id ?? null
       })
       .filter((id): id is string => Boolean(id))
     if (variantIds.length === 0) {
@@ -478,10 +469,16 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
             const normalizedOption = prompt && word
               ? makePromptOption(prompt.prompt_source, prompt.prompt_text)
               : null
+            const resolvedPrompt = {
+              prompt_source: normalizedOption?.prompt_source ?? fallbackOption?.prompt_source ?? 'word',
+              prompt_text: normalizedOption?.prompt_text ?? fallbackOption?.prompt_text ?? word?.english_word ?? '',
+            } as SelectedPrompt
+            const variantId = word ? findVariantForPrompt(word, resolvedPrompt)?.id : undefined
             return {
               wordId,
-              promptSource: normalizedOption?.prompt_source ?? fallbackOption?.prompt_source ?? 'word',
-              promptText: normalizedOption?.prompt_text ?? fallbackOption?.prompt_text ?? word?.english_word ?? '',
+              variantId,
+              promptSource: resolvedPrompt.prompt_source,
+              promptText: resolvedPrompt.prompt_text,
             }
           }),
         }),
