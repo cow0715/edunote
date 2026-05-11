@@ -309,45 +309,24 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     setVocabStatus(weekId, { type: 'file-selected', fileName: selected.name })
   }
 
-  async function enrichVariantMeanings(options: { cacheOnly?: boolean; limit?: number; maxAttempts?: number; updateStatus?: boolean } = {}) {
-    const { cacheOnly = false, limit = cacheOnly ? 1000 : 30, maxAttempts = cacheOnly ? 1 : 200, updateStatus = true } = options
-    let remaining: number | null = null
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      if (updateStatus) {
-        setVocabStatus(weekId, {
-          type: 'saving',
-          step: remaining === null ? '단어 뜻 저장 중...' : `단어 뜻 저장 중... (${remaining}개 남음)`,
-        })
-      }
+  async function enrichSelectedVariantMeanings(variantIds: string[]) {
+    const ids = [...new Set(variantIds.filter(Boolean))]
+    if (ids.length === 0) return new Map<string, string | null>()
+    const meanings = new Map<string, string | null>()
+    for (let i = 0; i < ids.length; i += 50) {
+      const batch = ids.slice(i, i + 50)
       const res = await fetch(`/api/weeks/${weekId}/vocab-words/enrich-variants`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ limit, cacheOnly }),
+        body: JSON.stringify({ variantIds: batch, limit: 50 }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? '단어 뜻 저장 실패')
-      const previousRemaining: number | null = remaining
-      remaining = Number(data.remaining ?? 0)
-      if (!remaining || data.processed === 0 || (previousRemaining === remaining && data.updated === 0)) return remaining
-    }
-    throw new Error('단어 뜻 저장이 오래 걸리고 있습니다. 잠시 후 다시 시도해주세요.')
-  }
-
-  function startVariantMeaningEnrichment() {
-    if (meaningLoading) return
-    setMeaningLoading(true)
-    void (async () => {
-      try {
-        const remaining = await enrichVariantMeanings({ limit: 30 })
-        if (!remaining) toast.success('단어 뜻 저장 완료')
-        await loadSavedWords()
-        await loadActiveTest()
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : '단어 뜻 저장 중 오류가 발생했습니다')
-      } finally {
-        setMeaningLoading(false)
+      for (const variant of data.variants ?? []) {
+        if (typeof variant.id === 'string') meanings.set(variant.id, variant.meaning ?? null)
       }
-    })()
+    }
+    return meanings
   }
 
   async function saveWords(words: VocabEntry[], source?: SourceMeta) {
@@ -367,18 +346,12 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         setVocabStatus(weekId, { type: 'error', message: data.error ?? '저장 실패' })
         return
       }
-      if (source?.sourceType === 'xlsx') {
-        await enrichVariantMeanings({ cacheOnly: true, updateStatus: false })
-      }
       qc.invalidateQueries({ queryKey: ['week', weekId] })
       qc.invalidateQueries({ queryKey: ['weeks'] })
       qc.invalidateQueries({ queryKey: ['grade', weekId] })
       toast.success(`단어 ${data.saved}개 저장 완료`)
       await loadSavedWords()
       await loadActiveTest()
-      if (source?.sourceType === 'xlsx') {
-        startVariantMeaningEnrichment()
-      }
     } catch {
       setVocabStatus(weekId, { type: 'error', message: '저장 중 오류가 발생했습니다' })
     }
@@ -434,7 +407,30 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   }
 
   async function handleEnrichMeanings() {
-    startVariantMeaningEnrichment()
+    const variantIds = selectedWordIds
+      .map((wordId) => {
+        const word = savedWordsWithIds.find((item) => item.id === wordId)
+        const prompt = selectedPrompts[wordId]
+        if (!word || !prompt || prompt.prompt_source === 'word') return null
+        return (word.variants ?? []).find((variant) =>
+          variant.id &&
+          variant.relation_type === prompt.prompt_source &&
+          variant.word.toLocaleLowerCase('en-US') === prompt.prompt_text.toLocaleLowerCase('en-US')
+        )?.id ?? null
+      })
+      .filter((id): id is string => Boolean(id))
+    if (variantIds.length === 0) return
+    setMeaningLoading(true)
+    try {
+      await enrichSelectedVariantMeanings(variantIds)
+      toast.success('단어 뜻 저장 완료')
+      await loadSavedWords()
+      await loadActiveTest()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '단어 뜻 저장 중 오류가 발생했습니다')
+    } finally {
+      setMeaningLoading(false)
+    }
   }
 
   async function saveVocabTest() {
@@ -552,7 +548,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     toast.success(`${selected.length}개 선택: 원본 ${counts.word}, 유의어 ${counts.synonym}, 파생어 ${counts.derivative}`)
   }
 
-  function openClinicPrint(mode: 'student' | 'grading') {
+  async function openClinicPrint(mode: 'student' | 'grading') {
     if (filteredTestWords.length === 0) {
       toast.error('클리닉 시험지로 뽑을 단어가 없습니다')
       return
@@ -564,6 +560,25 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       return
     }
 
+    const selectedVariants = selected.map((word) => {
+      const prompt = prompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word }
+      if (prompt.prompt_source === 'word') return null
+      return (word.variants ?? []).find((candidate) =>
+        candidate.id &&
+        candidate.relation_type === prompt.prompt_source &&
+        candidate.word.toLocaleLowerCase('en-US') === prompt.prompt_text.toLocaleLowerCase('en-US')
+      ) ?? null
+    })
+    let enrichedMeanings = new Map<string, string | null>()
+    try {
+      enrichedMeanings = await enrichSelectedVariantMeanings(
+        selectedVariants.map((variant) => variant?.id).filter((id): id is string => Boolean(id))
+      )
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '단어 뜻 저장 중 오류가 발생했습니다')
+      return
+    }
+
     const key = `clinic-vocab-test:${weekId}:${Date.now()}`
     const payload = {
       title: `어휘시험 ${selected.length}문항`,
@@ -571,8 +586,10 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       items: selected.map((word, index) => {
         const prompt = prompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word }
         const variant = (word.variants ?? []).find((candidate) =>
+          candidate.relation_type === prompt.prompt_source &&
           candidate.word.toLocaleLowerCase('en-US') === prompt.prompt_text.toLocaleLowerCase('en-US')
         )
+        const variantMeaning = variant?.id ? enrichedMeanings.get(variant.id) ?? variant.meaning : variant?.meaning
         return {
           id: `${word.id}-${index}`,
           test_number: index + 1,
@@ -580,7 +597,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
           prompt_source: prompt.prompt_source,
           vocab_word: {
             english_word: word.english_word,
-            correct_answer: variant?.meaning ?? word.correct_answer,
+            correct_answer: variantMeaning ?? word.correct_answer,
           },
         }
       }),

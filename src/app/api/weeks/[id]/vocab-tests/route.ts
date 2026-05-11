@@ -1,5 +1,6 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
+import { enrichVocabVariantMeanings } from '@/lib/vocab-variant-enrichment'
 
 type VocabTestRow = {
   id: string
@@ -57,6 +58,12 @@ type RequestedTestItem = {
 
 function one<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null
+}
+
+function chunks<T>(items: T[], size: number) {
+  const result: T[][] = []
+  for (let i = 0; i < items.length; i += size) result.push(items.slice(i, i + size))
+  return result
 }
 
 async function requireOwner(weekId: string) {
@@ -179,6 +186,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         ?? null
       return { ...item, variantId: selectedVariant?.id ?? null }
     })
+  const selectedVariantIds = validItems
+    .map((item) => item.variantId)
+    .filter((id): id is string => Boolean(id))
+  if (selectedVariantIds.length > 0) {
+    try {
+      for (const batch of chunks(selectedVariantIds, 50)) {
+        await enrichVocabVariantMeanings(supabase, {
+          weekId,
+          variantIds: batch,
+          limit: 50,
+        })
+      }
+    } catch (error) {
+      console.error('[vocab-tests] variant meaning enrichment failed', error)
+      return err(error instanceof Error ? error.message : '단어 뜻 저장 실패', 500)
+    }
+  }
 
   const { data: previousActiveTests } = await supabase
     .from('vocab_test')
