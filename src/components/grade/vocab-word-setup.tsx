@@ -175,6 +175,18 @@ function normalizeSelectedPrompt(word: VocabEntry | null | undefined, source: Vo
   }
 }
 
+function findVariantForPrompt(word: VocabEntry, prompt: SelectedPrompt) {
+  if (prompt.prompt_source === 'word') return null
+  return (word.variants ?? []).find((variant) =>
+    variant.relation_type === prompt.prompt_source &&
+    variant.word.toLocaleLowerCase('en-US') === prompt.prompt_text.toLocaleLowerCase('en-US')
+  ) ?? null
+}
+
+function getPromptAnswer(word: VocabEntry, prompt: SelectedPrompt) {
+  return findVariantForPrompt(word, prompt)?.meaning ?? word.correct_answer
+}
+
 function buildRandomVocabSelection(words: Array<VocabEntry & { id: string }>, count: number): RandomVocabSelection {
   const selected: Array<VocabEntry & { id: string }> = []
   const prompts: Record<string, SelectedPrompt> = {}
@@ -530,7 +542,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     })
   }
 
-  function selectRandomTestWords() {
+  async function selectRandomTestWords() {
     if (filteredTestWords.length === 0) {
       toast.error('랜덤으로 선택할 단어가 없습니다')
       return
@@ -540,11 +552,26 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
 
     setSelectedWordIds(selected.map((word) => word.id))
     setSelectedPrompts(prompts)
+    const variantIds = selected
+      .map((word) => findVariantForPrompt(word, prompts[word.id])?.id)
+      .filter((id): id is string => Boolean(id))
     const counts = selected.reduce<Record<VocabTestPromptSource, number>>((acc, word) => {
       const source = prompts[word.id]?.prompt_source ?? 'word'
       acc[source] += 1
       return acc
     }, { word: 0, synonym: 0, derivative: 0 })
+    if (variantIds.length > 0) {
+      setMeaningLoading(true)
+      try {
+        await enrichSelectedVariantMeanings(variantIds)
+        await loadSavedWords()
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '단어 뜻 저장 중 오류가 발생했습니다')
+        return
+      } finally {
+        setMeaningLoading(false)
+      }
+    }
     toast.success(`${selected.length}개 선택: 원본 ${counts.word}, 유의어 ${counts.synonym}, 파생어 ${counts.derivative}`)
   }
 
@@ -563,20 +590,21 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     const selectedVariants = selected.map((word) => {
       const prompt = prompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word }
       if (prompt.prompt_source === 'word') return null
-      return (word.variants ?? []).find((candidate) =>
-        candidate.id &&
-        candidate.relation_type === prompt.prompt_source &&
-        candidate.word.toLocaleLowerCase('en-US') === prompt.prompt_text.toLocaleLowerCase('en-US')
-      ) ?? null
+      const variant = findVariantForPrompt(word, prompt)
+      return variant?.id ? variant : null
     })
     let enrichedMeanings = new Map<string, string | null>()
+    const selectedVariantIds = selectedVariants.map((variant) => variant?.id).filter((id): id is string => Boolean(id))
     try {
-      enrichedMeanings = await enrichSelectedVariantMeanings(
-        selectedVariants.map((variant) => variant?.id).filter((id): id is string => Boolean(id))
-      )
+      if (selectedVariantIds.length > 0) {
+        setMeaningLoading(true)
+        enrichedMeanings = await enrichSelectedVariantMeanings(selectedVariantIds)
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '단어 뜻 저장 중 오류가 발생했습니다')
       return
+    } finally {
+      setMeaningLoading(false)
     }
 
     const key = `clinic-vocab-test:${weekId}:${Date.now()}`
@@ -585,10 +613,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       createdAt: new Date().toISOString(),
       items: selected.map((word, index) => {
         const prompt = prompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word }
-        const variant = (word.variants ?? []).find((candidate) =>
-          candidate.relation_type === prompt.prompt_source &&
-          candidate.word.toLocaleLowerCase('en-US') === prompt.prompt_text.toLocaleLowerCase('en-US')
-        )
+        const variant = findVariantForPrompt(word, prompt)
         const variantMeaning = variant?.id ? enrichedMeanings.get(variant.id) ?? variant.meaning : variant?.meaning
         return {
           id: `${word.id}-${index}`,
@@ -723,7 +748,6 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       formatWordList(word.antonyms),
     ].some((value) => normalizeSearch(value).includes(searchQuery))
   })
-  const allFilteredSelected = filteredTestWords.length > 0 && filteredTestWords.every((word) => selectedSet.has(word.id))
   const clinicPickCount = Math.max(1, Math.min(randomPickCount, Math.max(1, filteredTestWords.length)))
 
   return (
@@ -789,10 +813,10 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                 variant="outline"
                 size="sm"
                 onClick={() => openClinicPrint('student')}
-                disabled={filteredTestWords.length === 0}
+                disabled={filteredTestWords.length === 0 || meaningLoading}
                 title={`현재 표시된 단어 ${filteredTestWords.length}개 중 ${clinicPickCount}문항을 뽑아 저장 없이 인쇄합니다.`}
               >
-                <Dice5 className="mr-1.5 h-3.5 w-3.5" />
+                {meaningLoading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Dice5 className="mr-1.5 h-3.5 w-3.5" />}
                 보충 시험지
               </Button>
             </div>
@@ -857,45 +881,12 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                   size="sm"
                   className="h-6 px-1.5 text-xs"
                   onClick={selectRandomTestWords}
+                  disabled={meaningLoading}
                 >
-                  <Dice5 className="mr-1 h-3.5 w-3.5" />
+                  {meaningLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Dice5 className="mr-1 h-3.5 w-3.5" />}
                   랜덤
                 </Button>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-                onClick={() => {
-                  const visibleIds = new Set(filteredTestWords.map((word) => word.id))
-                  setSelectedWordIds((prev) => {
-                    if (allFilteredSelected) {
-                      return prev.filter((id) => !visibleIds.has(id))
-                    }
-                    const next = [...prev]
-                    for (const word of filteredTestWords) {
-                      if (!next.includes(word.id)) next.push(word.id)
-                    }
-                    return next
-                  })
-                  setSelectedPrompts((prev) => {
-                    if (allFilteredSelected) {
-                      const next = { ...prev }
-                      for (const id of visibleIds) delete next[id]
-                      return next
-                    }
-                    const next = { ...prev }
-                    for (const word of filteredTestWords) {
-                      if (!next[word.id]) {
-                        next[word.id] = { prompt_source: 'word', prompt_text: word.english_word }
-                      }
-                    }
-                    return next
-                  })
-                }}
-              >
-                {allFilteredSelected ? '보이는 단어 해제' : '보이는 단어 선택'}
-              </Button>
             </div>
 
             <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/70 px-4 py-2 text-[11px] font-semibold text-gray-500">
@@ -1018,7 +1009,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                       <div className="min-w-0 rounded-lg bg-white px-3 py-2 shadow-[0_1px_8px_rgba(15,23,42,0.04)]">
                         <p className="break-words text-sm font-black text-gray-950">{prompt.prompt_text}</p>
                         <p className="mt-1 break-words text-[11px] font-medium text-gray-500">
-                          {promptLabel(prompt.prompt_source)} · 정답 {word.correct_answer || '-'}
+                          {promptLabel(prompt.prompt_source)} · 정답 {getPromptAnswer(word, prompt) || '-'}
                         </p>
                       </div>
                       <select
