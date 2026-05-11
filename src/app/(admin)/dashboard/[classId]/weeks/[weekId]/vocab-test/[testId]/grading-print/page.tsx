@@ -104,7 +104,9 @@ export default function VocabGradingPrintPage({
                   <div key={columnIndex} className="space-y-0">
                     {column.map((item) => {
                       const word = item.vocab_word_variant?.word || item.prompt_text || item.vocab_word?.english_word || ''
-                      const answer = item.vocab_word_variant?.meaning || item.vocab_word?.correct_answer || '-'
+                      const answer = item.vocab_word_variant
+                        ? item.vocab_word_variant.meaning || '-'
+                        : item.vocab_word?.correct_answer || '-'
                       return (
                         <div
                           key={item.id}

@@ -178,14 +178,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .filter((item) => allowedIds.has(item.wordId))
     .map((item) => {
       const wordVariants = variantsByWordId.get(item.wordId) ?? []
-      const selectedVariant = wordVariants.find((variant) => variant.id === item.variantId)
-        ?? wordVariants.find((variant) =>
-          variant.relation_type === item.promptSource && variant.word.toLowerCase() === item.promptText.toLowerCase()
-        )
-        ?? wordVariants.find((variant) => variant.relation_type === 'original')
-        ?? null
+      const selectedVariant = item.promptSource === 'word'
+        ? wordVariants.find((variant) => variant.relation_type === 'original') ?? null
+        : wordVariants.find((variant) => variant.id === item.variantId)
+          ?? wordVariants.find((variant) =>
+            variant.relation_type === item.promptSource && variant.word.toLowerCase() === item.promptText.toLowerCase()
+          )
+          ?? null
       return { ...item, variantId: selectedVariant?.id ?? null }
     })
+  const invalidVariantItems = validItems.filter((item) => item.promptSource !== 'word' && !item.variantId)
+  if (invalidVariantItems.length > 0) {
+    return err('선택한 유의어/파생어를 찾을 수 없습니다. 단어를 다시 랜덤 선택해주세요.', 422)
+  }
   const selectedVariantIds = validItems
     .map((item) => item.variantId)
     .filter((id): id is string => Boolean(id))
