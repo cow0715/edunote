@@ -22,11 +22,19 @@ type SourceMeta = {
 type VocabTestItem = {
   id: string
   vocab_word_id: string
+  vocab_word_variant_id?: string | null
   test_number: number
   sort_order: number
   prompt_source?: VocabTestPromptSource | null
   prompt_text?: string | null
   vocab_word: VocabEntry | null
+  vocab_word_variant?: {
+    id: string
+    word: string
+    part_of_speech: string | null
+    meaning: string | null
+    relation_type: string
+  } | null
 }
 
 type VocabTest = {
@@ -42,6 +50,7 @@ type VocabTestPromptSource = 'word' | 'synonym' | 'derivative'
 type SelectedPrompt = {
   prompt_source: VocabTestPromptSource
   prompt_text: string
+  variant_id?: string | null
 }
 
 type PromptOption = SelectedPrompt & {
@@ -91,7 +100,7 @@ function shuffle<T>(items: T[]) {
   return next
 }
 
-function randomItem(items: string[]) {
+function randomItem<T>(items: T[]) {
   return items[Math.floor(Math.random() * items.length)]
 }
 
@@ -121,13 +130,14 @@ function promptLabel(source: VocabTestPromptSource | null | undefined) {
   return '원본'
 }
 
-function makePromptOption(source: VocabTestPromptSource, rawText: string): PromptOption | null {
+function makePromptOption(source: VocabTestPromptSource, rawText: string, variantId?: string | null): PromptOption | null {
   const promptText = source === 'word' ? rawText.trim() : normalizePromptCandidate(rawText)
   if (!promptText) return null
   const note = rawText.trim() && rawText.trim() !== promptText ? ` (원문: ${rawText.trim()})` : ''
   return {
     prompt_source: source,
     prompt_text: promptText,
+    variant_id: variantId ?? null,
     raw_text: rawText,
     label: `${promptLabel(source)} · ${promptText}${note}`,
   }
@@ -137,10 +147,10 @@ function getPromptOptions(word: VocabEntry): PromptOption[] {
   const options: PromptOption[] = []
   const seen = new Set<string>()
 
-  function addOption(source: VocabTestPromptSource, rawText: string) {
-    const option = makePromptOption(source, rawText)
+  function addOption(source: VocabTestPromptSource, rawText: string, variantId?: string | null) {
+    const option = makePromptOption(source, rawText, variantId)
     if (!option) return
-    const key = `${option.prompt_source}:${option.prompt_text.toLocaleLowerCase('en-US')}`
+    const key = option.variant_id ?? `${option.prompt_source}:${option.prompt_text.toLocaleLowerCase('en-US')}`
     if (seen.has(key)) return
     seen.add(key)
     options.push(option)
@@ -153,24 +163,44 @@ function getPromptOptions(word: VocabEntry): PromptOption[] {
       : variant.relation_type === 'derivative'
         ? 'derivative'
         : 'word'
-    addOption(source, variant.word)
+    addOption(source, variant.word, variant.id ?? null)
   }
   addOption('word', word.english_word)
   return options
 }
 
-function normalizeSelectedPrompt(word: VocabEntry | null | undefined, source: VocabTestPromptSource | null | undefined, text: string | null | undefined): SelectedPrompt {
+function normalizeSelectedPrompt(word: VocabEntry | null | undefined, source: VocabTestPromptSource | null | undefined, text: string | null | undefined, variantId?: string | null): SelectedPrompt {
+  const byVariantId = variantId && word
+    ? getPromptOptions(word).find((option) => option.variant_id === variantId)
+    : null
+  if (byVariantId) {
+    return {
+      prompt_source: byVariantId.prompt_source,
+      prompt_text: byVariantId.prompt_text,
+      variant_id: byVariantId.variant_id ?? null,
+    }
+  }
   const promptSource = source ?? 'word'
   const option = makePromptOption(promptSource, text || word?.english_word || '')
   const fallback = word ? getPromptOptions(word)[0] : null
+  const matchedOption = option && word
+    ? getPromptOptions(word).find((candidate) =>
+      candidate.prompt_source === option.prompt_source &&
+      candidate.prompt_text.toLocaleLowerCase('en-US') === option.prompt_text.toLocaleLowerCase('en-US')
+    )
+    : null
   return {
-    prompt_source: option?.prompt_source ?? fallback?.prompt_source ?? 'word',
-    prompt_text: option?.prompt_text ?? fallback?.prompt_text ?? word?.english_word ?? '',
+    prompt_source: matchedOption?.prompt_source ?? option?.prompt_source ?? fallback?.prompt_source ?? 'word',
+    prompt_text: matchedOption?.prompt_text ?? option?.prompt_text ?? fallback?.prompt_text ?? word?.english_word ?? '',
+    variant_id: matchedOption?.variant_id ?? null,
   }
 }
 
 function findVariantForPrompt(word: VocabEntry, prompt: SelectedPrompt) {
   if (prompt.prompt_source === 'word') return null
+  if (prompt.variant_id) {
+    return (word.variants ?? []).find((variant) => variant.id === prompt.variant_id) ?? null
+  }
   return (word.variants ?? []).find((variant) =>
     variant.relation_type === prompt.prompt_source &&
     variant.word.toLocaleLowerCase('en-US') === prompt.prompt_text.toLocaleLowerCase('en-US')
@@ -194,16 +224,16 @@ function buildRandomVocabSelection(words: Array<VocabEntry & { id: string }>, co
     source: VocabTestPromptSource,
     target: number,
     candidates: Array<VocabEntry & { id: string }>,
-    getPromptText: (word: VocabEntry & { id: string }) => string
+    getPromptOption: (word: VocabEntry & { id: string }) => PromptOption | null
   ) {
     for (const word of shuffle(candidates)) {
       if (selected.length >= count || target <= 0) break
       if (usedIds.has(word.id)) continue
-      const promptText = getPromptText(word)
-      if (!promptText) continue
+      const option = getPromptOption(word)
+      if (!option) continue
       selected.push(word)
       usedIds.add(word.id)
-      prompts[word.id] = { prompt_source: source, prompt_text: promptText }
+      prompts[word.id] = { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null }
       target -= 1
     }
   }
@@ -212,16 +242,16 @@ function buildRandomVocabSelection(words: Array<VocabEntry & { id: string }>, co
     'derivative',
     derivativeTarget,
     words.filter((word) => getPromptOptions(word).some((option) => option.prompt_source === 'derivative')),
-    (word) => randomItem(getPromptOptions(word).filter((option) => option.prompt_source === 'derivative').map((option) => option.prompt_text))
+    (word) => randomItem(getPromptOptions(word).filter((option) => option.prompt_source === 'derivative')) ?? null
   )
   addWords(
     'synonym',
     synonymTarget,
     words.filter((word) => getPromptOptions(word).some((option) => option.prompt_source === 'synonym')),
-    (word) => randomItem(getPromptOptions(word).filter((option) => option.prompt_source === 'synonym').map((option) => option.prompt_text))
+    (word) => randomItem(getPromptOptions(word).filter((option) => option.prompt_source === 'synonym')) ?? null
   )
-  addWords('word', originalTarget, words, (word) => word.english_word)
-  addWords('word', count - selected.length, words, (word) => word.english_word)
+  addWords('word', originalTarget, words, (word) => getPromptOptions(word).find((option) => option.prompt_source === 'word') ?? null)
+  addWords('word', count - selected.length, words, (word) => getPromptOptions(word).find((option) => option.prompt_source === 'word') ?? null)
 
   return { selected, prompts }
 }
@@ -288,7 +318,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     setSelectedPrompts(Object.fromEntries(sortedItems.map((item) => {
       return [
         item.vocab_word_id,
-        normalizeSelectedPrompt(item.vocab_word, item.prompt_source, item.prompt_text),
+        normalizeSelectedPrompt(item.vocab_word, item.prompt_source, item.prompt_text, item.vocab_word_variant_id ?? item.vocab_word_variant?.id ?? null),
       ]
     })))
   }, [weekId])
@@ -466,13 +496,13 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
             const word = savedWordsWithIds.find((item) => item.id === wordId)
             const prompt = prompts[wordId]
             const fallbackOption = word ? getPromptOptions(word)[0] : null
-            const normalizedOption = prompt && word
-              ? makePromptOption(prompt.prompt_source, prompt.prompt_text)
-              : null
-            const resolvedPrompt = {
-              prompt_source: normalizedOption?.prompt_source ?? fallbackOption?.prompt_source ?? 'word',
-              prompt_text: normalizedOption?.prompt_text ?? fallbackOption?.prompt_text ?? word?.english_word ?? '',
-            } as SelectedPrompt
+            const resolvedPrompt = prompt && word
+              ? normalizeSelectedPrompt(word, prompt.prompt_source, prompt.prompt_text, prompt.variant_id ?? null)
+              : {
+                prompt_source: fallbackOption?.prompt_source ?? 'word',
+                prompt_text: fallbackOption?.prompt_text ?? word?.english_word ?? '',
+                variant_id: fallbackOption?.variant_id ?? null,
+              } as SelectedPrompt
             const variantId = word ? findVariantForPrompt(word, resolvedPrompt)?.id : undefined
             return {
               wordId,
@@ -517,7 +547,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       const word = savedWordsWithIds.find((item) => item.id === wordId)
       setSelectedPrompts((prompts) => ({
         ...prompts,
-        [wordId]: { prompt_source: 'word', prompt_text: word?.english_word ?? '' },
+        [wordId]: { prompt_source: 'word', prompt_text: word?.english_word ?? '', variant_id: null },
       }))
       return [...prev, wordId]
     })
@@ -532,7 +562,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     setSelectedWordIds((prev) => prev.includes(word.id) ? prev : [...prev, word.id])
     setSelectedPrompts((prev) => ({
       ...prev,
-      [word.id]: { prompt_source: option.prompt_source, prompt_text: option.prompt_text },
+      [word.id]: { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null },
     }))
   }
 
@@ -541,7 +571,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     if (!option) return
     setSelectedPrompts((prev) => ({
       ...prev,
-      [word.id]: { prompt_source: option.prompt_source, prompt_text: option.prompt_text },
+      [word.id]: { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null },
     }))
   }
 
@@ -603,7 +633,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     }
 
     const selectedVariants = selected.map((word) => {
-      const prompt = prompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word }
+      const prompt = prompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word, variant_id: null }
       if (prompt.prompt_source === 'word') return null
       const variant = findVariantForPrompt(word, prompt)
       return variant?.id ? variant : null
@@ -627,7 +657,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       title: `어휘시험 ${selected.length}문항`,
       createdAt: new Date().toISOString(),
       items: selected.map((word, index) => {
-        const prompt = prompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word }
+        const prompt = prompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word, variant_id: null }
         const variant = findVariantForPrompt(word, prompt)
         const variantMeaning = variant?.id ? enrichedMeanings.get(variant.id) ?? variant.meaning : variant?.meaning
         return {
@@ -637,7 +667,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
           prompt_source: prompt.prompt_source,
           vocab_word: {
             english_word: word.english_word,
-            correct_answer: variantMeaning ?? word.correct_answer,
+            correct_answer: prompt.prompt_source === 'word' ? word.correct_answer : variantMeaning ?? null,
           },
         }
       }),
@@ -1010,7 +1040,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
               {selectedWords.length === 0 ? (
                 <p className="px-4 py-8 text-center text-xs text-gray-400">왼쪽에서 시험에 낼 항목을 선택하세요.</p>
               ) : selectedWords.map((word, index) => {
-                const prompt = selectedPrompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word }
+                const prompt = selectedPrompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word, variant_id: null }
                 const promptOptions = getPromptOptions(word)
                 const selectedPromptIndex = Math.max(0, promptOptions.findIndex((option) =>
                   option.prompt_source === prompt.prompt_source && option.prompt_text === prompt.prompt_text
