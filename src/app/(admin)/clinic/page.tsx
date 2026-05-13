@@ -5,7 +5,6 @@ import { AlertCircle, BarChart3, CalendarCheck, ChevronDown, ChevronLeft, Chevro
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useClinic, useClinicAttendance, useClinicAttendanceSummary, useSaveClinicAttendance, useSaveClinicEnrollment, useSaveClinicSlots } from '@/hooks/use-clinic'
@@ -38,8 +37,9 @@ type AttendanceDraft = {
 
 type PendingEnrollmentChange = {
   student: ClinicStudent
-  clinic_slot_id: string | null
+  clinic_slot_id: string
   start_date: string
+  action: 'enroll' | 'unenroll'
 }
 
 function todayStr() {
@@ -85,26 +85,21 @@ function sortedSlots(slots: ClinicSlot[]) {
 }
 
 function enrollmentMap(enrollments: ClinicEnrollment[]) {
-  const map = new Map<string, ClinicEnrollment>()
+  const map = new Map<string, ClinicEnrollment[]>()
   for (const enrollment of enrollments) {
-    const current = map.get(enrollment.student_id)
-    if (!current) {
-      map.set(enrollment.student_id, enrollment)
-      continue
-    }
-    if (!enrollment.end_date && current.end_date) {
-      map.set(enrollment.student_id, enrollment)
-      continue
-    }
-    if (enrollment.end_date === current.end_date && enrollment.start_date > current.start_date) {
-      map.set(enrollment.student_id, enrollment)
-    }
+    map.set(enrollment.student_id, [...(map.get(enrollment.student_id) ?? []), enrollment])
   }
   return map
 }
 
 function isEnrollmentEffectiveOn(enrollment: ClinicEnrollment, date: string) {
   return enrollment.start_date <= date && (!enrollment.end_date || enrollment.end_date > date)
+}
+
+function enrollmentForSlot(enrollments: ClinicEnrollment[], slotId: string) {
+  return enrollments
+    .filter((enrollment) => enrollment.clinic_slot_id === slotId)
+    .sort((a, b) => b.start_date.localeCompare(a.start_date))[0] ?? null
 }
 
 function nextDateForWeekday(weekday: ClinicWeekday, baseDate = todayStr()) {
@@ -181,6 +176,7 @@ export default function ClinicPage() {
   const selectedSlot = attendanceData?.slot ?? null
   const enrollmentsByStudent = enrollmentMap(enrollments)
   const assignedStudentCount = enrollmentsByStudent.size
+  const assignedEnrollmentCount = enrollments.filter((enrollment) => isEnrollmentEffectiveOn(enrollment, todayStr())).length
   const studentsById = new Map(students.map((student) => [student.id, student]))
   const attendanceEnrollments = attendanceData?.enrollments ?? []
   const targetEnrollments = selectedSlot
@@ -234,17 +230,20 @@ export default function ClinicPage() {
     })
   }
 
-  async function requestEnrollmentChange(student: ClinicStudent, clinicSlotId: string | null) {
-    const enrollment = enrollmentsByStudent.get(student.id)
-    if (enrollment?.clinic_slot_id === clinicSlotId) return
+  async function requestEnrollmentChange(student: ClinicStudent, clinicSlotId: string, shouldEnroll: boolean) {
+    const studentEnrollments = enrollmentsByStudent.get(student.id) ?? []
+    const enrollment = enrollmentForSlot(studentEnrollments, clinicSlotId)
+    if (shouldEnroll && enrollment && !enrollment.end_date) return
+    if (!shouldEnroll && !enrollment) return
 
-    if (!enrollment) {
+    if (shouldEnroll) {
       setSavingStudentId(student.id)
       try {
         await saveEnrollment.mutateAsync({
           student_id: student.id,
           clinic_slot_id: clinicSlotId,
           start_date: todayStr(),
+          action: 'enroll',
         })
       } finally {
         setSavingStudentId(null)
@@ -252,11 +251,12 @@ export default function ClinicPage() {
       return
     }
 
-    const nextSlot = clinicSlotId ? slotById.get(clinicSlotId) : null
+    const nextSlot = slotById.get(clinicSlotId)
     setPendingEnrollmentChange({
       student,
       clinic_slot_id: clinicSlotId,
-      start_date: nextSlot ? nextDateForWeekday(nextSlot.weekday) : addDays(todayStr(), 1),
+      start_date: nextSlot ? nextDateForWeekday(nextSlot.weekday, addDays(todayStr(), 1)) : addDays(todayStr(), 1),
+      action: 'unenroll',
     })
   }
 
@@ -268,6 +268,7 @@ export default function ClinicPage() {
         student_id: pendingEnrollmentChange.student.id,
         clinic_slot_id: pendingEnrollmentChange.clinic_slot_id,
         start_date: pendingEnrollmentChange.start_date,
+        action: pendingEnrollmentChange.action,
       })
       setPendingEnrollmentChange(null)
     } finally {
@@ -327,7 +328,7 @@ export default function ClinicPage() {
             신청 학생
           </div>
           <p className="mt-3 text-2xl font-black text-gray-950">{assignedStudentCount}명</p>
-          <p className="mt-1 text-xs text-gray-500">재원 학생 {students.length}명 중 고정 요일 배정</p>
+          <p className="mt-1 text-xs text-gray-500">재원 학생 {students.length}명 · 요일 배정 {assignedEnrollmentCount}건</p>
         </section>
         <section className="rounded-2xl bg-white p-4 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
           <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
@@ -410,7 +411,7 @@ export default function ClinicPage() {
         <section className="rounded-2xl bg-white p-4 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
           <div className="mb-4">
             <h2 className="text-base font-bold text-gray-950">학생 배정</h2>
-            <p className="mt-0.5 text-xs text-gray-500">재원 학생별 주 1회 보충수업 요일을 선택합니다.</p>
+            <p className="mt-0.5 text-xs text-gray-500">재원 학생별로 여러 보충수업 요일을 선택합니다.</p>
           </div>
           {saveEnrollment.isPending && (
             <div className="mb-4 h-1 overflow-hidden rounded-full bg-blue-50">
@@ -461,7 +462,7 @@ export default function ClinicPage() {
               ))}
             </div>
             <p className="text-xs font-semibold text-gray-400">
-              {filteredStudents.length}명 표시 · {assignedStudentCount}명 배정
+              {filteredStudents.length}명 표시 · {assignedStudentCount}명 배정 · {assignedEnrollmentCount}건
             </p>
           </div>
           <div className="max-h-[620px] divide-y divide-gray-100 overflow-y-auto">
@@ -470,14 +471,23 @@ export default function ClinicPage() {
             ) : filteredStudents.length === 0 ? (
               <p className="py-10 text-center text-sm text-gray-400">조건에 맞는 학생이 없습니다.</p>
             ) : filteredStudents.map((student) => {
-              const enrollment = enrollmentsByStudent.get(student.id)
-              const enrollmentSlot = enrollment ? slotById.get(enrollment.clinic_slot_id) : null
-              const hasInactiveSelection = !!enrollmentSlot && !enrollmentSlot.is_active
-              const startsInFuture = !!enrollment && enrollment.start_date > todayStr()
-              const endsInFuture = !!enrollment?.end_date && enrollment.end_date > todayStr()
+              const studentEnrollments = enrollmentsByStudent.get(student.id) ?? []
+              const inactiveEnrollments = studentEnrollments.filter((enrollment) => {
+                const slot = slotById.get(enrollment.clinic_slot_id)
+                return slot && !slot.is_active
+              })
+              const pendingTexts = studentEnrollments
+                .filter((enrollment) => enrollment.start_date > todayStr() || (!!enrollment.end_date && enrollment.end_date > todayStr()))
+                .map((enrollment) => {
+                  const slot = slotById.get(enrollment.clinic_slot_id)
+                  const day = slot ? WEEKDAYS.find((item) => item.key === slot.weekday)?.label : ''
+                  return enrollment.start_date > todayStr()
+                    ? `${day} ${formatDate(enrollment.start_date)}부터 적용`
+                    : `${day} ${formatDate(enrollment.end_date!)}부터 해제`
+                })
               const isSavingStudent = savingStudentId === student.id
               return (
-                <div key={student.id} className="grid gap-3 py-3 md:grid-cols-[minmax(0,1fr)_180px] md:items-center">
+                <div key={student.id} className="grid gap-3 py-3 md:grid-cols-[minmax(0,1fr)_minmax(240px,auto)] md:items-center">
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
                       <p className="truncate text-sm font-bold text-gray-900">{student.name}</p>
@@ -486,36 +496,42 @@ export default function ClinicPage() {
                     <p className="mt-0.5 truncate text-xs text-gray-400">
                       {[student.school, student.grade, student.classes.map((cls) => cls.name).join(', ')].filter(Boolean).join(' · ')}
                     </p>
-                    {(startsInFuture || endsInFuture) && (
+                    {pendingTexts.length > 0 && (
                       <p className="mt-1 text-[11px] font-bold text-blue-600">
-                        {startsInFuture ? `${formatDate(enrollment.start_date)}부터 적용` : `${formatDate(enrollment.end_date!)}부터 해제`}
+                        {pendingTexts.join(' · ')}
                       </p>
                     )}
                   </div>
-                  <Select
-                    value={enrollment?.clinic_slot_id ?? 'none'}
-                    onValueChange={(value) => {
-                      requestEnrollmentChange(student, value === 'none' ? null : value)
-                    }}
-                    disabled={saveEnrollment.isPending}
-                  >
-                    <SelectTrigger className="h-9 w-full bg-white">
-                      <SelectValue placeholder="요일 선택" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">신청 안 함</SelectItem>
-                      {activeSlots.map((slot) => (
-                        <SelectItem key={slot.id} value={slot.id}>
-                          {WEEKDAYS.find((day) => day.key === slot.weekday)?.full} {formatTime(slot.starts_at)}
-                        </SelectItem>
-                      ))}
-                      {hasInactiveSelection && enrollmentSlot && (
-                        <SelectItem value={enrollmentSlot.id}>
-                          {WEEKDAYS.find((day) => day.key === enrollmentSlot.weekday)?.full} 비활성
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex flex-wrap gap-1.5 md:justify-end">
+                    {activeSlots.map((slot) => {
+                      const enrollment = enrollmentForSlot(studentEnrollments, slot.id)
+                      const isSelected = !!enrollment && isEnrollmentEffectiveOn(enrollment, todayStr())
+                      return (
+                        <button
+                          key={slot.id}
+                          type="button"
+                          onClick={() => requestEnrollmentChange(student, slot.id, !isSelected)}
+                          disabled={saveEnrollment.isPending}
+                          className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                            isSelected
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-50 text-gray-500 hover:bg-blue-50 hover:text-blue-700'
+                          } disabled:cursor-not-allowed disabled:opacity-60`}
+                        >
+                          {WEEKDAYS.find((day) => day.key === slot.weekday)?.label}
+                        </button>
+                      )
+                    })}
+                    {inactiveEnrollments.map((enrollment) => {
+                      const slot = slotById.get(enrollment.clinic_slot_id)
+                      if (!slot) return null
+                      return (
+                        <span key={enrollment.id} className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-bold text-gray-400">
+                          {WEEKDAYS.find((day) => day.key === slot.weekday)?.label} 비활성
+                        </span>
+                      )
+                    })}
+                  </div>
                 </div>
               )
             })}
@@ -698,7 +714,7 @@ export default function ClinicPage() {
     <Dialog open={!!pendingEnrollmentChange} onOpenChange={(open) => { if (!open) setPendingEnrollmentChange(null) }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>보충수업 변경 적용일</DialogTitle>
+          <DialogTitle>보충수업 해제 적용일</DialogTitle>
           <DialogDescription>
             적용일 전까지는 기존 요일의 출석 대상에 그대로 남습니다.
           </DialogDescription>
@@ -709,10 +725,8 @@ export default function ClinicPage() {
               <p className="text-sm font-bold text-gray-950">{pendingEnrollmentChange.student.name}</p>
               <p className="mt-1 text-xs text-gray-500">
                 {(() => {
-                  const current = enrollmentsByStudent.get(pendingEnrollmentChange.student.id)
-                  const currentSlot = current ? slotById.get(current.clinic_slot_id) : null
-                  const nextSlot = pendingEnrollmentChange.clinic_slot_id ? slotById.get(pendingEnrollmentChange.clinic_slot_id) : null
-                  return `${currentSlot ? WEEKDAYS.find((day) => day.key === currentSlot.weekday)?.full : '신청 안 함'} → ${nextSlot ? WEEKDAYS.find((day) => day.key === nextSlot.weekday)?.full : '신청 안 함'}`
+                  const slot = slotById.get(pendingEnrollmentChange.clinic_slot_id)
+                  return `${slot ? WEEKDAYS.find((day) => day.key === slot.weekday)?.full : '선택 요일'} 해제`
                 })()}
               </p>
             </div>
@@ -741,7 +755,7 @@ export default function ClinicPage() {
             취소
           </Button>
           <Button onClick={confirmEnrollmentChange} disabled={saveEnrollment.isPending || !pendingEnrollmentChange?.start_date}>
-            변경 저장
+            해제 저장
           </Button>
         </DialogFooter>
       </DialogContent>

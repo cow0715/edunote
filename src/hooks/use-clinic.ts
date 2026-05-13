@@ -76,7 +76,12 @@ export function useSaveClinicSlots() {
 export function useSaveClinicEnrollment() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (body: { student_id: string; clinic_slot_id: string | null; start_date?: string }) => {
+    mutationFn: async (body: {
+      student_id: string
+      clinic_slot_id: string | null
+      start_date?: string
+      action?: 'enroll' | 'unenroll'
+    }) => {
       const res = await fetch('/api/clinic/enrollments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
