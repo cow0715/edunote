@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { AlertCircle, BarChart3, CalendarCheck, ChevronDown, ChevronLeft, ChevronRight, Clock, Loader2, Save, Search, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -33,13 +32,6 @@ type SlotDraft = {
 type AttendanceDraft = {
   date: string
   statuses: Record<string, 'present' | 'absent'>
-}
-
-type PendingEnrollmentChange = {
-  student: ClinicStudent
-  clinic_slot_id: string
-  start_date: string
-  action: 'enroll' | 'unenroll'
 }
 
 function todayStr() {
@@ -102,14 +94,6 @@ function enrollmentForSlot(enrollments: ClinicEnrollment[], slotId: string) {
     .sort((a, b) => b.start_date.localeCompare(a.start_date))[0] ?? null
 }
 
-function nextDateForWeekday(weekday: ClinicWeekday, baseDate = todayStr()) {
-  for (let offset = 0; offset <= 6; offset += 1) {
-    const candidate = addDays(baseDate, offset)
-    if (weekdayFromDate(candidate) === weekday) return candidate
-  }
-  return baseDate
-}
-
 function findClinicDate(baseDate: string, direction: 1 | -1, activeWeekdays: Set<ClinicWeekday>) {
   for (let offset = 1; offset <= 70; offset += 1) {
     const candidate = addDays(baseDate, offset * direction)
@@ -138,7 +122,6 @@ export default function ClinicPage() {
   const [selectedDate, setSelectedDate] = useState(todayStr())
   const [slotDraftsState, setSlotDraftsState] = useState<SlotDraft[] | null>(null)
   const [attendanceDraft, setAttendanceDraft] = useState<AttendanceDraft | null>(null)
-  const [pendingEnrollmentChange, setPendingEnrollmentChange] = useState<PendingEnrollmentChange | null>(null)
   const [slotSettingsOpen, setSlotSettingsOpen] = useState(true)
   const [studentSearch, setStudentSearch] = useState('')
   const [classFilter, setClassFilter] = useState('all')
@@ -251,26 +234,14 @@ export default function ClinicPage() {
       return
     }
 
-    const nextSlot = slotById.get(clinicSlotId)
-    setPendingEnrollmentChange({
-      student,
-      clinic_slot_id: clinicSlotId,
-      start_date: nextSlot ? nextDateForWeekday(nextSlot.weekday, addDays(todayStr(), 1)) : addDays(todayStr(), 1),
-      action: 'unenroll',
-    })
-  }
-
-  async function confirmEnrollmentChange() {
-    if (!pendingEnrollmentChange) return
-    setSavingStudentId(pendingEnrollmentChange.student.id)
+    setSavingStudentId(student.id)
     try {
       await saveEnrollment.mutateAsync({
-        student_id: pendingEnrollmentChange.student.id,
-        clinic_slot_id: pendingEnrollmentChange.clinic_slot_id,
-        start_date: pendingEnrollmentChange.start_date,
-        action: pendingEnrollmentChange.action,
+        student_id: student.id,
+        clinic_slot_id: clinicSlotId,
+        start_date: todayStr(),
+        action: 'unenroll',
       })
-      setPendingEnrollmentChange(null)
     } finally {
       setSavingStudentId(null)
     }
@@ -711,55 +682,6 @@ export default function ClinicPage() {
         </section>
       </div>
     </div>
-    <Dialog open={!!pendingEnrollmentChange} onOpenChange={(open) => { if (!open) setPendingEnrollmentChange(null) }}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>보충수업 해제 적용일</DialogTitle>
-          <DialogDescription>
-            적용일 전까지는 기존 요일의 출석 대상에 그대로 남습니다.
-          </DialogDescription>
-        </DialogHeader>
-        {pendingEnrollmentChange && (
-          <div className="space-y-4">
-            <div className="rounded-2xl bg-gray-50 p-4">
-              <p className="text-sm font-bold text-gray-950">{pendingEnrollmentChange.student.name}</p>
-              <p className="mt-1 text-xs text-gray-500">
-                {(() => {
-                  const slot = slotById.get(pendingEnrollmentChange.clinic_slot_id)
-                  return `${slot ? WEEKDAYS.find((day) => day.key === slot.weekday)?.full : '선택 요일'} 해제`
-                })()}
-              </p>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-500" htmlFor="clinic-enrollment-start-date">
-                적용 시작일
-              </label>
-              <Input
-                id="clinic-enrollment-start-date"
-                type="date"
-                min={todayStr()}
-                value={pendingEnrollmentChange.start_date}
-                onChange={(e) => setPendingEnrollmentChange({ ...pendingEnrollmentChange, start_date: e.target.value })}
-                className="mt-1 bg-white"
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                {pendingEnrollmentChange.start_date
-                  ? `${formatDate(pendingEnrollmentChange.start_date)}부터 새 배정으로 출석부에 표시됩니다.`
-                  : '적용 시작일을 선택하세요.'}
-              </p>
-            </div>
-          </div>
-        )}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setPendingEnrollmentChange(null)}>
-            취소
-          </Button>
-          <Button onClick={confirmEnrollmentChange} disabled={saveEnrollment.isPending || !pendingEnrollmentChange?.start_date}>
-            해제 저장
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
     </>
   )
 }
