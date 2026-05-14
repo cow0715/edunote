@@ -16,7 +16,7 @@ import { AttendanceManager } from '@/components/attendance/attendance-manager'
 import { AnswerSheetUploader } from '@/components/grade/answer-sheet-uploader'
 import { QuestionTypeEditor } from '@/components/grade/question-type-editor'
 import { VocabWordSetup } from '@/components/grade/vocab-word-setup'
-import { useWeek, useUpdateWeek } from '@/hooks/use-weeks'
+import { useWeek, useWeeks, useUpdateWeek } from '@/hooks/use-weeks'
 import { useClass, useClassPeriods } from '@/hooks/use-classes'
 import { useClassStudents } from '@/hooks/use-students'
 import { ClassStudent } from '@/lib/types'
@@ -35,6 +35,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
   const [pageTab, setPageTab] = useState<'overview' | 'grade'>('overview')
 
   const { data: week, isLoading } = useWeek(weekId)
+  const { data: weeks = [] } = useWeeks(classId)
   const { data: cls } = useClass(classId)
   const { data: periods = [] } = useClassPeriods(classId)
   const { data: classStudents = [] } = useClassStudents(classId)
@@ -82,7 +83,8 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
   if (isLoading) return <div className="h-8 w-48 animate-pulse rounded bg-gray-100" />
   if (!week) return <p className="text-sm text-gray-500">주차 정보를 찾을 수 없습니다</p>
 
-  const weekDisplay = buildWeekDisplayMap([week], periods).get(week.id)?.displayLabel ?? `${week.week_number}주차`
+  const weekDisplaySource = weeks.length > 0 ? weeks : [week]
+  const weekDisplay = buildWeekDisplayMap(weekDisplaySource, periods).get(week.id)?.displayLabel ?? `${week.week_number}주차`
   const scheduledDates = cls && (cls.schedule_days?.length ?? 0) > 0
     ? (() => {
         const base = generateSessionDates(cls.start_date, cls.end_date, cls.schedule_days)
