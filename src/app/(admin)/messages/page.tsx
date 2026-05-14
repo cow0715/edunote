@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { MessageSquare, Search, BookOpen, ChevronDown } from 'lucide-react'
+import { MessageSquare, Search, BookOpen, ChevronDown, CalendarCheck } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useInfiniteMessageLogs, MessageLog } from '@/hooks/use-message-logs'
 import { BroadcastDialog } from '@/components/messages/broadcast-dialog'
+import { ClinicSmsSheet } from '@/components/messages/clinic-sms-sheet'
 import { SmsSheet } from '@/components/grade/sms-sheet'
 import { useQuery } from '@tanstack/react-query'
 
@@ -85,6 +86,22 @@ function TodayClasses() {
   )
 }
 
+function TodayClinic() {
+  return (
+    <ClinicSmsSheet>
+      <div className="flex items-center gap-3 rounded-xl bg-white border border-gray-100 shadow-[0px_4px_16px_rgba(0,75,198,0.06)] px-4 py-3 cursor-pointer hover:border-blue-200 hover:shadow-[0px_4px_16px_rgba(0,75,198,0.12)] transition-all">
+        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50">
+          <CalendarCheck className="h-4 w-4 text-blue-600" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-gray-900">오늘 클리닉</p>
+          <p className="text-xs text-gray-400">대상자 문자 발송</p>
+        </div>
+      </div>
+    </ClinicSmsSheet>
+  )
+}
+
 function MessageItem({ log }: { log: MessageLog }) {
   return (
     <div className="rounded-xl border bg-white px-5 py-4">
@@ -118,7 +135,7 @@ export default function MessagesPage() {
   const [search, setSearch] = useState('')
   const [classFilter, setClassFilter] = useState('')
 
-  const allLogs = data?.pages.flatMap((p) => p.logs) ?? []
+  const allLogs = useMemo(() => data?.pages.flatMap((p) => p.logs) ?? [], [data?.pages])
 
   const classNames = useMemo(() => {
     const names = new Set<string>()
@@ -168,7 +185,10 @@ export default function MessagesPage() {
       {/* 오늘 수업 */}
       <div className="mb-8">
         <p className="mb-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">오늘 수업</p>
-        <TodayClasses />
+        <div className="flex flex-wrap gap-2">
+          <TodayClinic />
+          <TodayClasses />
+        </div>
       </div>
 
       {/* 검색 + 필터 */}
