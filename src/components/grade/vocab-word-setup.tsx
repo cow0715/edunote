@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Dice5, FileSpreadsheet, FileText, Loader2, Printer, RotateCcw, Save, Search, Sparkles, Upload, X } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Dice5, FileSpreadsheet, FileText, Loader2, Printer, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Upload, X } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -63,6 +63,17 @@ type RandomVocabSelection = {
   prompts: Record<string, SelectedPrompt>
 }
 
+type VocabSourceRatio = Record<VocabTestPromptSource, number>
+
+const DEFAULT_SOURCE_RATIO: VocabSourceRatio = { word: 50, synonym: 25, derivative: 25 }
+
+const SOURCE_RATIO_PRESETS: Array<{ label: string; ratio: VocabSourceRatio }> = [
+  { label: '균형', ratio: DEFAULT_SOURCE_RATIO },
+  { label: '원본 위주', ratio: { word: 70, synonym: 15, derivative: 15 } },
+  { label: '유의어 강화', ratio: { word: 40, synonym: 45, derivative: 15 } },
+  { label: '파생어 강화', ratio: { word: 40, synonym: 15, derivative: 45 } },
+]
+
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -102,6 +113,59 @@ function shuffle<T>(items: T[]) {
 
 function randomItem<T>(items: T[]) {
   return items[Math.floor(Math.random() * items.length)]
+}
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(100, Math.round(value)))
+}
+
+function rebalanceSourceRatio(
+  current: VocabSourceRatio,
+  source: VocabTestPromptSource,
+  rawValue: number
+): VocabSourceRatio {
+  const value = clampPercent(rawValue)
+  const otherSources = (['word', 'synonym', 'derivative'] as VocabTestPromptSource[]).filter((item) => item !== source)
+  const remaining = 100 - value
+  const currentOtherTotal = otherSources.reduce((sum, item) => sum + current[item], 0)
+
+  if (currentOtherTotal === 0) {
+    const first = Math.floor(remaining / 2)
+    return {
+      ...current,
+      [source]: value,
+      [otherSources[0]]: first,
+      [otherSources[1]]: remaining - first,
+    }
+  }
+
+  const firstValue = Math.round((current[otherSources[0]] / currentOtherTotal) * remaining)
+  return {
+    ...current,
+    [source]: value,
+    [otherSources[0]]: firstValue,
+    [otherSources[1]]: remaining - firstValue,
+  }
+}
+
+function allocatePromptTargets(count: number, ratio: VocabSourceRatio): VocabSourceRatio {
+  const sources: VocabTestPromptSource[] = ['word', 'synonym', 'derivative']
+  const rawTargets = sources.map((source) => ({
+    source,
+    raw: count * (ratio[source] / 100),
+  }))
+  const targets = rawTargets.reduce<VocabSourceRatio>((acc, item) => {
+    acc[item.source] = Math.floor(item.raw)
+    return acc
+  }, { word: 0, synonym: 0, derivative: 0 })
+  let assigned = sources.reduce((sum, source) => sum + targets[source], 0)
+  for (const item of rawTargets.sort((a, b) => (b.raw - Math.floor(b.raw)) - (a.raw - Math.floor(a.raw)))) {
+    if (assigned >= count) break
+    targets[item.source] += 1
+    assigned += 1
+  }
+  return targets
 }
 
 function normalizePromptCandidate(value: string | null | undefined) {
@@ -212,13 +276,11 @@ function getPromptAnswer(word: VocabEntry, prompt: SelectedPrompt) {
   return findVariantForPrompt(word, prompt)?.meaning ?? null
 }
 
-function buildRandomVocabSelection(words: Array<VocabEntry & { id: string }>, count: number): RandomVocabSelection {
+function buildRandomVocabSelection(words: Array<VocabEntry & { id: string }>, count: number, ratio: VocabSourceRatio = DEFAULT_SOURCE_RATIO): RandomVocabSelection {
   const selected: Array<VocabEntry & { id: string }> = []
   const prompts: Record<string, SelectedPrompt> = {}
   const usedIds = new Set<string>()
-  const originalTarget = Math.round(count * 0.5)
-  const synonymTarget = Math.round(count * 0.25)
-  const derivativeTarget = count - originalTarget - synonymTarget
+  const targets = allocatePromptTargets(count, ratio)
 
   function addWords(
     source: VocabTestPromptSource,
@@ -240,17 +302,17 @@ function buildRandomVocabSelection(words: Array<VocabEntry & { id: string }>, co
 
   addWords(
     'derivative',
-    derivativeTarget,
+    targets.derivative,
     words.filter((word) => getPromptOptions(word).some((option) => option.prompt_source === 'derivative')),
     (word) => randomItem(getPromptOptions(word).filter((option) => option.prompt_source === 'derivative')) ?? null
   )
   addWords(
     'synonym',
-    synonymTarget,
+    targets.synonym,
     words.filter((word) => getPromptOptions(word).some((option) => option.prompt_source === 'synonym')),
     (word) => randomItem(getPromptOptions(word).filter((option) => option.prompt_source === 'synonym')) ?? null
   )
-  addWords('word', originalTarget, words, (word) => getPromptOptions(word).find((option) => option.prompt_source === 'word') ?? null)
+  addWords('word', targets.word, words, (word) => getPromptOptions(word).find((option) => option.prompt_source === 'word') ?? null)
   addWords('word', count - selected.length, words, (word) => getPromptOptions(word).find((option) => option.prompt_source === 'word') ?? null)
 
   return { selected, prompts }
@@ -271,6 +333,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const [testSearch, setTestSearch] = useState('')
   const [testPassageFilter, setTestPassageFilter] = useState('all')
   const [randomPickCount, setRandomPickCount] = useState(50)
+  const [sourceRatio, setSourceRatio] = useState<VocabSourceRatio>(DEFAULT_SOURCE_RATIO)
   const [testSaving, setTestSaving] = useState(false)
   const [promptText, setPromptText] = useState(VOCAB_GRADING_RULES)
   const [promptOpen, setPromptOpen] = useState(false)
@@ -586,13 +649,17 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     })
   }
 
+  function updateSourceRatio(source: VocabTestPromptSource, value: number) {
+    setSourceRatio((prev) => rebalanceSourceRatio(prev, source, value))
+  }
+
   async function selectRandomTestWords() {
     if (filteredTestWords.length === 0) {
       toast.error('랜덤으로 선택할 단어가 없습니다')
       return
     }
     const count = Math.max(1, Math.min(randomPickCount, filteredTestWords.length))
-    const { selected, prompts } = buildRandomVocabSelection(filteredTestWords, count)
+    const { selected, prompts } = buildRandomVocabSelection(filteredTestWords, count, sourceRatio)
 
     setSelectedWordIds(selected.map((word) => word.id))
     setSelectedPrompts(prompts)
@@ -626,7 +693,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       return
     }
     const count = Math.max(1, Math.min(randomPickCount, filteredTestWords.length))
-    const { selected, prompts } = buildRandomVocabSelection(filteredTestWords, count)
+    const { selected, prompts } = buildRandomVocabSelection(filteredTestWords, count, sourceRatio)
     if (selected.length === 0) {
       toast.error('클리닉 시험지로 뽑을 단어가 없습니다')
       return
@@ -794,6 +861,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     ].some((value) => normalizeSearch(value).includes(searchQuery))
   })
   const clinicPickCount = Math.max(1, Math.min(randomPickCount, Math.max(1, filteredTestWords.length)))
+  const randomRatioTargets = allocatePromptTargets(clinicPickCount, sourceRatio)
 
   return (
     <div className="space-y-4">
@@ -939,6 +1007,65 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
               <span>
                 {selectedWordIds.length}개 선택됨 · 원본 {selectedPromptCounts.word} · 유의어 {selectedPromptCounts.synonym} · 파생어 {selectedPromptCounts.derivative}
               </span>
+            </div>
+
+            <div className="border-b border-gray-100 bg-white px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="h-3.5 w-3.5 text-blue-500" />
+                  <span className="text-xs font-bold text-gray-800">출제 비율</span>
+                  <span className="text-[11px] text-gray-400">
+                    예상 {randomRatioTargets.word}/{randomRatioTargets.synonym}/{randomRatioTargets.derivative}문항
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {SOURCE_RATIO_PRESETS.map((preset) => {
+                    const active = sourceRatio.word === preset.ratio.word &&
+                      sourceRatio.synonym === preset.ratio.synonym &&
+                      sourceRatio.derivative === preset.ratio.derivative
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => setSourceRatio(preset.ratio)}
+                        className={`rounded-full px-2 py-1 text-[11px] font-bold transition-colors ${
+                          active ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-blue-50 hover:text-blue-700'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                {(['word', 'synonym', 'derivative'] as VocabTestPromptSource[]).map((source) => (
+                  <label key={source} className="min-w-0 rounded-lg bg-gray-50 px-3 py-2">
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-gray-700">{promptLabel(source)}</span>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={sourceRatio[source]}
+                          onChange={(e) => updateSourceRatio(source, Number(e.target.value))}
+                          className="h-6 w-12 px-1 text-center text-[11px] font-bold"
+                        />
+                        <span className="text-[11px] font-semibold text-gray-400">%</span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={sourceRatio[source]}
+                      onChange={(e) => updateSourceRatio(source, Number(e.target.value))}
+                      className="h-2 w-full accent-blue-600"
+                    />
+                  </label>
+                ))}
+              </div>
             </div>
 
             <div className="max-h-[520px] divide-y divide-gray-100 overflow-y-auto">
