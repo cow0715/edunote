@@ -60,15 +60,17 @@ export async function GET(request: Request) {
     periods = (periodRows ?? []) as ClassPeriod[]
   }
 
-  const displayMap = buildWeekDisplayMap(
-    weeks.map((week) => ({
-      id: week.id,
-      class_id: week.class_id,
-      week_number: week.week_number,
-      start_date: week.start_date,
-    })),
-    periods,
-  )
+  let classWeeks: MessageLogWeek[] = []
+  if (classIds.length > 0) {
+    const { data: weekRows } = await supabase
+      .from('week')
+      .select('id, week_number, start_date, class_id')
+      .in('class_id', classIds)
+      .order('week_number', { ascending: true })
+    classWeeks = (weekRows ?? []) as MessageLogWeek[]
+  }
+
+  const displayMap = buildWeekDisplayMap(classWeeks, periods)
 
   const decoratedLogs = logs.map((log) => {
     const week = one(log.week)
