@@ -28,9 +28,15 @@ export async function GET() {
   const { data: periods } = classIds.length > 0
     ? await supabase.from('class_period').select('*').in('class_id', classIds).order('sort_order').order('start_date')
     : { data: [] }
-  const displayMap = buildWeekDisplayMap(
-    weeks.map((w) => ({ id: w.id, class_id: w.class_id, week_number: w.week_number, start_date: w.start_date })),
-    (periods ?? []) as ClassPeriod[],
-  )
+
+  const { data: classWeeks } = classIds.length > 0
+    ? await supabase
+      .from('week')
+      .select('id, week_number, start_date, class_id')
+      .in('class_id', classIds)
+      .order('week_number')
+    : { data: [] }
+
+  const displayMap = buildWeekDisplayMap(classWeeks ?? [], (periods ?? []) as ClassPeriod[])
   return ok(weeks.map((w) => ({ ...w, display_label: displayMap.get(w.id)?.displayLabel ?? `${w.week_number}주차` })))
 }
