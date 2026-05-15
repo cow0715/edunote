@@ -81,6 +81,7 @@ function emptyShare(student: unknown, periodOptions: unknown[] = []) {
     vocabAnswers: [],
     vocabWords: [],
     attendance: [],
+    clinicAttendance: [],
     classAverages: {},
   })
 }
@@ -329,6 +330,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
         .order('date', { ascending: false })
     : { data: [] }
 
+  const { data: clinicAttendanceRecords } = await supabase
+    .from('clinic_attendance')
+    .select('id, clinic_slot_id, date, status, clinic_slot(weekday, starts_at, ends_at)')
+    .eq('student_id', student.id)
+    .eq('teacher_id', student.teacher_id)
+    .order('date', { ascending: false })
+
   const weekById = new Map(weeks.map((w) => [w.id, w]))
   const classAverages: Record<string, { readingRate: number | null; vocabRate: number | null }> = {}
   for (const weekId of weekIds) {
@@ -371,6 +379,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     vocabAnswers: displayVocabAnswers,
     vocabWords: vocabWords ?? [],
     attendance: attendanceRecords ?? [],
+    clinicAttendance: clinicAttendanceRecords ?? [],
     classAverages,
   })
 }

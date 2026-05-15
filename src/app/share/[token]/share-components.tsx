@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Moon, Sun, TrendingUp, TrendingDown, Minus, Info, ChevronRight, ChevronLeft } from 'lucide-react'
-import { AttendanceRecord } from './share-types'
+import { AttendanceRecord, ClinicAttendanceRecord } from './share-types'
 
 // ── 공통 카드 ──────────────────────────────────────────────────────────────
 export function Card({ title, subtitle, info, infoNode, children, noPad, id }: {
@@ -79,7 +79,15 @@ export function StatCard({ label, value, delta, color, onClick }: {
 }
 
 // ── 출석 캘린더 ────────────────────────────────────────────────────────────
-export function AttendanceCalendar({ attendance }: { attendance: AttendanceRecord[] }) {
+type AttendanceCalendarRecord = AttendanceRecord | ClinicAttendanceRecord
+
+export function AttendanceCalendar({
+  attendance,
+  variant = 'regular',
+}: {
+  attendance: AttendanceCalendarRecord[]
+  variant?: 'regular' | 'clinic'
+}) {
   const months = [...new Set(attendance.map((a) => a.date.substring(0, 7)))].sort()
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
 
@@ -94,6 +102,9 @@ export function AttendanceCalendar({ attendance }: { attendance: AttendanceRecor
     late:    'bg-amber-400 text-white',
     absent:  'bg-rose-400 text-white',
   }
+  const legend = variant === 'clinic'
+    ? [['bg-[#2463EB]', '출석'], ['bg-rose-400', '결석']]
+    : [['bg-[#2463EB]', '출석'], ['bg-amber-400', '지각'], ['bg-rose-400', '결석']]
 
   // selectedMonth가 null이거나 목록에 없으면 가장 최신 월
   const monthStr = (selectedMonth && months.includes(selectedMonth)) ? selectedMonth : months[months.length - 1]
@@ -155,7 +166,7 @@ export function AttendanceCalendar({ attendance }: { attendance: AttendanceRecor
       </div>
 
       <div className="flex gap-4 pt-3">
-        {[['bg-[#2463EB]', '출석'], ['bg-amber-400', '지각'], ['bg-rose-400', '결석']].map(([color, label]) => (
+        {legend.map(([color, label]) => (
           <div key={label} className="flex items-center gap-1.5">
             <span className={`h-2 w-2 rounded-full ${color}`} />
             <span className="text-[11px] text-[#8B95A1] dark:text-gray-300">{label}</span>

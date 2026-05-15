@@ -256,6 +256,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const [isDark, setIsDark] = useState(false)
   const [themeReady, setThemeReady] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('home')
+  const [attendanceView, setAttendanceView] = useState<'regular' | 'clinic'>('regular')
   const [wrongNoteTab, setWrongNoteTab] = useState<'reading' | 'vocab'>('reading')
   const [vocabViewMode, setVocabViewMode] = useState<VocabViewMode>('all')
   const [expandedAllVocabWeekIds, setExpandedAllVocabWeekIds] = useState<Set<string>>(new Set())
@@ -329,6 +330,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     vocabAnswers = [],
     vocabWords = [],
     attendance = [],
+    clinicAttendance = [],
     classAverages = {},
   } = data
 
@@ -395,6 +397,14 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const totalAtt = attendance.length
   const presentAtt = attendance.filter((a) => a.status !== 'absent').length
   const attRate = totalAtt > 0 ? Math.round(presentAtt / totalAtt * 100) : null
+  const totalClinicAtt = clinicAttendance.length
+  const presentClinicAtt = clinicAttendance.filter((a) => a.status !== 'absent').length
+  const clinicAttRate = totalClinicAtt > 0 ? Math.round(presentClinicAtt / totalClinicAtt * 100) : null
+  const hasAttendanceData = attendance.length > 0 || clinicAttendance.length > 0
+  const primaryAttRate = attRate ?? clinicAttRate
+  const visibleAttendanceView = attendanceView === 'clinic'
+    ? (clinicAttendance.length > 0 ? 'clinic' : 'regular')
+    : (attendance.length > 0 ? 'regular' : 'clinic')
 
   // ── 차트 데이터 ────────────────────────────────────────────────────────────
   const fmtWeekLabel = (w: { start_date: string | null; week_number: number }) => {
@@ -814,8 +824,8 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                   <StatCard label="과제 평균" color="amber"
                     value={avgHomework !== null ? `${avgHomework}%` : null} delta={vsAvgHomework}
                     onClick={() => scrollTo('section-homework')} />
-                  <StatCard label="누적 출석률" color="blue"
-                    value={attRate !== null ? `${attRate}%` : null} delta={null}
+                  <StatCard label="출결 현황" color="blue"
+                    value={primaryAttRate !== null ? `${primaryAttRate}%` : null} delta={null}
                     onClick={() => scrollTo('section-attendance')} />
                 </div>
                 )
@@ -849,9 +859,56 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               )}
 
               {/* 출석 현황 */}
-              {attendance.length > 0 && (
-                <Card id="section-attendance" title="누적 출결" subtitle="현재 반 전체 수업일 기준">
-                  <AttendanceCalendar attendance={attendance} />
+              {hasAttendanceData && (
+                <Card id="section-attendance" title="출결 현황" subtitle="정규수업과 클리닉 출결을 구분해서 확인합니다">
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-2xl bg-blue-50 px-3.5 py-3 dark:bg-blue-950/30">
+                        <p className="text-[11px] font-semibold text-[#8B95A1] dark:text-[#94A3B8]">정규수업</p>
+                        <p className="mt-1 text-2xl font-black text-[#2463EB] dark:text-[#3B82F6]">
+                          {attRate !== null ? `${attRate}%` : '-'}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[#8B95A1] dark:text-[#94A3B8]">
+                          {totalAtt > 0 ? `${presentAtt}/${totalAtt}회 출석` : '기록 없음'}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 px-3.5 py-3 dark:bg-slate-900/50">
+                        <p className="text-[11px] font-semibold text-[#8B95A1] dark:text-[#94A3B8]">클리닉</p>
+                        <p className="mt-1 text-2xl font-black text-[#1A1C1E] dark:text-[#F8FAFC]">
+                          {clinicAttRate !== null ? `${clinicAttRate}%` : '-'}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[#8B95A1] dark:text-[#94A3B8]">
+                          {totalClinicAtt > 0 ? `${presentClinicAtt}/${totalClinicAtt}회 출석` : '기록 없음'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 rounded-full bg-slate-100 p-1 dark:bg-slate-900/70">
+                      {[
+                        { id: 'regular' as const, label: '정규수업', disabled: attendance.length === 0 },
+                        { id: 'clinic' as const, label: '클리닉', disabled: clinicAttendance.length === 0 },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setAttendanceView(item.id)}
+                          disabled={item.disabled}
+                          className={`rounded-full px-3 py-2 text-xs font-bold transition-all disabled:opacity-40 ${
+                            visibleAttendanceView === item.id
+                              ? 'bg-white text-[#2463EB] shadow-sm dark:bg-[#1E293B] dark:text-[#3B82F6]'
+                              : 'text-[#8B95A1] dark:text-[#94A3B8]'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <AttendanceCalendar
+                      attendance={visibleAttendanceView === 'clinic' ? clinicAttendance : attendance}
+                      variant={visibleAttendanceView}
+                    />
+                  </div>
                 </Card>
               )}
 
