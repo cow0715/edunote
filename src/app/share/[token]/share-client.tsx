@@ -860,7 +860,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
               {/* 출석 현황 */}
               {hasAttendanceData && (
-                <Card id="section-attendance" title="출결 현황" subtitle="정규수업과 클리닉 출결을 구분해서 확인합니다">
+                <Card id="section-attendance" title="출결 현황">
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-2">
                       <div className="rounded-2xl bg-blue-50 px-3.5 py-3 dark:bg-blue-950/30">
