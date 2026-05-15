@@ -24,6 +24,17 @@ export type StudentAnswer = {
   } | null
 }
 export type AttendanceRecord = { id: string; class_id: string; date: string; status: 'present' | 'late' | 'absent' }
+export type ClinicAttendanceRecord = {
+  id: string
+  clinic_slot_id: string
+  date: string
+  status: 'present' | 'absent'
+  clinic_slot?: {
+    weekday: string
+    starts_at: string
+    ends_at: string
+  } | null
+}
 export type VocabWord = {
   id: string; week_id: string; number: number; passage_label: string | null; english_word: string
   part_of_speech: string | null
@@ -47,6 +58,7 @@ export type ShareData = {
   periodOptions: { id: string; class_id: string; class_name: string; label: string; start_date: string; end_date: string | null; is_current: boolean; is_active_class: boolean }[]
   weeks: Week[]; weekScores: WeekScore[]; studentAnswers: StudentAnswer[]
   vocabAnswers: VocabAnswer[]; vocabWords: VocabWord[]; attendance: AttendanceRecord[]
+  clinicAttendance: ClinicAttendanceRecord[]
   classAverages: Record<string, { readingRate: number | null; vocabRate: number | null }>
 }
 
