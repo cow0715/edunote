@@ -66,6 +66,17 @@ function chunks<T>(items: T[], size: number) {
   return result
 }
 
+function normalizePromptDuplicateKey(value: string | null | undefined) {
+  return (value ?? '')
+    .replace(/\((?:n|v|a|ad|adj|adv|prep|conj|phr|phrase)\.?\)/gi, ' ')
+    .replace(/\b(?:n|v|a|ad|adj|adv|prep|conj|phr|phrase)\.\s*$/gi, ' ')
+    .replace(/[’`]/g, "'")
+    .replace(/[^A-Za-z0-9'-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase('en-US')
+}
+
 async function requireOwner(weekId: string) {
   const { supabase, user } = await getAuth()
   if (!user) return { error: err('인증 필요', 401) }
@@ -185,13 +196,25 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
             variant.relation_type === item.promptSource && variant.word.toLowerCase() === item.promptText.toLowerCase()
           )
           ?? null
-      return { ...item, variantId: selectedVariant?.id ?? null }
+      return {
+        ...item,
+        variantId: selectedVariant?.id ?? null,
+        promptText: item.promptText || selectedVariant?.word || '',
+      }
     })
   const invalidVariantItems = validItems.filter((item) => item.promptSource !== 'word' && !item.variantId)
   if (invalidVariantItems.length > 0) {
     return err('선택한 유의어/파생어를 찾을 수 없습니다. 단어를 다시 랜덤 선택해주세요.', 422)
   }
-  const selectedVariantIds = validItems
+  const seenPromptKeys = new Set<string>()
+  const dedupedValidItems = validItems.filter((item) => {
+    const key = normalizePromptDuplicateKey(item.promptText)
+    if (!key) return true
+    if (seenPromptKeys.has(key)) return false
+    seenPromptKeys.add(key)
+    return true
+  })
+  const selectedVariantIds = dedupedValidItems
     .map((item) => item.variantId)
     .filter((id): id is string => Boolean(id))
   if (selectedVariantIds.length > 0) {
@@ -227,9 +250,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const previousActiveItemIds = ((previousItems ?? []) as ActiveTestItemRow[])
     .filter((item) => item.vocab_test_id === previousActiveIds[0])
     .sort((a, b) => a.sort_order - b.sort_order)
-  const sameSelection = previousActiveItemIds.length === validItems.length &&
+  const sameSelection = previousActiveItemIds.length === dedupedValidItems.length &&
     previousActiveItemIds.every((item, index) => {
-      const next = validItems[index]
+      const next = dedupedValidItems[index]
       return item.vocab_word_id === next.wordId &&
         (item.vocab_word_variant_id ?? null) === (next.variantId ?? null) &&
         (item.prompt_source ?? 'word') === next.promptSource &&
@@ -245,7 +268,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       week_id: weekId,
       title: body.title?.trim() || '단어시험',
       is_active: true,
-      item_count: validWordIds.length,
+      item_count: dedupedValidItems.length,
     })
     .select('id, week_id, title, is_active, item_count, created_at')
     .single()
@@ -259,7 +282,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const { error: itemError } = await supabase
     .from('vocab_test_item')
-    .insert(validItems.map((item, index) => ({
+    .insert(dedupedValidItems.map((item, index) => ({
       vocab_test_id: test.id,
       vocab_word_id: item.wordId,
       vocab_word_variant_id: item.variantId,
@@ -292,7 +315,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
   }
 
-  await supabase.from('week').update({ vocab_total: validWordIds.length }).eq('id', weekId)
+  await supabase.from('week').update({ vocab_total: dedupedValidItems.length }).eq('id', weekId)
 
-  return ok({ ok: true, test: { ...test, item_count: validWordIds.length } }, { status: 201 })
+  return ok({ ok: true, test: { ...test, item_count: dedupedValidItems.length } }, { status: 201 })
 }
