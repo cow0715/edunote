@@ -2,6 +2,13 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
 export type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
+export type TeacherApprovalStatus = 'pending' | 'approved' | 'blocked'
+
+export interface TeacherAccess {
+  id: string
+  approval_status: TeacherApprovalStatus
+  is_admin: boolean
+}
 
 /** 에러 응답 */
 export function err(message: string, status = 400) {
@@ -22,8 +29,26 @@ export async function getAuth() {
 
 /** teacher.id 조회 (없으면 null) */
 export async function getTeacherId(supabase: SupabaseServerClient, authId: string) {
-  const { data } = await supabase.from('teacher').select('id').eq('auth_id', authId).single()
+  const { data } = await supabase
+    .from('teacher')
+    .select('id')
+    .eq('auth_id', authId)
+    .eq('approval_status', 'approved')
+    .single()
   return data?.id ?? null
+}
+
+export async function getTeacherAccess(
+  supabase: SupabaseServerClient,
+  authId: string
+): Promise<TeacherAccess | null> {
+  const { data } = await supabase
+    .from('teacher')
+    .select('id, approval_status, is_admin')
+    .eq('auth_id', authId)
+    .single()
+
+  return data as TeacherAccess | null
 }
 
 /** class가 해당 teacher 소유인지 확인 */

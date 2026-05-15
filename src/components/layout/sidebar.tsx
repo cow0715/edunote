@@ -12,6 +12,7 @@ import {
   MessageSquare,
   ScanText,
   Settings,
+  ShieldCheck,
   Tag,
   Terminal,
   TrendingUp,
@@ -30,13 +31,13 @@ const navSections = [
       { href: '/clinic', label: '클리닉 관리', icon: CalendarCheck },
       { href: '/students', label: '학생 관리', icon: Users },
       { href: '/analysis', label: '학생 현황', icon: TrendingUp },
-      { href: '/messages', label: '메시지 내역', icon: MessageSquare },
+      { href: '/messages', label: '메시지 이력', icon: MessageSquare },
     ],
   },
   {
     title: '문항 / 자료',
     items: [
-      { href: '/exam-bank', label: '기출문제 은행', icon: LibraryBig },
+      { href: '/exam-bank', label: '기출문제 저장소', icon: LibraryBig },
       { href: '/concept-tags', label: '문제 유형', icon: Tag },
       { href: '/text-compare', label: '시험 변형 분석', icon: FileSearch },
       { href: '/pdf-extract', label: 'PDF 텍스트 추출', icon: ScanText },
@@ -46,6 +47,7 @@ const navSections = [
     title: '설정',
     items: [
       { href: '/settings', label: '학원 정보 설정', icon: Settings },
+      { href: '/settings/approvals', label: '가입 승인', icon: ShieldCheck },
     ],
   },
 ]
@@ -61,7 +63,7 @@ export function Sidebar() {
   async function handleLogout() {
     const supabase = createClient()
     await supabase.auth.signOut()
-    toast.success('로그아웃되었습니다.')
+    toast.success('로그아웃되었습니다')
     router.push('/login')
     router.refresh()
   }

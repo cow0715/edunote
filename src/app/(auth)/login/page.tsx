@@ -18,32 +18,32 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
 
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      const data = await res.json()
 
+      if (!res.ok) {
+        toast.error(data.error || '로그인에 실패했습니다')
+        return
+      }
 
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
-    })
-
-    const data = await res.json()
-    setLoading(false)
-
-    if (!res.ok) {
-      toast.error(data.error || '로그인 실패')
-      return
+      router.push('/dashboard')
+      router.refresh()
+    } finally {
+      setLoading(false)
     }
-
-    router.push('/dashboard')
-    router.refresh()
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-      <Card className="w-full max-w-sm">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#EBF3FF] to-white px-4">
+      <Card className="w-full max-w-sm border-0 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">로그인</CardTitle>
-          <CardDescription>학원 관리 시스템</CardDescription>
+          <CardTitle className="text-2xl text-[#1A1C1E]">로그인</CardTitle>
+          <CardDescription className="text-[#8B95A1]">EduNote 강사 관리 서비스</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -68,13 +68,13 @@ export default function LoginPage() {
                 required
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full bg-[#2463EB] hover:bg-[#1d4ed8]" disabled={loading}>
               {loading ? '로그인 중...' : '로그인'}
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-gray-500">
-            계정이 없으신가요?{' '}
-            <Link href="/signup" className="text-primary underline">
+          <p className="mt-4 text-center text-sm text-[#8B95A1]">
+            계정이 없나요?{' '}
+            <Link href="/signup" className="text-[#2463EB] underline">
               회원가입
             </Link>
           </p>

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { jsonrepair } from 'jsonrepair'
 import { anthropic } from '@/lib/anthropic'
-import { err, ok } from '@/lib/api'
+import { err, getAuth, getTeacherId, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 
 export const maxDuration = 300
@@ -436,6 +436,11 @@ function buildQuestionAnalysis(passages: ReturnType<typeof normalizePassages>, t
 
 export async function POST(request: Request) {
   try {
+    const { supabase: authSupabase, user } = await getAuth()
+    if (!user) return err('로그인이 필요합니다', 401)
+    const teacherId = await getTeacherId(authSupabase, user.id)
+    if (!teacherId) return err('관리자 승인 후 사용할 수 있습니다', 403)
+
     const { originalPath, examPath } = await request.json()
     if (!originalPath || !examPath) {
       return err('원문과 시험지 파일 경로가 모두 필요합니다.')

@@ -1,5 +1,5 @@
 import { anthropic } from '@/lib/anthropic'
-import { err } from '@/lib/api'
+import { err, getAuth, getTeacherId } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 
 export const maxDuration = 300
@@ -122,6 +122,11 @@ async function extractWithClaude(base64: string, maxTokens = 32000): Promise<str
 
 export async function POST(request: Request) {
   try {
+    const { supabase: authSupabase, user } = await getAuth()
+    if (!user) return err('로그인이 필요합니다', 401)
+    const teacherId = await getTeacherId(authSupabase, user.id)
+    if (!teacherId) return err('관리자 승인 후 사용할 수 있습니다', 403)
+
     const { path, fileNames } = await request.json()
     if (!path || typeof path !== 'string') return err('path가 필요합니다')
 

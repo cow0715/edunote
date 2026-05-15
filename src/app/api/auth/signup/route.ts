@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
       auth_id: authData.user.id,
       email,
       name,
+      approval_status: 'pending',
     })
 
     if (teacherError) {
