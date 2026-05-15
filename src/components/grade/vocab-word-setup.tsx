@@ -188,6 +188,16 @@ function normalizePromptCandidate(value: string | null | undefined) {
   return text
 }
 
+function normalizePromptDuplicateKey(value: string | null | undefined) {
+  const normalized = normalizePromptCandidate(value) || (value ?? '').replace(/\s+/g, ' ').trim()
+  return normalized
+    .toLocaleLowerCase('en-US')
+    .replace(/[’`]/g, "'")
+    .replace(/[^a-z0-9'-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function promptLabel(source: VocabTestPromptSource | null | undefined) {
   if (source === 'synonym') return '유의어'
   if (source === 'derivative') return '파생어'
@@ -214,7 +224,8 @@ function getPromptOptions(word: VocabEntry): PromptOption[] {
   function addOption(source: VocabTestPromptSource, rawText: string, variantId?: string | null) {
     const option = makePromptOption(source, rawText, variantId)
     if (!option) return
-    const key = option.variant_id ?? `${option.prompt_source}:${option.prompt_text.toLocaleLowerCase('en-US')}`
+    const key = normalizePromptDuplicateKey(option.prompt_text)
+      || `${option.prompt_source}:${option.prompt_text.toLocaleLowerCase('en-US')}`
     if (seen.has(key)) return
     seen.add(key)
     options.push(option)
@@ -280,6 +291,7 @@ function buildRandomVocabSelection(words: Array<VocabEntry & { id: string }>, co
   const selected: Array<VocabEntry & { id: string }> = []
   const prompts: Record<string, SelectedPrompt> = {}
   const usedIds = new Set<string>()
+  const usedPromptKeys = new Set<string>()
   const targets = allocatePromptTargets(count, ratio)
 
   function addWords(
@@ -293,8 +305,11 @@ function buildRandomVocabSelection(words: Array<VocabEntry & { id: string }>, co
       if (usedIds.has(word.id)) continue
       const option = getPromptOption(word)
       if (!option) continue
+      const promptKey = normalizePromptDuplicateKey(option.prompt_text)
+      if (promptKey && usedPromptKeys.has(promptKey)) continue
       selected.push(word)
       usedIds.add(word.id)
+      if (promptKey) usedPromptKeys.add(promptKey)
       prompts[word.id] = { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null }
       target -= 1
     }
@@ -597,6 +612,21 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     await persistVocabTest(selectedWordIds, selectedPrompts)
   }
 
+  function hasDuplicatePrompt(wordId: string, prompt: SelectedPrompt) {
+    const key = normalizePromptDuplicateKey(prompt.prompt_text)
+    if (!key) return false
+    return selectedWordIds.some((selectedId) => {
+      if (selectedId === wordId) return false
+      const selectedWord = savedWordsWithIds.find((item) => item.id === selectedId)
+      const selectedPrompt = selectedPrompts[selectedId] ?? {
+        prompt_source: 'word' as const,
+        prompt_text: selectedWord?.english_word ?? '',
+        variant_id: null,
+      }
+      return normalizePromptDuplicateKey(selectedPrompt.prompt_text) === key
+    })
+  }
+
   function toggleTestWord(wordId: string) {
     setSelectedWordIds((prev) => {
       if (prev.includes(wordId)) {
@@ -608,9 +638,14 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         return prev.filter((id) => id !== wordId)
       }
       const word = savedWordsWithIds.find((item) => item.id === wordId)
+      const nextPrompt = { prompt_source: 'word' as const, prompt_text: word?.english_word ?? '', variant_id: null }
+      if (hasDuplicatePrompt(wordId, nextPrompt)) {
+        toast.error('이미 같은 시험 단어가 선택되어 있습니다')
+        return prev
+      }
       setSelectedPrompts((prompts) => ({
         ...prompts,
-        [wordId]: { prompt_source: 'word', prompt_text: word?.english_word ?? '', variant_id: null },
+        [wordId]: nextPrompt,
       }))
       return [...prev, wordId]
     })
@@ -622,19 +657,29 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       toast.error(`${promptLabel(source)} 후보가 없습니다`)
       return
     }
+    const nextPrompt = { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null }
+    if (hasDuplicatePrompt(word.id, nextPrompt)) {
+      toast.error('이미 같은 시험 단어가 선택되어 있습니다')
+      return
+    }
     setSelectedWordIds((prev) => prev.includes(word.id) ? prev : [...prev, word.id])
     setSelectedPrompts((prev) => ({
       ...prev,
-      [word.id]: { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null },
+      [word.id]: nextPrompt,
     }))
   }
 
   function updateSelectedPrompt(word: VocabEntry & { id: string }, optionIndex: number) {
     const option = getPromptOptions(word)[optionIndex] ?? getPromptOptions(word)[0]
     if (!option) return
+    const nextPrompt = { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null }
+    if (hasDuplicatePrompt(word.id, nextPrompt)) {
+      toast.error('이미 같은 시험 단어가 선택되어 있습니다')
+      return
+    }
     setSelectedPrompts((prev) => ({
       ...prev,
-      [word.id]: { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null },
+      [word.id]: nextPrompt,
     }))
   }
 
