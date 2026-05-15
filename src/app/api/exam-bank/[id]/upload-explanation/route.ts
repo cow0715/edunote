@@ -3,7 +3,6 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { parseExplanationText } from '@/lib/explanation-parser'
 import { parsePdfExplanationsHakpyung } from '@/lib/anthropic'
 import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
-import { enrichExamQuestionVocabulary } from '@/lib/vocab-enrichment'
 
 export const maxDuration = 300
 
@@ -98,7 +97,6 @@ export async function POST(
 
   // 문항번호 매칭하여 UPDATE (빈 값은 skip하여 기존 데이터 보존)
   let updated = 0
-  const normalizedWords = new Set<string>()
   for (const ex of explanations) {
     const updateData: Record<string, unknown> = {}
     if (ex.intent?.trim()) updateData.explanation_intent = ex.intent
@@ -120,17 +118,11 @@ export async function POST(
     if (!error) {
       const question = questionMap.get(ex.question_number)
       if (question && 'explanation_vocabulary' in updateData) {
-        const synced = await syncExamQuestionVocabulary(supabase, question.id, ex.vocabulary, question.question_type, question.passage)
-        for (const word of synced.normalizedWords) normalizedWords.add(word)
+        await syncExamQuestionVocabulary(supabase, question.id, ex.vocabulary, question.question_type, question.passage)
       }
       updated++
     }
   }
 
-  let enriched = { candidates: 0, generated: 0, updated: 0 }
-  if (normalizedWords.size > 0) {
-    enriched = await enrichExamQuestionVocabulary(supabase, { normalizedWords: [...normalizedWords], limit: 500, batchSize: 40 })
-  }
-
-  return ok({ updated, total: explanations.length, mode: hakpyung ? 'hakpyung' : 'standard', enriched })
+  return ok({ updated, total: explanations.length, mode: hakpyung ? 'hakpyung' : 'standard' })
 }

@@ -349,6 +349,12 @@ async function safeJson(res: Response): Promise<{ ok: boolean; data: Record<stri
   }
 }
 
+const AI_WORK_CONFIRM_MESSAGE = 'AI 작업은 시간이 오래 걸릴 수 있습니다. 실행할까요?'
+
+function confirmAiWork() {
+  return window.confirm(AI_WORK_CONFIRM_MESSAGE)
+}
+
 // ── 메인 페이지 ──────────────────────────────────────────────────────────
 
 export default function ExamBankPage() {
@@ -729,7 +735,9 @@ function VocabCollections() {
 
             <Button
               className="w-full"
-              onClick={() => generateMutation.mutate({ force: false })}
+              onClick={() => {
+                if (confirmAiWork()) generateMutation.mutate({ force: false })
+              }}
               disabled={generateMutation.isPending || months.length === 0}
             >
               {generateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
@@ -755,7 +763,9 @@ function VocabCollections() {
                   <Button
                     size="sm"
                     className="h-8 text-xs"
-                    onClick={() => generateMutation.mutate({ force: true })}
+                    onClick={() => {
+                      if (confirmAiWork()) generateMutation.mutate({ force: true })
+                    }}
                     disabled={generateMutation.isPending}
                   >
                     재생성
@@ -1014,6 +1024,7 @@ function ExamList() {
                 <button
                   disabled={generatingId === exam.id}
                   onClick={async () => {
+                    if (!confirmAiWork()) return
                     setGeneratingId(exam.id)
                     try {
                       const res = await fetch(`/api/exam-bank/${exam.id}/generate-explanation`, { method: 'POST' })
@@ -2669,17 +2680,7 @@ function ExplanationUploadDialog({
         })
       )
       if (!pdfOk) throw new Error((data.error as string) || '해설 파싱 실패')
-
-      // PDF 파싱 완료 → AI 해석/어휘 자동 생성 (20~24, 29~45번)
-      const { ok: aiOk, data: aiData } = await safeJson(
-        await fetch(`/api/exam-bank/${examId}/generate-explanation`, { method: 'POST' })
-      )
-      if (aiOk) {
-        toast.success(`해설 적용 완료 (PDF ${data.updated}문항 + AI ${aiData.updated}문항)`)
-      } else {
-        toast.success(`PDF 해설 ${data.updated}/${data.total}문항 적용 완료`)
-        toast.warning('AI 해설 생성 실패 — 나중에 Sparkles 버튼으로 재시도하세요')
-      }
+      toast.success(`PDF 해설 ${data.updated}/${data.total}문항 적용 완료`)
       queryClient.invalidateQueries({ queryKey: ['exam-bank-questions', examId] })
       queryClient.invalidateQueries({ queryKey: ['exam-bank-search'] })
       onOpenChange(false)
@@ -2861,6 +2862,7 @@ function BulkExplanationDialog({
   const handleRun = async (useVision = false) => {
     const matched = items.filter((it) => it.exam)
     if (!matched.length) return toast.error('매칭된 시험이 없습니다')
+    if (useVision && !confirmAiWork()) return
 
     setRunning(true)
     setCurrent(0)
@@ -2893,15 +2895,8 @@ function BulkExplanationDialog({
         )
         if (!pdfOk) throw new Error((data.error as string) || '파싱 실패')
 
-        // AI 해설/어휘 생성
-        const { ok: aiOk, data: aiData } = await safeJson(
-          await fetch(`/api/exam-bank/${it.exam.id}/generate-explanation`, { method: 'POST' })
-        )
-
         const label = useVision ? 'Vision' : 'PDF'
-        const msg = aiOk
-          ? `완료 — ${label} ${data.updated}문항 + AI ${aiData.updated}문항`
-          : `${label} ${data.updated}문항 완료 (AI 실패: ${aiData.error ?? ''})`
+        const msg = `${label} ${data.updated}/${data.total}문항 완료`
 
         setItems((prev) => prev.map((x, idx) => idx === i ? { ...x, status: 'done', message: msg } : x))
       } catch (e) {
@@ -2988,7 +2983,7 @@ function BulkExplanationDialog({
                 <Button className="flex-1" onClick={() => handleRun(false)} disabled={running || matchedCount === 0}>
                   {running
                     ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{current}/{matchedCount} 처리 중...</>
-                    : <><Sparkles className="mr-2 h-4 w-4" />일괄 처리</>
+                    : <><Upload className="mr-2 h-4 w-4" />일괄 처리</>
                   }
                 </Button>
                 <Button variant="outline" onClick={() => handleRun(true)} disabled={running || matchedCount === 0} title="텍스트 추출 실패 PDF용 — Claude Vision으로 직접 파싱 (느림)">
