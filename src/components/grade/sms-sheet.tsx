@@ -1,13 +1,13 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
-import { MessageSquare, Copy, Check, RefreshCw, Send, XCircle, Loader2, X, Sparkles } from 'lucide-react'
+import React, { useState, useMemo, useEffect } from 'react'
+import { MessageSquare, Copy, Check, RefreshCw, Send, XCircle, Loader2, X, Sparkles, ChevronDown, ChevronUp, RotateCcw, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
-import { usePrompt } from '@/hooks/use-prompts'
+import { usePrompt, useSavePrompt } from '@/hooks/use-prompts'
 import { SMS_RULES } from '@/lib/prompts'
 
 const PROMPT_KEY = 'sms_rules'
@@ -24,6 +24,12 @@ type SmsMessage = {
 
 type RecipientKey = 'mother' | 'father' | 'student'
 type SendStatus = 'idle' | 'sending' | 'success' | 'error'
+
+type SmsMeta = {
+  class_name: string
+  week_label: string
+  start_date: string | null
+}
 
 type SmsStudentData = {
   is_absent?: boolean
@@ -69,42 +75,51 @@ function formatWrongItems(data: SmsStudentData) {
   return [...wrongObjective, ...wrongSubjective]
 }
 
-function formatWrongSummary(data: SmsStudentData) {
-  const wrongItems = formatWrongItems(data)
-  if (wrongItems.length === 0) return '없음'
-  return wrongItems.slice(0, 3).join(', ') + (wrongItems.length > 3 ? ` 외 ${wrongItems.length - 3}개` : '')
+function formatFeedbackDate(startDate?: string | null) {
+  if (!startDate) return ''
+  const date = new Date(startDate)
+  if (Number.isNaN(date.getTime())) return ''
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${month}/${day}`
 }
 
-function buildMessageFromTemplate(template: string, data: SmsStudentData | null) {
-  const trimmedTemplate = template.trim()
-  if (!data) return trimmedTemplate
+function normalizeTemplateBody(template: string) {
+  const lines = template
+    .split('\n')
+    .map((line) => line.trim().replace(/^◆\s*/, ''))
+    .filter(Boolean)
 
-  const vocabChange = data.vocab.prev_correct !== null
-    ? ` (${data.vocab.correct - data.vocab.prev_correct >= 0 ? '+' : ''}${data.vocab.correct - data.vocab.prev_correct})`
-    : ''
-  const statusLine = data.is_absent
-    ? '상태: 결석'
-    : data.is_unexamined
-    ? '상태: 미응시'
-    : null
-  const homeworkLine = data.homework.total > 0
-    ? `${data.homework.done}/${data.homework.total}`
-    : '완료'
+  const bulletLines = template
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('◆'))
 
-  const lines = [
-    trimmedTemplate,
-    '',
-    '[이번 주 학습 데이터]',
-    statusLine,
-    `단어: ${data.vocab.correct}/${data.vocab.total}${vocabChange}`,
-    `독해: ${data.reading.correct}/${data.reading.total}`,
-    `오답 포인트: ${formatWrongSummary(data)}`,
-    `숙제: ${homeworkLine}`,
-    data.teacher_memo ? `메모: ${data.teacher_memo}` : null,
-    `확인 링크: ${data.share_url}`,
-  ].filter(Boolean)
+  if (bulletLines.length >= 2) {
+    return bulletLines[1].replace(/^◆\s*/, '').replace(/\s+/g, ' ').trim()
+  }
 
-  return lines.join('\n')
+  return lines
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildMessageFromTemplate(template: string, studentName: string, data: SmsStudentData | null, meta: SmsMeta | null) {
+  const body = normalizeTemplateBody(template)
+  if (!body) return ''
+
+  const dateLabel = formatFeedbackDate(meta?.start_date)
+  const dateText = dateLabel ? `${dateLabel} 일자 ` : ''
+  const shareUrl = data?.share_url ?? ''
+
+  return [
+    `◆ ${studentName} 학생 및 학부모님 안녕하세요. 미탐 영어 추지혜T입니다. ${dateText}수업피드백 드립니다.`,
+    `◆ ${body}`,
+    '◆ 아래 링크를 통해 학습현황을 확인하실 수 있습니다.',
+    shareUrl,
+    '◆ 학업과 관련하여 상담이 필요하신 학부모님은 회신 주시면 연락드리도록 하겠습니다.',
+  ].filter(Boolean).join('\n')
 }
 
 interface Props {
@@ -128,9 +143,19 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   const [scheduleDate, setScheduleDate] = useState(() => getNearestSchedule().date)
   const [scheduleTime, setScheduleTime] = useState(() => getNearestSchedule().time)
   const [templateMessage, setTemplateMessage] = useState('')
+  const [smsMeta, setSmsMeta] = useState<SmsMeta | null>(null)
+  const [promptOpen, setPromptOpen] = useState(false)
+  const [promptText, setPromptText] = useState(SMS_RULES)
   const { data: savedPrompt } = usePrompt(PROMPT_KEY)
+  const savePrompt = useSavePrompt(PROMPT_KEY)
+  const activePrompt = savedPrompt ?? SMS_RULES
+  const isPromptModified = promptText !== activePrompt
   const sentCount = Object.values(sendStatus).filter((s) => s === 'success').length
   const hasSendableMessage = messages.some((m) => m.message.trim() && sendStatus[m.student_id] !== 'success')
+
+  useEffect(() => {
+    setPromptText(savedPrompt ?? SMS_RULES)
+  }, [savedPrompt])
 
   async function generate() {
     if (sentCount > 0) {
@@ -147,6 +172,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
       if (!res.ok) throw new Error((await res.json()).error)
       const data = await res.json()
       setMessages(data.messages)
+      setSmsMeta({ class_name: data.class_name, week_label: data.week_label, start_date: data.start_date })
       const defaults: Record<string, Set<RecipientKey>> = {}
       for (const m of data.messages) {
         const keys = new Set<RecipientKey>()
@@ -167,64 +193,38 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
 
   async function generateWithAi() {
     if (sentCount > 0) {
-      const ok = window.confirm(`이미 ${sentCount}명에게 발송되었습니다.\nAI로 다시 생성하면 발송 상태가 초기화됩니다. 계속할까요?`)
+      const ok = window.confirm(`이미 ${sentCount}명에게 발송되었습니다.\nAI로 다시 적용하면 발송 상태가 초기화됩니다. 계속할까요?`)
       if (!ok) return
     }
-    const basePrompt = savedPrompt ?? SMS_RULES
-    const customPrompt = templateMessage.trim()
-      ? `${basePrompt}
+    const text = templateMessage.trim()
+    if (!text) {
+      toast.error('다듬을 공통 문자 내용을 입력해주세요')
+      return
+    }
 
-추가 지시:
-아래 강사 메시지를 문자 맨 앞에 먼저 배치하고, 그 아래에 학생별 데이터를 정돈된 형식으로 붙여 주세요.
-- 강사 메시지는 핵심 의미와 말투를 유지하되 너무 어색한 부분만 가볍게 다듬으세요.
-- 학생별 본문을 새로 길게 창작하지 말고, 데이터 요약은 아래 형식을 최대한 지키세요.
-- 데이터가 없는 항목은 억지로 평가하지 말고 자연스럽게 생략하거나 "없음"으로 처리하세요.
-- 문항 번호와 원점수 나열은 피하고, 오답은 개념/유형 중심으로 짧게 적으세요.
-- 개인 결과 확인 링크는 반드시 마지막 줄에 포함하세요.
-
-권장 형식:
-{강사 메시지}
-
-[이번 주 학습 데이터]
-단어: n/n
-독해: n/n
-오답 포인트: 개념/유형 요약
-숙제: n/n
-메모: 필요한 경우만
-확인 링크: {링크}
-
-[강사 공통 문구]
-${templateMessage.trim()}`
-      : basePrompt
-
-    setLoading(true)
     setAiGenerating(true)
     try {
-      const res = await fetch(`/api/weeks/${weekId}/sms`, {
+      const res = await fetch('/api/sms/refine-template', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'ai', customPrompt }),
+        body: JSON.stringify({ text, rules: activePrompt }),
       })
       if (!res.ok) throw new Error((await res.json()).error)
       const data = await res.json()
-      setMessages(data.messages)
-      const defaults: Record<string, Set<RecipientKey>> = {}
-      for (const m of data.messages) {
-        const keys = new Set<RecipientKey>()
-        if (m.mother_phone) keys.add('mother')
-        if (m.phone) keys.add('student')
-        if (keys.size === 0 && m.father_phone) keys.add('father')
-        defaults[m.student_id] = keys
-      }
-      setSelectedRecipients(defaults)
+      const refinedText = data.text || text
+      setTemplateMessage(refinedText)
+      setMessages((prev) => prev.map((m) => (
+        sendStatus[m.student_id] === 'success'
+          ? m
+          : { ...m, message: buildMessageFromTemplate(refinedText, m.student_name, m.student_data, smsMeta) }
+      )))
       setSendStatus({})
       setSendError({})
-      toast.success('학생 데이터로 AI 문자를 생성했습니다')
+      toast.success('AI로 다듬은 문구를 학생별 문자에 적용했습니다')
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'AI 문자 생성에 실패했습니다')
+      toast.error(e instanceof Error ? e.message : 'AI 문구 다듬기에 실패했습니다')
     } finally {
       setAiGenerating(false)
-      setLoading(false)
     }
   }
 
@@ -246,20 +246,6 @@ ${templateMessage.trim()}`
 
   function updateMessage(studentId: string, text: string) {
     setMessages((prev) => prev.map((m) => m.student_id === studentId ? { ...m, message: text } : m))
-  }
-
-  function applyTemplateToAll() {
-    const text = templateMessage.trim()
-    if (!text) {
-      toast.error('공통 문자 내용을 입력해주세요')
-      return
-    }
-    const hasEditedMessages = messages.some((m) => m.message.trim() && sendStatus[m.student_id] !== 'success')
-    if (hasEditedMessages && !window.confirm('작성된 학생별 문자를 공통 내용으로 덮어쓸까요?')) return
-    setMessages((prev) => prev.map((m) => (
-      sendStatus[m.student_id] === 'success' ? m : { ...m, message: buildMessageFromTemplate(text, m.student_data) }
-    )))
-    toast.success(`${messages.length}명에게 학생별 데이터 문자를 적용했습니다`)
   }
 
   function toggleRecipient(studentId: string, key: RecipientKey) {
@@ -444,12 +430,9 @@ ${templateMessage.trim()}`
                 <p className="mt-0.5 text-xs text-gray-400">강사 메시지를 먼저 두고, 아래에 학생별 학습 데이터를 붙입니다.</p>
               </div>
               <div className="flex items-center gap-1.5">
-                <Button size="sm" variant="outline" onClick={generateWithAi} disabled={loading || sendingAll} className="h-8 text-xs">
+                <Button size="sm" onClick={generateWithAi} disabled={loading || sendingAll || aiGenerating || !templateMessage.trim()} className="h-8 text-xs">
                   {aiGenerating ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
                   AI로 다듬기
-                </Button>
-                <Button size="sm" onClick={applyTemplateToAll} disabled={!templateMessage.trim()} className="h-8 text-xs">
-                  <Check className="mr-1.5 h-3.5 w-3.5" />데이터 붙이기
                 </Button>
               </div>
             </div>
@@ -461,8 +444,57 @@ ${templateMessage.trim()}`
               className="resize-none text-sm"
             />
             <div className="mt-1.5 flex items-center justify-between text-xs text-gray-400">
-              <span>데이터 붙이기는 정해진 형식으로 만들고, AI는 같은 형식을 조금 더 자연스럽게 다듬습니다.</span>
+              <span>AI로 다듬기를 누르면 학생별 이름·날짜·개인 링크까지 넣어 문자를 완성합니다.</span>
               <span className={templateMessage.length > 90 ? 'text-amber-500' : ''}>{templateMessage.length}자</span>
+            </div>
+
+            <div className="mt-3 overflow-hidden rounded-lg border border-gray-200">
+              <button
+                type="button"
+                onClick={() => setPromptOpen((v) => !v)}
+                className="flex w-full items-center justify-between px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-50"
+              >
+                <span className="flex items-center gap-1.5">
+                  문자 프롬프트 수정
+                  {isPromptModified && (
+                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">미저장</span>
+                  )}
+                </span>
+                {promptOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+
+              {promptOpen && (
+                <div className="space-y-2 border-t border-gray-200 p-3">
+                  <p className="text-[11px] text-gray-400">AI로 다듬기부터 적용됩니다. 저장 후 바로 생성해도 최신 프롬프트를 사용합니다.</p>
+                  <Textarea
+                    value={promptText}
+                    onChange={(e) => setPromptText(e.target.value)}
+                    rows={7}
+                    className="resize-none font-mono text-xs"
+                    spellCheck={false}
+                  />
+                  <div className="flex justify-between">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setPromptText(SMS_RULES)}
+                      className="h-7 text-xs text-gray-400 hover:text-gray-600"
+                    >
+                      <RotateCcw className="mr-1 h-3 w-3" />
+                      기본값으로 되돌리기
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => savePrompt.mutate(promptText)}
+                      disabled={savePrompt.isPending || !isPromptModified}
+                      className="h-7 text-xs"
+                    >
+                      <Save className="mr-1 h-3 w-3" />
+                      저장
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

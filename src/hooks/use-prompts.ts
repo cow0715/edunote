@@ -25,7 +25,8 @@ export function useSavePrompt(key: string) {
       if (!res.ok) throw new Error((await res.json()).error)
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      qc.setQueryData(['prompt', key], data.content)
       qc.invalidateQueries({ queryKey: ['prompt', key] })
       toast.success('프롬프트가 저장되었습니다')
     },

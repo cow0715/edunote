@@ -5,7 +5,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ key: strin
   if (!user) return err('인증 필요', 401)
 
   const { key } = await params
-  const { data } = await supabase.from('prompts').select('content').eq('key', key).single()
+  const { data } = await supabase.from('prompts').select('content').eq('key', key).maybeSingle()
 
   return ok({ content: data?.content ?? null })
 }

@@ -79,6 +79,43 @@ export type SmsResult = {
   message: string
 }
 
+export async function refineSmsTemplateMessage(
+  templateMessage: string,
+  rules: string = SMS_RULES,
+): Promise<string> {
+  const prompt = `다음은 학부모 문자에 들어갈 강사 공통 문구입니다.
+학생별 이름, 링크, 인사말, 마무리 상담 문구는 다른 단계에서 자동으로 붙습니다.
+
+아래 문구 자체만 자연스럽게 다듬어 주세요.
+- 학생 이름, 학부모님 인사, 날짜, 링크 안내, 상담 안내 문구는 만들지 마세요.
+- ◆ 기호를 붙이지 마세요.
+- 학생별 점수, 오답, 숙제, raw 데이터는 만들지 마세요.
+- 원문의 의미와 말투는 유지하고 어색한 표현만 자연스럽게 정리하세요.
+- 결과 문구만 출력하세요.
+
+[문자 작성 기준]
+${rules}
+
+[강사 공통 문구]
+${templateMessage.trim()}`
+
+  const res = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 1024,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  return raw
+    .replace(/```(?:text)?\n?|\n?```/g, '')
+    .split('\n')
+    .map((line) => line.trim().replace(/^◆\s*/, ''))
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export async function generateSmsMessages(
   weekInfo: { week_number: number; week_label?: string | null; class_name: string; start_date?: string | null },
   students: SmsStudentInput[],
