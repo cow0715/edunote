@@ -19,6 +19,12 @@ type TodayWeek = {
   class: { id: string; name: string; teacher_id: string }
 }
 
+type TodayClinicSms = {
+  slot: { id: string } | null
+  slot_label: string | null
+  messages: { student_id: string }[]
+}
+
 function formatRelative(dateStr: string) {
   const now = new Date()
   const d = new Date(dateStr)
@@ -87,6 +93,19 @@ function TodayClasses() {
 }
 
 function TodayClinic() {
+  const { data, isLoading } = useQuery<TodayClinicSms>({
+    queryKey: ['clinic-sms-today'],
+    queryFn: async () => {
+      const res = await fetch('/api/clinic/sms')
+      if (!res.ok) throw new Error((await res.json()).error ?? '클리닉 문자 대상 조회 실패')
+      return res.json()
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+
+  if (isLoading) return <div className="h-16 w-40 animate-pulse rounded-xl bg-gray-100" />
+  if (!data?.slot) return null
+
   return (
     <ClinicSmsSheet>
       <div className="flex items-center gap-3 rounded-xl bg-white border border-gray-100 shadow-[0px_4px_16px_rgba(0,75,198,0.06)] px-4 py-3 cursor-pointer hover:border-blue-200 hover:shadow-[0px_4px_16px_rgba(0,75,198,0.12)] transition-all">
@@ -95,7 +114,9 @@ function TodayClinic() {
         </div>
         <div>
           <p className="text-sm font-semibold text-gray-900">오늘 클리닉</p>
-          <p className="text-xs text-gray-400">대상자 문자 발송</p>
+          <p className="text-xs text-gray-400">
+            {data.slot_label ? `${data.slot_label} · ${data.messages.length}명` : '대상자 문자 발송'}
+          </p>
         </div>
       </div>
     </ClinicSmsSheet>
