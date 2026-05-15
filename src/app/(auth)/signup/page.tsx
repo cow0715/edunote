@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -19,51 +18,34 @@ export default function SignupPage() {
     e.preventDefault()
     setLoading(true)
 
-    const supabase = createClient()
+    try {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      const data = await res.json()
 
-    // 1. Supabase Auth 회원가입
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: form.email,
-      password: form.password,
-    })
+      if (!res.ok) {
+        toast.error(data.error || '회원가입에 실패했습니다')
+        return
+      }
 
-    if (authError) {
-      toast.error(authError.message)
+      toast.success('회원가입 신청이 완료되었습니다. 관리자 승인 후 이용할 수 있습니다.')
+      router.push('/login')
+    } finally {
       setLoading(false)
-      return
     }
-
-    if (!authData.user) {
-      toast.error('회원가입 실패')
-      setLoading(false)
-      return
-    }
-
-    // 2. teacher 테이블에 프로필 INSERT
-    const { error: teacherError } = await supabase.from('teacher').insert({
-      auth_id: authData.user.id,
-      email: form.email,
-      name: form.name,
-    })
-
-    setLoading(false)
-
-    if (teacherError) {
-      toast.error(teacherError.message)
-      return
-    }
-
-    toast.success('회원가입 완료!')
-    router.push('/dashboard')
-    router.refresh()
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-      <Card className="w-full max-w-sm">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#EBF3FF] to-white px-4">
+      <Card className="w-full max-w-sm border-0 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">회원가입</CardTitle>
-          <CardDescription>강사 계정을 만드세요</CardDescription>
+          <CardTitle className="text-2xl text-[#1A1C1E]">회원가입</CardTitle>
+          <CardDescription className="text-[#8B95A1]">
+            강사 계정을 신청합니다. 가입 후 관리자 승인이 필요합니다.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -100,13 +82,13 @@ export default function SignupPage() {
                 required
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? '처리 중...' : '회원가입'}
+            <Button type="submit" className="w-full bg-[#2463EB] hover:bg-[#1d4ed8]" disabled={loading}>
+              {loading ? '처리 중...' : '가입 신청'}
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-gray-500">
-            이미 계정이 있으신가요?{' '}
-            <Link href="/login" className="text-primary underline">
+          <p className="mt-4 text-center text-sm text-[#8B95A1]">
+            이미 계정이 있나요?{' '}
+            <Link href="/login" className="text-[#2463EB] underline">
               로그인
             </Link>
           </p>

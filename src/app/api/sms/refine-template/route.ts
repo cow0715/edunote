@@ -1,16 +1,19 @@
-import { getAuth, err, ok } from '@/lib/api'
+import { err, getAuth, getTeacherId, ok } from '@/lib/api'
 import { refineSmsTemplateMessage } from '@/lib/anthropic'
 import { SMS_RULES } from '@/lib/prompts'
 
 export async function POST(request: Request) {
-  const { user } = await getAuth()
-  if (!user) return err('인증 필요', 401)
+  const { supabase, user } = await getAuth()
+  if (!user) return err('로그인이 필요합니다', 401)
+
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('관리자 승인 후 사용할 수 있습니다', 403)
 
   const body = await request.json().catch(() => ({}))
   const text = typeof body?.text === 'string' ? body.text.trim() : ''
   const rules = typeof body?.rules === 'string' && body.rules.trim() ? body.rules : SMS_RULES
 
-  if (!text) return err('다듬을 공통 문구를 입력해주세요')
+  if (!text) return err('다듬을 메시지를 입력해 주세요')
 
   try {
     const refined = await refineSmsTemplateMessage(text, rules)

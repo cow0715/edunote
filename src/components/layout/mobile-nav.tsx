@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -16,6 +16,7 @@ import {
   MessageSquare,
   ScanText,
   Settings,
+  ShieldCheck,
   Tag,
   TrendingUp,
   Users,
@@ -32,13 +33,13 @@ const navSections = [
       { href: '/clinic', label: '클리닉 관리', icon: CalendarCheck },
       { href: '/students', label: '학생 관리', icon: Users },
       { href: '/analysis', label: '학생 현황', icon: TrendingUp },
-      { href: '/messages', label: '메시지 내역', icon: MessageSquare },
+      { href: '/messages', label: '메시지 이력', icon: MessageSquare },
     ],
   },
   {
     title: '문항 / 자료',
     items: [
-      { href: '/exam-bank', label: '기출문제 은행', icon: LibraryBig },
+      { href: '/exam-bank', label: '기출문제 저장소', icon: LibraryBig },
       { href: '/concept-tags', label: '문제 유형', icon: Tag },
       { href: '/text-compare', label: '시험 변형 분석', icon: FileSearch },
       { href: '/pdf-extract', label: 'PDF 텍스트 추출', icon: ScanText },
@@ -48,6 +49,7 @@ const navSections = [
     title: '설정',
     items: [
       { href: '/settings', label: '학원 정보 설정', icon: Settings },
+      { href: '/settings/approvals', label: '가입 승인', icon: ShieldCheck },
     ],
   },
 ]
@@ -57,13 +59,15 @@ const navItems = navSections.flatMap((section) => section.items)
 export function MobileNav() {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
+  const router = useRouter()
 
   useEffect(() => {
     const main = document.querySelector('main')
     if (main) main.style.overflow = open ? 'hidden' : ''
-    return () => { if (main) main.style.overflow = '' }
+    return () => {
+      if (main) main.style.overflow = ''
+    }
   }, [open])
-  const router = useRouter()
 
   async function handleLogout() {
     const supabase = createClient()
@@ -79,10 +83,10 @@ export function MobileNav() {
 
   return (
     <>
-      <header className="flex h-14 items-center justify-between border-b bg-white px-4 md:hidden shrink-0">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b bg-white px-4 md:hidden">
         <div className="flex items-center gap-2">
           <GraduationCap className="h-5 w-5 text-primary" />
-          <span className="font-semibold text-gray-900 text-sm">{currentLabel}</span>
+          <span className="text-sm font-semibold text-gray-900">{currentLabel}</span>
         </div>
         <button
           onClick={() => setOpen(true)}
@@ -93,7 +97,7 @@ export function MobileNav() {
       </header>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" className="w-56 p-0 flex flex-col">
+        <SheetContent side="left" className="flex w-56 flex-col p-0">
           <div className="flex items-center gap-2 border-b px-4 py-5">
             <GraduationCap className="h-6 w-6 text-primary" />
             <span className="font-semibold text-gray-900">학원 관리</span>
