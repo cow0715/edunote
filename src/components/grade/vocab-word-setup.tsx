@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Dice5, FileSpreadsheet, FileText, Loader2, Printer, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Upload, X } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -93,13 +93,6 @@ function normalizeSearch(value: string | null | undefined) {
 
 function formatWordList(value: string[] | null | undefined) {
   return (value ?? []).filter(Boolean).join(', ')
-}
-
-function splitVariantText(value: string | null | undefined) {
-  return (value ?? '')
-    .split(/[,/;]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
 }
 
 function shuffle<T>(items: T[]) {
@@ -534,7 +527,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   async function handleEnrichMeanings() {
     const variantIds = selectedWordIds
       .map((wordId) => {
-        const word = savedWordsWithIds.find((item) => item.id === wordId)
+        const word = savedWordsById.get(wordId)
         const prompt = selectedPrompts[wordId]
         if (!word || !prompt || prompt.prompt_source === 'word') return null
         return findVariantForPrompt(word, prompt)?.id ?? null
@@ -571,7 +564,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
           title: `단어시험 ${wordIds.length}문항`,
           wordIds,
           items: wordIds.map((wordId) => {
-            const word = savedWordsWithIds.find((item) => item.id === wordId)
+            const word = savedWordsById.get(wordId)
             const prompt = prompts[wordId]
             const fallbackOption = word ? getPromptOptions(word)[0] : null
             const resolvedPrompt = prompt && word
@@ -617,7 +610,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     if (!key) return false
     return selectedWordIds.some((selectedId) => {
       if (selectedId === wordId) return false
-      const selectedWord = savedWordsWithIds.find((item) => item.id === selectedId)
+      const selectedWord = savedWordsById.get(selectedId)
       const selectedPrompt = selectedPrompts[selectedId] ?? {
         prompt_source: 'word' as const,
         prompt_text: selectedWord?.english_word ?? '',
@@ -637,7 +630,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         })
         return prev.filter((id) => id !== wordId)
       }
-      const word = savedWordsWithIds.find((item) => item.id === wordId)
+      const word = savedWordsById.get(wordId)
       const nextPrompt = { prompt_source: 'word' as const, prompt_text: word?.english_word ?? '', variant_id: null }
       if (hasDuplicatePrompt(wordId, nextPrompt)) {
         toast.error('이미 같은 시험 단어가 선택되어 있습니다')
@@ -807,6 +800,52 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     }))
   }
 
+  const savedWordsWithIds = useMemo(
+    () => editWords.filter((word): word is VocabEntry & { id: string } => !!word.id),
+    [editWords],
+  )
+  const savedWordsById = useMemo(
+    () => new Map(savedWordsWithIds.map((word) => [word.id, word])),
+    [savedWordsWithIds],
+  )
+  const selectedSet = useMemo(() => new Set(selectedWordIds), [selectedWordIds])
+  const selectedWords = useMemo(
+    () => selectedWordIds
+      .map((id) => savedWordsById.get(id))
+      .filter((word): word is VocabEntry & { id: string } => !!word),
+    [savedWordsById, selectedWordIds],
+  )
+  const selectedPromptCounts = useMemo(
+    () => selectedWords.reduce<Record<VocabTestPromptSource, number>>((acc, word) => {
+      const source = selectedPrompts[word.id]?.prompt_source ?? 'word'
+      acc[source] += 1
+      return acc
+    }, { word: 0, synonym: 0, derivative: 0 }),
+    [selectedPrompts, selectedWords],
+  )
+  const passageOptions = useMemo(
+    () => [...new Set(savedWordsWithIds.map((word) => word.passage_label?.trim()).filter((value): value is string => !!value))]
+      .sort((a, b) => a.localeCompare(b, 'ko-KR', { numeric: true })),
+    [savedWordsWithIds],
+  )
+  const searchQuery = normalizeSearch(testSearch)
+  const filteredTestWords = useMemo(
+    () => savedWordsWithIds.filter((word) => {
+      if (testPassageFilter !== 'all' && (word.passage_label ?? '') !== testPassageFilter) return false
+      if (!searchQuery) return true
+      return [
+        word.english_word,
+        word.correct_answer,
+        word.passage_label,
+        word.part_of_speech,
+        word.derivatives,
+        formatWordList(word.synonyms),
+        formatWordList(word.antonyms),
+      ].some((value) => normalizeSearch(value).includes(searchQuery))
+    }),
+    [savedWordsWithIds, searchQuery, testPassageFilter],
+  )
+
   if (status.type === 'idle' || status.type === 'error') return (
     <div className="space-y-4">
       <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3">
@@ -879,32 +918,6 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     </div>
   )
 
-  const savedWordsWithIds = editWords.filter((word): word is VocabEntry & { id: string } => !!word.id)
-  const selectedSet = new Set(selectedWordIds)
-  const selectedWords = selectedWordIds
-    .map((id) => savedWordsWithIds.find((word) => word.id === id))
-    .filter((word): word is VocabEntry & { id: string } => !!word)
-  const selectedPromptCounts = selectedWords.reduce<Record<VocabTestPromptSource, number>>((acc, word) => {
-    const source = selectedPrompts[word.id]?.prompt_source ?? 'word'
-    acc[source] += 1
-    return acc
-  }, { word: 0, synonym: 0, derivative: 0 })
-  const passageOptions = [...new Set(savedWordsWithIds.map((word) => word.passage_label?.trim()).filter((value): value is string => !!value))]
-    .sort((a, b) => a.localeCompare(b, 'ko-KR', { numeric: true }))
-  const searchQuery = normalizeSearch(testSearch)
-  const filteredTestWords = savedWordsWithIds.filter((word) => {
-    if (testPassageFilter !== 'all' && (word.passage_label ?? '') !== testPassageFilter) return false
-    if (!searchQuery) return true
-    return [
-      word.english_word,
-      word.correct_answer,
-      word.passage_label,
-      word.part_of_speech,
-      word.derivatives,
-      formatWordList(word.synonyms),
-      formatWordList(word.antonyms),
-    ].some((value) => normalizeSearch(value).includes(searchQuery))
-  })
   const clinicPickCount = Math.max(1, Math.min(randomPickCount, Math.max(1, filteredTestWords.length)))
   const randomRatioTargets = allocatePromptTargets(clinicPickCount, sourceRatio)
 
