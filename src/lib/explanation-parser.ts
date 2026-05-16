@@ -69,9 +69,6 @@ export function parseExplanationText(text: string): ParsedExplanation[] {
   if (boundaries.length === 0) return []
 
   const results: ParsedExplanation[] = []
-  // 장문 묶음(41~42, 43~45) 해석/어휘를 공유하기 위한 맵
-  const sharedTranslation = new Map<number, string>()
-  const sharedVocab = new Map<number, string>()
 
   for (let i = 0; i < boundaries.length; i++) {
     const start = boundaries[i].idx
@@ -80,26 +77,33 @@ export function parseExplanationText(text: string): ParsedExplanation[] {
     const block = text.substring(start, end)
 
     // 장문 묶음 헤더 감지 (예: "41~42]", "43~45]")
-    const bundleMatch = block.match(/(\d+)\s*~\s*(\d+)\]/)
+    const bundleMatch = block.match(/^\s*(\d+)\s*~\s*(\d+)\]?/)
     if (bundleMatch) {
+      const intent = extractIntent(block)
       const translation = extractSection(block, '해석')
+      const solution = extractSection(block, '풀이')
       const vocab = extractSection(block, '어휘')
-      const fromNum = parseInt(bundleMatch[1])
-      const toNum = parseInt(bundleMatch[2])
+      const fromNum = Math.max(18, parseInt(bundleMatch[1]))
+      const toNum = Math.min(45, parseInt(bundleMatch[2]))
       for (let n = fromNum; n <= toNum; n++) {
-        if (translation) sharedTranslation.set(n, translation)
-        if (vocab) sharedVocab.set(n, vocab)
+        results.push({
+          question_number: n,
+          intent: cleanText(intent),
+          translation: cleanText(translation),
+          solution: cleanText(solution),
+          vocabulary: cleanVocabText(vocab),
+        })
       }
       continue
     }
 
-    // 18번 미만 스킵 (듣기 영역)
-    if (qNum < 18) continue
+    // 18번 미만 스킵 (듣기 영역), 45번 초과 제외
+    if (qNum < 18 || qNum > 45) continue
 
     const intent = extractIntent(block)
-    const translation = extractSection(block, '해석') || sharedTranslation.get(qNum) || ''
+    const translation = extractSection(block, '해석')
     const solution = extractSection(block, '풀이')
-    const vocab = extractSection(block, '어휘') || sharedVocab.get(qNum) || ''
+    const vocab = extractSection(block, '어휘')
 
     results.push({
       question_number: qNum,
