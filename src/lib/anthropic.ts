@@ -1154,8 +1154,8 @@ export async function ocrExamAnswerBatch(
 }
 
 // ── 기출문제 AI 해설 생성 ─────────────────────────────────────────────────
-// 대상: 20~24번, 29~45번 문항
-// 생성 필드: explanation_translation (해석), explanation_vocabulary (Words & Phrases)
+// 대상: 18~45번 문항
+// 생성 필드: 풀이, Words & Phrases (해석은 PDF 업로드 값 보존)
 
 export type GeneratedExplanation = {
   question_number: number

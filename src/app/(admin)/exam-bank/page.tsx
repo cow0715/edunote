@@ -1038,7 +1038,7 @@ function ExamList() {
                     }
                   }}
                   className="p-1.5 rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="AI 해설/어휘 생성 (20~24, 29~45번)"
+                  title="AI 해설/어휘 생성 (18~45번)"
                 >
                   {generatingId === exam.id
                     ? <Loader2 className="h-4 w-4 animate-spin" />
