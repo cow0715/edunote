@@ -25,6 +25,12 @@ type TodayClinicSms = {
   messages: { student_id: string }[]
 }
 
+function getLocalDate(daysFromToday = 0) {
+  const d = new Date()
+  d.setDate(d.getDate() + daysFromToday)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function formatRelative(dateStr: string) {
   const now = new Date()
   const d = new Date(dateStr)
@@ -54,6 +60,10 @@ function getDateGroupKey(dateStr: string) {
   if (itemDate >= weekStart) return '이번 주'
   if (itemDate >= lastWeekStart) return '지난 주'
   return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' })
+}
+
+function formatClinicDate(date: string) {
+  return new Date(`${date}T00:00:00`).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', weekday: 'short' })
 }
 
 function TodayClasses() {
@@ -92,11 +102,11 @@ function TodayClasses() {
   )
 }
 
-function TodayClinic() {
+function ClinicShortcut({ date, label }: { date: string; label: string }) {
   const { data, isLoading } = useQuery<TodayClinicSms>({
-    queryKey: ['clinic-sms-today'],
+    queryKey: ['clinic-sms', date],
     queryFn: async () => {
-      const res = await fetch('/api/clinic/sms')
+      const res = await fetch(`/api/clinic/sms?date=${encodeURIComponent(date)}`)
       if (!res.ok) throw new Error((await res.json()).error ?? '클리닉 문자 대상 조회 실패')
       return res.json()
     },
@@ -107,19 +117,28 @@ function TodayClinic() {
   if (!data?.slot) return null
 
   return (
-    <ClinicSmsSheet>
+    <ClinicSmsSheet date={date}>
       <div className="flex items-center gap-3 rounded-xl bg-white border border-gray-100 shadow-[0px_4px_16px_rgba(0,75,198,0.06)] px-4 py-3 cursor-pointer hover:border-blue-200 hover:shadow-[0px_4px_16px_rgba(0,75,198,0.12)] transition-all">
         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50">
           <CalendarCheck className="h-4 w-4 text-blue-600" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-gray-900">오늘 클리닉</p>
+          <p className="text-sm font-semibold text-gray-900">{label} 클리닉</p>
           <p className="text-xs text-gray-400">
-            {data.slot_label ? `${data.slot_label} · ${data.messages.length}명` : '대상자 문자 발송'}
+            {data.slot_label ? `${formatClinicDate(date)} · ${data.slot_label} · ${data.messages.length}명` : '대상자 문자 발송'}
           </p>
         </div>
       </div>
     </ClinicSmsSheet>
+  )
+}
+
+function ClinicShortcuts() {
+  return (
+    <>
+      <ClinicShortcut date={getLocalDate()} label="오늘" />
+      <ClinicShortcut date={getLocalDate(1)} label="내일" />
+    </>
   )
 }
 
@@ -203,11 +222,11 @@ export default function MessagesPage() {
         <BroadcastDialog />
       </div>
 
-      {/* 오늘 수업 */}
+      {/* 발송 바로가기 */}
       <div className="mb-8">
-        <p className="mb-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">오늘 수업</p>
+        <p className="mb-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">발송 바로가기</p>
         <div className="flex flex-wrap gap-2">
-          <TodayClinic />
+          <ClinicShortcuts />
           <TodayClasses />
         </div>
       </div>

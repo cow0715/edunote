@@ -45,6 +45,17 @@ function getToday() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+function getRelativeDateLabel(date: string) {
+  const today = getToday()
+  const tomorrow = new Date(`${today}T00:00:00`)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
+
+  if (date === today) return '오늘'
+  if (date === tomorrowStr) return '내일'
+  return formatDateLabel(date)
+}
+
 function getNearestSchedule() {
   const now = new Date()
   const nearest = new Date(Math.ceil(now.getTime() / (30 * 60 * 1000)) * (30 * 60 * 1000))
@@ -61,10 +72,11 @@ function formatDateLabel(date: string) {
   return d.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })
 }
 
-export function ClinicSmsSheet({ children }: { children?: React.ReactNode }) {
+export function ClinicSmsSheet({ children, date: targetDate }: { children?: React.ReactNode; date?: string }) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [date] = useState(getToday)
+  const date = targetDate ?? getToday()
+  const relativeDateLabel = getRelativeDateLabel(date)
   const [slotLabel, setSlotLabel] = useState<string | null>(null)
   const [messages, setMessages] = useState<ClinicSmsMessage[]>([])
   const [templateMessage, setTemplateMessage] = useState('')
@@ -305,7 +317,7 @@ export function ClinicSmsSheet({ children }: { children?: React.ReactNode }) {
         <SheetHeader className="px-5 py-4 border-b shrink-0">
           <div className="flex items-center justify-between">
             <div>
-              <SheetTitle>오늘 클리닉 문자 발송</SheetTitle>
+              <SheetTitle>{relativeDateLabel} 클리닉 안내 문자</SheetTitle>
               <p className="mt-1 text-xs text-gray-400">
                 {formatDateLabel(date)}{slotLabel ? ` · ${slotLabel}` : ''}
               </p>
@@ -335,7 +347,7 @@ export function ClinicSmsSheet({ children }: { children?: React.ReactNode }) {
             <div className="mb-2 flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-gray-900">공통 문자</p>
-                <p className="mt-0.5 text-xs text-gray-400">오늘 클리닉 대상 학생들에게 같은 내용을 적용합니다.</p>
+                <p className="mt-0.5 text-xs text-gray-400">{relativeDateLabel} 클리닉 대상 학생들에게 같은 내용을 적용합니다.</p>
               </div>
               <Button size="sm" onClick={applyTemplateToAll} disabled={!templateMessage.trim()} className="h-8 text-xs">
                 <Check className="mr-1.5 h-3.5 w-3.5" />전체 적용
@@ -344,7 +356,7 @@ export function ClinicSmsSheet({ children }: { children?: React.ReactNode }) {
             <Textarea
               value={templateMessage}
               onChange={(e) => setTemplateMessage(e.target.value)}
-              placeholder="예) 오늘 클리닉은 예정대로 진행됩니다. 준비물 챙겨서 시간 맞춰 등원해주세요."
+              placeholder={`예) ${relativeDateLabel} 클리닉은 예정대로 진행됩니다. 준비물 챙겨서 시간 맞춰 등원해주세요.`}
               rows={4}
               className="resize-none text-sm"
             />
@@ -419,12 +431,12 @@ export function ClinicSmsSheet({ children }: { children?: React.ReactNode }) {
           {loading ? (
             <div className="flex flex-col items-center justify-center gap-3 py-20 text-gray-400">
               <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              <p className="text-sm">오늘 클리닉 대상자를 불러오고 있습니다...</p>
+              <p className="text-sm">{relativeDateLabel} 클리닉 대상자를 불러오고 있습니다...</p>
             </div>
           ) : messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 py-20 text-gray-400">
               <CalendarCheck className="h-10 w-10 text-gray-200" />
-              <p className="text-sm">{slotLabel === null ? '오늘 운영 중인 클리닉이 없습니다' : '오늘 클리닉 대상 학생이 없습니다'}</p>
+              <p className="text-sm">{slotLabel === null ? `${relativeDateLabel} 운영 중인 클리닉이 없습니다` : `${relativeDateLabel} 클리닉 대상 학생이 없습니다`}</p>
             </div>
           ) : (
             <div className="divide-y">
