@@ -37,7 +37,7 @@ const navSections = [
   {
     title: '문항 / 자료',
     items: [
-      { href: '/exam-bank', label: '기출문제 저장소', icon: LibraryBig },
+      { href: '/exam-bank', label: '기출문제 은행', icon: LibraryBig },
       { href: '/concept-tags', label: '문제 유형', icon: Tag },
       { href: '/text-compare', label: '시험 변형 분석', icon: FileSearch },
       { href: '/pdf-extract', label: 'PDF 텍스트 추출', icon: ScanText },

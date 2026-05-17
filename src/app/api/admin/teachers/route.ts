@@ -1,4 +1,5 @@
 import { err, getAuth, getTeacherAccess, ok, type TeacherApprovalStatus } from '@/lib/api'
+import { createServiceClient } from '@/lib/supabase/server'
 
 const allowedStatuses = new Set<TeacherApprovalStatus>(['pending', 'approved', 'blocked'])
 
@@ -15,10 +16,11 @@ async function requireAdmin() {
 }
 
 export async function GET() {
-  const { supabase, error } = await requireAdmin()
+  const { error } = await requireAdmin()
   if (error) return error
 
-  const { data, error: queryError } = await supabase
+  const service = createServiceClient()
+  const { data, error: queryError } = await service
     .from('teacher')
     .select('id, email, name, approval_status, is_admin, created_at, approved_at')
     .order('created_at', { ascending: false })
@@ -28,9 +30,10 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
-  const { supabase, admin, error } = await requireAdmin()
+  const { admin, error } = await requireAdmin()
   if (error) return error
 
+  const service = createServiceClient()
   const { teacherId, status } = await request.json()
 
   if (!teacherId || !allowedStatuses.has(status)) {
@@ -50,11 +53,13 @@ export async function PATCH(request: Request) {
           approved_by: null,
         }
 
-  const { error: updateError } = await supabase
+  const { data, error: updateError } = await service
     .from('teacher')
     .update(update)
     .eq('id', teacherId)
+    .select('id, approval_status')
+    .single()
 
   if (updateError) return err(updateError.message, 400)
-  return ok({ success: true })
+  return ok({ success: true, teacher: data })
 }
