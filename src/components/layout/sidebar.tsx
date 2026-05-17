@@ -31,7 +31,7 @@ const navSections = [
       { href: '/clinic', label: '클리닉 관리', icon: CalendarCheck },
       { href: '/students', label: '학생 관리', icon: Users },
       { href: '/analysis', label: '학생 현황', icon: TrendingUp },
-      { href: '/messages', label: '메시지 이력', icon: MessageSquare },
+      { href: '/messages', label: '메시지', icon: MessageSquare },
     ],
   },
   {
