@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo, useEffect } from 'react'
-import { MessageSquare, Copy, Check, RefreshCw, Send, XCircle, Loader2, X, Sparkles, ChevronDown, ChevronUp, RotateCcw, Save } from 'lucide-react'
+import { MessageSquare, Copy, Check, Send, XCircle, Loader2, X, Sparkles, ChevronDown, ChevronUp, RotateCcw, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
@@ -63,16 +63,6 @@ function getNearestSchedule() {
   const hh = String(nearest.getHours()).padStart(2, '0')
   const min = String(nearest.getMinutes()).padStart(2, '0')
   return { date: `${yyyy}-${mm}-${dd}`, time: `${hh}:${min}` }
-}
-
-function formatWrongItems(data: SmsStudentData) {
-  const wrongObjective = data.reading.wrong_objective.map((w) =>
-    `${w.question_number}번 ${w.concept_tag ?? w.concept_category}`
-  )
-  const wrongSubjective = data.reading.wrong_subjective.map((w) =>
-    `${w.question_number}번 ${w.ai_feedback || w.concept_category}`
-  )
-  return [...wrongObjective, ...wrongSubjective]
 }
 
 function formatFeedbackDate(startDate?: string | null) {
@@ -137,7 +127,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   const [selectedRecipients, setSelectedRecipients] = useState<Record<string, Set<RecipientKey>>>({})
   const [sendStatus, setSendStatus] = useState<Record<string, SendStatus>>({})
   const [sendError, setSendError] = useState<Record<string, string>>({})
-  const [sendingAll, setSendingAll] = useState(false)
+  const sendingAll = false
   const [aiGenerating, setAiGenerating] = useState(false)
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
   const [scheduleDate, setScheduleDate] = useState(() => getNearestSchedule().date)
@@ -151,7 +141,6 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   const activePrompt = savedPrompt ?? SMS_RULES
   const isPromptModified = promptText !== activePrompt
   const sentCount = Object.values(sendStatus).filter((s) => s === 'success').length
-  const hasSendableMessage = messages.some((m) => m.message.trim() && sendStatus[m.student_id] !== 'success')
 
   useEffect(() => {
     setPromptText(savedPrompt ?? SMS_RULES)
@@ -302,36 +291,11 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
     })
   }
 
-  async function sendAll() {
-    if (isSchedulePast) {
-      toast.error('예약 시간은 현재 시간 이후로 설정해주세요')
-      return
-    }
-    const pending = messages.filter((m) => (sendStatus[m.student_id] ?? 'idle') !== 'success')
-    if (pending.length === 0) return
-    const totalTargets = pending.reduce((sum, m) => sum + (selectedRecipients[m.student_id]?.size ?? 0), 0)
-    const confirmed = window.confirm(
-      `${pending.length}명(${totalTargets}건)에게 ${scheduleEnabled ? '예약 발송' : '전체 발송'}하시겠습니까?`
-    )
-    if (!confirmed) return
-    setSendingAll(true)
-    for (const m of pending) {
-      await sendOne(m)
-    }
-    setSendingAll(false)
-  }
-
   async function copyMessage(studentId: string, text: string) {
     await navigator.clipboard.writeText(text)
     setCopiedId(studentId)
     setTimeout(() => setCopiedId(null), 2000)
     toast.success('클립보드에 복사됐습니다')
-  }
-
-  async function copyAll() {
-    const all = messages.map((m) => `[${m.student_name}]\n${m.message}`).join('\n\n')
-    await navigator.clipboard.writeText(all)
-    toast.success(`${messages.length}명 문자 전체 복사됐습니다`)
   }
 
   async function sendOne(m: SmsMessage) {
@@ -398,20 +362,6 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
           <div className="flex items-center justify-between">
             <SheetTitle>{weekLabel ?? `${weekNumber}주차`} 문자 발송</SheetTitle>
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="ghost" onClick={generate} disabled={loading || sendingAll} className="h-8 text-xs">
-                <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />재생성
-              </Button>
-              {messages.length > 0 && (
-                <>
-                  <Button size="sm" variant="outline" onClick={copyAll} className="h-8 text-xs">
-                    <Copy className="mr-1.5 h-3.5 w-3.5" />전체 복사
-                  </Button>
-                  <Button size="sm" onClick={sendAll} disabled={!hasSendableMessage || loading || sendingAll || (scheduleEnabled && isSchedulePast)} className="h-8 text-xs">
-                    {sendingAll ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
-                    전체 발송
-                  </Button>
-                </>
-              )}
               <SheetClose asChild>
                 <button className="rounded p-1.5 hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600">
                   <X className="h-4 w-4" />
@@ -448,7 +398,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
               <span className={templateMessage.length > 90 ? 'text-amber-500' : ''}>{templateMessage.length}자</span>
             </div>
 
-            <div className="mt-3 overflow-hidden rounded-lg border border-gray-200">
+            <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 bg-white">
               <button
                 type="button"
                 onClick={() => setPromptOpen((v) => !v)}
@@ -464,16 +414,17 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
               </button>
 
               {promptOpen && (
-                <div className="space-y-2 border-t border-gray-200 p-3">
-                  <p className="text-[11px] text-gray-400">AI로 다듬기부터 적용됩니다. 저장 후 바로 생성해도 최신 프롬프트를 사용합니다.</p>
+                <div className="max-h-[44vh] overflow-y-auto overscroll-contain border-t border-gray-200">
+                  <div className="border-b border-gray-100 px-3 py-2">
+                    <p className="text-[11px] text-gray-400">AI로 다듬기부터 적용됩니다. 저장 후 바로 생성해도 최신 프롬프트를 사용합니다.</p>
+                  </div>
                   <Textarea
                     value={promptText}
                     onChange={(e) => setPromptText(e.target.value)}
-                    rows={7}
-                    className="resize-none font-mono text-xs"
+                    className="min-h-[220px] resize-y rounded-none border-0 bg-gray-50 font-mono text-xs leading-relaxed focus-visible:ring-0"
                     spellCheck={false}
                   />
-                  <div className="flex justify-between">
+                  <div className="sticky bottom-0 flex justify-between border-t border-gray-200 bg-white px-3 py-2">
                     <Button
                       size="sm"
                       variant="ghost"
@@ -586,9 +537,6 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
                   { key: 'student', phone: m.phone },
                 ]
                 const available = PHONES.filter((p) => !!p.phone)
-                const data = m.student_data
-                const wrongItems = data ? formatWrongItems(data) : []
-
                 return (
                   <div key={m.student_id} className={`px-5 py-4 space-y-2.5 ${status === 'success' ? 'bg-green-50/50' : status === 'error' ? 'bg-red-50/50' : ''}`}>
                     {/* 학생명 + 발송 상태 + 수신자 선택 */}
@@ -633,53 +581,6 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
                       className="text-sm resize-none"
                       disabled={status === 'success'}
                     />
-
-                    {data && (
-                      <div className="rounded-lg bg-gray-50 px-3 py-2.5">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <p className="text-xs font-semibold text-gray-700">학생 개인 데이터</p>
-                          {(data.is_absent || data.is_unexamined) && (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                              {data.is_absent ? '결석' : '미응시'}
-                            </span>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-3 gap-2 text-xs">
-                          <div>
-                            <p className="text-gray-400">단어</p>
-                            <p className="font-semibold text-gray-900">
-                              {data.vocab.correct}/{data.vocab.total}
-                              {data.vocab.prev_correct !== null && (
-                                <span className="ml-1 font-medium text-gray-400">
-                                  {data.vocab.correct - data.vocab.prev_correct >= 0 ? '+' : ''}
-                                  {data.vocab.correct - data.vocab.prev_correct}
-                                </span>
-                              )}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-gray-400">독해</p>
-                            <p className="font-semibold text-gray-900">{data.reading.correct}/{data.reading.total}</p>
-                          </div>
-                          <div>
-                            <p className="text-gray-400">숙제</p>
-                            <p className="font-semibold text-gray-900">
-                              {data.homework.total > 0 ? `${data.homework.done}/${data.homework.total}` : '완료'}
-                            </p>
-                          </div>
-                        </div>
-                        {wrongItems.length > 0 && (
-                          <p className="mt-2 text-xs leading-relaxed text-gray-500">
-                            오답: {wrongItems.slice(0, 5).join(', ')}
-                            {wrongItems.length > 5 ? ` 외 ${wrongItems.length - 5}개` : ''}
-                          </p>
-                        )}
-                        {data.teacher_memo && (
-                          <p className="mt-1.5 text-xs leading-relaxed text-gray-500">메모: {data.teacher_memo}</p>
-                        )}
-                        <p className="mt-1.5 truncate text-xs text-blue-600">{data.share_url}</p>
-                      </div>
-                    )}
 
                     <div className="flex items-center justify-between">
                       <span className={`text-xs ${m.message.length > 90 ? 'text-amber-500' : 'text-gray-400'}`}>
