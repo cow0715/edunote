@@ -127,7 +127,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   const [selectedRecipients, setSelectedRecipients] = useState<Record<string, Set<RecipientKey>>>({})
   const [sendStatus, setSendStatus] = useState<Record<string, SendStatus>>({})
   const [sendError, setSendError] = useState<Record<string, string>>({})
-  const sendingAll = false
+  const [sendingAll, setSendingAll] = useState(false)
   const [aiGenerating, setAiGenerating] = useState(false)
   const [scheduleEnabled, setScheduleEnabled] = useState(false)
   const [scheduleDate, setScheduleDate] = useState(() => getNearestSchedule().date)
@@ -141,6 +141,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   const activePrompt = savedPrompt ?? SMS_RULES
   const isPromptModified = promptText !== activePrompt
   const sentCount = Object.values(sendStatus).filter((s) => s === 'success').length
+  const hasSendableMessage = messages.some((m) => m.message.trim() && sendStatus[m.student_id] !== 'success')
 
   useEffect(() => {
     setPromptText(savedPrompt ?? SMS_RULES)
@@ -346,6 +347,28 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
     }
   }
 
+  async function sendAll() {
+    if (isSchedulePast) {
+      toast.error('예약 시간은 현재 시간 이후로 설정해주세요')
+      return
+    }
+
+    const pending = messages.filter((m) => (sendStatus[m.student_id] ?? 'idle') !== 'success')
+    if (pending.length === 0) return
+
+    const totalTargets = pending.reduce((sum, m) => sum + (selectedRecipients[m.student_id]?.size ?? 0), 0)
+    const confirmed = window.confirm(
+      `${pending.length}명 ${totalTargets}건에게 ${scheduleEnabled ? '예약 발송' : '전체 발송'}하시겠습니까?`
+    )
+    if (!confirmed) return
+
+    setSendingAll(true)
+    for (const m of pending) {
+      await sendOne(m)
+    }
+    setSendingAll(false)
+  }
+
   return (
     <Sheet open={open} onOpenChange={handleOpen}>
       <SheetTrigger asChild>
@@ -362,6 +385,12 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
           <div className="flex items-center justify-between">
             <SheetTitle>{weekLabel ?? `${weekNumber}주차`} 문자 발송</SheetTitle>
             <div className="flex items-center gap-2">
+              {messages.length > 0 && (
+                <Button size="sm" onClick={sendAll} disabled={!hasSendableMessage || loading || sendingAll || (scheduleEnabled && isSchedulePast)} className="h-8 text-xs">
+                  {sendingAll ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
+                  전체 발송
+                </Button>
+              )}
               <SheetClose asChild>
                 <button className="rounded p-1.5 hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600">
                   <X className="h-4 w-4" />
