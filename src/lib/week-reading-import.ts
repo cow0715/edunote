@@ -1,5 +1,5 @@
 import type { SupabaseServerClient } from '@/lib/api'
-import { buildQuestionTextFromParts } from '@/lib/question-structure'
+import { buildQuestionTextFromParts, ensureChoiceMarker } from '@/lib/question-structure'
 import {
   generateExplanations,
   gradeSubjectiveAnswers,
@@ -624,7 +624,9 @@ function buildStructuredQuestionParts(question: {
   return {
     question_stem: normalizeQuestionTextSpacing(normalized.question_text) || null,
     passage: normalizeQuestionTextSpacing(normalized.passage) || null,
-    choices: normalized.choices.map((choice) => normalizeQuestionTextSpacing(choice)).filter(Boolean),
+    choices: normalized.choices
+      .map((choice, index) => ensureChoiceMarker(normalizeQuestionTextSpacing(choice), index))
+      .filter(Boolean),
   }
 }
 

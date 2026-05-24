@@ -828,7 +828,7 @@ const WEEK_PROBLEM_SHEET_PARSE_RULES = `이 PDF는 주차별 설정의 '중간·
 - question_style: objective | subjective | ox | multi_select
 - passage: 지문이 있으면 전체, 없으면 ""
 - question_text: 발문 + 보기문장 + 서답형 지시문까지 포함
-- choices: 객관식 보기 배열, 없으면 []
+- choices: 객관식 보기 배열, 없으면 []. 각 선지는 반드시 원문 번호 기호(①, ②, ③, ④, ⑤...)를 포함해 그대로 작성
 
 판단 규칙:
 - 1개 정답 객관식은 objective
@@ -936,6 +936,7 @@ Additional fields for each question:
 - For questions asking about "밑줄 친 부분/낱말", apply <u>...</u> to the numbered words inside the passage (for example "① <u>direct</u>"), not to the separate answer choices list.
 - needs_source_image: boolean. Use true only when the question contains a table, chart, diagram, picture, schedule grid, map, or complex boxed/multi-column layout that cannot be represented reliably as plain text.
 - Do not set needs_source_image true for plain bold text or underlined text when the content can be represented with **text** or <u>text</u>.
+- Keep original circled choice markers in choices, such as "① a potential risk..." rather than "a potential risk..." or "1. a potential risk...".
 - source_image_reason: one of "table", "chart", "diagram", "layout", "image", or null.
 - source_page: page number in the attached file where this question appears. Use 1 for the first page of the attached file.
 - source_bbox: normalized bounding box for the full question area on source_page, as {"x":0-1,"y":0-1,"width":0-1,"height":0-1}. Include the question number, passage/table/diagram, and choices. Use null when needs_source_image is false or the area cannot be estimated.
