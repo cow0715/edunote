@@ -21,6 +21,8 @@ export type StudentAnswer = {
     correct_answer: number | null; correct_answer_text: string | null
     explanation?: string | null; question_text?: string | null
     question_stem?: string | null; passage?: string | null; choices?: string[] | null
+    needs_source_image?: boolean | null; source_image_reason?: string | null
+    source_page?: number | null; source_image_path?: string | null
     exam_question_tag: { concept_tag: ConceptTag | null }[]
   } | null
 }

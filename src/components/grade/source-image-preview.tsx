@@ -6,16 +6,22 @@ import { ExamQuestion } from '@/lib/types'
 type SourceImagePreviewProps = {
   question: Pick<ExamQuestion, 'source_image_path' | 'needs_source_image' | 'source_page'>
   compact?: boolean
+  signedUrlEndpoint?: string
 }
 
-export function SourceImagePreview({ question, compact = false }: SourceImagePreviewProps) {
+export function SourceImagePreview({
+  question,
+  compact = false,
+  signedUrlEndpoint = '/api/answer-sheet-url',
+}: SourceImagePreviewProps) {
   const [url, setUrl] = useState<string | null>(null)
   const [isOpen, setIsOpen] = useState(true)
   const [failed, setFailed] = useState(false)
 
   async function fetchSignedUrl() {
     if (!question.source_image_path) return null
-    const response = await fetch(`/api/answer-sheet-url?path=${encodeURIComponent(question.source_image_path)}`)
+    const separator = signedUrlEndpoint.includes('?') ? '&' : '?'
+    const response = await fetch(`${signedUrlEndpoint}${separator}path=${encodeURIComponent(question.source_image_path)}`)
     if (!response.ok) throw new Error('failed')
     const data = await response.json()
     return typeof data.url === 'string' ? data.url : null
@@ -39,7 +45,7 @@ export function SourceImagePreview({ question, compact = false }: SourceImagePre
     return () => {
       active = false
     }
-  }, [question.source_image_path])
+  }, [question.source_image_path, signedUrlEndpoint])
 
   async function openFreshSignedUrl() {
     try {

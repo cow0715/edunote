@@ -33,6 +33,10 @@ type ExamQuestionRow = {
   question_stem: string | null
   passage: string | null
   choices: string[] | null
+  needs_source_image: boolean | null
+  source_image_reason: string | null
+  source_page: number | null
+  source_image_path: string | null
 }
 
 type RawStudentAnswerRow = {
@@ -222,7 +226,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
             id, week_id, question_number, sub_label,
             exam_type, question_style,
             correct_answer, correct_answer_text, explanation, question_text,
-            question_stem, passage, choices
+            question_stem, passage, choices,
+            needs_source_image, source_image_reason, source_page, source_image_path
           )
         `)
         .in('week_score_id', scoreIds)

@@ -5,11 +5,23 @@ export type StructuredQuestionParts = {
   question_text?: string | null
 }
 
+export const CIRCLED_CHOICE_NUMBERS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩']
+
 export function normalizeQuestionChoices(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return value
     .map((choice) => (typeof choice === 'string' ? choice.trim() : ''))
     .filter(Boolean)
+}
+
+export function hasChoiceMarker(value: string): boolean {
+  return /^(?:\d+[.)]|[①②③④⑤⑥⑦⑧⑨⑩])\s+/.test(value.trim())
+}
+
+export function ensureChoiceMarker(choice: string, index: number): string {
+  const trimmed = choice.trim()
+  if (hasChoiceMarker(trimmed)) return trimmed
+  return `${CIRCLED_CHOICE_NUMBERS[index] ?? `${index + 1}.`} ${trimmed}`
 }
 
 export function splitStoredQuestionText(raw: string | null | undefined): {
@@ -26,8 +38,8 @@ export function splitStoredQuestionText(raw: string | null | undefined): {
   const choices: string[] = []
   if (blocks.length > 0) {
     const lastLines = blocks[blocks.length - 1].split('\n').map((line) => line.trim()).filter(Boolean)
-    if (lastLines.length > 0 && lastLines.every((line) => /^\d+\.\s+/.test(line))) {
-      choices.push(...lastLines.map((line) => line.replace(/^\d+\.\s+/, '').trim()).filter(Boolean))
+    if (lastLines.length > 0 && lastLines.every((line) => /^(?:\d+\.|[①②③④⑤⑥⑦⑧⑨⑩])\s+/.test(line))) {
+      choices.push(...lastLines.map((line) => line.replace(/^(?:\d+\.|[①②③④⑤⑥⑦⑧⑨⑩])\s+/, '').trim()).filter(Boolean))
       blocks.pop()
     }
   }
@@ -72,7 +84,7 @@ export function buildQuestionTextFromParts(parts: {
   if (questionStem) blocks.push(questionStem)
   if (passage) blocks.push(passage)
   if (choices.length > 0) {
-    blocks.push(choices.map((choice, index) => `${index + 1}. ${choice}`).join('\n'))
+    blocks.push(choices.map((choice, index) => ensureChoiceMarker(choice, index)).join('\n'))
   }
 
   return blocks.length > 0 ? blocks.join('\n\n') : null
