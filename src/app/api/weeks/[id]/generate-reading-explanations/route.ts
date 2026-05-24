@@ -1,5 +1,6 @@
 import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { generateExplanations } from '@/lib/anthropic'
+import { getStructuredQuestionParts } from '@/lib/question-structure'
 
 export const maxDuration = 300
 const EXPLANATION_BATCH_SIZE = 8
@@ -11,6 +12,9 @@ type QuestionForGeneration = {
   correct_answer: number
   correct_answer_text: string | null
   question_text: string | null
+  question_stem: string | null
+  passage: string | null
+  choices: string[] | null
 }
 
 function splitStoredQuestionText(raw: string | null): {
@@ -63,7 +67,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const { data: questions, error } = await supabase
       .from('exam_question')
-      .select('id, question_number, question_style, correct_answer, correct_answer_text, question_text, explanation')
+      .select('id, question_number, question_style, correct_answer, correct_answer_text, question_text, question_stem, passage, choices, explanation')
       .eq('week_id', weekId)
       .eq('exam_type', 'reading')
       .order('question_number')
@@ -102,14 +106,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const generatedMap = new Map<string, string>()
     for (const chunk of chunks) {
       const explanationInputs = chunk.map((question) => {
-        const { passage, questionText, choices } = splitStoredQuestionText(question.question_text)
+        const structured = getStructuredQuestionParts(question)
         return {
           id: question.id,
           question_number: question.question_number,
-          passage,
-          question_text: questionText,
-          choices,
-          answer: buildAnswerLabel(question, choices),
+          passage: structured.passage,
+          question_text: structured.questionStem,
+          choices: structured.choices,
+          answer: buildAnswerLabel(question, structured.choices),
         }
       })
 

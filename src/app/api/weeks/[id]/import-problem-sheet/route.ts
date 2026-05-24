@@ -5,7 +5,8 @@ import {
   createTagMatcher,
   fetchTeacherTagContext,
   normalizeParsedAnswers,
-  parseProblemSheetQuestionsOnly,
+  parseProblemSheetQuestionsWithOptionalAnswers,
+  saveSourceImagesForQuestions,
   saveWeekAnswerSheetFile,
   syncWeekReadingQuestionsAndRegrade,
 } from '@/lib/week-reading-import'
@@ -81,7 +82,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!teacherId) return err('강사 정보를 찾지 못했습니다.', 404)
     if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한이 없습니다.', 403)
 
-    const { tagList } = await fetchTeacherTagContext(supabase, teacherId)
+    const { tagList, tagCategories } = await fetchTeacherTagContext(supabase, teacherId)
     const matchTagId = createTagMatcher(tagList)
 
     const body = await request.json() as Record<string, unknown>
@@ -89,7 +90,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const files = await resolveStorageFiles(uploadedFiles)
     if (!files.length) return err('파일이 없습니다.')
 
-    const parsedAnswers = normalizeParsedAnswers(await parseProblemSheetQuestionsOnly(files))
+    const parsedResult = await parseProblemSheetQuestionsWithOptionalAnswers(files, tagCategories)
+    const parsedAnswers = normalizeParsedAnswers(parsedResult.parsedAnswers)
     if (!parsedAnswers.length) {
       return err('시험지 PDF에서 문항 구조 추출에 실패했습니다.', 422)
     }
@@ -106,14 +108,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       parsedAnswers,
       matchTagId,
       deleteMissingQuestions: false,
+      regradeExistingAnswers: false,
     })
+    const sourceImages = await saveSourceImagesForQuestions(supabase, weekId, files)
 
     return ok({
       ok: true,
       ...result,
       parse_mode_used: 'problem_sheet',
       explanations_generated: false,
-      answer_key_applied: false,
+      answer_key_applied: parsedResult.answerKeyApplied,
+      source_images_saved: sourceImages.saved,
+      source_images_failed: sourceImages.failed,
     })
   } catch (error) {
     console.error('[import-problem-sheet] unhandled error:', error)

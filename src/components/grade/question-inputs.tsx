@@ -3,6 +3,7 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { SourceImagePreview } from '@/components/grade/source-image-preview'
 import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -98,6 +99,16 @@ export function StyleBadge({ style }: { style: ExamQuestion['question_style'] })
   return <span className="inline-flex h-5 items-center rounded px-1.5 text-[10px] font-medium shrink-0 bg-gray-100 text-gray-500">{label}</span>
 }
 
+function SourceImageBadge({ q }: { q: ExamQuestion }) {
+  if (!q.needs_source_image) return null
+  const reason = q.source_image_reason ? ` · ${q.source_image_reason}` : ''
+  return (
+    <span className="inline-flex h-5 items-center rounded bg-amber-50 px-1.5 text-[10px] font-medium text-amber-700">
+      원본필요{reason}
+    </span>
+  )
+}
+
 // ── 그룹 문항 행 (sub_label a/b/c 가로 배치) ───────────
 export const GroupedQuestionRow = memo(function GroupedQuestionRow({
   questions, answers, disabled, onChangeAnswer,
@@ -117,6 +128,7 @@ export const GroupedQuestionRow = memo(function GroupedQuestionRow({
           {first.question_number}번
         </span>
         <StyleBadge style={first.question_style} />
+        <SourceImageBadge q={first} />
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-2">
         {questions.map((q, i) => {
@@ -150,6 +162,7 @@ export const GroupedQuestionRow = memo(function GroupedQuestionRow({
           )
         })}
       </div>
+      <SourceImagePreview question={first} compact />
     </div>
   )
 })
@@ -209,6 +222,7 @@ export const QuestionRow = memo(function QuestionRow({
   const hasAnswer = (answer?.student_answer !== null && answer?.student_answer !== undefined) || !!answer?.student_answer_text
   const isWrong = answer?.is_correct === false
   const needsReview = answer?.needs_review === true
+  const hasSourceImage = !!q.source_image_path || q.needs_source_image
 
   // 서술형 로컬 state — 타이핑은 로컬에서만, 부모 sync는 onBlur에만
   const externalText = answer?.student_answer_text ?? ''
@@ -222,14 +236,16 @@ export const QuestionRow = memo(function QuestionRow({
   }, [externalText])
 
   return (
-    <div className={cn('px-4 py-3', isSubjective ? 'flex flex-col gap-2' : 'flex items-center gap-3')}>
+    <div className={cn('px-4 py-3', isSubjective || hasSourceImage ? 'flex flex-col gap-2' : 'flex items-center gap-3')}>
       <div className="flex items-center gap-1.5 shrink-0">
         <span className={cn('text-sm font-medium', isWrong ? 'text-red-400 line-through' : 'text-gray-700')}>
           {label}
         </span>
         <StyleBadge style={q.question_style} />
+        <SourceImageBadge q={q} />
       </div>
       <div className="flex-1 flex flex-col gap-1.5">
+        <SourceImagePreview question={q} compact />
         {q.question_style === 'objective' && (
           <>
             <ObjectiveInput value={answer?.student_answer ?? null} onChange={onChangeAnswer} disabled={disabled} />

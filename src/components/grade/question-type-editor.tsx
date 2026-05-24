@@ -7,8 +7,11 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { SourceImagePreview } from '@/components/grade/source-image-preview'
+import { FormattedQuestionText } from '@/components/grade/formatted-question-text'
 import { useConceptCategories, useConceptTags } from '@/hooks/use-concept-tags'
 import { ExamQuestion } from '@/lib/types'
+import { buildQuestionDisplayText } from '@/lib/question-structure'
 
 interface Props {
   weekId: string
@@ -98,7 +101,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
   }, [readingQuestions, styleMap])
 
   const snapshot = readingQuestions
-    .map((q) => `${q.id}:${q.question_style}:${q.correct_answer}:${q.correct_answer_text}:${q.explanation}:${q.grading_criteria}:${q.question_text}:${q.is_void}:${q.all_correct}:${(q.exam_question_tag ?? []).map((t) => t.concept_tag?.id).sort().join(',')}`)
+    .map((q) => `${q.id}:${q.question_style}:${q.correct_answer}:${q.correct_answer_text}:${q.explanation}:${q.grading_criteria}:${q.question_text}:${q.question_stem}:${q.passage}:${JSON.stringify(q.choices ?? [])}:${q.is_void}:${q.all_correct}:${(q.exam_question_tag ?? []).map((t) => t.concept_tag?.id).sort().join(',')}`)
     .join('|')
 
   useEffect(() => {
@@ -128,7 +131,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
         explanation: q.explanation ?? '',
         correct_answer_text: q.correct_answer_text ?? '',
         grading_criteria: q.grading_criteria ?? '',
-        question_text: q.question_text ?? '',
+        question_text: buildQuestionDisplayText(q),
       }
     }
 
@@ -270,7 +273,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
             : []
           const answer = answerMap[q.id] ?? { primary: null, extra: [] }
           const expanded = expandedIds.includes(q.id)
-          const questionDisplayText = getQuestionDisplayText(editRow.question_text || q.question_text)
+          const questionDisplayText = editRow.question_text || buildQuestionDisplayText(q) || getQuestionDisplayText(q.question_text)
           const styleLabel = style === 'subjective'
             ? `서답형${subjectiveOrderMap[q.id] ?? ''}`
             : (STYLE_LABEL[style] ?? style)
@@ -303,9 +306,11 @@ export function QuestionTypeEditor({ weekId }: Props) {
                       </span>
                     ) : null}
                   </div>
-                  <div className="rounded-[18px] bg-slate-50/80 px-3 py-2 text-sm leading-6 whitespace-pre-wrap break-words text-slate-700 dark:bg-slate-950/40 dark:text-slate-300">
-                    {questionDisplayText}
-                  </div>
+                  <FormattedQuestionText
+                    text={questionDisplayText}
+                    className="rounded-[18px] bg-slate-50/80 px-3 py-2 text-sm leading-6 break-words text-slate-700 dark:bg-slate-950/40 dark:text-slate-300"
+                  />
+                  <SourceImagePreview question={q} compact />
                 </div>
 
                 <Button
@@ -343,6 +348,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
                           onChange={(event) => setField(q.id, 'question_text', event.target.value)}
                         />
                       </div>
+                      <SourceImagePreview question={q} />
 
                       <div className="space-y-1.5">
                         <label className="text-xs font-medium text-slate-500 dark:text-slate-400">해설 / 오답 사유</label>

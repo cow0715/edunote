@@ -20,6 +20,7 @@ export type StudentAnswer = {
     exam_type: 'reading' | 'vocab' | null; question_style: string
     correct_answer: number | null; correct_answer_text: string | null
     explanation?: string | null; question_text?: string | null
+    question_stem?: string | null; passage?: string | null; choices?: string[] | null
     exam_question_tag: { concept_tag: ConceptTag | null }[]
   } | null
 }

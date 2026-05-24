@@ -18,6 +18,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -47,6 +48,11 @@ type LocalStatus =
 
 type PendingUploadAction = 'standard' | 'problem' | null
 type UploadAsset = { id: string; file: File }
+type ImportTargets = {
+  questions: boolean
+  answers: boolean
+  explanations: boolean
+}
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 interface Props {
@@ -396,10 +402,17 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
   const [problemFiles, setProblemFiles] = useState<UploadAsset[]>([])
   const [answerKeyFiles, setAnswerKeyFiles] = useState<UploadAsset[]>([])
   const [parseMode, setParseMode] = useState<AnswerParseMode>('auto')
+  const [showLegacyAnswerUpload, setShowLegacyAnswerUpload] = useState(false)
+  const [importTargets, setImportTargets] = useState<ImportTargets>({
+    questions: true,
+    answers: true,
+    explanations: false,
+  })
   const [elapsed, setElapsed] = useState(0)
   const [problemStatus, setProblemStatus] = useState<LocalStatus>({ type: 'idle' })
   const [answerKeyStatus, setAnswerKeyStatus] = useState<LocalStatus>({ type: 'idle' })
   const [explanationStatus, setExplanationStatus] = useState<LocalStatus>({ type: 'idle' })
+  const [regradeAfterAnswerKey, setRegradeAfterAnswerKey] = useState(false)
   const [problemImported, setProblemImported] = useState(readingTotal > 0)
   const [canGenerateExplanations, setCanGenerateExplanations] = useState(readingTotal > 0)
   const [warningOpen, setWarningOpen] = useState(false)
@@ -426,6 +439,12 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     qc.invalidateQueries({ queryKey: ['exam-questions', weekId] })
     qc.invalidateQueries({ queryKey: ['grade', weekId] })
     qc.invalidateQueries({ queryKey: ['week', weekId] })
+  }
+
+  function setImportTarget(key: keyof ImportTargets, checked: boolean) {
+    setImportTargets((prev) => {
+      return { ...prev, [key]: checked }
+    })
   }
 
   function handleAnswerFile(event: ChangeEvent<HTMLInputElement>) {
@@ -570,6 +589,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           files,
+          regradeExistingAnswers: regradeAfterAnswerKey,
         }),
       })
 
@@ -583,6 +603,8 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
       const questionsParsed = Number(data.questions_parsed ?? 0)
       const studentsRegraded = Number(data.students_regraded ?? 0)
+      const answerKeyApplied = Boolean(data.answer_key_applied)
+      const sourceImagesSaved = Number(data.source_images_saved ?? 0)
 
       setProblemStatus({
         type: 'done',
@@ -592,8 +614,9 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
         subjectiveGradingFailed: Boolean(data.subjective_grading_failed),
       })
       setProblemImported(true)
-      setCanGenerateExplanations(false)
+      setCanGenerateExplanations(answerKeyApplied)
       resetQueries()
+      if (sourceImagesSaved > 0) toast.success(`원본 이미지 ${sourceImagesSaved}개를 저장했습니다.`)
       toast.success(`${questionsParsed}문항을 시험지 PDF에서 가져왔습니다.`)
     } catch (error) {
       setProblemStatus({ type: 'error', message: error instanceof Error ? error.message : '오류가 발생했습니다.' })
@@ -737,8 +760,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     <>
       <div className="space-y-4">
       <p className="text-sm leading-6 text-slate-500 dark:text-slate-400">
-        진단평가처럼 분량이 적은 해설·정답지는 위 업로드에서 한 번에 처리하고, 중간·기말처럼 문항이 많은 시험지는 아래에서
-        시험지 PDF와 정오표를 나눠 올리는 흐름이 더 안정적입니다.
+        문항이 많은 PDF는 시험지 가져오기에서 문항, 정답, 해설을 필요한 단계만 나눠 처리하는 흐름이 더 안정적입니다.
       </p>
 
       {savedFilePath && status.type !== 'done' && (
@@ -755,9 +777,22 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
         </button>
       )}
 
+      {showLegacyAnswerUpload ? (
       <Card className="rounded-[24px] border-0 bg-white/95 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/90">
         <CardHeader className="gap-1">
-          <CardTitle className="text-base text-slate-900 dark:text-slate-50">일반 해설지 업로드</CardTitle>
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle className="text-base text-slate-900 dark:text-slate-50">일반 해설지 업로드</CardTitle>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-full"
+              onClick={() => setShowLegacyAnswerUpload(false)}
+              aria-label="일반 해설지 업로드 닫기"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </Button>
+          </div>
           <CardDescription className="text-slate-500 dark:text-slate-400">
             해설이 포함된 PDF나 정리된 정답지를 빠르게 반영합니다. 기존 정상 파일은 이 흐름을 그대로 사용하면 됩니다.
           </CardDescription>
@@ -816,17 +851,72 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
           )}
         </CardContent>
       </Card>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowLegacyAnswerUpload(true)}
+          className="flex w-full items-center justify-between rounded-[20px] bg-white/80 px-4 py-3 text-left text-xs text-slate-500 shadow-[0_10px_30px_rgba(0,75,198,0.03)] transition hover:bg-white dark:bg-slate-900/70 dark:text-slate-300"
+        >
+          <span>일반 해설지 업로드 열기</span>
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      )}
 
       <Card className="rounded-[24px] border-0 bg-white/95 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/90">
         <CardHeader className="gap-1">
-          <CardTitle className="text-base text-slate-900 dark:text-slate-50">중간·기말 시험지 가져오기</CardTitle>
+          <CardTitle className="text-base text-slate-900 dark:text-slate-50">시험지 가져오기</CardTitle>
           <CardDescription className="text-slate-500 dark:text-slate-400">
-            시험지 PDF로 문항을 먼저 저장하고, 정오표 이미지나 PDF로 정답을 따로 반영합니다.
+            PDF 안에 답안표가 있으면 문항과 정답을 함께 반영하고, 해설은 필요할 때 따로 생성합니다.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-3 rounded-[20px] bg-blue-50/80 p-4 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+              <ListOrdered className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <span>가져올 항목</span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <label className="flex items-start gap-2 rounded-[16px] bg-white/80 px-3 py-3 text-xs leading-5 dark:bg-slate-950/40">
+                <Checkbox
+                  checked={importTargets.questions}
+                  onCheckedChange={(checked) => setImportTarget('questions', checked === true)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block font-semibold text-slate-900 dark:text-slate-100">문항</span>
+                  번호, 지문, 발문, 선택지
+                </span>
+              </label>
+              <label className="flex items-start gap-2 rounded-[16px] bg-white/80 px-3 py-3 text-xs leading-5 dark:bg-slate-950/40">
+                <Checkbox
+                  checked={importTargets.answers}
+                  onCheckedChange={(checked) => setImportTarget('answers', checked === true)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block font-semibold text-slate-900 dark:text-slate-100">정답</span>
+                  정오표, 답안표 반영
+                </span>
+              </label>
+              <label className="flex items-start gap-2 rounded-[16px] bg-white/80 px-3 py-3 text-xs leading-5 dark:bg-slate-950/40">
+                <Checkbox
+                  checked={importTargets.explanations}
+                  onCheckedChange={(checked) => setImportTarget('explanations', checked === true)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block font-semibold text-slate-900 dark:text-slate-100">AI 해설</span>
+                  비어 있는 해설 생성
+                </span>
+              </label>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              문항이 많은 PDF는 자동으로 5페이지씩 나눠 처리합니다. PDF에서 정답을 못 찾은 경우에만 정오표를 따로 올리면 됩니다.
+            </p>
+          </div>
+
           <div className="rounded-[20px] bg-slate-50/90 px-4 py-3 text-xs leading-5 text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-            실사용 기준으로는 `시험지 PDF 업로드 → 정오표 업로드 → 필요 시 AI 해설 생성` 순서가 가장 안정적입니다.
+            기본 흐름은 `시험지 PDF 업로드 → 필요 시 정오표 업로드 → 필요 시 AI 해설 생성`입니다.
           </div>
 
           <div className="rounded-[20px] bg-blue-50/80 p-4 text-xs leading-5 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
@@ -840,6 +930,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
             <p>4. 해설은 마지막에 따로 생성하므로, 처음부터 한 파일에 억지로 합칠 필요는 없습니다.</p>
           </div>
 
+          {importTargets.questions && (
           <div className="space-y-3 rounded-[20px] bg-white/80 p-4 shadow-[0_10px_30px_rgba(0,75,198,0.04)] dark:bg-slate-950/40">
             <div className="space-y-1">
               <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">1. 시험지 PDF 업로드</p>
@@ -884,7 +975,9 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
               </Button>
             )}
           </div>
+          )}
 
+          {importTargets.answers && (
           <div className={`space-y-3 rounded-[20px] p-4 shadow-[0_10px_30px_rgba(0,75,198,0.04)] ${
             problemImported
               ? 'bg-white/80 dark:bg-slate-950/40'
@@ -927,6 +1020,19 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
             {problemImported && <StatusBanner status={answerKeyStatus} />}
 
             {problemImported && answerKeyFiles.length > 0 && answerKeyStatus.type !== 'loading' && answerKeyStatus.type !== 'done' && (
+              <label className="flex items-start gap-3 rounded-[18px] bg-slate-50/90 px-4 py-3 text-xs leading-5 text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+                <Checkbox
+                  checked={regradeAfterAnswerKey}
+                  onCheckedChange={(checked) => setRegradeAfterAnswerKey(checked === true)}
+                  className="mt-0.5"
+                />
+                <span>
+                  정답 반영 후 기존 학생 답안을 바로 재채점합니다. 문항이나 학생 답안이 많으면 시간이 오래 걸릴 수 있습니다.
+                </span>
+              </label>
+            )}
+
+            {problemImported && answerKeyFiles.length > 0 && answerKeyStatus.type !== 'loading' && answerKeyStatus.type !== 'done' && (
               <Button
                 variant="outline"
                 className="w-full rounded-full border-0 bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
@@ -943,8 +1049,9 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
               </Button>
             )}
           </div>
+          )}
 
-          {(canGenerateExplanations || answerKeyStatus.type === 'done') && (
+          {importTargets.explanations && (canGenerateExplanations || answerKeyStatus.type === 'done') && (
             <div className="space-y-3 rounded-[20px] bg-blue-50/70 p-4 dark:bg-slate-900/60">
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI 해설 후처리</p>
