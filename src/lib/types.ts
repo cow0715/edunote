@@ -118,12 +118,21 @@ export interface ExamQuestion {
   week_id: string;
   question_number: number;
   sub_label: string | null;  // 소문항 (예: 'a', 'b'), null = 소문항 없음
+  question_type: string | null;
   question_text: string | null;
+  question_stem: string | null;
+  passage: string | null;
+  choices: string[] | null;
   correct_answer: number;
   correct_answer_text: string | null;
   extra_correct_answers: number[];
   grading_criteria: string | null;
   explanation: string | null;
+  needs_source_image: boolean;
+  source_image_reason: string | null;
+  source_page: number | null;
+  source_bbox: { x: number; y: number; width: number; height: number } | null;
+  source_image_path: string | null;
   exam_type: 'vocab' | 'reading';
   question_style: 'objective' | 'subjective' | 'ox' | 'multi_select' | 'find_error';
   is_void: boolean;

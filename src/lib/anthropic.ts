@@ -31,6 +31,18 @@ export const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
+function extractJsonArrayCandidate(raw: string): string {
+  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
+  const start = cleaned.indexOf('[')
+  const end = cleaned.lastIndexOf(']')
+  const candidate = start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned
+  return candidate.replace(/^\s*\/\/.*$/gm, '').trim()
+}
+
+function parseJsonArrayResponse<T>(raw: string): T[] {
+  return JSON.parse(jsonrepair(extractJsonArrayCandidate(raw))) as T[]
+}
+
 export type SubjectiveQuestion = {
   question_number: number
   sub_label: string | null
@@ -195,9 +207,43 @@ export type ParsedAnswer = {
   grading_criteria: string | null     // 서술형 채점 기준
   explanation: string | null          // 오답 해설 (SMS 활용)
   question_text: string | null        // 문제 지문/문항 내용 (해설지에 있는 경우)
+  question_stem?: string | null
+  passage?: string | null
+  choices?: string[] | null
+  needs_source_image?: boolean
+  source_image_reason?: string | null
+  source_page?: number | null
+  source_bbox?: SourceBBox | null
+}
+
+export type SourceBBox = {
+  x: number
+  y: number
+  width: number
+  height: number
 }
 
 export type TagCategory = { categoryName: string; tags: string[] }
+
+function buildQuestionTypeTagMappingRules(tagCategories: TagCategory[]): string {
+  if (tagCategories.length === 0) {
+    return '\n- question_type: 문제 유형명을 한국어로 추출하세요. 확실하지 않으면 null.\n'
+  }
+
+  return `
+━━━ question_type 매핑 규칙 (반드시 준수) ━━━
+아래 목록에서 각 문항에 가장 적합한 유형명을 정확히 그대로 선택하세요.
+${tagCategories.map((c) => `[${c.categoryName}]: ${c.tags.join(', ')}`).join('\n')}
+
+매핑 판단 기준:
+- 문제 제목이나 해설지에 적힌 유형명이 아니라, 해당 문항이 실제로 테스트하는 문법/개념/독해 유형을 기준으로 고르세요.
+- 특정 문법 개념을 묻는 경우에는 포괄적인 형식 태그보다 구체적인 문법 태그를 우선하세요.
+- 특정 문법/개념을 확정하기 어려운 경우에만 독해 유형(빈칸, 순서, 삽입, 내용 일치 등)을 선택하세요.
+- 세부 문항(a, b, c...)은 부모 문항 유형을 그대로 쓰지 말고, 각 세부 문항이 묻는 개념을 개별적으로 판단하세요.
+- 목록에 정확히 맞는 것이 없으면 가장 가까운 기존 유형을 선택하세요. 그래도 판단할 수 없으면 null.
+- question_type은 반드시 위 목록 중 하나를 정확히 그대로 입력하세요. 목록에 없는 새 유형을 만들지 마세요.
+`
+}
 
 export async function parseAnswerSheet(
   fileData: string,  // base64
@@ -759,6 +805,10 @@ export type WeekProblemSheetQuestion = {
   passage: string
   question_text: string
   choices: string[]
+  needs_source_image?: boolean
+  source_image_reason?: string | null
+  source_page?: number | null
+  source_bbox?: SourceBBox | null
 }
 
 export type ProblemSheetAnswerKeyItem = {
@@ -774,7 +824,7 @@ const WEEK_PROBLEM_SHEET_PARSE_RULES = `이 PDF는 주차별 설정의 '중간·
 
 출력 필드:
 - question_number: 문항 번호
-- question_type: 해설이 없어 확실하지 않으면 null
+- question_type: 아래 question_type 매핑 규칙을 따라 기존 유형 목록 중 하나를 선택
 - question_style: objective | subjective | ox | multi_select
 - passage: 지문이 있으면 전체, 없으면 ""
 - question_text: 발문 + 보기문장 + 서답형 지시문까지 포함
@@ -858,6 +908,7 @@ ${questions.map((q) => `- ${q.question_number}번 (${q.question_style})${q.choic
 export async function parseWeekProblemSheetPage(
   fileData: string,
   mimeType: string,
+  tagCategories: TagCategory[] = [],
 ): Promise<WeekProblemSheetQuestion[]> {
   const isImage = mimeType.startsWith('image/')
   const isPdf = mimeType === 'application/pdf'
@@ -872,19 +923,43 @@ export async function parseWeekProblemSheetPage(
     max_tokens: 16384,
     messages: [{
       role: 'user',
-      content: [fileContent, { type: 'text', text: WEEK_PROBLEM_SHEET_PARSE_RULES }],
+      content: [fileContent, {
+        type: 'text',
+        text: `${WEEK_PROBLEM_SHEET_PARSE_RULES}
+
+${buildQuestionTypeTagMappingRules(tagCategories)}
+
+Additional fields for each question:
+- Preserve simple visual emphasis in question_text instead of using an image: wrap bold text as **text** and underlined text as <u>text</u>.
+- Vocabulary/glossary notes that begin with * (for example "*default 디폴트...") are not emphasis. Keep those words as plain text and do not wrap them in **.
+- In vocabulary/glossary note lines, keep the leading asterisks exactly as they appear in the PDF/OCR (for example "*word", "**word", "***word"). They are not bold markers.
+- For questions asking about "밑줄 친 부분/낱말", apply <u>...</u> to the numbered words inside the passage (for example "① <u>direct</u>"), not to the separate answer choices list.
+- needs_source_image: boolean. Use true only when the question contains a table, chart, diagram, picture, schedule grid, map, or complex boxed/multi-column layout that cannot be represented reliably as plain text.
+- Do not set needs_source_image true for plain bold text or underlined text when the content can be represented with **text** or <u>text</u>.
+- source_image_reason: one of "table", "chart", "diagram", "layout", "image", or null.
+- source_page: page number in the attached file where this question appears. Use 1 for the first page of the attached file.
+- source_bbox: normalized bounding box for the full question area on source_page, as {"x":0-1,"y":0-1,"width":0-1,"height":0-1}. Include the question number, passage/table/diagram, and choices. Use null when needs_source_image is false or the area cannot be estimated.
+Return these fields in every JSON object.`,
+      }],
     }],
   })
 
   const raw = res.content[0].type === 'text' ? res.content[0].text : ''
   console.log('[parseWeekProblemSheetPage] raw response length:', raw.length)
 
-  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
   try {
-    const parsed = JSON.parse(jsonrepair(cleaned)) as WeekProblemSheetQuestion[]
+    const parsed = parseJsonArrayResponse<WeekProblemSheetQuestion>(raw)
     console.log('[parseWeekProblemSheetPage] parsed count:', parsed.length, '| questions:', parsed.map((p) => p.question_number).join(', '))
     return parsed
   } catch (e) {
+    const position = typeof e === 'object' && e && 'position' in e ? Number((e as { position?: unknown }).position) : null
+    if (position !== null && Number.isFinite(position)) {
+      const candidate = extractJsonArrayCandidate(raw)
+      console.error(
+        '[parseWeekProblemSheetPage] JSON parse failure near:',
+        candidate.slice(Math.max(0, position - 160), position + 160),
+      )
+    }
     console.error('[parseWeekProblemSheetPage] JSON parse 실패:', e)
     throw e
   }
@@ -941,9 +1016,8 @@ export async function parseProblemSheetAnswerKeyFile(
   const raw = res.content[0].type === 'text' ? res.content[0].text : ''
   console.log('[parseProblemSheetAnswerKeyFile] raw response length:', raw.length)
 
-  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
   try {
-    const parsed = JSON.parse(jsonrepair(cleaned)) as ProblemSheetAnswerKeyItem[]
+    const parsed = parseJsonArrayResponse<ProblemSheetAnswerKeyItem>(raw)
     console.log('[parseProblemSheetAnswerKeyFile] parsed count:', parsed.length, '| questions:', parsed.map((p) => p.question_number).join(', '))
     return parsed
   } catch (e) {

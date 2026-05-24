@@ -10,6 +10,8 @@ import {
 export const maxDuration = 300
 const TEMP_BUCKET = 'exam-pdf-temp'
 
+type ParsedAnswerKey = Awaited<ReturnType<typeof parseProblemSheetAnswerKeyOnly>>
+
 function normalizeFiles(body: Record<string, unknown>): ProblemSheetUploadInput[] {
   if (Array.isArray(body.files)) {
     return body.files
@@ -66,6 +68,53 @@ async function cleanupStorageFiles(files: ProblemSheetUploadInput[]) {
   await serviceClient.storage.from(TEMP_BUCKET).remove(paths).catch(() => {})
 }
 
+async function applyAnswerKeyWithoutRegrade(
+  supabase: Awaited<ReturnType<typeof getAuth>>['supabase'],
+  weekId: string,
+  parsedAnswers: ParsedAnswerKey,
+) {
+  const { data: existingQuestions } = await supabase
+    .from('exam_question')
+    .select('id, question_number, sub_label')
+    .eq('week_id', weekId)
+    .eq('exam_type', 'reading')
+
+  const existingMap = new Map(
+    (existingQuestions ?? []).map((question) => [`${question.question_number}|${question.sub_label ?? ''}`, question.id]),
+  )
+
+  let updatedCount = 0
+  for (const answer of parsedAnswers) {
+    const id = existingMap.get(`${answer.question_number}|${answer.sub_label ?? ''}`)
+    if (!id) continue
+
+    const { error } = await supabase
+      .from('exam_question')
+      .update({
+        question_style: answer.question_style,
+        correct_answer: answer.correct_answer,
+        correct_answer_text: answer.correct_answer_text,
+      })
+      .eq('id', id)
+
+    if (error) throw new Error(`Q${answer.question_number}${answer.sub_label ?? ''}: ${error.message}`)
+    updatedCount += 1
+  }
+
+  if (updatedCount === 0) {
+    throw new Error('기존 문항과 매칭되는 정답이 없습니다.')
+  }
+
+  const { count } = await supabase
+    .from('exam_question')
+    .select('id', { count: 'exact', head: true })
+    .eq('week_id', weekId)
+    .eq('exam_type', 'reading')
+  await supabase.from('week').update({ reading_total: count ?? updatedCount }).eq('id', weekId)
+
+  return { questions_parsed: updatedCount, students_regraded: 0 }
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   let uploadedFiles: ProblemSheetUploadInput[] = []
 
@@ -92,11 +141,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return err('정오표에서 정답을 추출하지 못했습니다.', 422)
     }
 
-    const result = await applyWeekReadingAnswerKeyAndRegrade({
-      supabase,
-      weekId,
-      parsedAnswers,
-    })
+    const shouldRegrade = body.regradeExistingAnswers === true
+    const result = shouldRegrade
+      ? await applyWeekReadingAnswerKeyAndRegrade({
+          supabase,
+          weekId,
+          parsedAnswers,
+        })
+      : await applyAnswerKeyWithoutRegrade(supabase, weekId, parsedAnswers)
 
     return ok({
       ok: true,

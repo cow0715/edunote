@@ -222,7 +222,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     // 해설·모범답안·채점기준 업데이트
     {
       const textUpdate: Record<string, unknown> = {}
-      if (question_text !== undefined) textUpdate.question_text = question_text
+      if (question_text !== undefined) {
+        textUpdate.question_text = question_text
+        textUpdate.question_stem = null
+        textUpdate.passage = null
+        textUpdate.choices = null
+      }
       if (explanation !== undefined) textUpdate.explanation = explanation
       const effectiveStyle2 = question_style ?? q.question_style
       if (correct_answer_text_override !== undefined) {

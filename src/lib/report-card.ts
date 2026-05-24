@@ -1,3 +1,5 @@
+import { buildQuestionDisplayText } from '@/lib/question-structure'
+
 // 성적표 데이터 집계 유틸리티
 // 서버/클라이언트 공용 순수 함수
 
@@ -181,6 +183,9 @@ export interface WrongItem {
   exam_type: 'reading' | 'vocab' | null
   question_style: string
   question_text: string | null
+  question_stem?: string | null
+  passage?: string | null
+  choices?: string[] | null
   my_answer: string
   correct_answer: string
   explanation: string | null
@@ -241,6 +246,9 @@ type AnswerLite = {
     correct_answer_text: string | null
     explanation: string | null
     question_text: string | null
+    question_stem?: string | null
+    passage?: string | null
+    choices?: string[] | null
     exam_question_tag: { concept_tag: { id: string; name: string; category_id: string | null; category_name: string | null } | null }[]
   } | null
 }
@@ -396,7 +404,7 @@ export function computeMetrics(
         sub_label: q.sub_label,
         exam_type: q.exam_type,
         question_style: q.question_style,
-        question_text: q.question_text,
+        question_text: buildQuestionDisplayText(q),
         my_answer: myAnswer,
         correct_answer: correctAnswer,
         explanation: q.explanation,

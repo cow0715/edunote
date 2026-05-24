@@ -16,6 +16,8 @@ import { classifyPatterns } from '@/hooks/weakness/useAnalysis'
 import { ShareData, StudentAnswer, VocabAnswer, VocabWord, TabId, CIRCLE_NUM } from './share-types'
 import { Card, StatCard, AttendanceCalendar, ThemeToggle } from './share-components'
 import { PatternCard } from './share-pattern'
+import { FormattedQuestionText } from '@/components/grade/formatted-question-text'
+import { buildQuestionDisplayText } from '@/lib/question-structure'
 
 import { TrendItem } from '@/components/share/score-trend-chart'
 import { HomeworkItem } from '@/components/share/homework-bar-chart'
@@ -1532,10 +1534,11 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                           ))}
                                         </div>
                                       </div>
-                                      {q.question_text && (
-                                        <div className="mb-3 rounded-lg bg-gray-50 dark:bg-background border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line text-justify">
-                                          {q.question_text}
-                                        </div>
+                                      {buildQuestionDisplayText(q) && (
+                                        <FormattedQuestionText
+                                          text={buildQuestionDisplayText(q)}
+                                          className="mb-3 rounded-lg bg-gray-50 dark:bg-background border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 text-justify"
+                                        />
                                       )}
                                       <div className="space-y-1.5 mb-3">
                                         <div className="flex flex-col gap-0.5">
@@ -1888,10 +1891,11 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                       {weekLabel} · {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
                     </p>
 
-                    {q.question_text && (
-                      <div className="mb-3 rounded-lg bg-white dark:bg-card border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line text-justify">
-                        {q.question_text}
-                      </div>
+                    {buildQuestionDisplayText(q) && (
+                      <FormattedQuestionText
+                        text={buildQuestionDisplayText(q)}
+                        className="mb-3 rounded-lg bg-white dark:bg-card border border-gray-100 dark:border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-gray-700 dark:text-gray-300 text-justify"
+                      />
                     )}
 
                     <div className="space-y-2">

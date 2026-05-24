@@ -1,4 +1,5 @@
 import type { SupabaseServerClient } from '@/lib/api'
+import { buildQuestionTextFromParts } from '@/lib/question-structure'
 import {
   generateExplanations,
   gradeSubjectiveAnswers,
@@ -9,6 +10,7 @@ import {
 import type {
   ParsedAnswer,
   ProblemSheetAnswerKeyItem,
+  SourceBBox,
   SubjectiveStudentAnswer,
   TagCategory,
   WeekProblemSheetQuestion,
@@ -33,6 +35,59 @@ export type ProblemSheetUploadInput = {
   storagePath?: string
   mimeType: string
   fileName?: string
+  pageOffset?: number
+}
+
+const PDF_PARSE_CHUNK_PAGES = 5
+
+async function splitPdfUploadInput(
+  file: ProblemSheetUploadInput,
+  pagesPerChunk = PDF_PARSE_CHUNK_PAGES,
+): Promise<ProblemSheetUploadInput[]> {
+  if (file.mimeType !== 'application/pdf' || !file.fileData) {
+    return [{ ...file, pageOffset: file.pageOffset ?? 0 }]
+  }
+
+  const { PDFDocument } = await import('pdf-lib')
+  const sourcePdf = await PDFDocument.load(Buffer.from(file.fileData, 'base64'))
+  const pageCount = sourcePdf.getPageCount()
+
+  if (pageCount <= pagesPerChunk) {
+    return [{ ...file, pageOffset: file.pageOffset ?? 0 }]
+  }
+
+  const chunks: ProblemSheetUploadInput[] = []
+  for (let start = 0; start < pageCount; start += pagesPerChunk) {
+    const end = Math.min(start + pagesPerChunk, pageCount)
+    const chunkPdf = await PDFDocument.create()
+    const copiedPages = await chunkPdf.copyPages(
+      sourcePdf,
+      Array.from({ length: end - start }, (_, index) => start + index),
+    )
+    copiedPages.forEach((page) => chunkPdf.addPage(page))
+
+    const chunkBytes = await chunkPdf.save()
+    const pageLabel = `${start + 1}-${end}`
+    chunks.push({
+      fileData: Buffer.from(chunkBytes).toString('base64'),
+      mimeType: 'application/pdf',
+      fileName: file.fileName ? `${file.fileName}#p${pageLabel}` : `chunk-p${pageLabel}.pdf`,
+      pageOffset: (file.pageOffset ?? 0) + start,
+    })
+  }
+
+  console.log(`[week-reading-import] split PDF into ${chunks.length} chunks (${pageCount} pages)`)
+  return chunks
+}
+
+async function splitProblemSheetUploadInputs(
+  files: ProblemSheetUploadInput[],
+): Promise<ProblemSheetUploadInput[]> {
+  const chunks: ProblemSheetUploadInput[] = []
+  for (const file of files) {
+    chunks.push(...await splitPdfUploadInput(file))
+  }
+  return chunks
 }
 
 function coerceQuestionNumber(value: unknown): number | null {
@@ -63,6 +118,105 @@ function coerceCorrectAnswer(value: unknown): number {
   }
 
   return 0
+}
+
+function normalizeSourceBBox(value: unknown): SourceBBox | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<Record<keyof SourceBBox, unknown>>
+  const x = typeof candidate.x === 'number' ? candidate.x : Number(candidate.x)
+  const y = typeof candidate.y === 'number' ? candidate.y : Number(candidate.y)
+  const width = typeof candidate.width === 'number' ? candidate.width : Number(candidate.width)
+  const height = typeof candidate.height === 'number' ? candidate.height : Number(candidate.height)
+
+  if (![x, y, width, height].every(Number.isFinite)) return null
+  if (width <= 0 || height <= 0) return null
+  if (x >= 1 || y >= 1 || x + width <= 0 || y + height <= 0) return null
+
+  const left = Math.max(0, Math.min(1, x))
+  const top = Math.max(0, Math.min(1, y))
+  const right = Math.max(left, Math.min(1, x + width))
+  const bottom = Math.max(top, Math.min(1, y + height))
+  if (right - left <= 0.01 || bottom - top <= 0.01) return null
+
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  }
+}
+
+function shouldStoreSourceImage(question: Pick<WeekProblemSheetQuestion, 'needs_source_image' | 'source_image_reason'>): boolean {
+  const reason = question.source_image_reason?.toLowerCase() ?? ''
+  return question.needs_source_image === true &&
+    ['table', 'chart', 'diagram', 'layout', 'image'].includes(reason)
+}
+
+function stripGlossaryBoldMarkup(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => {
+      const isGlossaryLine = /^\s*\*[\p{L}\p{N}]/u.test(line) || /\s\*[\p{L}\p{N}]/u.test(line)
+      if (isGlossaryLine) return line
+      if (!isGlossaryLine) return line.replace(/(^|\s)\*\s*\*\*([^*\n]+?)\*\*/g, '$1*$2')
+    })
+    .join('\n')
+}
+
+function stripUnderlineMarkup(text: string): string {
+  return text.replace(/<u>([\s\S]*?)<\/u>/g, '$1')
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function stripChoiceMarker(choice: string): string {
+  return stripUnderlineMarkup(choice)
+    .replace(/\*\*/g, '')
+    .replace(/^\s*(?:\d+[.)]\s*)?[①②③④⑤⑥⑦⑧⑨⑩]?\s*/, '')
+    .trim()
+}
+
+function underlinePassageChoices(text: string, choices: string[]): string {
+  let next = text
+  for (let index = 0; index < choices.length; index += 1) {
+    const word = stripChoiceMarker(choices[index])
+    if (!word) continue
+    const circled = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'][index]
+    if (!circled) continue
+
+    const plainPattern = new RegExp(`(${escapeRegExp(circled)}\\s*)(?!<u>)(${escapeRegExp(word)})(?!</u>)`, 'g')
+    next = next.replace(plainPattern, `$1<u>$2</u>`)
+  }
+  return next
+}
+
+function normalizeQuestionVisualMarkup(question: {
+  question_text: string
+  passage: string
+  choices: string[]
+}): { question_text: string; passage: string; choices: string[] } {
+  const asksUnderlinedWord = /밑줄\s*친|낱말의\s*쓰임|문맥상\s*낱말/.test(question.question_text)
+  const choices = question.choices.map((choice) => stripGlossaryBoldMarkup(asksUnderlinedWord ? stripUnderlineMarkup(choice) : choice))
+  let questionText = stripGlossaryBoldMarkup(question.question_text)
+  let passage = stripGlossaryBoldMarkup(question.passage)
+
+  if (asksUnderlinedWord && choices.length > 0) {
+    questionText = underlinePassageChoices(questionText, choices)
+    passage = underlinePassageChoices(passage, choices)
+  }
+
+  return { question_text: questionText, passage, choices }
+}
+
+function normalizeQuestionTextSpacing(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 type QuestionRow = {
@@ -265,23 +419,29 @@ function normalizeProblemSheetQuestions(questions: WeekProblemSheetQuestion[]): 
 
 async function parseProblemSheetQuestionInputs(
   files: ProblemSheetUploadInput[],
+  tagCategories: TagCategory[] = [],
 ): Promise<WeekProblemSheetQuestion[]> {
   const collected: WeekProblemSheetQuestion[] = []
 
-  for (const file of files) {
+  const parseFiles = await splitProblemSheetUploadInputs(files)
+  for (const file of parseFiles) {
     if (!file.fileData) {
       throw new Error('업로드 파일 데이터를 읽지 못했습니다.')
     }
-    const parsed = await parseWeekProblemSheetPage(file.fileData, file.mimeType)
+    const parsed = await parseWeekProblemSheetPage(file.fileData, file.mimeType, tagCategories)
     const normalizedPage = parsed
-      .map((question) => {
+      .map((question): WeekProblemSheetQuestion | null => {
         const questionNumber = coerceQuestionNumber(question.question_number)
         if (!questionNumber) return null
+        const localSourcePage = coerceQuestionNumber(question.source_page)
+        const sourceBBox = normalizeSourceBBox(question.source_bbox)
 
         return {
           ...question,
           question_number: questionNumber,
           question_style: normalizeQuestionStyle(question.question_style),
+          source_page: localSourcePage ? (file.pageOffset ?? 0) + localSourcePage : null,
+          source_bbox: sourceBBox,
         }
       })
       .filter((question): question is WeekProblemSheetQuestion => question !== null)
@@ -447,17 +607,25 @@ function buildStoredQuestionText(question: {
   passage: string
   choices: string[]
 }): string | null {
-  const parts: string[] = []
-  const stem = question.question_text.trim()
-  const passage = question.passage.trim()
+  const parts = buildStructuredQuestionParts(question)
+  return buildQuestionTextFromParts({
+    questionStem: parts.question_stem,
+    passage: parts.passage,
+    choices: parts.choices,
+  })
+}
 
-  if (stem) parts.push(stem)
-  if (passage) parts.push(passage)
-  if (question.choices.length > 0) {
-    parts.push(question.choices.map((choice, index) => `${index + 1}. ${choice}`).join('\n'))
+function buildStructuredQuestionParts(question: {
+  question_text: string
+  passage: string
+  choices: string[]
+}) {
+  const normalized = normalizeQuestionVisualMarkup(question)
+  return {
+    question_stem: normalizeQuestionTextSpacing(normalized.question_text) || null,
+    passage: normalizeQuestionTextSpacing(normalized.passage) || null,
+    choices: normalized.choices.map((choice) => normalizeQuestionTextSpacing(choice)).filter(Boolean),
   }
-
-  return parts.length > 0 ? parts.join('\n') : null
 }
 
 function extractChoicesFromStoredQuestionText(raw: string | null): string[] {
@@ -525,28 +693,91 @@ async function generateProblemSheetExplanations(
 
 export async function parseProblemSheetQuestionsOnly(
   files: ProblemSheetUploadInput[],
+  tagCategories: TagCategory[] = [],
 ): Promise<ParsedAnswer[]> {
   if (!files.length) {
     throw new Error('시험지 파일이 없습니다.')
   }
 
-  const questions = await parseProblemSheetQuestionInputs(files)
+  const questions = await parseProblemSheetQuestionInputs(files, tagCategories)
 
   if (!questions.length) {
     throw new Error('시험지에서 문항 구조를 찾지 못했습니다.')
   }
 
-  return questions.map((question) => ({
+  return questions.map((question) => {
+    const parts = buildStructuredQuestionParts(question)
+    return {
+      question_number: question.question_number,
+      sub_label: null,
+      question_style: question.question_style,
+      question_type: question.question_type,
+      correct_answer: 0,
+      correct_answer_text: null,
+      grading_criteria: null,
+      explanation: null,
+      question_text: buildStoredQuestionText(question),
+      question_stem: parts.question_stem,
+      passage: parts.passage,
+      choices: parts.choices,
+      needs_source_image: shouldStoreSourceImage(question),
+      source_image_reason: question.source_image_reason ?? null,
+      source_page: question.source_page ?? null,
+      source_bbox: question.source_bbox ?? null,
+    }
+  })
+}
+
+export async function parseProblemSheetQuestionsWithOptionalAnswers(
+  files: ProblemSheetUploadInput[],
+  tagCategories: TagCategory[] = [],
+): Promise<{ parsedAnswers: ParsedAnswer[]; answerKeyApplied: boolean }> {
+  const parsedQuestions = await parseProblemSheetQuestionsOnly(files, tagCategories)
+  const questionInputs = parsedQuestions.map((question) => ({
     question_number: question.question_number,
-    sub_label: null,
-    question_style: question.question_style,
     question_type: question.question_type,
-    correct_answer: 0,
-    correct_answer_text: null,
-    grading_criteria: null,
-    explanation: null,
-    question_text: buildStoredQuestionText(question),
+    question_style: normalizeQuestionStyle(question.question_style),
+    passage: question.passage ?? '',
+    question_text: question.question_stem ?? question.question_text ?? '',
+    choices: question.choices ?? extractChoicesFromStoredQuestionText(question.question_text),
   }))
+
+  const mergedItems = new Map<number, ProblemSheetAnswerKeyItem>()
+  for (const file of await splitProblemSheetUploadInputs(files)) {
+    if (!file.fileData) continue
+    try {
+      const items = await parseProblemSheetAnswerKeyFile(file.fileData, file.mimeType, questionInputs)
+      for (const item of items) {
+        const questionNumber = coerceQuestionNumber(item.question_number)
+        if (!questionNumber) continue
+        mergedItems.set(questionNumber, {
+          ...item,
+          question_number: questionNumber,
+          correct_answer: coerceCorrectAnswer(item.correct_answer),
+        })
+      }
+    } catch (error) {
+      console.warn('[week-reading-import] optional answer key extraction skipped:', error)
+    }
+  }
+
+  if (mergedItems.size === 0) {
+    return { parsedAnswers: parsedQuestions, answerKeyApplied: false }
+  }
+
+  return {
+    parsedAnswers: parsedQuestions.map((question) => {
+      const answer = mergedItems.get(question.question_number)
+      if (!answer) return question
+      return {
+        ...question,
+        question_style: normalizeQuestionStyle(answer.question_style ?? question.question_style),
+        correct_answer: coerceCorrectAnswer(answer.correct_answer),
+        correct_answer_text: answer.correct_answer_text ?? null,
+      }
+    }),
+    answerKeyApplied: true,
+  }
 }
 
 export async function parseProblemSheetAnswers(
@@ -668,7 +899,8 @@ export async function parseProblemSheetAnswerKeyOnly(params: {
   }))
 
   const mergedItems = new Map<number, ProblemSheetAnswerKeyItem>()
-  for (const file of files) {
+  const parseFiles = await splitProblemSheetUploadInputs(files)
+  for (const file of parseFiles) {
     if (!file.fileData) {
       throw new Error('업로드 파일 데이터를 읽지 못했습니다.')
     }
@@ -752,14 +984,213 @@ export async function saveWeekAnswerSheetFile(
   }
 }
 
+type SourceImageQuestionRow = {
+  id: string
+  question_number: number
+  source_page: number | null
+  source_bbox: SourceBBox | null
+}
+
+async function renderPdfPageToPng(
+  fileData: string,
+  pageNumber: number,
+): Promise<{ buffer: Buffer; width: number; height: number }> {
+  const canvasModule = await import('@napi-rs/canvas')
+  const { createCanvas, DOMMatrix, ImageData, Path2D } = canvasModule
+  const globalScope = globalThis as Record<string, unknown>
+  globalScope.DOMMatrix ??= DOMMatrix
+  globalScope.ImageData ??= ImageData
+  globalScope.Path2D ??= Path2D
+
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  const [{ join }, { pathToFileURL }] = await Promise.all([
+    import('node:path'),
+    import('node:url'),
+  ])
+  ;(pdfjs as any).GlobalWorkerOptions.workerSrc = pathToFileURL(
+    join(process.cwd(), 'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'),
+  ).href
+
+  const pdfData = new Uint8Array(Buffer.from(fileData, 'base64'))
+  class NapiCanvasFactory {
+    create(width: number, height: number) {
+      if (width <= 0 || height <= 0) throw new Error('Invalid canvas size')
+      const canvas = createCanvas(width, height)
+      return { canvas, context: canvas.getContext('2d') }
+    }
+
+    reset(canvasAndContext: { canvas: { width: number; height: number } | null }, width: number, height: number) {
+      if (!canvasAndContext.canvas) throw new Error('Canvas is not specified')
+      if (width <= 0 || height <= 0) throw new Error('Invalid canvas size')
+      canvasAndContext.canvas.width = width
+      canvasAndContext.canvas.height = height
+    }
+
+    destroy(canvasAndContext: { canvas: { width: number; height: number } | null; context: unknown }) {
+      if (!canvasAndContext.canvas) return
+      canvasAndContext.canvas.width = 0
+      canvasAndContext.canvas.height = 0
+      canvasAndContext.canvas = null
+      canvasAndContext.context = null
+    }
+  }
+
+  const pdf = await (pdfjs as any).getDocument({
+    data: pdfData,
+    CanvasFactory: NapiCanvasFactory,
+    isEvalSupported: false,
+    useWorkerFetch: false,
+  }).promise
+  const page = await pdf.getPage(pageNumber)
+  const viewport = page.getViewport({ scale: 1.5 })
+  const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height))
+  const canvasContext = canvas.getContext('2d')
+
+  await page.render({ canvasContext: canvasContext as any, viewport }).promise
+  return {
+    buffer: canvas.toBuffer('image/png'),
+    width: canvas.width,
+    height: canvas.height,
+  }
+}
+
+async function cropSourceImage(
+  renderedPage: { buffer: Buffer; width: number; height: number },
+  sourceBBox: SourceBBox | null,
+): Promise<Buffer> {
+  if (!sourceBBox) return renderedPage.buffer
+
+  const paddingRatio = 0.04
+  const left = Math.max(0, sourceBBox.x - paddingRatio)
+  const top = Math.max(0, sourceBBox.y - paddingRatio)
+  const right = Math.min(1, sourceBBox.x + sourceBBox.width + paddingRatio)
+  const bottom = Math.min(1, sourceBBox.y + sourceBBox.height + paddingRatio)
+  const crop = {
+    left: Math.floor(left * renderedPage.width),
+    top: Math.floor(top * renderedPage.height),
+    width: Math.ceil((right - left) * renderedPage.width),
+    height: Math.ceil((bottom - top) * renderedPage.height),
+  }
+
+  if (crop.width < 24 || crop.height < 24) return renderedPage.buffer
+
+  try {
+    const sharp = (await import('sharp')).default
+    return await sharp(renderedPage.buffer)
+      .extract(crop)
+      .png()
+      .toBuffer()
+  } catch (error) {
+    console.warn('[week-reading-import] source image crop failed, using full page:', error)
+    return renderedPage.buffer
+  }
+}
+
+export async function saveSourceImagesForQuestions(
+  supabase: SupabaseServerClient,
+  weekId: string,
+  files: ProblemSheetUploadInput[],
+): Promise<{ saved: number; failed: number }> {
+  const { data: rows, error } = await supabase
+    .from('exam_question')
+    .select('id, question_number, source_page, source_bbox')
+    .eq('week_id', weekId)
+    .eq('exam_type', 'reading')
+    .eq('needs_source_image', true)
+    .not('source_page', 'is', null)
+
+  if (error) {
+    console.warn('[week-reading-import] source image question lookup failed:', error)
+    return { saved: 0, failed: 0 }
+  }
+
+  const questions = (rows ?? []) as SourceImageQuestionRow[]
+  if (questions.length === 0) return { saved: 0, failed: 0 }
+
+  const bySourcePage = new Map<number, SourceImageQuestionRow[]>()
+  for (const question of questions) {
+    if (!question.source_page) continue
+    const pageQuestions = bySourcePage.get(question.source_page) ?? []
+    pageQuestions.push(question)
+    bySourcePage.set(question.source_page, pageQuestions)
+  }
+
+  let saved = 0
+  let failed = 0
+
+  for (const file of files) {
+    if (file.mimeType !== 'application/pdf' || !file.fileData) continue
+
+    try {
+      const { PDFDocument } = await import('pdf-lib')
+      const sourcePdf = await PDFDocument.load(Buffer.from(file.fileData, 'base64'))
+      const pageCount = sourcePdf.getPageCount()
+      const pageOffset = file.pageOffset ?? 0
+
+      for (let localPage = 1; localPage <= pageCount; localPage += 1) {
+        const sourcePage = pageOffset + localPage
+        const pageQuestions = bySourcePage.get(sourcePage)
+        if (!pageQuestions?.length) continue
+
+        try {
+          const renderedPage = await renderPdfPageToPng(file.fileData, localPage)
+          await Promise.all(pageQuestions.map(async (question) => {
+            const pngBuffer = await cropSourceImage(renderedPage, question.source_bbox)
+            const suffix = question.source_bbox ? 'crop' : 'page'
+            const storagePath = `source-images/${weekId}/${question.id}-p${sourcePage}-${suffix}.png`
+            const { error: uploadError } = await supabase.storage
+              .from('answer-sheets')
+              .upload(storagePath, pngBuffer, { contentType: 'image/png', upsert: true })
+
+            if (uploadError) {
+              failed += 1
+              console.warn('[week-reading-import] source image upload failed:', uploadError)
+              return
+            }
+
+            const { error: updateError } = await supabase
+              .from('exam_question')
+              .update({ source_image_path: storagePath })
+              .eq('id', question.id)
+
+            if (updateError) {
+              failed += 1
+              console.warn('[week-reading-import] source image path update failed:', updateError)
+              return
+            }
+
+            saved += 1
+          }))
+        } catch (pageRenderError) {
+          failed += pageQuestions.length
+          console.warn(`[week-reading-import] source image render skipped for page ${sourcePage}:`, pageRenderError)
+        }
+      }
+    } catch (renderError) {
+      failed += questions.length
+      console.warn('[week-reading-import] source image render skipped:', renderError)
+    }
+  }
+
+  return { saved, failed }
+}
+
 export async function syncWeekReadingQuestionsAndRegrade(params: {
   supabase: SupabaseServerClient
   weekId: string
   parsedAnswers: ParsedAnswer[]
   matchTagId?: MatchTagId
   deleteMissingQuestions?: boolean
+  regradeExistingAnswers?: boolean
 }): Promise<ReadingImportOutcome> {
-  const { supabase, weekId, parsedAnswers, matchTagId = () => null, deleteMissingQuestions = true } = params
+  const {
+    supabase,
+    weekId,
+    parsedAnswers,
+    matchTagId = () => null,
+    deleteMissingQuestions = true,
+    regradeExistingAnswers = true,
+  } = params
   const persistErrors: string[] = []
 
   const { data: existingQuestions } = await supabase
@@ -794,6 +1225,14 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
             grading_criteria: answer.grading_criteria,
             explanation: answer.explanation ?? null,
             question_text: answer.question_text ?? null,
+            question_stem: answer.question_stem ?? null,
+            passage: answer.passage ?? null,
+            choices: answer.choices ?? null,
+            needs_source_image: answer.needs_source_image === true,
+            source_image_reason: answer.source_image_reason ?? null,
+            source_page: answer.source_page ?? null,
+            source_bbox: answer.source_bbox ?? null,
+            source_image_path: null,
           })
           .eq('id', existing.id)
           .select('id, question_number, sub_label, question_style, correct_answer, correct_answer_text, grading_criteria')
@@ -821,6 +1260,14 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
           grading_criteria: answer.grading_criteria,
           explanation: answer.explanation ?? null,
           question_text: answer.question_text ?? null,
+          question_stem: answer.question_stem ?? null,
+          passage: answer.passage ?? null,
+          choices: answer.choices ?? null,
+          needs_source_image: answer.needs_source_image === true,
+          source_image_reason: answer.source_image_reason ?? null,
+          source_page: answer.source_page ?? null,
+          source_bbox: answer.source_bbox ?? null,
+          source_image_path: null,
         })
         .select('id, question_number, sub_label, question_style, correct_answer, correct_answer_text, grading_criteria')
         .single()
@@ -882,6 +1329,10 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
     .eq('week_id', weekId)
     .eq('exam_type', 'reading')
   await supabase.from('week').update({ reading_total: qCount ?? parsedAnswers.length }).eq('id', weekId)
+
+  if (!regradeExistingAnswers) {
+    return { questions_parsed: questions.length, students_regraded: 0 }
+  }
 
   const { data: weekScores } = await supabase
     .from('week_score')

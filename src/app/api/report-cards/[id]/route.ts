@@ -114,7 +114,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
           exam_question(
             id, week_id, question_number, sub_label,
             exam_type, question_style,
-            correct_answer, correct_answer_text, explanation, question_text
+            correct_answer, correct_answer_text, explanation, question_text,
+            question_stem, passage, choices
           )
         `)
         .in('week_score_id', scoreIds)

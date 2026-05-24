@@ -33,7 +33,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     if (!fileData || !mimeType) return err('파일이 없습니다.')
     if (requestedMode === 'problem_sheet') {
-      return err('문제지형 PDF는 중간·기말 전용 가져오기를 사용해 주세요.', 422)
+      return err('문제지형 PDF는 시험지 가져오기를 사용해 주세요.', 422)
     }
 
     let parsedAnswers
