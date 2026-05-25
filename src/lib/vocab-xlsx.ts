@@ -34,6 +34,7 @@ function normalizeHeader(value: unknown) {
 
 function cleanText(value: unknown) {
   const text = String(value ?? '').replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim()
+  if (/^(?:-|—|–|none|없음|해당\s*없음|n\/a)$/i.test(text)) return ''
   if (!text || /^[—–\-]+$/.test(text)) return ''
   return text
 }
@@ -49,6 +50,27 @@ function splitList(value: unknown) {
     .replace(/^[,;/\s]+|[,;/\s]+$/g, '')
   if (!text) return []
 
+  if (text.includes('(')) {
+    const items: string[] = []
+    let depth = 0
+    let current = ''
+    for (const char of text) {
+      if (char === '(') depth += 1
+      if (char === ')' && depth > 0) depth -= 1
+      if (depth === 0 && /[,;/]/.test(char)) {
+        const item = cleanText(current).replace(/^[?붴뇯\s]+/, '').trim()
+        if (item) items.push(item)
+        current = ''
+        continue
+      }
+      current += char
+    }
+
+    const last = cleanText(current).replace(/^[?붴뇯\s]+/, '').trim()
+    if (last) items.push(last)
+    return items
+  }
+
   return text
     .split(/[,;/]+/)
     .map((item) => cleanText(item).replace(/^[↔⇔\s]+/, '').trim())
@@ -57,7 +79,11 @@ function splitList(value: unknown) {
 
 function findColumn(headerRow: unknown[], key: HeaderKey) {
   const aliases = new Set(HEADER_ALIASES[key].map(normalizeHeader))
-  return headerRow.findIndex((cell) => aliases.has(normalizeHeader(cell)))
+  return headerRow.findIndex((cell) => {
+    const header = normalizeHeader(cell)
+    if (aliases.has(header)) return true
+    return key === 'synonyms' && [...aliases].some((alias) => alias && header.startsWith(alias))
+  })
 }
 
 function findHeader(rows: unknown[][]) {
