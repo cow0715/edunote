@@ -58,6 +58,7 @@ export type VocabVariantMeaningResult = {
 }
 
 const POS_PATTERN = /\b(n|v|a|ad|adj|adv|prep|conj|phr|phrase)\.?\b/i
+const KOREAN_PATTERN = /[가-힣ㄱ-ㅎㅏ-ㅣ]/
 const EMPTY_PATTERN = /^(?:-|—|–|none|없음|해당없음|n\/a)$/i
 
 function cleanText(value: unknown) {
@@ -121,29 +122,49 @@ function splitItems(value: unknown) {
   return items
 }
 
+function extractParentheticalDetails(value: string) {
+  const meanings: string[] = []
+  let pos: string | null = null
+  const wordText = value.replace(/\(([^)]*?)\)/g, (_, inner: string) => {
+    const detail = cleanText(inner)
+    if (POS_PATTERN.test(detail)) {
+      pos = pos ?? normalizePos(detail)
+    } else if (KOREAN_PATTERN.test(detail) || detail.startsWith('~')) {
+      meanings.push(detail)
+    }
+    return ' '
+  })
+
+  return {
+    wordText,
+    pos,
+    meaning: meanings.length > 0 ? meanings.join(', ') : null,
+  }
+}
+
 function parseItem(rawValue: string, relationType: VocabVariantRelationType, fallbackMeaning: string | null): VocabVariantInput | null {
   const rawText = cleanText(rawValue)
   if (!rawText || EMPTY_PATTERN.test(rawText)) return null
 
   const { main, note } = splitNote(stripArrow(rawText))
-  const posMatch = main.match(/\(([^)]*?)\)/)
-  const pos = posMatch && POS_PATTERN.test(posMatch[1]) ? normalizePos(posMatch[1]) : null
-  const word = cleanText(main.replace(/\([^)]*?\)/g, ' ').replace(/[↔=<>→←]/g, ' '))
+  const parenthetical = extractParentheticalDetails(main)
+  const word = cleanText(parenthetical.wordText.replace(/[↔=<>→←]/g, ' '))
     .replace(/^[^\w'-]+|[^\w'-]+$/g, '')
 
   if (!word || !/[A-Za-z]/.test(word)) return null
 
+  const explicitMeaning = parenthetical.meaning
   return {
     word,
-    part_of_speech: pos,
-    meaning: relationType === 'synonym' ? fallbackMeaning : null,
+    part_of_speech: parenthetical.pos,
+    meaning: relationType === 'synonym' ? (explicitMeaning ?? fallbackMeaning) : null,
     relation_type: relationType,
     usage_note: note,
     excluded_meanings: extractExcludedMeanings(note),
     raw_text: rawText,
     exam_enabled: relationType !== 'antonym',
-    needs_review: relationType !== 'synonym',
-    confidence: null,
+    needs_review: relationType !== 'synonym' || (!explicitMeaning && !fallbackMeaning),
+    confidence: explicitMeaning ? 0.9 : null,
     sort_order: 0,
   }
 }
@@ -178,7 +199,7 @@ export function buildRuleBasedVariants(entry: ParsedVocabEntry): VocabVariantInp
 
   for (const synonym of entry.synonyms ?? []) {
     const parsed = parseItem(synonym, 'synonym', entry.correct_answer)
-    if (parsed) variants.push({ ...parsed, confidence: entry.correct_answer ? 0.75 : null })
+    if (parsed) variants.push({ ...parsed, confidence: parsed.confidence ?? (entry.correct_answer ? 0.75 : null) })
   }
 
   for (const derivative of splitItems(entry.derivatives)) {
