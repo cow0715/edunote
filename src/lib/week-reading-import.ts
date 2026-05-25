@@ -15,7 +15,7 @@ import type {
   TagCategory,
   WeekProblemSheetQuestion,
 } from '@/lib/anthropic'
-import { getDefaultMockEnglishPoints, recalcMockEnglishScores, recalcReadingCorrect, gradeMultiSelect, gradeOX } from '@/lib/grade-utils'
+import { recalcReadingCorrect, gradeMultiSelect, gradeOX } from '@/lib/grade-utils'
 
 export type MatchTagId = (questionType: string | null) => string | null
 
