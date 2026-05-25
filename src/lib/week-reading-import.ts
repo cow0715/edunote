@@ -15,7 +15,7 @@ import type {
   TagCategory,
   WeekProblemSheetQuestion,
 } from '@/lib/anthropic'
-import { recalcReadingCorrect, gradeMultiSelect, gradeOX } from '@/lib/grade-utils'
+import { getDefaultMockEnglishPoints, recalcMockEnglishScores, recalcReadingCorrect, gradeMultiSelect, gradeOX } from '@/lib/grade-utils'
 
 export type MatchTagId = (questionType: string | null) => string | null
 
@@ -38,7 +38,7 @@ export type ProblemSheetUploadInput = {
   pageOffset?: number
 }
 
-const PDF_PARSE_CHUNK_PAGES = 5
+const PDF_PARSE_CHUNK_PAGES = 3
 
 async function splitPdfUploadInput(
   file: ProblemSheetUploadInput,
@@ -88,6 +88,13 @@ async function splitProblemSheetUploadInputs(
     chunks.push(...await splitPdfUploadInput(file))
   }
   return chunks
+}
+
+async function splitPdfUploadInputByPageCount(
+  file: ProblemSheetUploadInput,
+  pagesPerChunk: number,
+): Promise<ProblemSheetUploadInput[]> {
+  return splitPdfUploadInput(file, pagesPerChunk)
 }
 
 function coerceQuestionNumber(value: unknown): number | null {
@@ -423,30 +430,48 @@ async function parseProblemSheetQuestionInputs(
 ): Promise<WeekProblemSheetQuestion[]> {
   const collected: WeekProblemSheetQuestion[] = []
 
+  const normalizeParsedForFile = (
+    parsed: WeekProblemSheetQuestion[],
+    file: ProblemSheetUploadInput,
+  ) => parsed
+    .map((question): WeekProblemSheetQuestion | null => {
+      const questionNumber = coerceQuestionNumber(question.question_number)
+      if (!questionNumber) return null
+      const localSourcePage = coerceQuestionNumber(question.source_page)
+      const sourceBBox = normalizeSourceBBox(question.source_bbox)
+
+      return {
+        ...question,
+        question_number: questionNumber,
+        question_style: normalizeQuestionStyle(question.question_style),
+        source_page: localSourcePage ? (file.pageOffset ?? 0) + localSourcePage : null,
+        source_bbox: sourceBBox,
+      }
+    })
+    .filter((question): question is WeekProblemSheetQuestion => question !== null)
+
   const parseFiles = await splitProblemSheetUploadInputs(files)
   for (const file of parseFiles) {
     if (!file.fileData) {
       throw new Error('업로드 파일 데이터를 읽지 못했습니다.')
     }
-    const parsed = await parseWeekProblemSheetPage(file.fileData, file.mimeType, tagCategories)
-    const normalizedPage = parsed
-      .map((question): WeekProblemSheetQuestion | null => {
-        const questionNumber = coerceQuestionNumber(question.question_number)
-        if (!questionNumber) return null
-        const localSourcePage = coerceQuestionNumber(question.source_page)
-        const sourceBBox = normalizeSourceBBox(question.source_bbox)
-
-        return {
-          ...question,
-          question_number: questionNumber,
-          question_style: normalizeQuestionStyle(question.question_style),
-          source_page: localSourcePage ? (file.pageOffset ?? 0) + localSourcePage : null,
-          source_bbox: sourceBBox,
-        }
-      })
-      .filter((question): question is WeekProblemSheetQuestion => question !== null)
-
-    collected.push(...normalizedPage)
+    let parsed: WeekProblemSheetQuestion[]
+    try {
+      parsed = await parseWeekProblemSheetPage(file.fileData, file.mimeType, tagCategories)
+    } catch (error) {
+      const fallbackFiles = await splitPdfUploadInputByPageCount(file, 1)
+      if (fallbackFiles.length <= 1) throw error
+      console.warn('[week-reading-import] chunk parse failed; retrying page-by-page:', error)
+      const fallbackParsed: WeekProblemSheetQuestion[] = []
+      for (const fallbackFile of fallbackFiles) {
+        if (!fallbackFile.fileData) continue
+        const fallbackPage = await parseWeekProblemSheetPage(fallbackFile.fileData, fallbackFile.mimeType, tagCategories)
+        fallbackParsed.push(...normalizeParsedForFile(fallbackPage, fallbackFile))
+      }
+      collected.push(...fallbackParsed)
+      continue
+    }
+    collected.push(...normalizeParsedForFile(parsed, file))
   }
 
   return normalizeProblemSheetQuestions(collected)
