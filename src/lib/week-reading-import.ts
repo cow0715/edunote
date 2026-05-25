@@ -993,6 +993,12 @@ type SourceImageQuestionRow = {
   source_bbox: SourceBBox | null
 }
 
+export type GenerateSourceImageQuestion = {
+  id: string
+  source_page: number | null
+  source_bbox: SourceBBox | null
+}
+
 async function renderPdfPageToPng(
   fileData: string,
   pageNumber: number,
@@ -1085,6 +1091,44 @@ async function cropSourceImage(
   } catch (error) {
     console.warn('[week-reading-import] source image crop failed, using full page:', error)
     return renderedPage.buffer
+  }
+}
+
+export async function generateSourceImageForQuestion(
+  supabase: SupabaseServerClient,
+  weekId: string,
+  fileData: string,
+  question: GenerateSourceImageQuestion,
+): Promise<{ storagePath: string | null; error: string | null }> {
+  if (!question.source_page) {
+    return { storagePath: null, error: 'source_page가 없습니다.' }
+  }
+
+  try {
+    const renderedPage = await renderPdfPageToPng(fileData, question.source_page)
+    const pngBuffer = await cropSourceImage(renderedPage, question.source_bbox)
+    const suffix = question.source_bbox ? 'crop' : 'page'
+    const storagePath = `source-images/${weekId}/${question.id}-p${question.source_page}-${suffix}.png`
+    const { error: uploadError } = await supabase.storage
+      .from('answer-sheets')
+      .upload(storagePath, pngBuffer, { contentType: 'image/png', upsert: true })
+
+    if (uploadError) {
+      return { storagePath: null, error: uploadError.message }
+    }
+
+    const { error: updateError } = await supabase
+      .from('exam_question')
+      .update({ source_image_path: storagePath })
+      .eq('id', question.id)
+
+    if (updateError) {
+      return { storagePath: null, error: updateError.message }
+    }
+
+    return { storagePath, error: null }
+  } catch (error) {
+    return { storagePath: null, error: error instanceof Error ? error.message : '원본 이미지 생성 실패' }
   }
 }
 

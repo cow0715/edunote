@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Ban, CheckCheck, ChevronDown, ChevronUp, X } from 'lucide-react'
+import { Ban, CheckCheck, ChevronDown, ChevronUp, ImagePlus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -238,6 +238,25 @@ export function QuestionTypeEditor({ weekId }: Props) {
     },
   })
 
+  const generateSourceImage = useMutation({
+    mutationFn: async (questionId: string) => {
+      const res = await fetch(`/api/weeks/${weekId}/questions/${questionId}/source-image`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? '원본 이미지 생성에 실패했습니다.')
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['exam-questions', weekId] })
+      toast.success('원본 이미지를 생성했습니다.')
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : '원본 이미지 생성에 실패했습니다.')
+    },
+  })
+
   if (isLoading) {
     return <div className="h-40 animate-pulse rounded-[24px] bg-slate-100 dark:bg-slate-900/60" />
   }
@@ -349,6 +368,18 @@ export function QuestionTypeEditor({ weekId }: Props) {
                         />
                       </div>
                       <SourceImagePreview question={q} />
+                      {q.needs_source_image && !q.source_image_path ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-full border-0 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-200 dark:hover:bg-amber-500/20"
+                          disabled={generateSourceImage.isPending}
+                          onClick={() => generateSourceImage.mutate(q.id)}
+                        >
+                          <ImagePlus className="h-4 w-4" />
+                          {generateSourceImage.isPending ? '원본 이미지 생성 중' : '원본 이미지 생성'}
+                        </Button>
+                      ) : null}
 
                       <div className="space-y-1.5">
                         <label className="text-xs font-medium text-slate-500 dark:text-slate-400">해설 / 오답 사유</label>
