@@ -88,6 +88,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const body = await request.json() as Record<string, unknown>
     uploadedFiles = normalizeFiles(body)
     const files = await resolveStorageFiles(uploadedFiles)
+    const shouldSaveSourceImages = body.saveSourceImages === true
     if (!files.length) return err('파일이 없습니다.')
 
     const parsedResult = await parseProblemSheetQuestionsWithOptionalAnswers(files, tagCategories)
@@ -110,7 +111,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       deleteMissingQuestions: false,
       regradeExistingAnswers: false,
     })
-    const sourceImages = await saveSourceImagesForQuestions(supabase, weekId, files)
+    const sourceImages = shouldSaveSourceImages
+      ? await saveSourceImagesForQuestions(supabase, weekId, files)
+      : { saved: 0, failed: 0 }
 
     return ok({
       ok: true,
