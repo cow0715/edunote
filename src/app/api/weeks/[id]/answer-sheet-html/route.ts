@@ -53,25 +53,26 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   }
 
   // 객관식/서술형 분류 후 높이 배분
-  type RowInfo = { qNum: number; group: Q[]; isShort: boolean }
+  type RowInfo = { qNum: number; group: Q[]; isShort: boolean; heightPt: number }
   const rowInfos: RowInfo[] = []
   for (const [qNum, group] of grouped) {
     const s = group[0].question_style
     const isShort = s === 'objective' || s === 'ox' || s === 'multi_select'
-    rowInfos.push({ qNum, group, isShort })
+    rowInfos.push({ qNum, group, isShort, heightPt: 0 })
   }
-  const shortCount = rowInfos.filter(r => r.isShort).length
-  const tallCount = rowInfos.length - shortCount
+  const availablePt = 255 * 2.835
+  const minHeights = rowInfos.map((row) => row.isShort ? 36 : 44)
+  const minTotal = minHeights.reduce((sum, height) => sum + height, 0)
+  const weights = rowInfos.map((row) => row.isShort ? 1 : 2.4)
+  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0)
 
   // A4(297mm) - 상하마진(20mm) - 제목+학교/이름(16mm) - 여유(6mm) = 255mm
-  // 객관식: 고정 높이 / 서술형: 남은 공간 균등 분배, 단 상한값으로 캡
-  const availMm = 255
-  const shortPt = 36
-  const tallMaxPt = 120
-  const shortMm = shortPt / 2.835
-  const remainingMm = Math.max(0, availMm - shortCount * shortMm)
-  const tallPtRaw = tallCount > 0 ? Math.floor((remainingMm / tallCount) * 2.835) : 0
-  const tallPt = Math.min(tallPtRaw, tallMaxPt)
+  // 문항 수가 적어도 표가 아래까지 차도록 전체 사용 가능 높이를 행에 재분배한다.
+  rowInfos.forEach((row, index) => {
+    row.heightPt = minTotal >= availablePt
+      ? Math.floor((minHeights[index] / minTotal) * availablePt)
+      : Math.floor(minHeights[index] + ((availablePt - minTotal) * weights[index] / weightTotal))
+  })
 
   // 모든 행에 걸쳐 필요한 최대 컬럼 수 계산 (소문항 수 * 2)
   const maxSubs = Math.max(1, ...rowInfos.map(r => r.group.length))
@@ -86,11 +87,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   // 테이블 행 생성
   const rows: string[] = []
-  for (const { qNum, group, isShort } of rowInfos) {
+  for (const { qNum, group, heightPt } of rowInfos) {
     const first = group[0]
     const style = first.question_style
     const hasSub = group.length > 1 || first.sub_label !== null
-    const tr = trStyle(isShort ? shortPt : tallPt)
+    const tr = trStyle(heightPt)
 
     if ((style === 'objective' || style === 'multi_select') && !hasSub) {
       rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:18px;">① &nbsp;&nbsp; ② &nbsp;&nbsp; ③ &nbsp;&nbsp; ④ &nbsp;&nbsp; ⑤</span></td></tr>`)

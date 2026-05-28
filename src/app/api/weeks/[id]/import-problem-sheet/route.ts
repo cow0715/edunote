@@ -5,7 +5,7 @@ import {
   createTagMatcher,
   fetchTeacherTagContext,
   normalizeParsedAnswers,
-  parseProblemSheetQuestionsWithOptionalAnswers,
+  parseProblemSheetQuestionsOnly,
   saveSourceImagesForQuestions,
   saveWeekAnswerSheetFile,
   syncWeekReadingQuestionsAndRegrade,
@@ -91,8 +91,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const shouldSaveSourceImages = body.saveSourceImages === true
     if (!files.length) return err('파일이 없습니다.')
 
-    const parsedResult = await parseProblemSheetQuestionsWithOptionalAnswers(files, tagCategories)
-    const parsedAnswers = normalizeParsedAnswers(parsedResult.parsedAnswers)
+    const parsedAnswers = normalizeParsedAnswers(await parseProblemSheetQuestionsOnly(files, tagCategories))
     if (!parsedAnswers.length) {
       return err('시험지 PDF에서 문항 구조 추출에 실패했습니다.', 422)
     }
@@ -120,7 +119,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       ...result,
       parse_mode_used: 'problem_sheet',
       explanations_generated: false,
-      answer_key_applied: parsedResult.answerKeyApplied,
+      answer_key_applied: false,
       source_images_saved: sourceImages.saved,
       source_images_failed: sourceImages.failed,
     })
