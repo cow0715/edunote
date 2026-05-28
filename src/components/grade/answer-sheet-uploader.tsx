@@ -48,11 +48,6 @@ type LocalStatus =
 
 type PendingUploadAction = 'standard' | 'problem' | null
 type UploadAsset = { id: string; file: File }
-type ImportTargets = {
-  questions: boolean
-  answers: boolean
-  explanations: boolean
-}
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 interface Props {
@@ -403,11 +398,6 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
   const [answerKeyFiles, setAnswerKeyFiles] = useState<UploadAsset[]>([])
   const [parseMode, setParseMode] = useState<AnswerParseMode>('auto')
   const [showLegacyAnswerUpload, setShowLegacyAnswerUpload] = useState(false)
-  const [importTargets, setImportTargets] = useState<ImportTargets>({
-    questions: true,
-    answers: true,
-    explanations: false,
-  })
   const [elapsed, setElapsed] = useState(0)
   const [problemStatus, setProblemStatus] = useState<LocalStatus>({ type: 'idle' })
   const [answerKeyStatus, setAnswerKeyStatus] = useState<LocalStatus>({ type: 'idle' })
@@ -422,6 +412,9 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
   const status = useUploadStore((state) => state.answerSheet[weekId]) ?? IDLE_STATUS
   const setStatus = useUploadStore((state) => state.setAnswerSheet)
+  const answerStepReady = problemImported
+  const explanationStepReady = canGenerateExplanations || answerKeyStatus.type === 'done'
+  const activeWorkflowStep = explanationStepReady ? 3 : answerStepReady ? 2 : 1
 
   useEffect(() => {
     setCanGenerateExplanations(readingTotal > 0)
@@ -439,12 +432,6 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     qc.invalidateQueries({ queryKey: ['exam-questions', weekId] })
     qc.invalidateQueries({ queryKey: ['grade', weekId] })
     qc.invalidateQueries({ queryKey: ['week', weekId] })
-  }
-
-  function setImportTarget(key: keyof ImportTargets, checked: boolean) {
-    setImportTargets((prev) => {
-      return { ...prev, [key]: checked }
-    })
   }
 
   function handleAnswerFile(event: ChangeEvent<HTMLInputElement>) {
@@ -603,21 +590,20 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
       const questionsParsed = Number(data.questions_parsed ?? 0)
       const studentsRegraded = Number(data.students_regraded ?? 0)
-      const answerKeyApplied = Boolean(data.answer_key_applied)
       const sourceImagesSaved = Number(data.source_images_saved ?? 0)
 
       setProblemStatus({
         type: 'done',
-        message: '시험지 문항 저장이 완료되었습니다. 이제 정오표를 올려 정답을 반영할 수 있습니다.',
+        message: '시험지 문항 저장이 완료되었습니다. 다음 단계에서 정오표를 올려 정답만 반영하세요.',
         questionsParsed,
         studentsRegraded,
         subjectiveGradingFailed: Boolean(data.subjective_grading_failed),
       })
       setProblemImported(true)
-      setCanGenerateExplanations(answerKeyApplied)
+      setCanGenerateExplanations(false)
       resetQueries()
       if (sourceImagesSaved > 0) toast.success(`원본 이미지 ${sourceImagesSaved}개를 저장했습니다.`)
-      toast.success(`${questionsParsed}문항을 시험지 PDF에서 가져왔습니다.`)
+      toast.success(`${questionsParsed}문항을 시험지 PDF에서 저장했습니다. 이제 정오표를 올려주세요.`)
     } catch (error) {
       setProblemStatus({ type: 'error', message: error instanceof Error ? error.message : '오류가 발생했습니다.' })
     }
@@ -866,71 +852,52 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
         <CardHeader className="gap-1">
           <CardTitle className="text-base text-slate-900 dark:text-slate-50">시험지 가져오기</CardTitle>
           <CardDescription className="text-slate-500 dark:text-slate-400">
-            PDF 안에 답안표가 있으면 문항과 정답을 함께 반영하고, 해설은 필요할 때 따로 생성합니다.
+            문제, 정답, 해설을 한 번에 처리하지 않고 단계별로 나눠 안정적으로 반영합니다.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-3 rounded-[20px] bg-blue-50/80 p-4 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+          <div className="rounded-[20px] bg-blue-50/80 p-4 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
               <ListOrdered className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-              <span>가져올 항목</span>
+              <span>진행 순서</span>
             </div>
             <div className="grid gap-2 sm:grid-cols-3">
-              <label className="flex items-start gap-2 rounded-[16px] bg-white/80 px-3 py-3 text-xs leading-5 dark:bg-slate-950/40">
-                <Checkbox
-                  checked={importTargets.questions}
-                  onCheckedChange={(checked) => setImportTarget('questions', checked === true)}
-                  className="mt-0.5"
-                />
-                <span>
-                  <span className="block font-semibold text-slate-900 dark:text-slate-100">문항</span>
-                  번호, 지문, 발문, 선택지
-                </span>
-              </label>
-              <label className="flex items-start gap-2 rounded-[16px] bg-white/80 px-3 py-3 text-xs leading-5 dark:bg-slate-950/40">
-                <Checkbox
-                  checked={importTargets.answers}
-                  onCheckedChange={(checked) => setImportTarget('answers', checked === true)}
-                  className="mt-0.5"
-                />
-                <span>
-                  <span className="block font-semibold text-slate-900 dark:text-slate-100">정답</span>
-                  정오표, 답안표 반영
-                </span>
-              </label>
-              <label className="flex items-start gap-2 rounded-[16px] bg-white/80 px-3 py-3 text-xs leading-5 dark:bg-slate-950/40">
-                <Checkbox
-                  checked={importTargets.explanations}
-                  onCheckedChange={(checked) => setImportTarget('explanations', checked === true)}
-                  className="mt-0.5"
-                />
-                <span>
-                  <span className="block font-semibold text-slate-900 dark:text-slate-100">AI 해설</span>
-                  비어 있는 해설 생성
-                </span>
-              </label>
+              {[
+                { n: 1, title: '문항 저장', desc: '시험지 PDF에서 번호, 지문, 발문, 선택지를 저장' },
+                { n: 2, title: '정답 반영', desc: '정오표나 답안표에서 정답만 덮어쓰기' },
+                { n: 3, title: '해설 생성', desc: '정답 반영 후 비어 있는 해설만 생성' },
+              ].map((step) => {
+                const done = step.n < activeWorkflowStep
+                const active = step.n === activeWorkflowStep
+                return (
+                  <div
+                    key={step.n}
+                    className={`rounded-[16px] px-3 py-3 text-xs leading-5 ${
+                      active
+                        ? 'bg-white text-slate-800 shadow-[0_10px_30px_rgba(0,75,198,0.05)] dark:bg-slate-950/50 dark:text-slate-100'
+                        : done
+                          ? 'bg-white/70 text-slate-500 dark:bg-slate-950/30 dark:text-slate-400'
+                          : 'bg-blue-100/50 text-slate-400 dark:bg-slate-950/20 dark:text-slate-500'
+                    }`}
+                  >
+                    <div className="mb-1 flex items-center gap-2 font-semibold">
+                      <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${
+                        done ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300'
+                      }`}>
+                        {done ? '완' : step.n}
+                      </span>
+                      <span>{step.title}</span>
+                    </div>
+                    <p>{step.desc}</p>
+                  </div>
+                )
+              })}
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              문항이 많은 PDF는 자동으로 5페이지씩 나눠 처리합니다. PDF에서 정답을 못 찾은 경우에만 정오표를 따로 올리면 됩니다.
+            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+              기본 흐름은 시험지 PDF 업로드 → 정오표 업로드 → AI 해설 생성입니다. 각 단계가 끝나면 다음 단계가 열립니다.
             </p>
           </div>
 
-          <div className="rounded-[20px] bg-slate-50/90 px-4 py-3 text-xs leading-5 text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-            기본 흐름은 `시험지 PDF 업로드 → 필요 시 정오표 업로드 → 필요 시 AI 해설 생성`입니다.
-          </div>
-
-          <div className="rounded-[20px] bg-blue-50/80 p-4 text-xs leading-5 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-              <ListOrdered className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-              <span>권장 업로드 순서</span>
-            </div>
-            <p>1. 먼저 시험지 PDF를 올려 문항과 문제 텍스트를 저장하세요.</p>
-            <p>2. 그다음 정오표 이미지나 PDF를 올려 문항별 정답만 반영하세요.</p>
-            <p>3. 정오표는 표 캡처, 스캔 PDF, 답안 리스트 모두 가능하지만 문항 번호가 선명할수록 안정적입니다.</p>
-            <p>4. 해설은 마지막에 따로 생성하므로, 처음부터 한 파일에 억지로 합칠 필요는 없습니다.</p>
-          </div>
-
-          {importTargets.questions && (
           <div className="space-y-3 rounded-[20px] bg-white/80 p-4 shadow-[0_10px_30px_rgba(0,75,198,0.04)] dark:bg-slate-950/40">
             <div className="space-y-1">
               <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">1. 시험지 PDF 업로드</p>
@@ -975,9 +942,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
               </Button>
             )}
           </div>
-          )}
 
-          {importTargets.answers && (
           <div className={`space-y-3 rounded-[20px] p-4 shadow-[0_10px_30px_rgba(0,75,198,0.04)] ${
             problemImported
               ? 'bg-white/80 dark:bg-slate-950/40'
@@ -1049,9 +1014,8 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
               </Button>
             )}
           </div>
-          )}
 
-          {importTargets.explanations && (canGenerateExplanations || answerKeyStatus.type === 'done') && (
+          {explanationStepReady && (
             <div className="space-y-3 rounded-[20px] bg-blue-50/70 p-4 dark:bg-slate-900/60">
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI 해설 후처리</p>

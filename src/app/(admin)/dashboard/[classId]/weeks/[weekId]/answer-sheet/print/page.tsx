@@ -39,19 +39,17 @@ function buildRows(questions: QuestionRow[]): RowInfo[] {
     group,
     isShort: isShortStyle(group[0]?.question_style),
   }))
-  const shortCount = baseRows.filter((row) => row.isShort).length
-  const tallCount = baseRows.length - shortCount
-  const availMm = 255
-  const shortPt = 36
-  const tallMaxPt = 120
-  const shortMm = shortPt / 2.835
-  const remainingMm = Math.max(0, availMm - shortCount * shortMm)
-  const tallPtRaw = tallCount > 0 ? Math.floor((remainingMm / tallCount) * 2.835) : 0
-  const tallPt = Math.max(44, Math.min(tallPtRaw, tallMaxPt))
+  const availablePt = 255 * 2.835
+  const minHeights = baseRows.map((row) => row.isShort ? 36 : 44)
+  const minTotal = minHeights.reduce((sum, height) => sum + height, 0)
+  const weights = baseRows.map((row) => row.isShort ? 1 : 2.4)
+  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0)
 
-  return baseRows.map((row) => ({
+  return baseRows.map((row, index) => ({
     ...row,
-    heightPt: row.isShort ? shortPt : tallPt,
+    heightPt: minTotal >= availablePt
+      ? Math.floor((minHeights[index] / minTotal) * availablePt)
+      : Math.floor(minHeights[index] + ((availablePt - minTotal) * weights[index] / weightTotal)),
   }))
 }
 
