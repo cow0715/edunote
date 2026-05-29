@@ -135,8 +135,8 @@ body { margin: 0; color: #111827; font-family: Arial, "Malgun Gothic", sans-seri
 .answer-row { height: 23.3mm; display: grid; grid-template-columns: 7mm 1fr; align-items: center; border-bottom: .2mm solid #cbd5e1; }
 .answer-row:last-child { border-bottom: 0; }
 .answer-row b { display: flex; align-items: center; justify-content: center; height: 100%; background: #f1f5f9; border-right: .25mm solid #94a3b8; color: #1f2937; font-size: 8px; font-weight: 900; }
-.bubbles { display: flex; justify-content: center; gap: .9mm; padding: 0 .8mm; }
-.bubbles span { display: inline-flex; align-items: center; justify-content: center; width: 3.5mm; height: 5.2mm; border: .25mm solid #334155; border-radius: 999px; color: #1f2937; font-size: 6px; font-weight: 900; line-height: 1; }
+.bubbles { display: flex; justify-content: center; gap: .7mm; padding: 0 .5mm; }
+.bubbles span { display: inline-flex; align-items: center; justify-content: center; width: 4.5mm; height: 6.2mm; border: .25mm solid #334155; border-radius: 999px; color: #1f2937; font-size: 6.5px; font-weight: 900; line-height: 1; }
 .markers { display: grid; grid-template-columns: repeat(25, 1fr); height: 3mm; padding: .8mm 5mm 0 10mm; }
 .markers i { display: block; width: 1.2mm; height: 1.2mm; background: #111827; margin: 0 auto; }
 .foot { height: 5mm; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 7px; font-weight: 700; }
