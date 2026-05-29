@@ -101,10 +101,15 @@ function escapeHtml(value: string) {
 }
 
 function buildAnswerSheetHtml(title: string, gradeLabel: string) {
-  const rows = Array.from({ length: 45 }, (_, index) => {
-    const number = index + 1
-    const bubbles = [1, 2, 3, 4, 5].map((choice) => `<span>${choice}</span>`).join('')
-    return `<div class="row"><b>${number}</b><div class="bubbles">${bubbles}</div></div>`
+  const groups = [0, 1, 2, 3, 4].map((groupIndex) => {
+    const start = groupIndex * 10 + 1
+    const end = Math.min(start + 9, 45)
+    const rows = Array.from({ length: end - start + 1 }, (_, rowIndex) => {
+      const number = start + rowIndex
+      const bubbles = [1, 2, 3, 4, 5].map((choice) => `<span>${choice}</span>`).join('')
+      return `<div class="answer-row"><b>${number}</b><div class="bubbles">${bubbles}</div></div>`
+    }).join('')
+    return `<section class="group"><div class="group-head">${start}-${end}</div>${rows}</section>`
   }).join('')
 
   return `<!doctype html>
@@ -113,36 +118,48 @@ function buildAnswerSheetHtml(title: string, gradeLabel: string) {
 <meta charset="utf-8" />
 <title>${escapeHtml(title)} 답안지</title>
 <style>
-@page { size: A4 portrait; margin: 12mm; }
+@page { size: A4 portrait; margin: 8mm; }
 * { box-sizing: border-box; }
-body { margin: 0; color: #111827; font-family: Arial, sans-serif; }
-.sheet { height: 273mm; border: 2px solid #111827; padding: 10mm; }
-.top { display: grid; grid-template-columns: 1fr 34mm 48mm; gap: 6mm; align-items: end; border-bottom: 2px solid #111827; padding-bottom: 6mm; }
-.title { font-size: 20px; font-weight: 800; }
-.meta { margin-top: 3mm; font-size: 12px; color: #4b5563; }
-.field { border-bottom: 1.5px solid #111827; height: 10mm; font-size: 12px; }
-.field span { display: block; color: #6b7280; }
-.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm 7mm; margin-top: 7mm; }
-.row { display: grid; grid-template-columns: 9mm 1fr; align-items: center; height: 10.6mm; page-break-inside: avoid; }
-.row b { font-size: 12px; }
-.bubbles { display: flex; justify-content: space-between; gap: 2mm; }
-.bubbles span { display: inline-flex; align-items: center; justify-content: center; width: 8mm; height: 8mm; border: 1.5px solid #111827; border-radius: 999px; font-size: 10px; font-weight: 700; }
-.foot { margin-top: 5mm; border-top: 1px solid #d1d5db; padding-top: 3mm; font-size: 10px; color: #6b7280; }
-@media print { .sheet { height: auto; min-height: 273mm; } }
+html, body { width: 194mm; height: 281mm; }
+body { margin: 0; color: #111827; font-family: Arial, "Malgun Gothic", sans-serif; background: #fff; }
+.sheet { width: 194mm; height: 281mm; overflow: hidden; border: 1.4mm solid #22c55e; padding: 4.5mm; color: #16a34a; }
+.top { display: grid; grid-template-columns: 19mm 1fr 30mm 38mm; height: 18mm; border: .45mm solid #86efac; border-bottom: 0; }
+.cell { display: flex; align-items: center; justify-content: center; border-left: .45mm solid #86efac; font-size: 11px; font-weight: 800; }
+.cell:first-child { border-left: 0; }
+.school { line-height: 1.05; text-align: center; }
+.title-cell { font-size: 15px; letter-spacing: 2mm; color: #22c55e; }
+.label { background: #dcfce7; color: #16a34a; }
+.exam-title { height: 16mm; display: flex; flex-direction: column; align-items: center; justify-content: center; border: .45mm solid #86efac; font-size: 16px; font-weight: 900; letter-spacing: 1.8mm; }
+.exam-title small { margin-top: 1mm; font-size: 8px; letter-spacing: 0; color: #4ade80; }
+.grid { display: grid; grid-template-columns: repeat(5, 1fr); height: 234mm; border-left: .45mm solid #86efac; border-bottom: .45mm solid #86efac; }
+.group { min-width: 0; border-right: .45mm solid #86efac; }
+.group-head { height: 8mm; display: flex; align-items: center; justify-content: center; border-top: .45mm solid #86efac; border-bottom: .45mm solid #86efac; background: #f0fdf4; color: #22c55e; font-size: 10px; font-weight: 900; }
+.answer-row { height: 22.6mm; display: grid; grid-template-columns: 8.2mm 1fr; align-items: center; border-bottom: .25mm solid #bbf7d0; }
+.answer-row:last-child { border-bottom: 0; }
+.answer-row b { display: flex; align-items: center; justify-content: center; height: 100%; background: #dcfce7; border-right: .35mm solid #86efac; color: #22c55e; font-size: 10px; font-weight: 900; }
+.bubbles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1.15mm; padding: 0 1.5mm; }
+.bubbles span { display: inline-flex; align-items: center; justify-content: center; width: 5.5mm; height: 8.6mm; margin: 0 auto; border: .45mm solid #4ade80; border-radius: 999px; color: #22c55e; font-size: 8px; font-weight: 900; line-height: 1; }
+.markers { display: grid; grid-template-columns: repeat(25, 1fr); height: 4mm; padding: 1.2mm 7mm 0 13mm; }
+.markers i { display: block; width: 1.6mm; height: 1.6mm; background: #111827; margin: 0 auto; }
+.foot { height: 7mm; display: flex; align-items: center; justify-content: center; color: #16a34a; font-size: 8px; font-weight: 700; }
+@media print {
+  html, body { width: 194mm; height: 281mm; }
+  .sheet { page-break-after: avoid; }
+}
 </style>
 </head>
 <body>
 <main class="sheet">
   <section class="top">
-    <div>
-      <div class="title">${escapeHtml(title)}</div>
-      <div class="meta">${escapeHtml(gradeLabel)} · 영어 모의고사 답안지 · 1~45번</div>
-    </div>
-    <div class="field"><span>학생명</span></div>
-    <div class="field"><span>응시일</span></div>
+    <div class="cell school">출신<br />학교</div>
+    <div class="cell"></div>
+    <div class="cell label">성명</div>
+    <div class="cell"></div>
   </section>
-  <section class="grid">${rows}</section>
-  <div class="foot">각 문항의 선택지를 진하게 표시한 뒤 촬영 또는 스캔하여 업로드하세요.</div>
+  <section class="exam-title">객 관 식 답 란<small>${escapeHtml(gradeLabel)} · ${escapeHtml(title)} · 1~45번</small></section>
+  <section class="grid">${groups}</section>
+  <section class="markers">${Array.from({ length: 25 }, () => '<i></i>').join('')}</section>
+  <div class="foot">선택한 번호의 타원 안을 진하게 표시하세요.</div>
 </main>
 </body>
 </html>`
