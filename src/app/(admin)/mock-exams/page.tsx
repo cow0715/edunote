@@ -23,7 +23,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
 import { useStudents } from '@/hooks/use-students'
 import {
   useCreateMockExam,
@@ -32,7 +31,6 @@ import {
   useMockExams,
   useOcrMockExamAnswers,
   usePublishMockExamReport,
-  useSaveMockExamResult,
   useUpdateMockExamQuestions,
 } from '@/hooks/use-mock-exams'
 import type { MockExamQuestion, MockExamResult, StudentWithEnrollments } from '@/lib/types'
@@ -173,8 +171,6 @@ export default function MockExamsPage() {
   const [selectedStudentId, setSelectedStudentId] = useState('')
   const [studentSearch, setStudentSearch] = useState('')
   const [questionDraft, setQuestionDraft] = useState<MockExamQuestion[] | null>(null)
-  const [answers, setAnswers] = useState<Record<number, string> | null>(null)
-  const [teacherComment, setTeacherComment] = useState<string | null>(null)
   const metadataInputRef = useRef<HTMLInputElement>(null)
   const ocrInputRef = useRef<HTMLInputElement>(null)
 
@@ -191,7 +187,6 @@ export default function MockExamsPage() {
   const createExam = useCreateMockExam()
   const importMetadata = useImportMockExamMetadata(effectiveExamId)
   const updateQuestions = useUpdateMockExamQuestions(effectiveExamId)
-  const saveResult = useSaveMockExamResult(effectiveExamId)
   const ocrAnswers = useOcrMockExamAnswers(effectiveExamId)
   const publishReport = usePublishMockExamReport(effectiveExamId)
 
@@ -216,25 +211,12 @@ export default function MockExamsPage() {
   const selectedResult = selectedStudentId ? resultByStudentId.get(selectedStudentId) ?? null : null
   const selectedStudent = gradeStudents.find((student) => student.id === selectedStudentId) ?? null
 
-  const savedAnswers = useMemo(() => {
-    const nextAnswers: Record<number, string> = {}
-    for (const answer of selectedResult?.mock_exam_student_answer ?? []) {
-      const questionNumber = answer.mock_exam_question?.question_number
-      if (questionNumber) nextAnswers[questionNumber] = answer.student_answer ?? ''
-    }
-    return nextAnswers
-  }, [selectedResult])
-  const activeAnswers = answers ?? savedAnswers
-  const activeTeacherComment = teacherComment ?? selectedResult?.teacher_comment ?? ''
-
   function changeGrade(nextGrade: string) {
     setGrade(nextGrade)
     setForm((prev) => ({ ...prev, ...blankForm(nextGrade), source: prev.source }))
     setSelectedExamId(null)
     setSelectedStudentId('')
     setQuestionDraft(null)
-    setAnswers(null)
-    setTeacherComment(null)
   }
 
   async function handleCreate() {
@@ -255,14 +237,10 @@ export default function MockExamsPage() {
     setSelectedExamId(id)
     setSelectedStudentId('')
     setQuestionDraft(null)
-    setAnswers(null)
-    setTeacherComment(null)
   }
 
   function handleSelectStudent(student: StudentWithEnrollments) {
     setSelectedStudentId(student.id)
-    setAnswers(null)
-    setTeacherComment(null)
     setMode('grading')
   }
 
@@ -272,13 +250,6 @@ export default function MockExamsPage() {
         question.question_number === questionNumber ? { ...question, ...patch } : question
       )
     )
-  }
-
-  function updateAnswer(questionNumber: number, value: string) {
-    setAnswers((prev) => ({
-      ...(prev ?? savedAnswers),
-      [questionNumber]: value,
-    }))
   }
 
   async function handleMetadataFile(event: React.ChangeEvent<HTMLInputElement>) {
@@ -315,23 +286,7 @@ export default function MockExamsPage() {
     })))
 
     const data = await ocrAnswers.mutateAsync({ student_id: selectedStudentId, files: payload })
-    const nextAnswers: Record<number, string> = {}
-    for (const result of data.results ?? []) {
-      nextAnswers[result.question_number] = String(result.student_answer ?? result.student_answer_text ?? '')
-    }
-    setAnswers(nextAnswers)
-  }
-
-  function handleSaveResult() {
-    if (!selectedStudentId) return
-    saveResult.mutate({
-      student_id: selectedStudentId,
-      teacher_comment: activeTeacherComment,
-      answers: activeQuestions.map((question) => ({
-        question_number: question.question_number,
-        student_answer: activeAnswers[question.question_number] ?? '',
-      })),
-    })
+    if (data.results?.length) toast.success(`${data.results.length}개 답안을 인식했습니다`)
   }
 
   function handlePublish(result: MockExamResult) {
@@ -657,8 +612,15 @@ export default function MockExamsPage() {
                 </Card>
 
                 <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle className="text-lg">{selectedStudent?.name ?? '학생 선택'}</CardTitle>
+                  <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <CardTitle className="text-lg">{selectedStudent?.name ?? '학생 선택'}</CardTitle>
+                      {selectedStudent && (
+                        <p className="mt-1 text-sm text-[#8B95A1]">
+                          {selectedStudent.school ?? '학교 미입력'} · 고{grade}
+                        </p>
+                      )}
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       <input ref={ocrInputRef} type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={handleOcrFiles} />
                       <Button variant="outline" className="rounded-full" onClick={openAnswerSheet}>
@@ -677,8 +639,11 @@ export default function MockExamsPage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {!selectedStudent ? (
-                      <div className="rounded-2xl bg-slate-50 p-10 text-center text-sm font-medium text-[#8B95A1]">
-                        왼쪽에서 학생을 선택하세요.
+                      <div className="flex min-h-[360px] items-center justify-center rounded-2xl bg-slate-50 p-10 text-center">
+                        <div>
+                          <Users className="mx-auto h-8 w-8 text-slate-300" />
+                          <p className="mt-3 text-sm font-bold text-slate-500">왼쪽에서 학생을 선택하세요.</p>
+                        </div>
                       </div>
                     ) : (
                       <>
@@ -701,31 +666,43 @@ export default function MockExamsPage() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-5 gap-2 sm:grid-cols-9 xl:grid-cols-[repeat(15,minmax(0,1fr))]">
-                          {activeQuestions.map((question) => (
-                            <label key={question.question_number} className="space-y-1 rounded-xl bg-slate-50 p-2">
-                              <span className="block text-center text-xs font-bold text-slate-500">{question.question_number}</span>
-                              <Input
-                                className="h-8 text-center"
-                                value={activeAnswers[question.question_number] ?? ''}
-                                onChange={(event) => updateAnswer(question.question_number, event.target.value)}
-                              />
-                            </label>
-                          ))}
-                        </div>
-
-                        <div>
-                          <Label className="text-xs text-[#8B95A1]">교사 기록</Label>
-                          <Textarea
-                            value={activeTeacherComment}
-                            onChange={(event) => setTeacherComment(event.target.value)}
-                            placeholder="응원 문구 없이 객관 사실만 입력하세요. 예: 빈칸 5문항 중 2문항 정답, 3점 문항 3개 오답."
-                          />
-                        </div>
-                        <div className="flex justify-end">
-                          <Button className="rounded-full bg-[#2463EB]" onClick={handleSaveResult} disabled={saveResult.isPending || incompleteAnswerKeyCount > 0}>
-                            검수 저장
-                          </Button>
+                        <div className="rounded-[24px] bg-slate-50 p-5">
+                          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <p className="text-sm font-extrabold text-[#1A1C1E]">답안지 OCR 채점</p>
+                              <p className="mt-1 text-sm text-[#8B95A1]">
+                                답안지를 업로드하면 인식 결과가 즉시 채점되고 성적표 발행 목록에 반영됩니다.
+                              </p>
+                            </div>
+                            <Button
+                              className="rounded-full bg-[#2463EB]"
+                              onClick={() => ocrInputRef.current?.click()}
+                              disabled={!selectedStudentId || !effectiveExamId || ocrAnswers.isPending || incompleteAnswerKeyCount > 0}
+                            >
+                              {ocrAnswers.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+                              답안지 업로드
+                            </Button>
+                          </div>
+                          {selectedResult ? (
+                            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                              <div className="rounded-2xl bg-white p-4">
+                                <p className="text-xs font-bold text-[#8B95A1]">채점 상태</p>
+                                <p className="mt-1 font-extrabold text-[#2463EB]">완료</p>
+                              </div>
+                              <div className="rounded-2xl bg-white p-4">
+                                <p className="text-xs font-bold text-[#8B95A1]">마지막 저장</p>
+                                <p className="mt-1 font-extrabold">{new Date(selectedResult.updated_at).toLocaleDateString('ko-KR')}</p>
+                              </div>
+                              <div className="rounded-2xl bg-white p-4">
+                                <p className="text-xs font-bold text-[#8B95A1]">성적표</p>
+                                <p className="mt-1 font-extrabold">{latestReport(selectedResult) ? '발행됨' : '미발행'}</p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-4 rounded-2xl bg-white p-5 text-sm font-medium text-[#8B95A1]">
+                              아직 채점 결과가 없습니다.
+                            </div>
+                          )}
                         </div>
                       </>
                     )}
