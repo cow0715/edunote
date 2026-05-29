@@ -7,7 +7,7 @@ import {
   CheckCircle2,
   Copy,
   ExternalLink,
-  FileUp,
+  FileText,
   Loader2,
   Plus,
   Printer,
@@ -55,12 +55,6 @@ const gradeTabs = [
   { value: '2', label: '고2' },
   { value: '3', label: '고3' },
 ]
-
-const difficultyLabels = {
-  low: '하',
-  medium: '중',
-  high: '상',
-} as const
 
 function blankForm(grade: string): CreateForm {
   const now = new Date()
@@ -164,7 +158,6 @@ export default function MockExamsPage() {
   const [questionDraft, setQuestionDraft] = useState<MockExamQuestion[] | null>(null)
   const [answers, setAnswers] = useState<Record<number, string> | null>(null)
   const [teacherComment, setTeacherComment] = useState<string | null>(null)
-  const [metadataText, setMetadataText] = useState('')
   const metadataInputRef = useRef<HTMLInputElement>(null)
   const ocrInputRef = useRef<HTMLInputElement>(null)
 
@@ -285,16 +278,6 @@ export default function MockExamsPage() {
     setQuestionDraft(data.questions)
   }
 
-  async function handleMetadataText() {
-    if (!metadataText.trim()) {
-      toast.error('붙여넣은 메타데이터가 없습니다')
-      return
-    }
-    const data = await importMetadata.mutateAsync({ raw_text: metadataText })
-    setQuestionDraft(data.questions)
-    setMetadataText('')
-  }
-
   function handleSaveQuestions() {
     updateQuestions.mutate(activeQuestions)
   }
@@ -382,7 +365,7 @@ export default function MockExamsPage() {
   }
 
   const modeItems = [
-    { value: 'setup' as const, label: '등록', icon: FileUp },
+    { value: 'setup' as const, label: '등록', icon: FileText },
     { value: 'grading' as const, label: '채점', icon: Camera },
     { value: 'reports' as const, label: '성적표', icon: BarChart3 },
   ]
@@ -554,19 +537,6 @@ export default function MockExamsPage() {
 
                   <input ref={metadataInputRef} type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={handleMetadataFile} />
 
-                  <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                    <Textarea
-                      value={metadataText}
-                      onChange={(event) => setMetadataText(event.target.value)}
-                      placeholder="정답표나 메타데이터를 붙여넣으세요. 예: 1번 3번 2점 듣기 / 18번 2번 2점 목적"
-                      className="min-h-28 rounded-2xl"
-                    />
-                    <Button className="rounded-full bg-[#2463EB] px-6" onClick={handleMetadataText} disabled={importMetadata.isPending || !effectiveExamId}>
-                      {importMetadata.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
-                      반영
-                    </Button>
-                  </div>
-
                   <details className="rounded-[24px] bg-slate-50 p-4">
                     <summary className="cursor-pointer text-sm font-bold text-slate-700">문항 메타데이터 검수</summary>
                     <div className="mt-4 max-h-[420px] overflow-auto rounded-2xl bg-white">
@@ -578,7 +548,6 @@ export default function MockExamsPage() {
                             <th className="px-3 py-2 text-left">배점</th>
                             <th className="px-3 py-2 text-left">영역</th>
                             <th className="px-3 py-2 text-left">유형</th>
-                            <th className="px-3 py-2 text-left">난도</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -589,7 +558,13 @@ export default function MockExamsPage() {
                                 <Input className="h-8 w-20" value={question.correct_answer} onChange={(event) => updateQuestion(question.question_number, { correct_answer: event.target.value })} />
                               </td>
                               <td className="px-3 py-2">
-                                <Input className="h-8 w-16" value={question.points} onChange={(event) => updateQuestion(question.question_number, { points: Number(event.target.value) || question.points })} />
+                                <Select value={String(question.points)} onValueChange={(points) => updateQuestion(question.question_number, { points: Number(points) })}>
+                                  <SelectTrigger className="h-8 w-20"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="2">2점</SelectItem>
+                                    <SelectItem value="3">3점</SelectItem>
+                                  </SelectContent>
+                                </Select>
                               </td>
                               <td className="px-3 py-2">
                                 <Select value={question.section} onValueChange={(section: 'listening' | 'reading') => updateQuestion(question.question_number, { section })}>
@@ -605,14 +580,6 @@ export default function MockExamsPage() {
                                   <SelectTrigger className="h-8 w-28"><SelectValue /></SelectTrigger>
                                   <SelectContent>
                                     {MOCK_EXAM_TYPE_OPTIONS.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
-                                  </SelectContent>
-                                </Select>
-                              </td>
-                              <td className="px-3 py-2">
-                                <Select value={question.difficulty} onValueChange={(difficulty: 'low' | 'medium' | 'high') => updateQuestion(question.question_number, { difficulty })}>
-                                  <SelectTrigger className="h-8 w-20"><SelectValue /></SelectTrigger>
-                                  <SelectContent>
-                                    {Object.entries(difficultyLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
                                   </SelectContent>
                                 </Select>
                               </td>
