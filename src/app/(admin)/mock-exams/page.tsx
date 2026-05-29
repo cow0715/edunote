@@ -150,7 +150,6 @@ body { margin: 0; color: #111827; font-family: Arial, sans-serif; }
   <section class="grid">${rows}</section>
   <div class="foot">각 문항의 선택지를 진하게 표시한 뒤 촬영 또는 스캔하여 업로드하세요.</div>
 </main>
-<script>window.onload = () => window.print()</script>
 </body>
 </html>`
 }
@@ -349,14 +348,35 @@ export default function MockExamsPage() {
 
   function openAnswerSheet() {
     if (!selectedExam) return
-    const popup = window.open('', '_blank', 'noopener,noreferrer,width=900,height=1200')
-    if (!popup) {
-      toast.error('팝업 차단을 해제해 주세요')
+
+    const iframe = document.createElement('iframe')
+    iframe.title = `${selectedExam.title} 답안지`
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'
+    iframe.style.bottom = '0'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = '0'
+    iframe.style.visibility = 'hidden'
+    document.body.appendChild(iframe)
+
+    const frameWindow = iframe.contentWindow
+    const frameDocument = iframe.contentDocument ?? frameWindow?.document
+    if (!frameWindow || !frameDocument) {
+      iframe.remove()
+      toast.error('답안지를 준비하지 못했습니다')
       return
     }
-    popup.document.open()
-    popup.document.write(buildAnswerSheetHtml(selectedExam.title, `고${grade}`))
-    popup.document.close()
+
+    frameDocument.open()
+    frameDocument.write(buildAnswerSheetHtml(selectedExam.title, `고${grade}`))
+    frameDocument.close()
+
+    iframe.onload = () => {
+      frameWindow.focus()
+      frameWindow.print()
+      window.setTimeout(() => iframe.remove(), 1000)
+    }
   }
 
   const modeItems = [
@@ -709,8 +729,12 @@ export default function MockExamsPage() {
                         </div>
 
                         <div>
-                          <Label className="text-xs text-[#8B95A1]">성적표 코멘트</Label>
-                          <Textarea value={activeTeacherComment} onChange={(event) => setTeacherComment(event.target.value)} placeholder="학생별 코멘트" />
+                          <Label className="text-xs text-[#8B95A1]">교사 기록</Label>
+                          <Textarea
+                            value={activeTeacherComment}
+                            onChange={(event) => setTeacherComment(event.target.value)}
+                            placeholder="응원 문구 없이 객관 사실만 입력하세요. 예: 빈칸 5문항 중 2문항 정답, 3점 문항 3개 오답."
+                          />
                         </div>
                         <div className="flex justify-end">
                           <Button className="rounded-full bg-[#2463EB]" onClick={handleSaveResult} disabled={saveResult.isPending || incompleteAnswerKeyCount > 0}>
