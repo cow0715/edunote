@@ -32,6 +32,14 @@ type Snapshot = {
       score_rate?: number | null
     }>
   }
+  cohort?: {
+    rank: number | null
+    total: number
+    average_score: number | null
+    top_score: number | null
+    same_score_count: number
+    percentile: number | null
+  } | null
   wrong_answers: {
     student_answer: string | null
     earned_points: number
@@ -96,6 +104,7 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
   const listeningAccuracy = percent(snapshot.score.listening_correct, snapshot.score.listening_total)
   const readingAccuracy = percent(snapshot.score.reading_correct, snapshot.score.reading_total)
   const gradeGap = nextGradeGap(snapshot.score.raw_score, snapshot.score.grade)
+  const cohort = snapshot.cohort ?? null
   const weakTypes = typeEntries
     .map(([type, value]) => ({
       type,
@@ -136,7 +145,16 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-3">
+        <section className="grid gap-4 md:grid-cols-4">
+          <div className="rounded-[24px] bg-white p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+            <p className="text-sm text-[#8B95A1]">석차</p>
+            <p className="mt-2 text-2xl font-extrabold text-[#2463EB]">
+              {cohort?.rank && cohort.total ? `${cohort.rank}/${cohort.total}` : '-'}
+            </p>
+            <p className="mt-1 text-xs text-[#8B95A1]">
+              {cohort?.average_score != null ? `평균 ${cohort.average_score}점 · 최고 ${cohort.top_score}점` : '발행 시점 응시자 기준'}
+            </p>
+          </div>
           <div className="rounded-[24px] bg-white p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
             <p className="text-sm text-[#8B95A1]">듣기 정답률</p>
             <p className="mt-2 text-2xl font-extrabold text-[#2463EB]">
@@ -173,6 +191,15 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
 
           <div className="mt-5 grid gap-3 md:grid-cols-3">
             <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-xs font-bold text-[#8B95A1]">응시자 내 위치</p>
+              <p className="mt-2 text-2xl font-extrabold text-[#1A1C1E]">
+                {cohort?.rank && cohort.total ? `${cohort.rank}등 / ${cohort.total}명` : '산출 전'}
+              </p>
+              <p className="mt-1 text-xs text-[#8B95A1]">
+                {cohort?.same_score_count && cohort.same_score_count > 1 ? `동점자 ${cohort.same_score_count}명` : '동점자는 동일 석차'}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-xs font-bold text-[#8B95A1]">다음 등급 기준</p>
               <p className="mt-2 text-2xl font-extrabold text-[#1A1C1E]">
                 {gradeGap == null ? '해당 없음' : `${gradeGap}점 차이`}
@@ -188,7 +215,7 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
                 {threePointWrong.map((answer) => `${answer.mock_exam_question?.question_number}번`).join(', ') || '없음'}
               </p>
             </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
+            <div className="rounded-2xl bg-slate-50 p-4 md:col-span-3">
               <p className="text-xs font-bold text-[#8B95A1]">듣기/독해 격차</p>
               <p className="mt-2 text-2xl font-extrabold text-[#2463EB]">
                 {listeningAccuracy == null || readingAccuracy == null ? '-' : `${Math.abs(listeningAccuracy - readingAccuracy)}%p`}
