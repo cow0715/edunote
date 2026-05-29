@@ -29,6 +29,7 @@ type ImportMockExamMetadataBody = {
   fileData?: string
   mimeType?: string
   fileName?: string
+  files?: { fileData: string; mimeType: string; fileName?: string }[]
 }
 
 export function useMockExams() {

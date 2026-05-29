@@ -272,13 +272,15 @@ export default function MockExamsPage() {
   }
 
   async function handleMetadataFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
+    const files = Array.from(event.target.files ?? [])
     event.target.value = ''
-    if (!file || !effectiveExamId) return
+    if (files.length === 0 || !effectiveExamId) return
     const data = await importMetadata.mutateAsync({
-      fileData: await readFileAsBase64(file),
-      mimeType: file.type,
-      fileName: file.name,
+      files: await Promise.all(files.map(async (file) => ({
+        fileData: await readFileAsBase64(file),
+        mimeType: file.type,
+        fileName: file.name,
+      }))),
     })
     setQuestionDraft(data.questions)
   }
@@ -533,8 +535,8 @@ export default function MockExamsPage() {
                       className="rounded-[24px] bg-blue-50 p-5 text-left transition hover:bg-blue-100 disabled:opacity-60"
                     >
                       {importMetadata.isPending ? <Loader2 className="h-5 w-5 animate-spin text-[#2463EB]" /> : <Upload className="h-5 w-5 text-[#2463EB]" />}
-                      <div className="mt-4 text-base font-extrabold">PDF 업로드</div>
-                      <div className="mt-1 text-sm text-[#8B95A1]">시험지, 해설지, 정답표</div>
+                      <div className="mt-4 text-base font-extrabold">문제지+답안지 업로드</div>
+                      <div className="mt-1 text-sm text-[#8B95A1]">배점은 문제지, 정답은 답안지에서 병합</div>
                     </button>
                     <div className="rounded-[24px] bg-slate-50 p-5">
                       <div className="text-sm text-[#8B95A1]">정답 준비</div>
@@ -550,7 +552,7 @@ export default function MockExamsPage() {
                     </div>
                   </div>
 
-                  <input ref={metadataInputRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={handleMetadataFile} />
+                  <input ref={metadataInputRef} type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={handleMetadataFile} />
 
                   <div className="grid gap-3 md:grid-cols-[1fr_auto]">
                     <Textarea

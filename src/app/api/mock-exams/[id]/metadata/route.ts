@@ -1,6 +1,7 @@
 import { err, getAuth, getTeacherId, ok } from '@/lib/api'
 import {
   parseMockExamMetadataFile,
+  parseMockExamMetadataFiles,
   parseMockExamMetadataText,
   type MockExamMetadataQuestion,
 } from '@/lib/anthropic'
@@ -19,6 +20,7 @@ type MetadataImportBody = {
   fileData?: string
   mimeType?: string
   fileName?: string
+  files?: { fileData: string; mimeType: string; fileName?: string }[]
 }
 
 const VALID_SECTIONS = new Set(['listening', 'reading'])
@@ -74,13 +76,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!(await assertMockExamOwner(supabase, id, teacherId))) return err('접근 권한이 없습니다', 403)
 
   const body = await request.json().catch(() => ({})) as MetadataImportBody
+  const files = Array.isArray(body.files)
+    ? body.files.filter((file) => !!file?.fileData && !!file?.mimeType)
+    : []
   const hasFile = !!body.fileData && !!body.mimeType
+  const hasFiles = files.length > 0
   const hasText = !!body.raw_text?.trim()
-  if (!hasFile && !hasText) return err('메타데이터 파일 또는 텍스트가 필요합니다')
+  if (!hasFile && !hasFiles && !hasText) return err('메타데이터 파일 또는 텍스트가 필요합니다')
 
   let parsed: MockExamMetadataQuestion[]
   try {
-    parsed = hasFile
+    parsed = hasFiles
+      ? await parseMockExamMetadataFiles(files)
+      : hasFile
       ? await parseMockExamMetadataFile(body.fileData!, body.mimeType!)
       : await parseMockExamMetadataText(body.raw_text!.trim())
   } catch (error) {
@@ -137,6 +145,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     questions: data,
     imported_count: imported.length,
     ready,
-    source: hasFile ? body.fileName ?? 'file' : 'text',
+    source: hasFiles ? files.map((file) => file.fileName ?? 'file').join(', ') : hasFile ? body.fileName ?? 'file' : 'text',
   })
 }
