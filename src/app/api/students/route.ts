@@ -9,7 +9,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('student')
-    .select('*, class_student(joined_at, left_at, class:class_id(name))')
+    .select('*, class_student(class_id, joined_at, left_at, class:class_id(name))')
     .eq('teacher_id', teacherId)
     .order('name')
 

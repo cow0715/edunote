@@ -3,11 +3,10 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
-import { cn } from '@/lib/utils'
 import {
   BookOpen,
   CalendarCheck,
+  ClipboardCheck,
   FileSearch,
   GraduationCap,
   LibraryBig,
@@ -21,9 +20,11 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react'
-import { Sheet, SheetContent } from '@/components/ui/sheet'
-import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Sheet, SheetContent } from '@/components/ui/sheet'
+import { createClient } from '@/lib/supabase/client'
+import { cn } from '@/lib/utils'
 
 const navSections = [
   {
@@ -33,6 +34,7 @@ const navSections = [
       { href: '/clinic', label: '클리닉 관리', icon: CalendarCheck },
       { href: '/students', label: '학생 관리', icon: Users },
       { href: '/analysis', label: '학생 현황', icon: TrendingUp },
+      { href: '/mock-exams', label: '모의고사 성적표', icon: ClipboardCheck },
       { href: '/messages', label: '메시지', icon: MessageSquare },
     ],
   },
