@@ -6,7 +6,7 @@ import {
   PARSE_ANSWER_SHEET_RULES, SMS_RULES,
   buildVocabOcrClovaPrompt, VOCAB_OCR_VISION_PROMPT,
   buildVocabGradingPrompt, VOCAB_PDF_PROMPT,
-  buildExamOcrClovaPrompt, buildExamOcrVisionPrompt,
+  buildExamOcrVisionPrompt,
   ExamOcrQuestion,
   EXAM_BANK_PARSE_RULES,
 } from './prompts'
@@ -25,6 +25,18 @@ export type ExamOcrBatchInput = {
   fileData: string
   mimeType: string
   fileName?: string
+}
+
+export type MockExamMetadataQuestion = {
+  question_number: number
+  correct_answer?: string | number | null
+  points?: number | null
+  section?: 'listening' | 'reading' | null
+  question_type?: string | null
+  difficulty?: 'low' | 'medium' | 'high' | null
+  is_void?: boolean | null
+  all_correct?: boolean | null
+  extra_correct_answers?: (string | number)[] | null
 }
 
 export const anthropic = new Anthropic({
@@ -1063,6 +1075,88 @@ export async function parseExamBankPage(
 
   console.log('[parseExamBankPage] parsed count:', parsed.length, '| questions:', parsed.map(p => p.question_number).join(', '))
   return parsed
+}
+
+// ── 모의고사 성적표용 메타데이터 파싱 ─────────────────────────────────────
+
+const MOCK_EXAM_METADATA_RULES = `이 자료는 영어 모의고사 성적표 생성을 위한 메타데이터입니다.
+시험지 PDF, 정답표, 해설지, 또는 강사가 정리한 텍스트일 수 있습니다.
+
+목표:
+- 1번부터 45번까지 각 문항의 성적표/채점용 메타데이터를 추출하세요.
+- 문제 본문 전체를 복원하지 마세요. 성적표 생성에 필요한 정보만 추출하세요.
+
+필드:
+- question_number: 1~45 정수
+- correct_answer: 객관식 정답. ①~⑤는 "1"~"5"로 변환. 자료에 없으면 "".
+- points: 배점. 자료에 없으면 일반적인 영어 모의고사 배점으로 추정하세요. 3점 문항은 3, 나머지는 2.
+- section: 1~17번은 "listening", 18~45번은 "reading".
+- question_type: 한국어 유형명. 예: 듣기, 목적, 심경, 주장, 요지, 제목, 내용일치, 도표, 어법, 어휘, 빈칸, 흐름, 순서, 삽입, 요약, 장문, 기타.
+- difficulty: low, medium, high 중 하나. 확실하지 않으면 medium. 고난도/킬러/오답률 높음/3점 빈칸 등은 high.
+- is_void: 정답 제외/무효 문항이면 true, 아니면 false.
+- all_correct: 전원정답이면 true, 아니면 false.
+- extra_correct_answers: 복수정답이 있으면 문자열 배열, 없으면 [].
+
+규칙:
+- 가능한 한 45개 객체를 모두 출력하세요.
+- 자료에서 정답을 확인할 수 없으면 correct_answer는 ""로 두고, 유형/배점/영역은 추정해서 채우세요.
+- 절대 문제 본문, 보기 전체, 해설 전체를 길게 출력하지 마세요.
+- JSON 배열만 출력하세요.
+
+출력:
+[{"question_number":1,"correct_answer":"3","points":2,"section":"listening","question_type":"듣기","difficulty":"medium","is_void":false,"all_correct":false,"extra_correct_answers":[]}]`
+
+export async function parseMockExamMetadataFile(
+  fileData: string,
+  mimeType: string,
+): Promise<MockExamMetadataQuestion[]> {
+  const isImage = mimeType.startsWith('image/')
+  const isPdf = mimeType === 'application/pdf'
+  if (!isImage && !isPdf) throw new Error('지원하지 않는 파일 형식입니다. PDF 또는 이미지만 업로드해주세요.')
+
+  const fileContent = isImage
+    ? {
+        type: 'image' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+          data: fileData,
+        },
+      }
+    : {
+        type: 'document' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: 'application/pdf' as const,
+          data: fileData,
+        },
+      }
+
+  const res = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 8192,
+    messages: [{ role: 'user', content: [fileContent, { type: 'text', text: MOCK_EXAM_METADATA_RULES }] }],
+  })
+
+  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  return parseJsonArrayResponse<MockExamMetadataQuestion>(raw)
+}
+
+export async function parseMockExamMetadataText(rawText: string): Promise<MockExamMetadataQuestion[]> {
+  const res = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 8192,
+    messages: [{
+      role: 'user',
+      content: `${MOCK_EXAM_METADATA_RULES}
+
+[자료]
+${rawText}`,
+    }],
+  })
+
+  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  return parseJsonArrayResponse<MockExamMetadataQuestion>(raw)
 }
 
 // ── 시험 답안지 OCR ───────────────────────────────────────────────────────

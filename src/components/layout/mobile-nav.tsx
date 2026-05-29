@@ -34,7 +34,7 @@ const navSections = [
       { href: '/clinic', label: '클리닉 관리', icon: CalendarCheck },
       { href: '/students', label: '학생 관리', icon: Users },
       { href: '/analysis', label: '학생 현황', icon: TrendingUp },
-      { href: '/mock-exams', label: '모의고사 성적표', icon: ClipboardCheck },
+      { href: '/mock-exams', label: '모의고사', icon: ClipboardCheck },
       { href: '/messages', label: '메시지', icon: MessageSquare },
     ],
   },

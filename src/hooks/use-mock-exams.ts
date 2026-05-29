@@ -24,6 +24,13 @@ type OcrMockExamBody = {
   files: { fileData: string; mimeType: string; fileName?: string }[]
 }
 
+type ImportMockExamMetadataBody = {
+  raw_text?: string
+  fileData?: string
+  mimeType?: string
+  fileName?: string
+}
+
 export function useMockExams() {
   return useQuery({
     queryKey: ['mock-exams'],
@@ -124,6 +131,27 @@ export function useOcrMockExamAnswers(id: string | null) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['mock-exam', id] })
       toast.success('답안지 OCR 결과를 불러왔습니다. 검수 후 저장해 주세요')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
+export function useImportMockExamMetadata(id: string | null) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: ImportMockExamMetadataBody): Promise<{ questions: MockExamQuestion[]; imported_count: number; ready: boolean }> => {
+      const res = await fetch(`/api/mock-exams/${id}/metadata`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? '메타데이터 분석 실패')
+      return res.json()
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['mock-exam', id] })
+      qc.invalidateQueries({ queryKey: ['mock-exams'] })
+      toast.success(`${data.imported_count}개 문항 메타데이터를 반영했습니다`)
     },
     onError: (e: Error) => toast.error(e.message),
   })
