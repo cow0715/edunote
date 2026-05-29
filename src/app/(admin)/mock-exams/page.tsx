@@ -116,32 +116,32 @@ function buildAnswerSheetHtml(title: string, gradeLabel: string) {
 <meta charset="utf-8" />
 <title>${escapeHtml(title)} 답안지</title>
 <style>
-@page { size: A4 portrait; margin: 8mm; }
+@page { size: A4 portrait; margin: 6mm; }
 * { box-sizing: border-box; }
-html, body { width: 194mm; height: 281mm; }
+html, body { width: 198mm; height: 285mm; }
 body { margin: 0; color: #111827; font-family: Arial, "Malgun Gothic", sans-serif; background: #fff; }
-.sheet { width: 194mm; height: 281mm; overflow: hidden; border: 1.4mm solid #22c55e; padding: 4.5mm; color: #16a34a; }
-.top { display: grid; grid-template-columns: 19mm 1fr 30mm 38mm; height: 18mm; border: .45mm solid #86efac; border-bottom: 0; }
-.cell { display: flex; align-items: center; justify-content: center; border-left: .45mm solid #86efac; font-size: 11px; font-weight: 800; }
+.sheet { width: 198mm; height: 285mm; overflow: hidden; border: .7mm solid #1f2937; padding: 3mm; color: #111827; }
+.top { display: grid; grid-template-columns: 18mm 1fr 24mm 42mm; height: 13mm; border: .3mm solid #94a3b8; border-bottom: 0; }
+.cell { display: flex; align-items: center; justify-content: center; border-left: .3mm solid #94a3b8; font-size: 9px; font-weight: 800; }
 .cell:first-child { border-left: 0; }
 .school { line-height: 1.05; text-align: center; }
-.title-cell { font-size: 15px; letter-spacing: 2mm; color: #22c55e; }
-.label { background: #dcfce7; color: #16a34a; }
-.exam-title { height: 16mm; display: flex; flex-direction: column; align-items: center; justify-content: center; border: .45mm solid #86efac; font-size: 16px; font-weight: 900; letter-spacing: 1.8mm; }
-.exam-title small { margin-top: 1mm; font-size: 8px; letter-spacing: 0; color: #4ade80; }
-.grid { display: grid; grid-template-columns: repeat(5, 1fr); height: 234mm; border-left: .45mm solid #86efac; border-bottom: .45mm solid #86efac; }
-.group { min-width: 0; border-right: .45mm solid #86efac; }
-.group-head { height: 8mm; display: flex; align-items: center; justify-content: center; border-top: .45mm solid #86efac; border-bottom: .45mm solid #86efac; background: #f0fdf4; color: #22c55e; font-size: 10px; font-weight: 900; }
-.answer-row { height: 22.6mm; display: grid; grid-template-columns: 8.2mm 1fr; align-items: center; border-bottom: .25mm solid #bbf7d0; }
+.title-cell { font-size: 14px; letter-spacing: 2mm; color: #1f2937; }
+.label { background: #eff6ff; color: #1f2937; }
+.exam-title { height: 12mm; display: flex; flex-direction: column; align-items: center; justify-content: center; border: .3mm solid #94a3b8; font-size: 14px; font-weight: 900; letter-spacing: 1.8mm; }
+.exam-title small { margin-top: .6mm; font-size: 7px; letter-spacing: 0; color: #64748b; }
+.grid { display: grid; grid-template-columns: repeat(5, 1fr); height: 239mm; border-left: .3mm solid #94a3b8; border-bottom: .3mm solid #94a3b8; }
+.group { min-width: 0; border-right: .3mm solid #94a3b8; }
+.group-head { height: 6mm; display: flex; align-items: center; justify-content: center; border-top: .3mm solid #94a3b8; border-bottom: .3mm solid #94a3b8; background: #f8fafc; color: #334155; font-size: 8px; font-weight: 900; }
+.answer-row { height: 23.3mm; display: grid; grid-template-columns: 7mm 1fr; align-items: center; border-bottom: .2mm solid #cbd5e1; }
 .answer-row:last-child { border-bottom: 0; }
-.answer-row b { display: flex; align-items: center; justify-content: center; height: 100%; background: #dcfce7; border-right: .35mm solid #86efac; color: #22c55e; font-size: 10px; font-weight: 900; }
-.bubbles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1.15mm; padding: 0 1.5mm; }
-.bubbles span { display: inline-flex; align-items: center; justify-content: center; width: 5.5mm; height: 8.6mm; margin: 0 auto; border: .45mm solid #4ade80; border-radius: 999px; color: #22c55e; font-size: 8px; font-weight: 900; line-height: 1; }
-.markers { display: grid; grid-template-columns: repeat(25, 1fr); height: 4mm; padding: 1.2mm 7mm 0 13mm; }
-.markers i { display: block; width: 1.6mm; height: 1.6mm; background: #111827; margin: 0 auto; }
-.foot { height: 7mm; display: flex; align-items: center; justify-content: center; color: #16a34a; font-size: 8px; font-weight: 700; }
+.answer-row b { display: flex; align-items: center; justify-content: center; height: 100%; background: #f1f5f9; border-right: .25mm solid #94a3b8; color: #1f2937; font-size: 8px; font-weight: 900; }
+.bubbles { display: flex; justify-content: center; gap: .9mm; padding: 0 .8mm; }
+.bubbles span { display: inline-flex; align-items: center; justify-content: center; width: 3.5mm; height: 5.2mm; border: .25mm solid #334155; border-radius: 999px; color: #1f2937; font-size: 6px; font-weight: 900; line-height: 1; }
+.markers { display: grid; grid-template-columns: repeat(25, 1fr); height: 3mm; padding: .8mm 5mm 0 10mm; }
+.markers i { display: block; width: 1.2mm; height: 1.2mm; background: #111827; margin: 0 auto; }
+.foot { height: 5mm; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 7px; font-weight: 700; }
 @media print {
-  html, body { width: 194mm; height: 281mm; }
+  html, body { width: 198mm; height: 285mm; }
   .sheet { page-break-after: avoid; }
 }
 </style>
@@ -149,7 +149,7 @@ body { margin: 0; color: #111827; font-family: Arial, "Malgun Gothic", sans-seri
 <body>
 <main class="sheet">
   <section class="top">
-    <div class="cell school">출신<br />학교</div>
+    <div class="cell school">학교</div>
     <div class="cell"></div>
     <div class="cell label">성명</div>
     <div class="cell"></div>
