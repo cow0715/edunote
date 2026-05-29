@@ -19,22 +19,29 @@ export type MockExamAnswerInput = {
 }
 
 export const MOCK_EXAM_TYPE_OPTIONS = [
+  '듣기',
   '목적',
   '심경',
-  '요지',
   '주장',
+  '함축의미',
+  '요지',
+  '주제',
   '제목',
   '도표',
-  '내용일치',
+  '내용일치/불일치',
+  '실용문',
   '어법',
   '어휘',
   '빈칸',
-  '흐름',
+  '무관문장',
   '순서',
-  '삽입',
+  '문장삽입',
   '요약',
-  '장문',
-  '듣기',
+  '장문-제목',
+  '장문-어휘',
+  '장문-순서',
+  '장문-지칭',
+  '장문-내용일치',
 ] as const
 
 export const DEFAULT_ENGLISH_GRADE_CUTOFFS = {
@@ -60,18 +67,37 @@ export function getDefaultMockExamSection(questionNumber: number): MockExamSecti
 
 export function getDefaultMockExamQuestionType(questionNumber: number) {
   if (questionNumber <= 17) return '듣기'
-  if ([18].includes(questionNumber)) return '목적'
-  if ([19].includes(questionNumber)) return '심경'
-  if ([20, 22, 23, 24].includes(questionNumber)) return '요지'
-  if ([21, 31, 32, 33, 34].includes(questionNumber)) return '빈칸'
-  if ([29].includes(questionNumber)) return '어법'
-  if ([30].includes(questionNumber)) return '어휘'
-  if ([35].includes(questionNumber)) return '흐름'
-  if ([36, 37].includes(questionNumber)) return '순서'
-  if ([38, 39].includes(questionNumber)) return '삽입'
-  if ([40].includes(questionNumber)) return '요약'
-  if (questionNumber >= 41) return '장문'
-  return '내용일치'
+  const typeByNumber: Record<number, string> = {
+    18: '목적',
+    19: '심경',
+    20: '주장',
+    21: '함축의미',
+    22: '요지',
+    23: '주제',
+    24: '제목',
+    25: '도표',
+    26: '내용일치/불일치',
+    27: '실용문',
+    28: '실용문',
+    29: '어법',
+    30: '어휘',
+    31: '빈칸',
+    32: '빈칸',
+    33: '빈칸',
+    34: '빈칸',
+    35: '무관문장',
+    36: '순서',
+    37: '순서',
+    38: '문장삽입',
+    39: '문장삽입',
+    40: '요약',
+    41: '장문-제목',
+    42: '장문-어휘',
+    43: '장문-순서',
+    44: '장문-지칭',
+    45: '장문-내용일치',
+  }
+  return typeByNumber[questionNumber] ?? '기타'
 }
 
 export function getEnglishAbsoluteGrade(
