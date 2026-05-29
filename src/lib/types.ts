@@ -21,6 +21,7 @@ export interface Student {
 }
 
 export interface StudentEnrollment {
+  class_id: string;
   joined_at: string | null;
   left_at: string | null;
   class: { name: string } | null;
@@ -152,6 +153,92 @@ export interface WeekScore {
   memo: string | null;
   created_at: string;
   student?: Student;
+}
+
+export interface MockExam {
+  id: string;
+  teacher_id: string;
+  class_id: string | null;
+  title: string;
+  exam_year: number;
+  exam_month: number;
+  grade: number | null;
+  source: string;
+  exam_date: string | null;
+  total_score: number;
+  grade_cutoffs: Record<string, number>;
+  status: 'draft' | 'ready' | 'published';
+  created_at: string;
+  updated_at: string;
+  class?: { id: string; name: string } | null;
+  question_count?: number;
+  result_count?: number;
+}
+
+export interface MockExamQuestion {
+  id: string;
+  mock_exam_id: string;
+  question_number: number;
+  correct_answer: string;
+  points: number;
+  section: 'listening' | 'reading';
+  question_type: string;
+  difficulty: 'low' | 'medium' | 'high';
+  is_void: boolean;
+  all_correct: boolean;
+  extra_correct_answers: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MockExamStudentAnswer {
+  id: string;
+  mock_exam_result_id: string;
+  mock_exam_question_id: string;
+  student_answer: string | null;
+  is_correct: boolean;
+  earned_points: number;
+  created_at: string;
+  updated_at: string;
+  mock_exam_question?: Pick<MockExamQuestion, 'question_number'> | null;
+}
+
+export interface MockExamReport {
+  id: string;
+  mock_exam_result_id: string;
+  share_token: string;
+  snapshot_json: Record<string, unknown>;
+  status: 'published' | 'revoked';
+  published_at: string;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MockExamResult {
+  id: string;
+  mock_exam_id: string;
+  student_id: string;
+  raw_score: number | null;
+  grade: number | null;
+  listening_correct: number;
+  listening_total: number;
+  reading_correct: number;
+  reading_total: number;
+  type_analysis: Record<string, { correct: number; total: number; earned: number; points: number; accuracy: number | null; score_rate: number | null }>;
+  teacher_comment: string | null;
+  status: 'draft' | 'published';
+  created_at: string;
+  updated_at: string;
+  student?: Pick<Student, 'id' | 'name' | 'school' | 'grade'> | null;
+  mock_exam_student_answer?: MockExamStudentAnswer[];
+  mock_exam_report?: MockExamReport[];
+}
+
+export interface MockExamDetail {
+  exam: MockExam;
+  questions: MockExamQuestion[];
+  results: MockExamResult[];
 }
 
 export interface StudentAnswer {
