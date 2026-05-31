@@ -1,5 +1,5 @@
 import { err, getAuth, getTeacherId, ok } from '@/lib/api'
-import { ocrExamAnswerBatch, type ExamOcrBatchInput, type ExamOcrQuestion } from '@/lib/anthropic'
+import { ocrExamOmrBatch, type ExamOcrBatchInput, type ExamOcrQuestion, type ExamOmrPageResult } from '@/lib/anthropic'
 import { assertMockExamOwner, assertMockExamStudentAllowed } from '@/lib/mock-exam-server'
 
 type OcrRequestBody = {
@@ -8,6 +8,26 @@ type OcrRequestBody = {
 }
 
 export const maxDuration = 300
+
+function buildAnswerPayload(results: ExamOmrPageResult[], questions: ExamOcrQuestion[]) {
+  const answerMap = new Map<number, number | null>()
+
+  for (const page of results) {
+    for (const answer of page.answers) {
+      const current = answerMap.get(answer.question_number)
+      if (current == null && answer.student_answer != null) {
+        answerMap.set(answer.question_number, answer.student_answer)
+      } else if (!answerMap.has(answer.question_number)) {
+        answerMap.set(answer.question_number, null)
+      }
+    }
+  }
+
+  return questions.map((question) => ({
+    question_number: question.question_number,
+    student_answer: answerMap.get(question.question_number) ?? null,
+  }))
+}
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
@@ -64,11 +84,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }))
 
   try {
-    const { results, pagesProcessed } = await ocrExamAnswerBatch(normalizedFiles, ocrQuestions)
-    const answerPayload = results.map((result) => ({
-      question_number: result.question_number,
-      student_answer: result.student_answer ?? result.student_answer_text ?? null,
-    }))
+    const { results, pagesProcessed } = await ocrExamOmrBatch(normalizedFiles, ocrQuestions)
+    const answerPayload = buildAnswerPayload(results, ocrQuestions)
+    const answeredCount = answerPayload.filter((answer) => answer.student_answer != null).length
 
     const saveResponse = await fetch(new URL(`/api/mock-exams/${id}/results`, request.url), {
       method: 'POST',
@@ -92,11 +110,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         status: 'review_required',
         pages_processed: pagesProcessed,
         ocr_raw_json: results,
-        confidence: results.length > 0 ? Math.min(100, Math.round((results.length / questions.length) * 100)) : 0,
+        confidence: questions.length > 0 ? Math.min(100, Math.round((answeredCount / questions.length) * 100)) : 0,
       })
       .eq('id', job.id)
 
-    return ok({ ok: true, job_id: job.id, results, pages_processed: pagesProcessed })
+    return ok({ ok: true, job_id: job.id, results: answerPayload, omr_pages: results, pages_processed: pagesProcessed })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'OCR 처리 실패'
     await supabase
