@@ -13,6 +13,7 @@ import {
   Printer,
   Search,
   Send,
+  Trash2,
   Upload,
   Users,
 } from 'lucide-react'
@@ -26,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useStudents } from '@/hooks/use-students'
 import {
   useCreateMockExam,
+  useDeleteMockExam,
   useImportMockExamMetadata,
   useMockExam,
   useMockExams,
@@ -81,7 +83,21 @@ function readFileAsBase64(file: File): Promise<string> {
 }
 
 function latestReport(result: MockExamResult | null | undefined) {
-  return result?.mock_exam_report?.find((report) => report.status === 'published') ?? null
+  const reports = result?.mock_exam_report
+  const reportList = Array.isArray(reports) ? reports : reports ? [reports] : []
+  return reportList.find((report) => report.status === 'published') ?? null
+}
+
+function studentName(student: MockExamResult['student']) {
+  const normalized = Array.isArray(student) ? student[0] : student
+  return normalized?.name ?? '학생'
+}
+
+function formatKoreanDate(value: string | null | undefined) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return date.toLocaleDateString('ko-KR')
 }
 
 function normalizeGrade(value: string | number | null | undefined) {
@@ -185,6 +201,7 @@ export default function MockExamsPage() {
     : gradeExams[0]?.id ?? null
   const { data: detail, isLoading: detailLoading } = useMockExam(effectiveExamId)
   const createExam = useCreateMockExam()
+  const deleteExam = useDeleteMockExam()
   const importMetadata = useImportMockExamMetadata(effectiveExamId)
   const updateQuestions = useUpdateMockExamQuestions(effectiveExamId)
   const ocrAnswers = useOcrMockExamAnswers(effectiveExamId)
@@ -237,6 +254,29 @@ export default function MockExamsPage() {
     setSelectedExamId(id)
     setSelectedStudentId('')
     setQuestionDraft(null)
+  }
+
+  async function handleDeleteExam(examId: string, examTitle: string) {
+    const confirmed = window.confirm(
+      [
+        `"${examTitle}" 모의고사를 삭제할까요?`,
+        '',
+        '삭제하면 아래 데이터가 모두 함께 삭제됩니다.',
+        '- 문항 메타데이터와 유형/배점/정답',
+        '- 학생별 채점 결과와 학생 답안',
+        '- 답안지 OCR 작업 기록',
+        '- 발행된 학생별 성적표 링크와 스냅샷',
+        '',
+        '이 작업은 되돌릴 수 없습니다.',
+      ].join('\n'),
+    )
+    if (!confirmed) return
+
+    await deleteExam.mutateAsync(examId)
+    if (effectiveExamId === examId) setSelectedExamId(null)
+    setSelectedStudentId('')
+    setQuestionDraft(null)
+    setMode('setup')
   }
 
   function handleSelectStudent(student: StudentWithEnrollments) {
@@ -411,19 +451,46 @@ export default function MockExamsPage() {
                 ) : gradeExams.length === 0 ? (
                   <div className="rounded-2xl bg-slate-50 p-4 text-sm text-[#8B95A1]">고{grade} 시험이 없습니다.</div>
                 ) : gradeExams.map((exam) => (
-                  <button
+                  <div
                     key={exam.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => handleSelectExam(exam.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') handleSelectExam(exam.id)
+                    }}
                     className={cn(
                       'w-full rounded-2xl p-4 text-left transition',
                       effectiveExamId === exam.id ? 'bg-[#2463EB] text-white' : 'bg-slate-50 text-slate-700 hover:bg-blue-50',
                     )}
                   >
-                    <div className="font-bold">{exam.title}</div>
-                    <div className={cn('mt-1 text-xs', effectiveExamId === exam.id ? 'text-blue-100' : 'text-slate-400')}>
-                      {exam.exam_year}년 {exam.exam_month}월 · 채점 {exam.result_count ?? 0}명
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate font-bold">{exam.title}</div>
+                        <div className={cn('mt-1 text-xs', effectiveExamId === exam.id ? 'text-blue-100' : 'text-slate-400')}>
+                          {exam.exam_year}년 {exam.exam_month}월 · 채점 {exam.result_count ?? 0}명
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className={cn(
+                          'h-8 shrink-0 rounded-full px-2',
+                          effectiveExamId === exam.id
+                            ? 'text-blue-100 hover:bg-white/10 hover:text-white'
+                            : 'text-slate-400 hover:bg-red-50 hover:text-red-500',
+                        )}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void handleDeleteExam(exam.id, exam.title)
+                        }}
+                        disabled={deleteExam.isPending}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             </CardContent>
@@ -438,7 +505,7 @@ export default function MockExamsPage() {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="text-2xl font-extrabold">{selectedExam.title}</h2>
                         <Badge className={cn('rounded-full', incompleteAnswerKeyCount === 0 ? 'bg-blue-100 text-[#2463EB]' : 'bg-amber-100 text-amber-700')}>
@@ -691,7 +758,7 @@ export default function MockExamsPage() {
                               </div>
                               <div className="rounded-2xl bg-white p-4">
                                 <p className="text-xs font-bold text-[#8B95A1]">마지막 저장</p>
-                                <p className="mt-1 font-extrabold">{new Date(selectedResult.updated_at).toLocaleDateString('ko-KR')}</p>
+                                <p className="mt-1 font-extrabold">{formatKoreanDate(selectedResult.updated_at)}</p>
                               </div>
                               <div className="rounded-2xl bg-white p-4">
                                 <p className="text-xs font-bold text-[#8B95A1]">성적표</p>
@@ -732,7 +799,7 @@ export default function MockExamsPage() {
                               setMode('grading')
                             }}>
                               <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-base font-extrabold">{result.student?.name ?? '학생'}</span>
+                                <span className="text-base font-extrabold">{studentName(result.student)}</span>
                                 {report ? <Badge className="bg-blue-100 text-[#2463EB]">발행됨</Badge> : <Badge variant="outline">미발행</Badge>}
                               </div>
                               <div className="mt-1 flex flex-wrap gap-3 text-sm text-[#8B95A1]">
