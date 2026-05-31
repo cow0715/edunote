@@ -45,8 +45,16 @@ export type OmrBatchResponse = {
   items: OmrBatchReviewItem[]
 }
 
+export type MockExamReportRecipient = 'mother' | 'father' | 'student'
+
 type OmrBatchBody = {
   files: { fileData: string; mimeType: string; fileName?: string }[]
+}
+
+type SendMockExamReportsBody = {
+  result_ids: string[]
+  recipients: MockExamReportRecipient[]
+  message_template: string
 }
 
 type ImportMockExamMetadataBody = {
@@ -259,6 +267,25 @@ export function usePublishMockExamReports(id: string | null) {
       qc.invalidateQueries({ queryKey: ['mock-exam', id] })
       qc.invalidateQueries({ queryKey: ['mock-exams'] })
       toast.success(`성적표 ${data.published_count}개를 발행했습니다`)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
+export function useSendMockExamReports(id: string | null) {
+  return useMutation({
+    mutationFn: async (body: SendMockExamReportsBody): Promise<{ sent_count: number; failed_count: number; skipped: { reason: string }[] }> => {
+      const res = await fetch(`/api/mock-exams/${id}/reports/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? '성적표 문자 발송 실패')
+      return res.json()
+    },
+    onSuccess: (data) => {
+      const skippedText = data.skipped.length > 0 ? `, 제외 ${data.skipped.length}명` : ''
+      toast.success(`문자 ${data.sent_count}건 발송 완료${data.failed_count ? `, 실패 ${data.failed_count}건` : ''}${skippedText}`)
     },
     onError: (e: Error) => toast.error(e.message),
   })
