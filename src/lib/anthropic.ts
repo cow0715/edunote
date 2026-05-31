@@ -1134,6 +1134,24 @@ const MOCK_EXAM_METADATA_RULES = `이 자료는 영어 모의고사 성적표 �
 출력:
 [{"question_number":1,"correct_answer":"3","points":2,"section":"listening","question_type":"듣기","difficulty":"medium","is_void":false,"all_correct":false,"extra_correct_answers":[]}]`
 
+const MOCK_EXAM_ANSWER_KEY_RULES = `자료는 한국 영어 모의고사 정답표 또는 답안지 PDF입니다.
+
+목표:
+- 페이지 전체를 읽기 전에 문항별 정답/배점 표 영역을 먼저 찾으세요.
+- "문항", "번호", "정답", "배점", "답", "점수" 같은 머리글이 있는 표를 우선하세요.
+- 1~45번의 객관식 정답과 배점만 추출하세요.
+
+규칙:
+- correct_answer는 1~5 중 하나의 문자열입니다. ①~⑤, 1~5, 원형 숫자는 모두 "1"~"5"로 변환하세요.
+- points는 2 또는 3입니다. 표에 배점이 없으면 해당 필드는 생략하세요.
+- 해설 번호, 페이지 번호, 선택지 번호, 학생 답안 마킹을 정답으로 착각하지 마세요.
+- 같은 문항이 여러 번 보이면 "정답표/답안" 표의 값을 우선하세요.
+- 확실하지 않은 문항은 correct_answer를 ""로 두세요.
+- JSON 배열만 출력하세요.
+
+출력:
+[{"question_number":1,"correct_answer":"3","points":2}]`
+
 function buildMockExamMetadataFileBlock(file: MockExamMetadataFileInput): DocumentBlockParam | ImageBlockParam {
   const isImage = file.mimeType.startsWith('image/')
   const isPdf = file.mimeType === 'application/pdf'
@@ -1182,6 +1200,29 @@ export async function parseMockExamMetadataFiles(
   const res = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 8192,
+    messages: [{ role: 'user', content }],
+  })
+
+  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  return parseJsonArrayResponse<MockExamMetadataQuestion>(raw)
+}
+
+export async function parseMockExamAnswerKeyFiles(
+  files: MockExamMetadataFileInput[],
+): Promise<MockExamMetadataQuestion[]> {
+  if (files.length === 0) return []
+  const content: (DocumentBlockParam | ImageBlockParam | TextBlockParam)[] = [
+    { type: 'text', text: MOCK_EXAM_ANSWER_KEY_RULES },
+  ]
+
+  for (const [index, file] of files.entries()) {
+    content.push({ type: 'text', text: `파일 ${index + 1}: ${file.fileName ?? 'answer-key'}` })
+    content.push(buildMockExamMetadataFileBlock(file))
+  }
+
+  const res = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4096,
     messages: [{ role: 'user', content }],
   })
 
@@ -1385,7 +1426,7 @@ function extractJsonObjectCandidate(raw: string): string {
   return start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned
 }
 
-function buildExamOmrVisionPrompt(questions: ExamOcrQuestion[], pageNumber: number) {
+function buildExamOmrVisionPrompt(questions: ExamOcrQuestion[], pageNumber: number, strict = false) {
   const questionNumbers = questions
     .map((question) => question.question_number)
     .filter((number) => Number.isFinite(number))
@@ -1396,16 +1437,22 @@ function buildExamOmrVisionPrompt(questions: ExamOcrQuestion[], pageNumber: numb
   return `This is one scanned Korean CSAT/mock-exam OMR answer sheet page.
 
 Task:
-- Read the handwritten student name from the name field.
+- First locate the OMR answer grid area. It is the area with visible question numbers and choice bubbles 1-5.
+- Ignore student-number digit grids, school fields, supervisor fields, instructions, and barcode/marker blocks.
+- Read the handwritten student name from the field labeled "성명", "이름", or "성 명".
+- The student name is usually 2-4 Korean Hangul characters written inside or immediately next to that name box.
+- Ignore the exam subject ("영어"), school name, printed labels, 수험번호 digit grid, and supervisor/감독 fields when reading the name.
 - Read the marked objective answers for questions ${firstQuestion}-${lastQuestion}.
 - The answer area is usually split into 1-20, 21-40, and 41-45. Each question has choices 1-5.
 - The page may be rotated. Read it by the OMR card orientation, not by the uploaded image orientation.
+${strict ? '- This is a retry because the first pass missed too many answers. Re-scan the answer grid only and return every visible question in order.' : ''}
 
 Rules:
 - Only dark filled bubbles count as selected answers.
 - If a question has multiple dark marks or is ambiguous, use null.
 - If a question is blank, use null.
-- Do not use school, exam title, supervisor, or instruction text as the student name.
+- Do not use school, exam title, subject, supervisor, instructions, or 수험번호 as the student name.
+- If the name field is blank or unreadable, use null. If it is visible but slightly uncertain, return the best Hangul guess and add a warning.
 - Do not invent question numbers. Use the visible OMR question numbers.
 - Return exactly one JSON object and no markdown.
 
@@ -1420,6 +1467,54 @@ Schema:
   "confidence": 0.0,
   "warnings": []
 }`
+}
+
+type OmrNameOnlyResult = {
+  student_name?: string | null
+  confidence?: number
+  warnings?: string[]
+}
+
+function buildExamOmrNameVisionPrompt(pageNumber: number) {
+  return `This is page ${pageNumber} of a scanned Korean CSAT/mock-exam OMR answer sheet.
+
+Read only the handwritten student name.
+
+How to locate the name:
+- Rotate mentally if needed and find the field labeled "성명", "성 명", or "이름".
+- The name is usually handwritten in the blank box directly beside or under that label.
+- It is usually 2-4 Hangul characters.
+
+Ignore:
+- 수험번호 / student-number digit grid
+- 학교 / 출신학교 / school fields
+- 과목 or subject text such as "영어"
+- 감독관 / supervisor fields
+- printed instructions, page numbers, barcode markers, answer bubbles
+
+Rules:
+- Return the best Hangul reading if the handwriting is visible.
+- If the name box is blank or impossible to read, return null.
+- Do not guess from any printed text outside the name box.
+- Return exactly one JSON object and no markdown.
+
+Schema:
+{
+  "student_name": "홍길동",
+  "confidence": 0.0,
+  "warnings": []
+}`
+}
+
+function cleanOmrStudentName(value: unknown) {
+  if (typeof value !== 'string') return null
+  const cleaned = value
+    .normalize('NFKC')
+    .replace(/성\s*명|이름|학생명|수험자|성함|학교|과목|영어|감독|확인/g, '')
+    .replace(/\s+/g, '')
+    .replace(/[^\p{Script=Hangul}A-Za-z]/gu, '')
+  if (cleaned.length < 2 || cleaned.length > 10) return null
+  return cleaned
 }
 
 function normalizeOmrPageResult(value: Partial<ExamOmrPageResult>, questions: ExamOcrQuestion[], pageNumber: number): ExamOmrPageResult {
@@ -1448,7 +1543,7 @@ function normalizeOmrPageResult(value: Partial<ExamOmrPageResult>, questions: Ex
 
   return {
     page_number: pageNumber,
-    student_name: typeof value.student_name === 'string' && value.student_name.trim() ? value.student_name.trim() : null,
+    student_name: cleanOmrStudentName(value.student_name),
     answers: normalizedAnswers,
     confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
     warnings: Array.isArray(value.warnings) ? value.warnings.map(String).filter(Boolean) : [],
@@ -1483,17 +1578,66 @@ async function ocrExamOmrPage(
         },
       }
 
-  const res = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
-    messages: [{ role: 'user', content: [fileContent, { type: 'text', text: buildExamOmrVisionPrompt(questions, pageNumber) }] }],
-  })
-  const raw = res.content
-    .filter((content) => content.type === 'text')
-    .map((content) => content.text)
-    .join('\n')
-  const parsed = JSON.parse(jsonrepair(extractJsonObjectCandidate(raw))) as Partial<ExamOmrPageResult>
-  return normalizeOmrPageResult(parsed, questions, pageNumber)
+  async function readOmr(strict: boolean) {
+    const res = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: [fileContent, { type: 'text', text: buildExamOmrVisionPrompt(questions, pageNumber, strict) }] }],
+    })
+    const raw = res.content
+      .filter((content) => content.type === 'text')
+      .map((content) => content.text)
+      .join('\n')
+    const parsed = JSON.parse(jsonrepair(extractJsonObjectCandidate(raw))) as Partial<ExamOmrPageResult>
+    return normalizeOmrPageResult(parsed, questions, pageNumber)
+  }
+
+  async function readNameOnly() {
+    const res = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: [fileContent, { type: 'text', text: buildExamOmrNameVisionPrompt(pageNumber) }] }],
+    })
+    const raw = res.content
+      .filter((content) => content.type === 'text')
+      .map((content) => content.text)
+      .join('\n')
+    const parsed = JSON.parse(jsonrepair(extractJsonObjectCandidate(raw))) as OmrNameOnlyResult
+    return {
+      student_name: cleanOmrStudentName(parsed.student_name),
+      confidence: Number(parsed.confidence),
+      warnings: Array.isArray(parsed.warnings) ? parsed.warnings.map(String).filter(Boolean) : [],
+    }
+  }
+
+  const first = await readOmr(false)
+  let result = first
+  const answeredCount = first.answers.filter((answer) => answer.student_answer != null).length
+  if (questions.length > 0 && answeredCount < Math.min(35, Math.ceil(questions.length * 0.75))) {
+    const retry = await readOmr(true)
+    const retryAnsweredCount = retry.answers.filter((answer) => answer.student_answer != null).length
+    result = retryAnsweredCount > answeredCount
+      ? { ...retry, warnings: [...retry.warnings, '첫 인식에서 답란 영역을 충분히 찾지 못해 답란 중심으로 재인식했습니다.'] }
+      : { ...first, warnings: [...first.warnings, '답란 영역 인식이 불안정합니다. 원본 스캔 방향과 선명도를 확인해 주세요.'] }
+  }
+
+  if (!result.student_name) {
+    const nameRetry = await readNameOnly().catch(() => null)
+    if (nameRetry?.student_name) {
+      result = {
+        ...result,
+        student_name: nameRetry.student_name,
+        warnings: [...result.warnings, '성명 칸만 분리해서 재인식했습니다.', ...nameRetry.warnings],
+      }
+    } else {
+      result = {
+        ...result,
+        warnings: [...result.warnings, '성명 칸 인식이 불안정합니다. 검수 화면에서 학생을 선택해 주세요.'],
+      }
+    }
+  }
+
+  return result
 }
 
 export async function ocrExamAnswerBatch(

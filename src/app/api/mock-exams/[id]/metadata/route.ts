@@ -1,5 +1,6 @@
 import { err, getAuth, getTeacherId, ok } from '@/lib/api'
 import {
+  parseMockExamAnswerKeyFiles,
   parseMockExamMetadataFile,
   parseMockExamMetadataFiles,
   parseMockExamMetadataText,
@@ -65,6 +66,40 @@ function normalizeImportedQuestion(question: MockExamMetadataQuestion) {
   }
 }
 
+function hasReliableAnswer(value: unknown) {
+  return /^[1-5]$/.test(normalizeAnswer(value))
+}
+
+function mergeAnswerKeyMetadata(
+  baseQuestions: MockExamMetadataQuestion[],
+  answerKeyQuestions: MockExamMetadataQuestion[],
+) {
+  if (answerKeyQuestions.length === 0) return baseQuestions
+
+  const merged = new Map<number, MockExamMetadataQuestion>()
+  for (const question of baseQuestions) {
+    const questionNumber = Number(question.question_number)
+    if (Number.isInteger(questionNumber)) merged.set(questionNumber, question)
+  }
+
+  for (const answerKey of answerKeyQuestions) {
+    const questionNumber = Number(answerKey.question_number)
+    if (!Number.isInteger(questionNumber) || questionNumber < 1 || questionNumber > 45) continue
+
+    const current = merged.get(questionNumber) ?? { question_number: questionNumber }
+    const next: MockExamMetadataQuestion = { ...current }
+    if (hasReliableAnswer(answerKey.correct_answer)) next.correct_answer = normalizeAnswer(answerKey.correct_answer)
+    const points = Number(answerKey.points)
+    if (points === 2 || points === 3) next.points = points
+    if (answerKey.is_void != null) next.is_void = !!answerKey.is_void
+    if (answerKey.all_correct != null) next.all_correct = !!answerKey.all_correct
+    if (answerKey.extra_correct_answers?.length) next.extra_correct_answers = answerKey.extra_correct_answers
+    merged.set(questionNumber, next)
+  }
+
+  return [...merged.values()].sort((a, b) => Number(a.question_number) - Number(b.question_number))
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
@@ -91,6 +126,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       : hasFile
       ? await parseMockExamMetadataFile(body.fileData!, body.mimeType!)
       : await parseMockExamMetadataText(body.raw_text!.trim())
+    if (hasFiles || hasFile) {
+      const answerKeyFiles = hasFiles ? files : [{ fileData: body.fileData!, mimeType: body.mimeType!, fileName: body.fileName }]
+      const answerKeyParsed = await parseMockExamAnswerKeyFiles(answerKeyFiles).catch((error) => {
+        console.warn('[mock-exam metadata] answer key focused extraction skipped:', error)
+        return []
+      })
+      parsed = mergeAnswerKeyMetadata(parsed, answerKeyParsed)
+    }
   } catch (error) {
     return err(error instanceof Error ? error.message : '메타데이터 분석 실패', 500)
   }
