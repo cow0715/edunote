@@ -209,11 +209,11 @@ export default function MockExamsPage() {
   const [studentSearch, setStudentSearch] = useState('')
   const [questionDraft, setQuestionDraft] = useState<MockExamQuestion[] | null>(null)
   const [omrBatchReviewItems, setOmrBatchReviewItems] = useState<OmrBatchReviewItem[]>([])
+  const [manualAnswerDraft, setManualAnswerDraft] = useState<{ key: string; answers: Record<number, string> } | null>(null)
   const [reportMessageTemplate, setReportMessageTemplate] = useState(defaultReportMessage)
   const [reportRecipients, setReportRecipients] = useState<ReportRecipientState>({ mother: true, father: false, student: true })
   const metadataInputRef = useRef<HTMLInputElement>(null)
   const ocrInputRef = useRef<HTMLInputElement>(null)
-  const ocrCaptureInputRef = useRef<HTMLInputElement>(null)
   const omrBatchInputRef = useRef<HTMLInputElement>(null)
 
   const { data: exams = [], isLoading: examsLoading } = useMockExams()
@@ -238,7 +238,7 @@ export default function MockExamsPage() {
   const sendReports = useSendMockExamReports(effectiveExamId)
 
   const selectedExam = detail?.exam ?? gradeExams.find((exam) => exam.id === effectiveExamId) ?? null
-  const activeQuestions = questionDraft ?? detail?.questions ?? []
+  const activeQuestions = useMemo(() => questionDraft ?? detail?.questions ?? [], [detail?.questions, questionDraft])
   const incompleteAnswerKeyCount = activeQuestions.filter((question) => !question.is_void && !question.all_correct && !question.correct_answer.trim()).length
   const readyQuestionCount = activeQuestions.length - incompleteAnswerKeyCount
   const typeCount = new Set(activeQuestions.map((question) => question.question_type).filter(Boolean)).size
@@ -265,6 +265,33 @@ export default function MockExamsPage() {
   const publishedResults = useMemo(
     () => (detail?.results ?? []).filter((result) => latestReport(result)),
     [detail?.results],
+  )
+  const manualAnswerKey = useMemo(
+    () => [
+      effectiveExamId ?? 'none',
+      selectedStudentId || 'none',
+      selectedResult?.updated_at ?? 'new',
+      activeQuestions.map((question) => question.question_number).join(','),
+    ].join(':'),
+    [activeQuestions, effectiveExamId, selectedResult?.updated_at, selectedStudentId],
+  )
+  const savedManualAnswers = useMemo(() => {
+    const savedAnswers = new Map<number, string>()
+    for (const answer of selectedResult?.mock_exam_student_answer ?? []) {
+      const questionNumber = answer.mock_exam_question?.question_number
+      if (questionNumber) savedAnswers.set(questionNumber, answer.student_answer ?? '')
+    }
+
+    return Object.fromEntries(
+      activeQuestions
+        .filter((question) => !question.is_void)
+        .map((question) => [question.question_number, savedAnswers.get(question.question_number) ?? '']),
+    )
+  }, [activeQuestions, selectedResult])
+  const manualAnswers = manualAnswerDraft?.key === manualAnswerKey ? manualAnswerDraft.answers : savedManualAnswers
+  const manualAnswerCount = useMemo(
+    () => activeQuestions.filter((question) => !question.is_void && manualAnswers[question.question_number]).length,
+    [activeQuestions, manualAnswers],
   )
 
   function changeGrade(nextGrade: string) {
@@ -369,21 +396,41 @@ export default function MockExamsPage() {
     if (data.results?.length) toast.success(`${data.results.length}개 답안을 인식했습니다`)
   }
 
+  function updateManualAnswer(questionNumber: number, answer: string) {
+    setManualAnswerDraft((prev) => {
+      const baseAnswers = prev?.key === manualAnswerKey ? prev.answers : manualAnswers
+      return {
+        key: manualAnswerKey,
+        answers: {
+          ...baseAnswers,
+          [questionNumber]: baseAnswers[questionNumber] === answer ? '' : answer,
+        },
+      }
+    })
+  }
+
+  async function handleSaveManualAnswers() {
+    if (!selectedStudentId) return
+    if (incompleteAnswerKeyCount > 0) {
+      toast.error('정답키가 완성된 뒤 수동 채점을 저장할 수 있습니다')
+      return
+    }
+
+    await saveResult.mutateAsync({
+      student_id: selectedStudentId,
+      answers: activeQuestions
+        .filter((question) => !question.is_void)
+        .map((question) => ({
+          question_number: question.question_number,
+          student_answer: manualAnswers[question.question_number] || null,
+        })),
+    })
+  }
+
   async function handleOcrFiles(event: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? [])
     event.target.value = ''
     await submitStudentOcrFiles(files)
-  }
-
-  async function handleCaptureImageFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? [])
-    event.target.value = ''
-    const images = files.filter((file) => file.type.startsWith('image/'))
-    if (files.length > 0 && images.length === 0) {
-      toast.error('캡쳐 이미지 파일을 업로드해 주세요')
-      return
-    }
-    await submitStudentOcrFiles(images)
   }
 
   async function handleOmrBatchFiles(event: React.ChangeEvent<HTMLInputElement>) {
@@ -913,27 +960,17 @@ export default function MockExamsPage() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <input ref={ocrInputRef} type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={handleOcrFiles} />
-                      <input ref={ocrCaptureInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCaptureImageFile} />
                       <Button variant="outline" className="rounded-full" onClick={openAnswerSheet}>
                         <Printer className="mr-2 h-4 w-4" />
                         답안지
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="rounded-full"
-                        onClick={() => ocrCaptureInputRef.current?.click()}
-                        disabled={!selectedStudentId || !effectiveExamId || ocrAnswers.isPending || incompleteAnswerKeyCount > 0}
-                      >
-                        {ocrAnswers.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
-                        캡쳐 이미지
                       </Button>
                       <Button
                         className="rounded-full bg-[#2463EB]"
                         onClick={() => ocrInputRef.current?.click()}
                         disabled={!selectedStudentId || !effectiveExamId || ocrAnswers.isPending || incompleteAnswerKeyCount > 0}
                       >
-                        {ocrAnswers.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
-                        OCR 채점
+                        {ocrAnswers.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                        답안지 업로드
                       </Button>
                     </div>
                   </CardHeader>
@@ -966,41 +1003,15 @@ export default function MockExamsPage() {
                           </div>
                         </div>
 
-                        <div className="rounded-[24px] bg-blue-50 p-5">
-                          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                            <div>
-                              <p className="text-sm font-extrabold text-[#1A1C1E]">캡쳐 이미지 테스트</p>
-                              <p className="mt-1 text-sm text-[#8B95A1]">
-                                PDF 대신 학생 한 명의 OMR 답란을 캡쳐한 이미지 한 장을 올려 바로 채점합니다.
-                              </p>
-                            </div>
-                            <Button
-                              className="rounded-full bg-[#2463EB]"
-                              onClick={() => ocrCaptureInputRef.current?.click()}
-                              disabled={!selectedStudentId || !effectiveExamId || ocrAnswers.isPending || incompleteAnswerKeyCount > 0}
-                            >
-                              {ocrAnswers.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
-                              캡쳐 이미지 올리기
-                            </Button>
-                          </div>
-                        </div>
-
                         <div className="rounded-[24px] bg-slate-50 p-5">
                           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                             <div>
-                              <p className="text-sm font-extrabold text-[#1A1C1E]">답안지 OCR 채점</p>
+                              <p className="text-sm font-extrabold text-[#1A1C1E]">답안지 업로드 및 OCR 채점</p>
                               <p className="mt-1 text-sm text-[#8B95A1]">
-                                답안지를 업로드하면 인식 결과가 즉시 채점되고 성적표 발행 목록에 반영됩니다.
+                                PDF, 이미지, 캡쳐 파일 모두 같은 OCR 채점으로 처리하고 성적표 발행 목록에 반영합니다.
                               </p>
                             </div>
-                            <Button
-                              className="rounded-full bg-[#2463EB]"
-                              onClick={() => ocrInputRef.current?.click()}
-                              disabled={!selectedStudentId || !effectiveExamId || ocrAnswers.isPending || incompleteAnswerKeyCount > 0}
-                            >
-                              {ocrAnswers.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
-                              답안지 업로드
-                            </Button>
+                            <Badge className="bg-blue-100 text-[#2463EB]">단일 업로드</Badge>
                           </div>
                           {selectedResult ? (
                             <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -1022,6 +1033,54 @@ export default function MockExamsPage() {
                               아직 채점 결과가 없습니다.
                             </div>
                           )}
+                        </div>
+
+                        <div className="rounded-[24px] bg-slate-50 p-5">
+                          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <p className="text-sm font-extrabold text-[#1A1C1E]">수동 입력</p>
+                              <p className="mt-1 text-sm text-[#8B95A1]">
+                                OCR이 빠뜨린 문항만 눌러 보정하거나, 전체 답안을 직접 입력해 저장할 수 있습니다.
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge className="bg-white text-[#2463EB]">{manualAnswerCount}/45 입력</Badge>
+                              <Button
+                                className="rounded-full bg-[#2463EB]"
+                                onClick={handleSaveManualAnswers}
+                                disabled={!selectedStudentId || saveResult.isPending || incompleteAnswerKeyCount > 0}
+                              >
+                                {saveResult.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                                저장
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                            {activeQuestions.filter((question) => !question.is_void).map((question) => (
+                              <div key={question.question_number} className="grid grid-cols-[2rem_1fr] items-center gap-2 rounded-2xl bg-white p-2">
+                                <div className="text-center text-sm font-extrabold text-[#1A1C1E]">{question.question_number}</div>
+                                <div className="grid grid-cols-5 gap-1">
+                                  {[1, 2, 3, 4, 5].map((choice) => {
+                                    const value = String(choice)
+                                    const selected = manualAnswers[question.question_number] === value
+                                    return (
+                                      <button
+                                        key={choice}
+                                        type="button"
+                                        onClick={() => updateManualAnswer(question.question_number, value)}
+                                        className={cn(
+                                          'h-8 rounded-full text-xs font-extrabold transition',
+                                          selected ? 'bg-[#2463EB] text-white' : 'bg-slate-100 text-slate-500 hover:bg-blue-50 hover:text-[#2463EB]',
+                                        )}
+                                      >
+                                        {choice}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </>
                     )}
