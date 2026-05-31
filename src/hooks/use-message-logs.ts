@@ -9,6 +9,13 @@ export type MessageLog = {
   week_id: string | null
   message: string
   sent_at: string
+  message_type?: string
+  mock_exam_id?: string | null
+  mock_exam_report_id?: string | null
+  recipient_label?: string | null
+  phone?: string | null
+  status?: string
+  error_message?: string | null
   student?: { id: string; name: string; mother_phone: string | null; father_phone: string | null; phone: string | null }
   week?: {
     id: string

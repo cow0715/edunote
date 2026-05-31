@@ -10,6 +10,7 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  MessageSquare,
   Plus,
   Printer,
   Search,
@@ -25,6 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { useStudents } from '@/hooks/use-students'
 import {
   useCreateMockExam,
@@ -37,14 +39,16 @@ import {
   usePublishMockExamReport,
   usePublishMockExamReports,
   useSaveMockExamResult,
+  useSendMockExamReports,
   useUpdateMockExamQuestions,
 } from '@/hooks/use-mock-exams'
-import type { OmrBatchReviewItem } from '@/hooks/use-mock-exams'
+import type { MockExamReportRecipient, OmrBatchReviewItem } from '@/hooks/use-mock-exams'
 import type { MockExamQuestion, MockExamResult, StudentWithEnrollments } from '@/lib/types'
 import { MOCK_EXAM_TYPE_OPTIONS } from '@/lib/mock-exam'
 import { cn } from '@/lib/utils'
 
 type WorkMode = 'setup' | 'grading' | 'reports'
+type ReportRecipientState = Record<MockExamReportRecipient, boolean>
 
 type CreateForm = {
   title: string
@@ -60,6 +64,14 @@ const gradeTabs = [
   { value: '2', label: '고2' },
   { value: '3', label: '고3' },
 ]
+
+const reportRecipientLabels: Record<MockExamReportRecipient, string> = {
+  mother: '어머니',
+  father: '아버지',
+  student: '학생',
+}
+
+const defaultReportMessage = '[{시험명}] {학생명} 학생 성적표가 발행되었습니다.\n\n성적표 확인:\n{성적표링크}'
 
 function blankForm(grade: string): CreateForm {
   const now = new Date()
@@ -197,8 +209,11 @@ export default function MockExamsPage() {
   const [studentSearch, setStudentSearch] = useState('')
   const [questionDraft, setQuestionDraft] = useState<MockExamQuestion[] | null>(null)
   const [omrBatchReviewItems, setOmrBatchReviewItems] = useState<OmrBatchReviewItem[]>([])
+  const [reportMessageTemplate, setReportMessageTemplate] = useState(defaultReportMessage)
+  const [reportRecipients, setReportRecipients] = useState<ReportRecipientState>({ mother: true, father: false, student: true })
   const metadataInputRef = useRef<HTMLInputElement>(null)
   const ocrInputRef = useRef<HTMLInputElement>(null)
+  const ocrCaptureInputRef = useRef<HTMLInputElement>(null)
   const omrBatchInputRef = useRef<HTMLInputElement>(null)
 
   const { data: exams = [], isLoading: examsLoading } = useMockExams()
@@ -220,6 +235,7 @@ export default function MockExamsPage() {
   const saveResult = useSaveMockExamResult(effectiveExamId)
   const publishReport = usePublishMockExamReport(effectiveExamId)
   const publishReports = usePublishMockExamReports(effectiveExamId)
+  const sendReports = useSendMockExamReports(effectiveExamId)
 
   const selectedExam = detail?.exam ?? gradeExams.find((exam) => exam.id === effectiveExamId) ?? null
   const activeQuestions = questionDraft ?? detail?.questions ?? []
@@ -244,6 +260,10 @@ export default function MockExamsPage() {
   const selectedStudent = gradeStudents.find((student) => student.id === selectedStudentId) ?? null
   const unpublishedResults = useMemo(
     () => (detail?.results ?? []).filter((result) => !latestReport(result)),
+    [detail?.results],
+  )
+  const publishedResults = useMemo(
+    () => (detail?.results ?? []).filter((result) => latestReport(result)),
     [detail?.results],
   )
 
@@ -332,9 +352,7 @@ export default function MockExamsPage() {
     updateQuestions.mutate(activeQuestions)
   }
 
-  async function handleOcrFiles(event: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? [])
-    event.target.value = ''
+  async function submitStudentOcrFiles(files: File[]) {
     if (!files.length || !selectedStudentId) return
     if (incompleteAnswerKeyCount > 0) {
       toast.error('정답키가 완성된 뒤 답안지 OCR을 실행할 수 있습니다')
@@ -349,6 +367,23 @@ export default function MockExamsPage() {
 
     const data = await ocrAnswers.mutateAsync({ student_id: selectedStudentId, files: payload })
     if (data.results?.length) toast.success(`${data.results.length}개 답안을 인식했습니다`)
+  }
+
+  async function handleOcrFiles(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    await submitStudentOcrFiles(files)
+  }
+
+  async function handleCaptureImageFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    const images = files.filter((file) => file.type.startsWith('image/'))
+    if (files.length > 0 && images.length === 0) {
+      toast.error('캡쳐 이미지 파일을 업로드해 주세요')
+      return
+    }
+    await submitStudentOcrFiles(images)
   }
 
   async function handleOmrBatchFiles(event: React.ChangeEvent<HTMLInputElement>) {
@@ -411,6 +446,42 @@ export default function MockExamsPage() {
       return
     }
     publishReports.mutate(resultIds)
+  }
+
+  function toggleReportRecipient(recipient: MockExamReportRecipient) {
+    setReportRecipients((prev) => ({ ...prev, [recipient]: !prev[recipient] }))
+  }
+
+  function handleSendPublishedReports() {
+    const recipients = (Object.keys(reportRecipients) as MockExamReportRecipient[]).filter((key) => reportRecipients[key])
+    const message = reportMessageTemplate.trim()
+    if (publishedResults.length === 0) {
+      toast.error('전송할 발행 성적표가 없습니다')
+      return
+    }
+    if (recipients.length === 0) {
+      toast.error('수신자를 선택해 주세요')
+      return
+    }
+    if (!message) {
+      toast.error('문자 내용을 입력해 주세요')
+      return
+    }
+    if (!message.includes('{성적표링크}')) {
+      toast.error('문자 내용에 {성적표링크}를 포함해 주세요')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `발행된 성적표 ${publishedResults.length}명을 ${recipients.map((recipient) => reportRecipientLabels[recipient]).join(', ')}에게 전송할까요?`,
+    )
+    if (!confirmed) return
+
+    sendReports.mutate({
+      result_ids: publishedResults.map((result) => result.id),
+      recipients,
+      message_template: message,
+    })
   }
 
   function reportUrl(token: string) {
@@ -842,9 +913,19 @@ export default function MockExamsPage() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <input ref={ocrInputRef} type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={handleOcrFiles} />
+                      <input ref={ocrCaptureInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCaptureImageFile} />
                       <Button variant="outline" className="rounded-full" onClick={openAnswerSheet}>
                         <Printer className="mr-2 h-4 w-4" />
                         답안지
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="rounded-full"
+                        onClick={() => ocrCaptureInputRef.current?.click()}
+                        disabled={!selectedStudentId || !effectiveExamId || ocrAnswers.isPending || incompleteAnswerKeyCount > 0}
+                      >
+                        {ocrAnswers.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+                        캡쳐 이미지
                       </Button>
                       <Button
                         className="rounded-full bg-[#2463EB]"
@@ -882,6 +963,25 @@ export default function MockExamsPage() {
                           <div className="rounded-2xl bg-slate-50 p-4">
                             <div className="text-xs font-bold text-[#8B95A1]">독해</div>
                             <div className="mt-2 text-xl font-extrabold">{selectedResult ? resultRate(selectedResult.reading_correct, selectedResult.reading_total) : '-'}</div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-[24px] bg-blue-50 p-5">
+                          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <p className="text-sm font-extrabold text-[#1A1C1E]">캡쳐 이미지 테스트</p>
+                              <p className="mt-1 text-sm text-[#8B95A1]">
+                                PDF 대신 학생 한 명의 OMR 답란을 캡쳐한 이미지 한 장을 올려 바로 채점합니다.
+                              </p>
+                            </div>
+                            <Button
+                              className="rounded-full bg-[#2463EB]"
+                              onClick={() => ocrCaptureInputRef.current?.click()}
+                              disabled={!selectedStudentId || !effectiveExamId || ocrAnswers.isPending || incompleteAnswerKeyCount > 0}
+                            >
+                              {ocrAnswers.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+                              캡쳐 이미지 올리기
+                            </Button>
                           </div>
                         </div>
 
@@ -954,7 +1054,58 @@ export default function MockExamsPage() {
                   ) : !detail?.results.length ? (
                     <div className="rounded-2xl bg-slate-50 p-8 text-center text-sm font-medium text-[#8B95A1]">채점된 학생이 없습니다.</div>
                   ) : (
-                    <div className="overflow-hidden rounded-2xl bg-slate-50">
+                    <div className="space-y-4">
+                      <div className="rounded-[24px] bg-slate-50 p-4">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 text-sm font-extrabold text-[#1A1C1E]">
+                              <MessageSquare className="h-4 w-4 text-[#2463EB]" />
+                              성적표 문자 전송
+                            </div>
+                            <p className="mt-1 text-sm font-medium text-[#8B95A1]">
+                              발행된 성적표 링크를 선택한 수신자에게 전송합니다. 기본 수신자는 어머니와 학생입니다.
+                            </p>
+                            <Textarea
+                              value={reportMessageTemplate}
+                              onChange={(event) => setReportMessageTemplate(event.target.value)}
+                              className="mt-3 min-h-28 resize-none rounded-2xl bg-white text-sm"
+                            />
+                            <p className="mt-2 text-xs font-medium text-[#8B95A1]">
+                              사용 가능: {'{학생명}'} {'{시험명}'} {'{성적표링크}'}
+                            </p>
+                          </div>
+                          <div className="w-full space-y-3 lg:w-64">
+                            <div className="flex flex-wrap gap-2">
+                              {(Object.keys(reportRecipientLabels) as MockExamReportRecipient[]).map((recipient) => (
+                                <button
+                                  key={recipient}
+                                  type="button"
+                                  onClick={() => toggleReportRecipient(recipient)}
+                                  className={cn(
+                                    'rounded-full px-3 py-2 text-sm font-bold transition',
+                                    reportRecipients[recipient] ? 'bg-[#2463EB] text-white' : 'bg-white text-slate-500 hover:bg-blue-50',
+                                  )}
+                                >
+                                  {reportRecipientLabels[recipient]}
+                                </button>
+                              ))}
+                            </div>
+                            <Button
+                              className="w-full rounded-full bg-[#2463EB]"
+                              onClick={handleSendPublishedReports}
+                              disabled={publishedResults.length === 0 || sendReports.isPending}
+                            >
+                              {sendReports.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                              발행 성적표 전송
+                            </Button>
+                            <p className="text-xs font-medium text-[#8B95A1]">
+                              대상 {publishedResults.length}명 · 미발행 {unpublishedResults.length}명
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="overflow-hidden rounded-2xl bg-slate-50">
                       {detail.results.map((result) => {
                         const report = latestReport(result)
                         return (
@@ -1001,6 +1152,7 @@ export default function MockExamsPage() {
                           </div>
                         )
                       })}
+                      </div>
                     </div>
                   )}
                 </CardContent>
