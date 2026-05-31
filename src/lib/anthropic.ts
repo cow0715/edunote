@@ -21,6 +21,19 @@ export type ExamOcrResult = {
   student_answer_text?: string
 }
 
+export type ExamOmrAnswer = {
+  question_number: number
+  student_answer: number | null
+}
+
+export type ExamOmrPageResult = {
+  page_number: number
+  student_name: string | null
+  answers: ExamOmrAnswer[]
+  confidence: number
+  warnings: string[]
+}
+
 export type ExamOcrBatchInput = {
   fileData: string
   mimeType: string
@@ -1365,6 +1378,124 @@ function mergeExamOcrResults(results: ExamOcrResult[][]): ExamOcrResult[] {
   })
 }
 
+function extractJsonObjectCandidate(raw: string): string {
+  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  return start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned
+}
+
+function buildExamOmrVisionPrompt(questions: ExamOcrQuestion[], pageNumber: number) {
+  const questionNumbers = questions
+    .map((question) => question.question_number)
+    .filter((number) => Number.isFinite(number))
+    .sort((a, b) => a - b)
+  const firstQuestion = questionNumbers[0] ?? 1
+  const lastQuestion = questionNumbers[questionNumbers.length - 1] ?? 45
+
+  return `This is one scanned Korean CSAT/mock-exam OMR answer sheet page.
+
+Task:
+- Read the handwritten student name from the name field.
+- Read the marked objective answers for questions ${firstQuestion}-${lastQuestion}.
+- The answer area is usually split into 1-20, 21-40, and 41-45. Each question has choices 1-5.
+- The page may be rotated. Read it by the OMR card orientation, not by the uploaded image orientation.
+
+Rules:
+- Only dark filled bubbles count as selected answers.
+- If a question has multiple dark marks or is ambiguous, use null.
+- If a question is blank, use null.
+- Do not use school, exam title, supervisor, or instruction text as the student name.
+- Do not invent question numbers. Use the visible OMR question numbers.
+- Return exactly one JSON object and no markdown.
+
+Schema:
+{
+  "page_number": ${pageNumber},
+  "student_name": "홍길동",
+  "answers": [
+    {"question_number": 1, "student_answer": 3},
+    {"question_number": 2, "student_answer": null}
+  ],
+  "confidence": 0.0,
+  "warnings": []
+}`
+}
+
+function normalizeOmrPageResult(value: Partial<ExamOmrPageResult>, questions: ExamOcrQuestion[], pageNumber: number): ExamOmrPageResult {
+  const allowed = new Set(questions.map((question) => question.question_number))
+  const answers = Array.isArray(value.answers)
+    ? value.answers
+        .map((answer) => ({
+          question_number: Number(answer?.question_number),
+          student_answer: answer?.student_answer == null ? null : Number(answer.student_answer),
+        }))
+        .filter((answer) => allowed.has(answer.question_number))
+        .map((answer) => ({
+          question_number: answer.question_number,
+          student_answer: answer.student_answer && answer.student_answer >= 1 && answer.student_answer <= 5
+            ? answer.student_answer
+            : null,
+        }))
+    : []
+
+  const byQuestion = new Map(answers.map((answer) => [answer.question_number, answer]))
+  const normalizedAnswers = questions.map((question) => byQuestion.get(question.question_number) ?? {
+    question_number: question.question_number,
+    student_answer: null,
+  })
+  const confidence = Number(value.confidence)
+
+  return {
+    page_number: pageNumber,
+    student_name: typeof value.student_name === 'string' && value.student_name.trim() ? value.student_name.trim() : null,
+    answers: normalizedAnswers,
+    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+    warnings: Array.isArray(value.warnings) ? value.warnings.map(String).filter(Boolean) : [],
+  }
+}
+
+async function ocrExamOmrPage(
+  fileData: string,
+  mimeType: string,
+  questions: ExamOcrQuestion[],
+  pageNumber: number,
+): Promise<ExamOmrPageResult> {
+  const isImage = mimeType.startsWith('image/')
+  const isPdf = mimeType === 'application/pdf'
+  if (!isImage && !isPdf) throw new Error('지원하지 않는 파일 형식입니다. PDF 또는 이미지를 업로드해 주세요.')
+
+  const fileContent = isImage
+    ? {
+        type: 'image' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+          data: fileData,
+        },
+      }
+    : {
+        type: 'document' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: 'application/pdf' as const,
+          data: fileData,
+        },
+      }
+
+  const res = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: [fileContent, { type: 'text', text: buildExamOmrVisionPrompt(questions, pageNumber) }] }],
+  })
+  const raw = res.content
+    .filter((content) => content.type === 'text')
+    .map((content) => content.text)
+    .join('\n')
+  const parsed = JSON.parse(jsonrepair(extractJsonObjectCandidate(raw))) as Partial<ExamOmrPageResult>
+  return normalizeOmrPageResult(parsed, questions, pageNumber)
+}
+
 export async function ocrExamAnswerBatch(
   files: ExamOcrBatchInput[],
   questions: ExamOcrQuestion[],
@@ -1395,6 +1526,30 @@ export async function ocrExamAnswerBatch(
 // ── 기출문제 AI 해설 생성 ─────────────────────────────────────────────────
 // 대상: 18~45번 문항
 // 생성 필드: 풀이, Words & Phrases (해석은 PDF 업로드 값 보존)
+
+export async function ocrExamOmrBatch(
+  files: ExamOcrBatchInput[],
+  questions: ExamOcrQuestion[],
+): Promise<{ results: ExamOmrPageResult[]; pagesProcessed: number }> {
+  const results: ExamOmrPageResult[] = []
+  let pagesProcessed = 0
+
+  for (const file of files) {
+    if (file.mimeType === 'application/pdf') {
+      const pages = await splitPdfToSinglePageBase64(file.fileData)
+      for (const page of pages) {
+        pagesProcessed += 1
+        results.push(await ocrExamOmrPage(page, 'application/pdf', questions, pagesProcessed))
+      }
+      continue
+    }
+
+    pagesProcessed += 1
+    results.push(await ocrExamOmrPage(file.fileData, file.mimeType, questions, pagesProcessed))
+  }
+
+  return { results, pagesProcessed }
+}
 
 export type GeneratedExplanation = {
   question_number: number

@@ -24,6 +24,31 @@ type OcrMockExamBody = {
   files: { fileData: string; mimeType: string; fileName?: string }[]
 }
 
+export type OmrBatchReviewItem = {
+  page_number: number
+  student_name: string | null
+  answers: { question_number: number; student_answer: number | null }[]
+  answered_count: number
+  confidence: number
+  status: 'saved' | 'review_required'
+  matched_student_id: string | null
+  matched_student_name: string | null
+  match_score: number
+  candidates: { id: string; name: string; school: string | null; grade: string | null; score: number }[]
+  warnings: string[]
+}
+
+export type OmrBatchResponse = {
+  pages_processed: number
+  saved_count: number
+  review_count: number
+  items: OmrBatchReviewItem[]
+}
+
+type OmrBatchBody = {
+  files: { fileData: string; mimeType: string; fileName?: string }[]
+}
+
 type ImportMockExamMetadataBody = {
   raw_text?: string
   fileData?: string
@@ -154,6 +179,27 @@ export function useOcrMockExamAnswers(id: string | null) {
   })
 }
 
+export function useOmrBatchMockExamAnswers(id: string | null) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: OmrBatchBody): Promise<OmrBatchResponse> => {
+      const res = await fetch(`/api/mock-exams/${id}/omr-batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? 'OMR 일괄 채점 실패')
+      return res.json()
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['mock-exam', id] })
+      qc.invalidateQueries({ queryKey: ['mock-exams'] })
+      toast.success(`OMR ${data.pages_processed}장을 처리했습니다. 자동 저장 ${data.saved_count}명, 확인 필요 ${data.review_count}명`)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
 export function useImportMockExamMetadata(id: string | null) {
   const qc = useQueryClient()
   return useMutation({
@@ -191,6 +237,28 @@ export function usePublishMockExamReport(id: string | null) {
       qc.invalidateQueries({ queryKey: ['mock-exam', id] })
       qc.invalidateQueries({ queryKey: ['mock-exams'] })
       toast.success('성적표 스냅샷이 발행되었습니다')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
+export function usePublishMockExamReports(id: string | null) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (resultIds: string[]): Promise<{ published_count: number }> => {
+      const uniqueIds = [...new Set(resultIds)].filter(Boolean)
+      const res = await fetch(`/api/mock-exams/${id}/reports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ result_ids: uniqueIds }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? '성적표 일괄 발행 실패')
+      return res.json()
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['mock-exam', id] })
+      qc.invalidateQueries({ queryKey: ['mock-exams'] })
+      toast.success(`성적표 ${data.published_count}개를 발행했습니다`)
     },
     onError: (e: Error) => toast.error(e.message),
   })
