@@ -75,6 +75,23 @@ export function useCreateMockExam() {
   })
 }
 
+export function useDeleteMockExam() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/mock-exams/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error((await res.json()).error ?? '모의고사 삭제 실패')
+      return res.json()
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mock-exams'] })
+      qc.invalidateQueries({ queryKey: ['mock-exam'] })
+      toast.success('모의고사가 삭제되었습니다')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
 export function useUpdateMockExamQuestions(id: string | null) {
   const qc = useQueryClient()
   return useMutation({

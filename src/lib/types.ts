@@ -230,9 +230,9 @@ export interface MockExamResult {
   status: 'draft' | 'published';
   created_at: string;
   updated_at: string;
-  student?: Pick<Student, 'id' | 'name' | 'school' | 'grade'> | null;
+  student?: Pick<Student, 'id' | 'name' | 'school' | 'grade'> | Pick<Student, 'id' | 'name' | 'school' | 'grade'>[] | null;
   mock_exam_student_answer?: MockExamStudentAnswer[];
-  mock_exam_report?: MockExamReport[];
+  mock_exam_report?: MockExamReport[] | MockExamReport | null;
 }
 
 export interface MockExamDetail {
