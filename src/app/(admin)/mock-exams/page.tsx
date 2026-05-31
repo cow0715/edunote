@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from 'react'
 import {
   BarChart3,
+  AlertTriangle,
   Camera,
   CheckCircle2,
   Copy,
@@ -32,9 +33,13 @@ import {
   useMockExam,
   useMockExams,
   useOcrMockExamAnswers,
+  useOmrBatchMockExamAnswers,
   usePublishMockExamReport,
+  usePublishMockExamReports,
+  useSaveMockExamResult,
   useUpdateMockExamQuestions,
 } from '@/hooks/use-mock-exams'
+import type { OmrBatchReviewItem } from '@/hooks/use-mock-exams'
 import type { MockExamQuestion, MockExamResult, StudentWithEnrollments } from '@/lib/types'
 import { MOCK_EXAM_TYPE_OPTIONS } from '@/lib/mock-exam'
 import { cn } from '@/lib/utils'
@@ -98,6 +103,10 @@ function formatKoreanDate(value: string | null | undefined) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '-'
   return date.toLocaleDateString('ko-KR')
+}
+
+function isCurrentlyEnrolled(student: StudentWithEnrollments) {
+  return student.class_student?.some((enrollment) => enrollment.left_at === null) ?? false
 }
 
 function normalizeGrade(value: string | number | null | undefined) {
@@ -187,8 +196,10 @@ export default function MockExamsPage() {
   const [selectedStudentId, setSelectedStudentId] = useState('')
   const [studentSearch, setStudentSearch] = useState('')
   const [questionDraft, setQuestionDraft] = useState<MockExamQuestion[] | null>(null)
+  const [omrBatchReviewItems, setOmrBatchReviewItems] = useState<OmrBatchReviewItem[]>([])
   const metadataInputRef = useRef<HTMLInputElement>(null)
   const ocrInputRef = useRef<HTMLInputElement>(null)
+  const omrBatchInputRef = useRef<HTMLInputElement>(null)
 
   const { data: exams = [], isLoading: examsLoading } = useMockExams()
   const { data: students = [] } = useStudents()
@@ -205,7 +216,10 @@ export default function MockExamsPage() {
   const importMetadata = useImportMockExamMetadata(effectiveExamId)
   const updateQuestions = useUpdateMockExamQuestions(effectiveExamId)
   const ocrAnswers = useOcrMockExamAnswers(effectiveExamId)
+  const omrBatchAnswers = useOmrBatchMockExamAnswers(effectiveExamId)
+  const saveResult = useSaveMockExamResult(effectiveExamId)
   const publishReport = usePublishMockExamReport(effectiveExamId)
+  const publishReports = usePublishMockExamReports(effectiveExamId)
 
   const selectedExam = detail?.exam ?? gradeExams.find((exam) => exam.id === effectiveExamId) ?? null
   const activeQuestions = questionDraft ?? detail?.questions ?? []
@@ -220,6 +234,7 @@ export default function MockExamsPage() {
   const gradeStudents = useMemo(() => {
     const query = studentSearch.trim().toLowerCase()
     return students
+      .filter(isCurrentlyEnrolled)
       .filter((student) => normalizeGrade(student.grade) === grade)
       .filter((student) => !query || student.name.toLowerCase().includes(query) || (student.school ?? '').toLowerCase().includes(query))
       .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
@@ -227,6 +242,10 @@ export default function MockExamsPage() {
 
   const selectedResult = selectedStudentId ? resultByStudentId.get(selectedStudentId) ?? null : null
   const selectedStudent = gradeStudents.find((student) => student.id === selectedStudentId) ?? null
+  const unpublishedResults = useMemo(
+    () => (detail?.results ?? []).filter((result) => !latestReport(result)),
+    [detail?.results],
+  )
 
   function changeGrade(nextGrade: string) {
     setGrade(nextGrade)
@@ -234,6 +253,7 @@ export default function MockExamsPage() {
     setSelectedExamId(null)
     setSelectedStudentId('')
     setQuestionDraft(null)
+    setOmrBatchReviewItems([])
   }
 
   async function handleCreate() {
@@ -254,6 +274,7 @@ export default function MockExamsPage() {
     setSelectedExamId(id)
     setSelectedStudentId('')
     setQuestionDraft(null)
+    setOmrBatchReviewItems([])
   }
 
   async function handleDeleteExam(examId: string, examTitle: string) {
@@ -276,6 +297,7 @@ export default function MockExamsPage() {
     if (effectiveExamId === examId) setSelectedExamId(null)
     setSelectedStudentId('')
     setQuestionDraft(null)
+    setOmrBatchReviewItems([])
     setMode('setup')
   }
 
@@ -329,8 +351,66 @@ export default function MockExamsPage() {
     if (data.results?.length) toast.success(`${data.results.length}개 답안을 인식했습니다`)
   }
 
+  async function handleOmrBatchFiles(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    if (!files.length) return
+    if (incompleteAnswerKeyCount > 0) {
+      toast.error('정답표가 완성되어야 OMR 일괄 채점을 실행할 수 있습니다')
+      return
+    }
+
+    const payload = await Promise.all(files.map(async (file) => ({
+      fileData: await readFileAsBase64(file),
+      mimeType: file.type,
+      fileName: file.name,
+    })))
+
+    const data = await omrBatchAnswers.mutateAsync({ files: payload })
+    setOmrBatchReviewItems(data.items.filter((item) => item.status !== 'saved'))
+    const firstSaved = data.items.find((item) => item.status === 'saved' && item.matched_student_id)
+    if (firstSaved?.matched_student_id) setSelectedStudentId(firstSaved.matched_student_id)
+  }
+
+  function updateOmrReviewStudent(pageNumber: number, studentId: string) {
+    const student = gradeStudents.find((item) => item.id === studentId)
+    setOmrBatchReviewItems((items) => items.map((item) => (
+      item.page_number === pageNumber
+        ? {
+            ...item,
+            matched_student_id: studentId,
+            matched_student_name: student?.name ?? item.matched_student_name,
+            match_score: item.candidates.find((candidate) => candidate.id === studentId)?.score ?? item.match_score,
+          }
+        : item
+    )))
+  }
+
+  async function handleSaveReviewedOmr(item: OmrBatchReviewItem) {
+    if (!item.matched_student_id) {
+      toast.error('저장할 학생을 선택해 주세요')
+      return
+    }
+
+    await saveResult.mutateAsync({
+      student_id: item.matched_student_id,
+      answers: item.answers,
+    })
+    setSelectedStudentId(item.matched_student_id)
+    setOmrBatchReviewItems((items) => items.filter((candidate) => candidate.page_number !== item.page_number))
+  }
+
   function handlePublish(result: MockExamResult) {
     publishReport.mutate(result.id)
+  }
+
+  function handlePublishAll() {
+    const resultIds = unpublishedResults.map((result) => result.id)
+    if (resultIds.length === 0) {
+      toast.info('발행할 미발행 성적표가 없습니다')
+      return
+    }
+    publishReports.mutate(resultIds)
   }
 
   function reportUrl(token: string) {
@@ -639,6 +719,78 @@ export default function MockExamsPage() {
 
             {selectedExam && mode === 'grading' && (
               <section className="grid gap-5 xl:grid-cols-[360px_1fr]">
+                <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)] xl:col-span-2">
+                  <CardContent className="p-5">
+                    <input ref={omrBatchInputRef} type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={handleOmrBatchFiles} />
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-sm font-extrabold text-[#2463EB]">
+                          <Camera className="h-4 w-4" />
+                          OMR 일괄 채점
+                        </div>
+                        <p className="mt-1 text-sm font-medium text-[#8B95A1]">
+                          수능형 OMR PDF를 한 번에 올리면 페이지별 이름과 1~45번 마킹을 읽고, 확실한 학생은 자동 저장합니다.
+                        </p>
+                      </div>
+                      <Button
+                        className="rounded-full bg-[#2463EB]"
+                        onClick={() => omrBatchInputRef.current?.click()}
+                        disabled={!effectiveExamId || omrBatchAnswers.isPending || incompleteAnswerKeyCount > 0}
+                      >
+                        {omrBatchAnswers.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                        PDF 일괄 업로드
+                      </Button>
+                    </div>
+
+                    {omrBatchReviewItems.length > 0 && (
+                      <div className="mt-5 space-y-3 rounded-[24px] bg-slate-50 p-4">
+                        <div className="flex items-center gap-2 text-sm font-extrabold text-[#1A1C1E]">
+                          <AlertTriangle className="h-4 w-4 text-amber-500" />
+                          확인이 필요한 답안지 {omrBatchReviewItems.length}장
+                        </div>
+                        <div className="grid gap-3">
+                          {omrBatchReviewItems.map((item) => (
+                            <div key={item.page_number} className="grid gap-3 rounded-2xl bg-white p-4 lg:grid-cols-[1fr_240px_auto] lg:items-center">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-extrabold">{item.page_number}페이지</span>
+                                  <Badge variant="outline">이름 {item.student_name ?? '미인식'}</Badge>
+                                  <Badge className="bg-blue-50 text-[#2463EB]">{item.answered_count}/45문항</Badge>
+                                </div>
+                                {item.warnings.length > 0 && (
+                                  <p className="mt-2 text-xs font-medium text-amber-600">{item.warnings[0]}</p>
+                                )}
+                              </div>
+                              <Select
+                                value={item.matched_student_id ?? ''}
+                                onValueChange={(studentId) => updateOmrReviewStudent(item.page_number, studentId)}
+                              >
+                                <SelectTrigger className="h-10 rounded-full">
+                                  <SelectValue placeholder="학생 선택" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {gradeStudents.map((student) => (
+                                    <SelectItem key={student.id} value={student.id}>
+                                      {student.name}{student.school ? ` · ${student.school}` : ''}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                className="rounded-full bg-[#2463EB]"
+                                disabled={!item.matched_student_id || saveResult.isPending}
+                                onClick={() => handleSaveReviewedOmr(item)}
+                              >
+                                저장
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
                 <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
                   <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-lg">
@@ -780,8 +932,21 @@ export default function MockExamsPage() {
 
             {selectedExam && mode === 'reports' && (
               <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
-                <CardHeader>
-                  <CardTitle className="text-lg">학생별 성적표</CardTitle>
+                <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle className="text-lg">학생별 성적표</CardTitle>
+                    <p className="mt-1 text-sm font-medium text-[#8B95A1]">
+                      미발행 {unpublishedResults.length}명 · 발행됨 {(detail?.results.length ?? 0) - unpublishedResults.length}명
+                    </p>
+                  </div>
+                  <Button
+                    className="rounded-full bg-[#2463EB]"
+                    onClick={handlePublishAll}
+                    disabled={detailLoading || unpublishedResults.length === 0 || publishReports.isPending}
+                  >
+                    {publishReports.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                    미발행 전체 발행
+                  </Button>
                 </CardHeader>
                 <CardContent>
                   {detailLoading ? (
@@ -826,7 +991,7 @@ export default function MockExamsPage() {
                                 size="sm"
                                 className={cn('rounded-full', !report && 'bg-[#2463EB]')}
                                 variant={report ? 'outline' : 'default'}
-                                disabled={publishReport.isPending}
+                                disabled={publishReport.isPending || publishReports.isPending}
                                 onClick={() => handlePublish(result)}
                               >
                                 <Send className="mr-2 h-3.5 w-3.5" />

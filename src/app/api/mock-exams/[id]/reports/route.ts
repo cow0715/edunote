@@ -5,6 +5,8 @@ function one<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null
 }
 
+type SupabaseClient = Awaited<ReturnType<typeof getAuth>>['supabase']
+
 type ResultForSnapshot = {
   id: string
   mock_exam_id: string
@@ -79,19 +81,7 @@ function buildRankSnapshot(rows: ResultRankRow[], resultId: string, rawScore: nu
   }
 }
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { supabase, user } = await getAuth()
-  if (!user) return err('인증 필요', 401)
-
-  const teacherId = await getTeacherId(supabase, user.id)
-  if (!teacherId) return err('강사 정보를 찾을 수 없습니다', 404)
-
-  const { id } = await params
-  if (!(await assertMockExamOwner(supabase, id, teacherId))) return err('접근 권한이 없습니다', 403)
-
-  const body = await request.json().catch(() => ({})) as { result_id?: string }
-  if (!body.result_id) return err('성적 결과를 선택해 주세요')
-
+async function publishMockExamReport(supabase: SupabaseClient, mockExamId: string, resultId: string) {
   const { data, error } = await supabase
     .from('mock_exam_result')
     .select(`
@@ -103,15 +93,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         mock_exam_question(question_number, correct_answer, points, section, question_type, difficulty, is_void, all_correct)
       )
     `)
-    .eq('id', body.result_id)
-    .eq('mock_exam_id', id)
+    .eq('id', resultId)
+    .eq('mock_exam_id', mockExamId)
     .single()
 
-  if (error || !data) return err(error?.message ?? '성적 결과를 찾을 수 없습니다', 404)
+  if (error || !data) throw new Error(error?.message ?? '성적 결과를 찾을 수 없습니다')
+
   const result = data as unknown as ResultForSnapshot
   const exam = one(result.mock_exam)
   const student = one(result.student)
-  if (!exam || !student) return err('성적표 스냅샷 생성에 필요한 정보가 부족합니다', 422)
+  if (!exam || !student) throw new Error('성적표 링크 생성에 필요한 정보가 부족합니다')
 
   const wrongAnswers = (result.mock_exam_student_answer ?? [])
     .map((answer) => ({
@@ -124,10 +115,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: rankRows, error: rankError } = await supabase
     .from('mock_exam_result')
     .select('id, raw_score')
-    .eq('mock_exam_id', id)
+    .eq('mock_exam_id', mockExamId)
     .not('raw_score', 'is', null)
 
-  if (rankError) return err(rankError.message, 500)
+  if (rankError) throw new Error(rankError.message)
 
   const snapshot = {
     version: 1,
@@ -160,12 +151,44 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .select()
     .single()
 
-  if (reportError) return err(reportError.message, 500)
+  if (reportError) throw new Error(reportError.message)
 
   await supabase
     .from('mock_exam_result')
     .update({ status: 'published', published_at: report.published_at })
     .eq('id', result.id)
 
-  return ok(report)
+  return report
+}
+
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase, user } = await getAuth()
+  if (!user) return err('인증이 필요합니다', 401)
+
+  const teacherId = await getTeacherId(supabase, user.id)
+  if (!teacherId) return err('강사 정보를 찾을 수 없습니다', 404)
+
+  const { id } = await params
+  if (!(await assertMockExamOwner(supabase, id, teacherId))) return err('접근 권한이 없습니다', 403)
+
+  const body = await request.json().catch(() => ({})) as { result_id?: string; result_ids?: string[] }
+  const resultIds = Array.isArray(body.result_ids)
+    ? [...new Set(body.result_ids.filter((resultId) => typeof resultId === 'string' && resultId))]
+    : []
+
+  try {
+    if (resultIds.length > 0) {
+      const reports = []
+      for (const resultId of resultIds) {
+        reports.push(await publishMockExamReport(supabase, id, resultId))
+      }
+      return ok({ reports, published_count: reports.length })
+    }
+
+    if (!body.result_id) return err('성적 결과를 선택해 주세요')
+    const report = await publishMockExamReport(supabase, id, body.result_id)
+    return ok(report)
+  } catch (error) {
+    return err(error instanceof Error ? error.message : '성적표 발행 실패', 500)
+  }
 }
