@@ -82,6 +82,40 @@ function nextGradeGap(score: number | null, grade: number | null) {
   return Math.max(0, cutoff - score)
 }
 
+function boundedPercent(value: number | null | undefined) {
+  if (value == null || Number.isNaN(Number(value))) return 0
+  return Math.max(0, Math.min(100, Math.round(Number(value))))
+}
+
+function performanceTone(value: number | null | undefined) {
+  const score = boundedPercent(value)
+  if (score >= 80) return {
+    label: '안정',
+    chip: 'bg-blue-50 text-[#2463EB]',
+    bar: 'bg-[#2463EB]',
+    tile: 'bg-white',
+  }
+  if (score >= 60) return {
+    label: '점검',
+    chip: 'bg-amber-50 text-amber-600',
+    bar: 'bg-amber-400',
+    tile: 'bg-amber-50',
+  }
+  return {
+    label: '우선',
+    chip: 'bg-red-50 text-[#FF4D4D]',
+    bar: 'bg-[#FF4D4D]',
+    tile: 'bg-red-50',
+  }
+}
+
+function questionRangeLabel(questionNumber: number) {
+  if (questionNumber <= 17) return '듣기'
+  if (questionNumber <= 30) return '독해 전반'
+  if (questionNumber <= 40) return '독해 중후반'
+  return '고난도 후반'
+}
+
 export default async function MockExamReportPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
   const supabase = createServiceClient()
@@ -105,28 +139,73 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
   const readingAccuracy = percent(snapshot.score.reading_correct, snapshot.score.reading_total)
   const gradeGap = nextGradeGap(snapshot.score.raw_score, snapshot.score.grade)
   const cohort = snapshot.cohort ?? null
-  const weakTypes = typeEntries
-    .map(([type, value]) => ({
-      type,
-      correct: Number(value.correct ?? 0),
-      total: Number(value.total ?? 0),
-      earned: Number(value.earned ?? 0),
-      points: Number(value.points ?? 0),
-      accuracy: value.accuracy,
-      scoreRate: value.score_rate,
-      lost: Math.max(0, Number(value.points ?? 0) - Number(value.earned ?? 0)),
-    }))
-    .filter((item) => item.total > 0 && item.lost > 0)
-    .sort((a, b) => b.lost - a.lost || Number(a.scoreRate ?? 100) - Number(b.scoreRate ?? 100))
+  const typeRows = typeEntries
+    .map(([type, value]) => {
+      const correct = Number(value.correct ?? 0)
+      const total = Number(value.total ?? 0)
+      const earned = Number(value.earned ?? 0)
+      const points = Number(value.points ?? 0)
+      const scoreRate = value.score_rate ?? value.accuracy ?? null
+      const lost = Math.max(0, points - earned)
+      return {
+        type,
+        correct,
+        total,
+        earned,
+        points,
+        accuracy: value.accuracy,
+        scoreRate,
+        lost,
+        tone: performanceTone(scoreRate),
+      }
+    })
+    .filter((item) => item.total > 0)
+    .sort((a, b) => b.lost - a.lost || boundedPercent(a.scoreRate) - boundedPercent(b.scoreRate))
+  const weakTypes = typeRows
+    .filter((item) => item.lost > 0)
+    .sort((a, b) => b.lost - a.lost || boundedPercent(a.scoreRate) - boundedPercent(b.scoreRate))
+  const strongTypes = typeRows
+    .filter((item) => item.lost === 0 || boundedPercent(item.scoreRate) >= 80)
+    .sort((a, b) => boundedPercent(b.scoreRate) - boundedPercent(a.scoreRate) || b.total - a.total)
+    .slice(0, 2)
   const priorityTypes = weakTypes.slice(0, 3)
+  const wrongTypeSummary = weakTypes.slice(0, 4)
   const highImpactWrong = wrongAnswers
     .slice()
     .sort((a, b) => Number(b.mock_exam_question?.points ?? 0) - Number(a.mock_exam_question?.points ?? 0))
     .slice(0, 5)
+  const wrongByQuestion = new Map(
+    wrongAnswers
+      .filter((answer) => answer.mock_exam_question?.question_number)
+      .map((answer) => [answer.mock_exam_question!.question_number, answer]),
+  )
+  const questionMap = Array.from({ length: 45 }, (_, index) => {
+    const questionNumber = index + 1
+    const wrong = wrongByQuestion.get(questionNumber)
+    return {
+      questionNumber,
+      wrong,
+      points: Number(wrong?.mock_exam_question?.points ?? 0),
+    }
+  })
+  const wrongByRange = wrongAnswers.reduce<Record<string, number>>((acc, answer) => {
+    const questionNumber = answer.mock_exam_question?.question_number
+    if (!questionNumber) return acc
+    const label = questionRangeLabel(questionNumber)
+    acc[label] = (acc[label] ?? 0) + 1
+    return acc
+  }, {})
+  const primaryFocus = priorityTypes[0]
+  const typeSummary = typeRows.length > 0
+    ? `${typeRows.length}개 유형 중 ${weakTypes.length}개 유형에서 점수 손실`
+    : '유형 데이터 없음'
+  const wrongSummary = wrongAnswers.length > 0
+    ? `${wrongAnswers.length}문항 · ${lostPoints}점 손실`
+    : '오답 없음'
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-white px-4 py-8 text-[#1A1C1E]">
-      <div className="mx-auto max-w-4xl space-y-5">
+      <div className="mx-auto max-w-5xl space-y-5">
         <section className="rounded-[24px] bg-white p-6 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
           <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
             <div>
@@ -244,61 +323,162 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
         </section>
 
         <section className="rounded-[24px] bg-white p-6 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
-          <h2 className="text-lg font-extrabold">유형별 성취</h2>
-          <div className="mt-4 space-y-3">
-            {typeEntries.map(([type, value]) => (
-              <div key={type}>
-                <div className="mb-1 flex items-center justify-between text-sm">
-                  <span className="font-semibold">{type}</span>
-                  <span className="text-[#8B95A1]">{value.correct ?? 0}/{value.total ?? 0} · {value.accuracy ?? '-'}%</span>
+          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-[#2463EB]">진단 보드</p>
+              <h2 className="mt-1 text-xl font-extrabold">유형 성취와 오답 위치</h2>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs font-bold">
+              <span className="rounded-full bg-blue-50 px-3 py-1.5 text-[#2463EB]">{typeSummary}</span>
+              <span className="rounded-full bg-red-50 px-3 py-1.5 text-[#FF4D4D]">{wrongSummary}</span>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-[1.05fr_.95fr]">
+            <div className="rounded-[24px] bg-slate-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-extrabold">유형별 성취 맵</h3>
+                  <p className="mt-1 text-xs font-medium text-[#8B95A1]">점수 손실이 큰 유형부터 배치</p>
                 </div>
-                <div className="h-2 rounded-full bg-slate-100">
-                  <div className="h-2 rounded-full bg-[#2463EB]" style={{ width: `${value.accuracy ?? 0}%` }} />
+                {primaryFocus && (
+                  <span className="rounded-full bg-white px-3 py-1.5 text-xs font-extrabold text-[#FF4D4D]">
+                    최우선 {primaryFocus.type}
+                  </span>
+                )}
+              </div>
+
+              {typeRows.length === 0 ? (
+                <div className="mt-4 rounded-2xl bg-white p-6 text-center text-sm font-medium text-[#8B95A1]">
+                  유형 분석 데이터가 없습니다.
+                </div>
+              ) : (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  {typeRows.map((item) => (
+                    <div key={item.type} className={`rounded-2xl p-4 ${item.tone.tile}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-extrabold text-[#1A1C1E]">{item.type}</p>
+                          <p className="mt-1 text-xs font-medium text-[#8B95A1]">
+                            {item.correct}/{item.total} 정답 · {item.earned}/{item.points}점
+                          </p>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-extrabold ${item.tone.chip}`}>
+                          {item.tone.label}
+                        </span>
+                      </div>
+                      <div className="mt-3 flex items-center gap-3">
+                        <div className="h-2 flex-1 rounded-full bg-slate-200">
+                          <div className={`h-2 rounded-full ${item.tone.bar}`} style={{ width: `${boundedPercent(item.scoreRate)}%` }} />
+                        </div>
+                        <span className="w-10 text-right text-xs font-extrabold text-[#1A1C1E]">{boundedPercent(item.scoreRate)}%</span>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between text-xs font-bold">
+                        <span className="text-[#8B95A1]">손실</span>
+                        <span className={item.lost > 0 ? 'text-[#FF4D4D]' : 'text-[#2463EB]'}>{item.lost}점</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-[24px] bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-extrabold">1~45 오답 맵</h3>
+                    <p className="mt-1 text-xs font-medium text-[#8B95A1]">붉은 번호는 오답, 진한 번호는 3점 문항</p>
+                  </div>
+                  <span className="rounded-full bg-white px-3 py-1.5 text-xs font-extrabold text-[#1A1C1E]">
+                    {wrongAnswers.length}/45
+                  </span>
+                </div>
+
+                <div className="mt-4 grid grid-cols-9 gap-1.5">
+                  {questionMap.map((item) => (
+                    <div
+                      key={item.questionNumber}
+                      className={[
+                        'flex h-8 items-center justify-center rounded-xl text-xs font-extrabold',
+                        item.wrong
+                          ? item.points >= 3
+                            ? 'bg-[#FF4D4D] text-white'
+                            : 'bg-red-50 text-[#FF4D4D]'
+                          : 'bg-white text-slate-300',
+                      ].join(' ')}
+                      title={item.wrong ? `${item.questionNumber}번 ${item.wrong.mock_exam_question?.question_type ?? ''}` : `${item.questionNumber}번`}
+                    >
+                      {item.questionNumber}
+                    </div>
+                  ))}
+                </div>
+
+                {wrongAnswers.length === 0 ? (
+                  <div className="mt-4 rounded-2xl bg-blue-50 p-4 text-sm font-bold text-[#2463EB]">
+                    오답 문항이 없습니다.
+                  </div>
+                ) : (
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    {Object.entries(wrongByRange).map(([label, count]) => (
+                      <div key={label} className="rounded-2xl bg-white p-3">
+                        <p className="text-xs font-bold text-[#8B95A1]">{label}</p>
+                        <p className="mt-1 text-lg font-extrabold text-[#1A1C1E]">{count}문항</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-[24px] bg-[#1A1C1E] p-4 text-white">
+                <h3 className="text-sm font-extrabold">복습 우선순위</h3>
+                {highImpactWrong.length === 0 ? (
+                  <p className="mt-3 text-sm font-medium text-slate-300">고배점 오답이 없습니다.</p>
+                ) : (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {highImpactWrong.map((answer) => (
+                      <span
+                        key={answer.mock_exam_question?.question_number}
+                        className="rounded-full bg-white/10 px-3 py-2 text-xs font-extrabold text-white"
+                      >
+                        {answer.mock_exam_question?.question_number}번 · {answer.mock_exam_question?.points}점 · {answer.mock_exam_question?.question_type}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {wrongTypeSummary.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    {wrongTypeSummary.map((item) => (
+                      <div key={item.type} className="flex items-center justify-between gap-3 rounded-2xl bg-white/10 px-3 py-2 text-xs">
+                        <span className="min-w-0 truncate font-bold">{item.type}</span>
+                        <span className="shrink-0 font-extrabold text-red-200">{item.lost}점 손실</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {strongTypes.length > 0 && (
+            <div className="mt-4 rounded-[24px] bg-blue-50 p-4">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="text-sm font-extrabold text-[#2463EB]">유지할 강점</h3>
+                  <p className="mt-1 text-xs font-medium text-[#8B95A1]">점수 손실이 적거나 성취율이 높은 유형</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {strongTypes.map((item) => (
+                    <span key={item.type} className="rounded-full bg-white px-3 py-2 text-xs font-extrabold text-[#1A1C1E]">
+                      {item.type} {boundedPercent(item.scoreRate)}%
+                    </span>
+                  ))}
                 </div>
               </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-[24px] bg-white p-6 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
-          <h2 className="text-lg font-extrabold">오답 문항</h2>
-          {snapshot.wrong_answers.length === 0 ? (
-            <p className="mt-4 rounded-2xl bg-blue-50 p-4 text-sm text-[#2463EB]">오답 문항이 없습니다.</p>
-          ) : (
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              {snapshot.wrong_answers.map((answer) => (
-                <div key={answer.mock_exam_question?.question_number} className="rounded-2xl bg-slate-50 p-4 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold">{answer.mock_exam_question?.question_number}번</span>
-                    <span className="text-[#8B95A1]">{answer.mock_exam_question?.question_type} · {answer.mock_exam_question?.points}점</span>
-                  </div>
-                  <p className="mt-2 text-[#8B95A1]">
-                    제출 답안 {answer.student_answer || '미응답'} · 정답 {answer.mock_exam_question?.correct_answer}
-                  </p>
-                </div>
-              ))}
             </div>
           )}
         </section>
-
-        {highImpactWrong.length > 0 && (
-          <section className="rounded-[24px] bg-white p-6 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
-            <h2 className="text-lg font-extrabold">우선 복습 문항</h2>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              {highImpactWrong.map((answer) => (
-                <div key={answer.mock_exam_question?.question_number} className="rounded-2xl bg-slate-50 p-4 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold">{answer.mock_exam_question?.question_number}번</span>
-                    <span className="text-[#FF4D4D]">{answer.mock_exam_question?.points}점 손실</span>
-                  </div>
-                  <p className="mt-2 text-[#8B95A1]">
-                    {answer.mock_exam_question?.question_type} · {answer.mock_exam_question?.difficulty}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
 
         {snapshot.teacher_comment && (
           <section className="rounded-[24px] bg-[#2463EB] p-6 text-white shadow-[0px_10px_40px_rgba(0,75,198,0.12)]">
