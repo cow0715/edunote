@@ -1,19 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, FileText, Loader2, MessageSquare, RefreshCw, Search, Send, Users } from 'lucide-react'
+import { FileText, Loader2, MessageSquare, RefreshCw, Search, Send, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -123,7 +115,6 @@ export default function ReportDispatchPage() {
   const [messageTemplate, setMessageTemplate] = useState(monthlyTemplate)
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
   const [search, setSearch] = useState('')
 
   const { data: mockExams = [] } = useMockExams()
@@ -245,25 +236,26 @@ export default function ReportDispatchPage() {
     })
   }
 
-  function openConfirm() {
+  function validateSend() {
     if (!preview) return
     if (sendableSelectedItems.length === 0) {
       toast.error('전송할 학생을 선택해 주세요')
-      return
+      return false
     }
     if (selectedRecipients.length === 0) {
       toast.error('수신자를 선택해 주세요')
-      return
+      return false
     }
     if (!messageTemplate.includes('{성적표링크}')) {
       toast.error('문자 내용에 {성적표링크}를 포함해 주세요')
-      return
+      return false
     }
-    setConfirmOpen(true)
+    return true
   }
 
   async function sendSelected() {
     if (!preview) return
+    if (!validateSend()) return
     setSending(true)
     try {
       const body = kind === 'monthly'
@@ -292,7 +284,6 @@ export default function ReportDispatchPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? '성적표 전송 실패')
       toast.success(`전송 완료 ${data.sent_count}건 · 실패 ${data.failed_count}건 · 제외 ${data.skipped?.length ?? 0}건`)
-      setConfirmOpen(false)
       await loadPreview()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '성적표 전송 실패')
@@ -416,6 +407,18 @@ export default function ReportDispatchPage() {
                 <Switch checked={includeResend} onCheckedChange={setIncludeResend} />
               </div>
 
+              <div className="space-y-2">
+                <Label>문자 문구</Label>
+                <Textarea
+                  value={messageTemplate}
+                  onChange={(event) => setMessageTemplate(event.target.value)}
+                  className="min-h-32 resize-none rounded-2xl"
+                />
+                <p className="text-xs font-medium text-[#8B95A1]">
+                  {'{성적표링크}'}는 발송할 때 학생별 링크로 자동 치환됩니다.
+                </p>
+              </div>
+
               <Button className="w-full rounded-full bg-[#2463EB]" onClick={loadPreview} disabled={loading}>
                 {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 대상 불러오기
@@ -466,9 +469,9 @@ export default function ReportDispatchPage() {
                   <Button variant="outline" className="rounded-full" onClick={toggleAllVisible} disabled={!preview}>
                     보낼 수 있는 학생 체크
                   </Button>
-                  <Button className="rounded-full bg-[#2463EB]" onClick={openConfirm} disabled={!preview || sendableSelectedItems.length === 0}>
-                    <Send className="mr-2 h-4 w-4" />
-                    체크한 학생에게 보내기
+                  <Button className="rounded-full bg-[#2463EB]" onClick={sendSelected} disabled={!preview || sendableSelectedItems.length === 0 || sending}>
+                    {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                    체크한 학생에게 바로 보내기
                   </Button>
                 </div>
               </CardHeader>
@@ -540,86 +543,6 @@ export default function ReportDispatchPage() {
           </div>
         </section>
 
-        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-          <DialogContent className="max-w-3xl rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.08)]">
-            <DialogHeader>
-              <DialogTitle className="text-xl font-extrabold">발송 전 최종 확인</DialogTitle>
-              <DialogDescription>
-                체크된 학생만 전송됩니다. 학생별 성적표 링크가 정확한 수신자에게 가는지 확인하세요.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-              <div className="rounded-2xl bg-blue-50 p-4">
-                <p className="text-sm font-extrabold text-[#2463EB]">발송 요약</p>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-xl bg-white p-3">
-                    <p className="text-xs text-[#8B95A1]">학생</p>
-                    <p className="font-extrabold">{sendableSelectedItems.length}명</p>
-                  </div>
-                  <div className="rounded-xl bg-white p-3">
-                    <p className="text-xs text-[#8B95A1]">문자</p>
-                    <p className="font-extrabold">{targetCount}건</p>
-                  </div>
-                  <div className="rounded-xl bg-white p-3">
-                    <p className="text-xs text-[#8B95A1]">생성 필요</p>
-                    <p className="font-extrabold">{missingReportCount}명</p>
-                  </div>
-                  <div className="rounded-xl bg-white p-3">
-                    <p className="text-xs text-[#8B95A1]">재전송</p>
-                    <p className="font-extrabold">{includeResend ? '포함' : '제외'}</p>
-                  </div>
-                </div>
-                {sentSelectedCount > 0 && !includeResend && (
-                  <div className="mt-3 flex gap-2 rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-700">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />
-                    이미 전송된 성적표는 기본적으로 제외됩니다.
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label>문자 내용</Label>
-                <Textarea
-                  value={messageTemplate}
-                  onChange={(event) => setMessageTemplate(event.target.value)}
-                  className="min-h-40 resize-none rounded-2xl"
-                />
-                <p className="text-xs font-medium text-[#8B95A1]">
-                  사용 가능: {'{학생명}'} {kind === 'monthly' ? '{기간명}' : '{시험명}'} {'{성적표링크}'}
-                </p>
-              </div>
-            </div>
-
-            <div className="max-h-56 overflow-auto rounded-2xl bg-slate-50 p-3">
-              {sendableSelectedItems.slice(0, 12).map((item) => {
-                const student = itemStudent(item)
-                const phones = selectedRecipients
-                  .map((recipient) => `${recipientLabels[recipient]} ${phoneFor(student, recipient) ?? '없음'}`)
-                  .join(' · ')
-                return (
-                  <div key={itemId(kind, item)} className="flex items-center justify-between gap-3 border-b border-white py-2 text-sm last:border-0">
-                    <span className="font-bold">{student?.name ?? '학생 정보 없음'}</span>
-                    <span className="text-right text-xs font-medium text-[#8B95A1]">{phones}</span>
-                  </div>
-                )
-              })}
-              {sendableSelectedItems.length > 12 && (
-                <p className="py-2 text-center text-xs font-bold text-[#8B95A1]">외 {sendableSelectedItems.length - 12}명</p>
-              )}
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" className="rounded-full" onClick={() => setConfirmOpen(false)} disabled={sending}>
-                취소
-              </Button>
-              <Button className="rounded-full bg-[#2463EB]" onClick={sendSelected} disabled={sending}>
-                {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                확인 후 일괄 전송
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     </main>
   )
