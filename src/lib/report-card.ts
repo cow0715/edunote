@@ -19,6 +19,8 @@ export interface ReportCard {
   summary_text: string | null
   highlighted_wrong_ids: string[]
   status: 'draft' | 'published'
+  share_token: string
+  revoked_at: string | null
   generated_at: string
   published_at: string | null
   created_at: string
