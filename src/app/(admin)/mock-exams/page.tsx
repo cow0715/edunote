@@ -1098,14 +1098,26 @@ export default function MockExamsPage() {
                       미발행 {unpublishedResults.length}명 · 발행됨 {(detail?.results.length ?? 0) - unpublishedResults.length}명
                     </p>
                   </div>
-                  <Button
-                    className="rounded-full bg-[#2463EB]"
-                    onClick={handlePublishAll}
-                    disabled={detailLoading || unpublishedResults.length === 0 || publishReports.isPending}
-                  >
-                    {publishReports.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                    미발행 전체 발행
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      className="rounded-full"
+                      onClick={() => {
+                        if (effectiveExamId) window.location.href = `/report-dispatch?kind=mock&mockExamId=${effectiveExamId}`
+                      }}
+                    >
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      발송센터에서 열기
+                    </Button>
+                    <Button
+                      className="rounded-full bg-[#2463EB]"
+                      onClick={handlePublishAll}
+                      disabled={detailLoading || unpublishedResults.length === 0 || publishReports.isPending}
+                    >
+                      {publishReports.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                      미발행 전체 발행
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {detailLoading ? (

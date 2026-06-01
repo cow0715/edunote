@@ -8,10 +8,20 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useReportCard, useUpdateReportCard } from '@/hooks/use-report-cards'
 import { suggestGrade, buildAutoSummary } from '@/lib/report-card'
 import { ReportCardPreview, buildInsightLines } from '@/components/report-cards/report-card-preview'
 import { toast } from 'sonner'
+
+const defaultReportCardMessage = '{학생명} 학생 {기간명} 성적표입니다.\n{성적표링크}'
 
 export default function ReportCardDetailPage({ params }: { params: Promise<{ studentId: string; reportId: string }> }) {
   const { reportId } = use(params)
@@ -26,6 +36,10 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
   const [dirty, setDirty] = useState(false)
   const [sending, setSending] = useState(false)
   const [insights, setInsights] = useState<{ color: string; text: string }[] | null>(null)
+  const [sendDialogOpen, setSendDialogOpen] = useState(false)
+  const [sendPhone, setSendPhone] = useState('')
+  const [sendMessage, setSendMessage] = useState(defaultReportCardMessage)
+  const [sendPreviewUrl, setSendPreviewUrl] = useState('')
 
   // next_focus string derived from goalItems
   const nextFocus = goalItems.filter(Boolean).join('\n')
@@ -50,31 +64,36 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
 
   const { card, student, metrics, previous, academy, classContext } = data
   const suggestedGrade = suggestGrade(metrics.overallAvg)
+  const reportUrl = typeof window === 'undefined'
+    ? `/report-cards/${card.share_token}`
+    : `${window.location.origin}/report-cards/${card.share_token}`
+  const renderedSendMessage = sendMessage
+    .replaceAll('{학생명}', student.name)
+    .replaceAll('{기간명}', card.period_label)
+    .replaceAll('{성적표링크}', sendPreviewUrl || reportUrl)
 
   function markDirty() { setDirty(true) }
 
-  async function handleSave() {
-    await update.mutateAsync({
+  async function saveCurrentCard(status?: 'published') {
+    const savedCard = await update.mutateAsync({
       id: reportId,
       overall_grade: grade || null,
       teacher_comment: comment || null,
       next_focus: nextFocus || null,
       summary_text: summary || null,
+      ...(status ? { status } : {}),
     })
     setDirty(false)
+    return savedCard
+  }
+
+  async function handleSave() {
+    await saveCurrentCard()
     toast.success('저장되었습니다')
   }
 
   async function handlePublish() {
-    await update.mutateAsync({
-      id: reportId,
-      overall_grade: grade || null,
-      teacher_comment: comment || null,
-      next_focus: nextFocus || null,
-      summary_text: summary || null,
-      status: 'published',
-    })
-    setDirty(false)
+    await saveCurrentCard('published')
     toast.success('성적표가 발급되었습니다')
   }
 
@@ -101,58 +120,38 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
     setGoalItems([...goalItems, ''])
   }
 
-  async function handleSendMms() {
-    const phone = window.prompt('테스트로 받을 전화번호를 입력하세요 (예: 010-1234-5678)')
-    if (!phone) return
+  function openSendDialog() {
+    setSendPreviewUrl(reportUrl)
+    setSendDialogOpen(true)
+  }
 
-    const node = document.querySelector<HTMLElement>('.print-area')
-    if (!node) {
-      toast.error('성적표 영역을 찾을 수 없습니다')
+  async function handleConfirmSendLink() {
+    const phone = sendPhone.replace(/-/g, '').trim()
+    if (!phone) {
+      toast.error('전송할 전화번호를 입력해 주세요')
       return
+    }
+    if (!sendMessage.includes('{성적표링크}')) {
+      toast.error('문자 내용에 {성적표링크}를 포함해 주세요')
+      return
+    }
+
+    if (dirty || card.status !== 'published') {
+      const confirmed = window.confirm('현재 성적표를 저장하고 발급 완료 상태로 바꾼 뒤 링크를 전송합니다. 계속할까요?')
+      if (!confirmed) return
+      await saveCurrentCard('published')
     }
 
     setSending(true)
     try {
-      const html2canvas = (await import('html2canvas-pro')).default
-
-      const rect = node.getBoundingClientRect()
-      const MAX_W = 1500
-      const MAX_H = 1440
-      const scale = Math.min(1.5, MAX_W / rect.width, MAX_H / rect.height)
-
-      const canvas = await html2canvas(node, {
-        backgroundColor: '#ffffff',
-        scale,
-        useCORS: true,
-      })
-
-      let dataUrl = canvas.toDataURL('image/jpeg', 0.85)
-      let sizeKB = Math.round((dataUrl.length * 3) / 4 / 1024)
-
-      let quality = 0.85
-      while (sizeKB > 195 && quality > 0.4) {
-        quality -= 0.1
-        dataUrl = canvas.toDataURL('image/jpeg', quality)
-        sizeKB = Math.round((dataUrl.length * 3) / 4 / 1024)
-      }
-
-      if (sizeKB > 195) {
-        toast.error(`이미지가 너무 큽니다 (${sizeKB}KB). MMS 200KB 제한 초과`)
-        return
-      }
-
-      toast.info(`이미지 ${sizeKB}KB 발송 중...`)
-
-      const res = await fetch('/api/sms/send-report-mms', {
+      toast.info('성적표 링크 전송 중...')
+      const res = await fetch(`/api/report-cards/${reportId}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          studentId: student.id,
           phone,
-          recipientLabel: '테스트',
-          image: dataUrl,
-          subject: `${student.name} ${card.period_label} 성적표`,
-          text: `${student.name} 학생 ${card.period_label} 성적표입니다.`,
+          recipient_label: '테스트',
+          message_template: sendMessage,
         }),
       })
 
@@ -160,7 +159,8 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
       if (!res.ok || result.success === false) {
         toast.error(`발송 실패: ${result.error ?? '알 수 없는 오류'}`)
       } else {
-        toast.success(`${phone}로 발송 완료`)
+        toast.success(`${phone}로 링크 전송 완료`)
+        setSendDialogOpen(false)
       }
     } catch (e) {
       toast.error(`오류: ${e instanceof Error ? e.message : '알 수 없는 오류'}`)
@@ -206,12 +206,81 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
             <Printer className="mr-1.5 h-4 w-4" />
             PDF / 인쇄
           </Button>
-          <Button variant="outline" size="sm" onClick={handleSendMms} disabled={sending}>
+          <Button variant="outline" size="sm" onClick={openSendDialog} disabled={sending}>
             <Send className="mr-1.5 h-4 w-4" />
-            {sending ? '발송 중...' : '문자 테스트'}
+            {sending ? '발송 중...' : '링크 문자 테스트'}
           </Button>
         </div>
       </div>
+
+      <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
+        <DialogContent className="max-w-xl rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.08)]">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-extrabold text-[#1A1C1E]">성적표 링크 전송 확인</DialogTitle>
+            <DialogDescription>
+              학생 성적 링크가 다른 사람에게 전송되지 않도록 수신자와 링크를 확인한 뒤 발송하세요.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid gap-3 rounded-2xl bg-blue-50 p-4 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-bold text-[#8B95A1]">학생</span>
+                <span className="font-extrabold text-[#1A1C1E]">{student.name}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-bold text-[#8B95A1]">성적표</span>
+                <span className="text-right font-extrabold text-[#1A1C1E]">{card.period_label}</span>
+              </div>
+              <div className="grid gap-1">
+                <span className="font-bold text-[#8B95A1]">전송 링크</span>
+                <div className="break-all rounded-xl bg-white px-3 py-2 text-xs font-bold text-[#2463EB]">
+                  {sendPreviewUrl || reportUrl}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="report-card-send-phone">받는 전화번호</Label>
+              <Input
+                id="report-card-send-phone"
+                value={sendPhone}
+                onChange={(event) => setSendPhone(event.target.value)}
+                placeholder="010-1234-5678"
+                className="rounded-2xl"
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="report-card-send-message">문자 내용</Label>
+              <Textarea
+                id="report-card-send-message"
+                value={sendMessage}
+                onChange={(event) => setSendMessage(event.target.value)}
+                className="min-h-24 resize-none rounded-2xl"
+              />
+              <p className="text-xs font-medium text-[#8B95A1]">
+                사용 가능: {'{학생명}'} {'{기간명}'} {'{성적표링크}'}
+              </p>
+            </div>
+
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-xs font-bold text-[#8B95A1]">발송 미리보기</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-6 text-[#1A1C1E]">{renderedSendMessage}</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" className="rounded-full" onClick={() => setSendDialogOpen(false)} disabled={sending}>
+              취소
+            </Button>
+            <Button className="rounded-full bg-[#2463EB]" onClick={handleConfirmSendLink} disabled={sending || !sendPhone.trim()}>
+              <Send className="mr-2 h-4 w-4" />
+              {sending ? '전송 중...' : '확인 후 전송'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_360px] print:block">
         <div className="print-area">
