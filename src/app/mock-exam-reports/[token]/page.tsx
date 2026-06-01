@@ -116,6 +116,10 @@ function questionRangeLabel(questionNumber: number) {
   return '고난도 후반'
 }
 
+function examSourceLabel(source: string) {
+  return source === '교육청' ? '미래탐구' : source
+}
+
 export default async function MockExamReportPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
   const supabase = createServiceClient()
@@ -208,7 +212,7 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
               <p className="text-sm font-semibold text-[#2463EB]">추지혜 영어 모의고사 성적표</p>
               <h1 className="mt-2 text-2xl font-extrabold md:text-3xl">{snapshot.exam.title}</h1>
               <p className="mt-2 text-sm text-[#8B95A1]">
-                {snapshot.exam.exam_year}년 {snapshot.exam.exam_month}월 · {snapshot.exam.source}
+                {snapshot.exam.exam_year}년 {snapshot.exam.exam_month}월 · {examSourceLabel(snapshot.exam.source)}
                 {snapshot.exam.exam_date ? ` · ${snapshot.exam.exam_date}` : ''}
               </p>
             </div>
