@@ -31,11 +31,13 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // 공개 경로: /login, /signup, /share/[token]
+  // 공개 경로: /login, /signup, 학생/학부모 공유 링크
   const isPublic =
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
     pathname.startsWith('/share') ||
+    pathname.startsWith('/report-cards') ||
+    pathname.startsWith('/mock-exam-reports') ||
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/share') ||
     pathname.startsWith('/api/cron') ||
