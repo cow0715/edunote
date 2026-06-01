@@ -95,6 +95,15 @@ function phoneFor(student: DispatchStudent | null, recipient: RecipientKey) {
   return student.phone
 }
 
+function hasSelectedRecipientPhone(item: MonthlyItem | MockItem, recipients: RecipientKey[]) {
+  const student = itemStudent(item)
+  return recipients.some((recipient) => !!phoneFor(student, recipient)?.replace(/-/g, '').trim())
+}
+
+function canSendItem(item: MonthlyItem | MockItem, recipients: RecipientKey[], includeResend: boolean) {
+  return hasSelectedRecipientPhone(item, recipients) && (includeResend || itemSentCount(item) === 0)
+}
+
 function currentYearMonth() {
   const now = new Date()
   return { year: now.getFullYear(), month: now.getMonth() + 1 }
@@ -127,10 +136,17 @@ export default function ReportDispatchPage() {
       setMockExamId(params.get('mockExamId') ?? '')
     }
   }, [])
-  const selectedRecipients = (Object.keys(recipients) as RecipientKey[]).filter((key) => recipients[key])
+  const selectedRecipients = useMemo(
+    () => (Object.keys(recipients) as RecipientKey[]).filter((key) => recipients[key]),
+    [recipients],
+  )
   const selectedItems = useMemo(
     () => (preview?.items ?? []).filter((item) => selectedIds.has(itemId(kind, item))),
     [kind, preview?.items, selectedIds],
+  )
+  const sendableSelectedItems = useMemo(
+    () => selectedItems.filter((item) => canSendItem(item, selectedRecipients, includeResend)),
+    [includeResend, selectedItems, selectedRecipients],
   )
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -141,7 +157,7 @@ export default function ReportDispatchPage() {
     })
   }, [preview?.items, search])
   const targetCount = useMemo(() => {
-    return selectedItems.reduce((sum, item) => {
+    return sendableSelectedItems.reduce((sum, item) => {
       const student = itemStudent(item)
       const phones = new Set(
         selectedRecipients
@@ -150,9 +166,22 @@ export default function ReportDispatchPage() {
       )
       return sum + phones.size
     }, 0)
-  }, [selectedItems, selectedRecipients])
-  const missingReportCount = selectedItems.filter((item) => itemReportStatus(item) === 'missing').length
+  }, [sendableSelectedItems, selectedRecipients])
+  const missingReportCount = sendableSelectedItems.filter((item) => itemReportStatus(item) === 'missing').length
   const sentSelectedCount = selectedItems.filter((item) => itemSentCount(item) > 0).length
+
+  useEffect(() => {
+    if (!preview) return
+    setSelectedIds((prev) => {
+      const validIds = new Set(
+        preview.items
+          .filter((item) => canSendItem(item, selectedRecipients, includeResend))
+          .map((item) => itemId(kind, item)),
+      )
+      const next = new Set([...prev].filter((id) => validIds.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [includeResend, kind, preview, selectedRecipients])
 
   function changeKind(nextKind: DispatchKind) {
     setKind(nextKind)
@@ -182,7 +211,7 @@ export default function ReportDispatchPage() {
       if (!res.ok) throw new Error(data.error ?? '대상 조회 실패')
       setPreview(data)
       const selectable = (data.items as (MonthlyItem | MockItem)[])
-        .filter((item) => !itemSentCount(item) || includeResend)
+        .filter((item) => canSendItem(item, selectedRecipients, includeResend))
         .map((item) => itemId(kind, item))
       setSelectedIds(new Set(selectable))
     } catch (error) {
@@ -203,7 +232,9 @@ export default function ReportDispatchPage() {
 
   function toggleAllVisible() {
     setSelectedIds((prev) => {
-      const visibleIds = filteredItems.map((item) => itemId(kind, item))
+      const visibleIds = filteredItems
+        .filter((item) => canSendItem(item, selectedRecipients, includeResend))
+        .map((item) => itemId(kind, item))
       const allSelected = visibleIds.every((id) => prev.has(id))
       const next = new Set(prev)
       for (const id of visibleIds) {
@@ -216,7 +247,7 @@ export default function ReportDispatchPage() {
 
   function openConfirm() {
     if (!preview) return
-    if (selectedItems.length === 0) {
+    if (sendableSelectedItems.length === 0) {
       toast.error('전송할 학생을 선택해 주세요')
       return
     }
@@ -240,7 +271,7 @@ export default function ReportDispatchPage() {
             kind,
             year: Number(year),
             month: Number(month),
-            student_ids: selectedItems.map((item) => (item as MonthlyItem).student.id),
+            student_ids: sendableSelectedItems.map((item) => (item as MonthlyItem).student.id),
             recipients: selectedRecipients,
             message_template: messageTemplate,
             include_resend: includeResend,
@@ -248,7 +279,7 @@ export default function ReportDispatchPage() {
         : {
             kind,
             mock_exam_id: mockExamId,
-            result_ids: selectedItems.map((item) => (item as MockItem).result_id),
+            result_ids: sendableSelectedItems.map((item) => (item as MockItem).result_id),
             recipients: selectedRecipients,
             message_template: messageTemplate,
             include_resend: includeResend,
@@ -401,11 +432,11 @@ export default function ReportDispatchPage() {
                     <p className="mt-1 text-2xl font-extrabold text-[#2463EB]">{preview?.items.length ?? 0}명</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-4">
-                    <p className="text-xs font-bold text-[#8B95A1]">선택</p>
+                    <p className="text-xs font-bold text-[#8B95A1]">체크한 학생</p>
                     <p className="mt-1 text-2xl font-extrabold">{selectedItems.length}명</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-4">
-                    <p className="text-xs font-bold text-[#8B95A1]">전송 건수</p>
+                    <p className="text-xs font-bold text-[#8B95A1]">체크 발송 건수</p>
                     <p className="mt-1 text-2xl font-extrabold">{targetCount}건</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-4">
@@ -424,7 +455,7 @@ export default function ReportDispatchPage() {
                     발송 대상 검수
                   </CardTitle>
                   <p className="mt-1 text-sm font-medium text-[#8B95A1]">
-                    선택한 학생의 성적표 링크와 연락처 상태를 확인한 뒤 전송합니다.
+                    체크된 학생에게만 성적표 링크를 전송합니다. 미체크 학생은 전송 대상에서 제외됩니다.
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -433,11 +464,11 @@ export default function ReportDispatchPage() {
                     <Input className="w-48 pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="학생 검색" />
                   </div>
                   <Button variant="outline" className="rounded-full" onClick={toggleAllVisible} disabled={!preview}>
-                    전체 선택
+                    보낼 수 있는 학생 체크
                   </Button>
-                  <Button className="rounded-full bg-[#2463EB]" onClick={openConfirm} disabled={!preview || selectedItems.length === 0}>
+                  <Button className="rounded-full bg-[#2463EB]" onClick={openConfirm} disabled={!preview || sendableSelectedItems.length === 0}>
                     <Send className="mr-2 h-4 w-4" />
-                    링크 문자 보내기
+                    체크한 학생에게 보내기
                   </Button>
                 </div>
               </CardHeader>
@@ -455,16 +486,25 @@ export default function ReportDispatchPage() {
                       const student = itemStudent(item)
                       const id = itemId(kind, item)
                       const selected = selectedIds.has(id)
+                      const canSend = canSendItem(item, selectedRecipients, includeResend)
                       const phones = selectedRecipients
                         .map((recipient) => ({ recipient, phone: phoneFor(student, recipient) }))
                         .filter((entry) => entry.phone)
                       return (
-                        <div key={id} className="grid gap-3 border-b border-white p-4 last:border-0 lg:grid-cols-[auto_1fr_auto] lg:items-center">
+                        <div
+                          key={id}
+                          className={cn(
+                            'grid gap-3 border-b border-white p-4 last:border-0 lg:grid-cols-[auto_1fr_auto] lg:items-center',
+                            selected ? 'bg-blue-50/60' : 'bg-transparent',
+                            !canSend && 'opacity-70',
+                          )}
+                        >
                           <input
                             type="checkbox"
                             checked={selected}
+                            disabled={!canSend}
                             onChange={() => toggleSelected(id)}
-                            className="mt-1 h-4 w-4 lg:mt-0"
+                            className="mt-1 h-5 w-5 accent-[#2463EB] lg:mt-0"
                           />
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
@@ -480,6 +520,7 @@ export default function ReportDispatchPage() {
                               {phones.length > 0 ? phones.map((entry) => (
                                 <span key={entry.recipient}>{recipientLabels[entry.recipient]} {entry.phone}</span>
                               )) : <span className="text-[#FF4D4D]">선택한 수신자 연락처 없음</span>}
+                              {!includeResend && itemSentCount(item) > 0 && <span className="text-amber-600">이미 전송되어 기본 제외</span>}
                             </div>
                           </div>
                           <div className="flex items-center justify-end gap-2">
@@ -504,7 +545,7 @@ export default function ReportDispatchPage() {
             <DialogHeader>
               <DialogTitle className="text-xl font-extrabold">발송 전 최종 확인</DialogTitle>
               <DialogDescription>
-                학생별 성적표 링크가 정확한 수신자에게 가는지 확인하세요. 생성되지 않은 성적표는 전송 시 자동 생성/발급됩니다.
+                체크된 학생만 전송됩니다. 학생별 성적표 링크가 정확한 수신자에게 가는지 확인하세요.
               </DialogDescription>
             </DialogHeader>
 
@@ -514,7 +555,7 @@ export default function ReportDispatchPage() {
                 <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                   <div className="rounded-xl bg-white p-3">
                     <p className="text-xs text-[#8B95A1]">학생</p>
-                    <p className="font-extrabold">{selectedItems.length}명</p>
+                    <p className="font-extrabold">{sendableSelectedItems.length}명</p>
                   </div>
                   <div className="rounded-xl bg-white p-3">
                     <p className="text-xs text-[#8B95A1]">문자</p>
@@ -551,7 +592,7 @@ export default function ReportDispatchPage() {
             </div>
 
             <div className="max-h-56 overflow-auto rounded-2xl bg-slate-50 p-3">
-              {selectedItems.slice(0, 12).map((item) => {
+              {sendableSelectedItems.slice(0, 12).map((item) => {
                 const student = itemStudent(item)
                 const phones = selectedRecipients
                   .map((recipient) => `${recipientLabels[recipient]} ${phoneFor(student, recipient) ?? '없음'}`)
@@ -563,8 +604,8 @@ export default function ReportDispatchPage() {
                   </div>
                 )
               })}
-              {selectedItems.length > 12 && (
-                <p className="py-2 text-center text-xs font-bold text-[#8B95A1]">외 {selectedItems.length - 12}명</p>
+              {sendableSelectedItems.length > 12 && (
+                <p className="py-2 text-center text-xs font-bold text-[#8B95A1]">외 {sendableSelectedItems.length - 12}명</p>
               )}
             </div>
 
