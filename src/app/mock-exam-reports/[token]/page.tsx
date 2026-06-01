@@ -138,7 +138,6 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
   const listeningAccuracy = percent(snapshot.score.listening_correct, snapshot.score.listening_total)
   const readingAccuracy = percent(snapshot.score.reading_correct, snapshot.score.reading_total)
   const gradeGap = nextGradeGap(snapshot.score.raw_score, snapshot.score.grade)
-  const cohort = snapshot.cohort ?? null
   const typeRows = typeEntries
     .map(([type, value]) => {
       const correct = Number(value.correct ?? 0)
@@ -199,9 +198,6 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
   const typeSummary = typeRows.length > 0
     ? `${typeRows.length}개 유형 중 ${weakTypes.length}개 유형에서 점수 손실`
     : '유형 데이터 없음'
-  const wrongSummary = wrongAnswers.length > 0
-    ? `${wrongAnswers.length}문항 · ${lostPoints}점 손실`
-    : '오답 없음'
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-white px-4 py-8 text-[#1A1C1E]">
@@ -209,31 +205,35 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
         <section className="rounded-[24px] bg-white p-6 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
           <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
             <div>
-              <p className="text-sm font-semibold text-[#2463EB]">EduNote 모의고사 성적표</p>
+              <p className="text-sm font-semibold text-[#2463EB]">추지혜 영어 모의고사 성적표</p>
               <h1 className="mt-2 text-2xl font-extrabold md:text-3xl">{snapshot.exam.title}</h1>
               <p className="mt-2 text-sm text-[#8B95A1]">
                 {snapshot.exam.exam_year}년 {snapshot.exam.exam_month}월 · {snapshot.exam.source}
                 {snapshot.exam.exam_date ? ` · ${snapshot.exam.exam_date}` : ''}
               </p>
             </div>
-            <div className="rounded-2xl bg-blue-50 px-5 py-4 text-right">
-              <p className="text-sm text-[#8B95A1]">{snapshot.student.name}</p>
-              <p className="mt-1 text-4xl font-extrabold text-[#2463EB]">{snapshot.score.raw_score ?? '-'}점</p>
-              <p className="mt-1 text-sm font-bold text-[#1A1C1E]">{snapshot.score.grade ?? '-'}등급</p>
+            <div className="w-full rounded-[24px] bg-blue-50 p-5 md:w-[320px]">
+              <p className="text-xl font-extrabold text-[#1A1C1E]">{snapshot.student.name}</p>
+              <p className="mt-1 text-sm font-bold text-[#8B95A1]">
+                {[snapshot.student.school, snapshot.student.grade].filter(Boolean).join(' · ') || '학생 성적'}
+              </p>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="rounded-2xl bg-white p-4">
+                  <p className="text-xs font-bold text-[#8B95A1]">점수</p>
+                  <p className="mt-1 text-4xl font-extrabold text-[#2463EB]">{snapshot.score.raw_score ?? '-'}</p>
+                  <p className="mt-1 text-xs font-bold text-[#8B95A1]">점</p>
+                </div>
+                <div className="rounded-2xl bg-white p-4 text-right">
+                  <p className="text-xs font-bold text-[#8B95A1]">등급</p>
+                  <p className="mt-1 text-4xl font-extrabold text-[#1A1C1E]">{snapshot.score.grade ?? '-'}</p>
+                  <p className="mt-1 text-xs font-bold text-[#8B95A1]">등급</p>
+                </div>
+              </div>
             </div>
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-4">
-          <div className="rounded-[24px] bg-white p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
-            <p className="text-sm text-[#8B95A1]">석차</p>
-            <p className="mt-2 text-2xl font-extrabold text-[#2463EB]">
-              {cohort?.rank && cohort.total ? `${cohort.rank}/${cohort.total}` : '-'}
-            </p>
-            <p className="mt-1 text-xs text-[#8B95A1]">
-              {cohort?.average_score != null ? `평균 ${cohort.average_score}점 · 최고 ${cohort.top_score}점` : '발행 시점 응시자 기준'}
-            </p>
-          </div>
+        <section className="grid gap-4 md:grid-cols-3">
           <div className="rounded-[24px] bg-white p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
             <p className="text-sm text-[#8B95A1]">듣기 정답률</p>
             <p className="mt-2 text-2xl font-extrabold text-[#2463EB]">
@@ -259,6 +259,84 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
           </div>
         </section>
 
+        <section className="grid gap-4 lg:grid-cols-[1.1fr_.9fr]">
+          <div className="rounded-[24px] bg-white p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-extrabold">1~45 오답 맵</h2>
+                <p className="mt-1 text-sm font-medium text-[#8B95A1]">붉은 번호는 오답, 진한 번호는 3점 문항</p>
+              </div>
+              <span className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-extrabold text-[#FF4D4D]">
+                {wrongAnswers.length}/45
+              </span>
+            </div>
+
+            <div className="mt-4 grid grid-cols-9 gap-1.5">
+              {questionMap.map((item) => (
+                <div
+                  key={item.questionNumber}
+                  className={[
+                    'flex h-8 items-center justify-center rounded-xl text-xs font-extrabold',
+                    item.wrong
+                      ? item.points >= 3
+                        ? 'bg-[#FF4D4D] text-white'
+                        : 'bg-red-50 text-[#FF4D4D]'
+                      : 'bg-slate-50 text-slate-300',
+                  ].join(' ')}
+                  title={item.wrong ? `${item.questionNumber}번 ${item.wrong.mock_exam_question?.question_type ?? ''}` : `${item.questionNumber}번`}
+                >
+                  {item.questionNumber}
+                </div>
+              ))}
+            </div>
+
+            {wrongAnswers.length === 0 ? (
+              <div className="mt-4 rounded-2xl bg-blue-50 p-4 text-sm font-bold text-[#2463EB]">
+                오답 문항이 없습니다.
+              </div>
+            ) : (
+              <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+                {Object.entries(wrongByRange).map(([label, count]) => (
+                  <div key={label} className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-xs font-bold text-[#8B95A1]">{label}</p>
+                    <p className="mt-1 text-lg font-extrabold text-[#1A1C1E]">{count}문항</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-[24px] bg-[#1A1C1E] p-5 text-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+            <h2 className="text-lg font-extrabold">복습 우선순위</h2>
+            <p className="mt-1 text-sm font-medium text-slate-300">고배점 오답과 점수 손실이 큰 유형</p>
+            {highImpactWrong.length === 0 ? (
+              <p className="mt-4 rounded-2xl bg-white/10 p-4 text-sm font-medium text-slate-300">고배점 오답이 없습니다.</p>
+            ) : (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {highImpactWrong.map((answer) => (
+                  <span
+                    key={answer.mock_exam_question?.question_number}
+                    className="rounded-full bg-white/10 px-3 py-2 text-xs font-extrabold text-white"
+                  >
+                    {answer.mock_exam_question?.question_number}번 · {answer.mock_exam_question?.points}점 · {answer.mock_exam_question?.question_type}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {wrongTypeSummary.length > 0 && (
+              <div className="mt-4 space-y-2">
+                {wrongTypeSummary.map((item) => (
+                  <div key={item.type} className="flex items-center justify-between gap-3 rounded-2xl bg-white/10 px-3 py-2 text-xs">
+                    <span className="min-w-0 truncate font-bold">{item.type}</span>
+                    <span className="shrink-0 font-extrabold text-red-200">{item.lost}점 손실</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
         <section className="rounded-[24px] bg-white p-6 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
@@ -269,15 +347,6 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
           </div>
 
           <div className="mt-5 grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-bold text-[#8B95A1]">응시자 내 위치</p>
-              <p className="mt-2 text-2xl font-extrabold text-[#1A1C1E]">
-                {cohort?.rank && cohort.total ? `${cohort.rank}등 / ${cohort.total}명` : '산출 전'}
-              </p>
-              <p className="mt-1 text-xs text-[#8B95A1]">
-                {cohort?.same_score_count && cohort.same_score_count > 1 ? `동점자 ${cohort.same_score_count}명` : '동점자는 동일 석차'}
-              </p>
-            </div>
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-xs font-bold text-[#8B95A1]">다음 등급 기준</p>
               <p className="mt-2 text-2xl font-extrabold text-[#1A1C1E]">
@@ -294,7 +363,7 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
                 {threePointWrong.map((answer) => `${answer.mock_exam_question?.question_number}번`).join(', ') || '없음'}
               </p>
             </div>
-            <div className="rounded-2xl bg-slate-50 p-4 md:col-span-3">
+            <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-xs font-bold text-[#8B95A1]">듣기/독해 격차</p>
               <p className="mt-2 text-2xl font-extrabold text-[#2463EB]">
                 {listeningAccuracy == null || readingAccuracy == null ? '-' : `${Math.abs(listeningAccuracy - readingAccuracy)}%p`}
@@ -305,160 +374,65 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
             </div>
           </div>
 
-          {priorityTypes.length > 0 && (
-            <div className="mt-5 rounded-2xl bg-blue-50 p-4">
-              <h3 className="text-sm font-extrabold text-[#2463EB]">수업 우선순위</h3>
-              <div className="mt-3 grid gap-2 md:grid-cols-3">
-                {priorityTypes.map((item) => (
-                  <div key={item.type} className="rounded-2xl bg-white p-4">
-                    <p className="font-extrabold">{item.type}</p>
-                    <p className="mt-1 text-sm text-[#8B95A1]">
-                      {item.correct}/{item.total} 정답 · {item.lost}점 손실
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </section>
 
         <section className="rounded-[24px] bg-white p-6 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-sm font-semibold text-[#2463EB]">진단 보드</p>
-              <h2 className="mt-1 text-xl font-extrabold">유형 성취와 오답 위치</h2>
+              <h2 className="mt-1 text-xl font-extrabold">유형별 성취</h2>
             </div>
             <div className="flex flex-wrap gap-2 text-xs font-bold">
               <span className="rounded-full bg-blue-50 px-3 py-1.5 text-[#2463EB]">{typeSummary}</span>
-              <span className="rounded-full bg-red-50 px-3 py-1.5 text-[#FF4D4D]">{wrongSummary}</span>
             </div>
           </div>
 
-          <div className="mt-5 grid gap-4 lg:grid-cols-[1.05fr_.95fr]">
-            <div className="rounded-[24px] bg-slate-50 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-extrabold">유형별 성취 맵</h3>
-                  <p className="mt-1 text-xs font-medium text-[#8B95A1]">점수 손실이 큰 유형부터 배치</p>
-                </div>
-                {primaryFocus && (
-                  <span className="rounded-full bg-white px-3 py-1.5 text-xs font-extrabold text-[#FF4D4D]">
-                    최우선 {primaryFocus.type}
-                  </span>
-                )}
+          <div className="mt-5 rounded-[24px] bg-slate-50 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-extrabold">유형별 성취 맵</h3>
+                <p className="mt-1 text-xs font-medium text-[#8B95A1]">점수 손실이 큰 유형부터 배치</p>
               </div>
-
-              {typeRows.length === 0 ? (
-                <div className="mt-4 rounded-2xl bg-white p-6 text-center text-sm font-medium text-[#8B95A1]">
-                  유형 분석 데이터가 없습니다.
-                </div>
-              ) : (
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  {typeRows.map((item) => (
-                    <div key={item.type} className={`rounded-2xl p-4 ${item.tone.tile}`}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-extrabold text-[#1A1C1E]">{item.type}</p>
-                          <p className="mt-1 text-xs font-medium text-[#8B95A1]">
-                            {item.correct}/{item.total} 정답 · {item.earned}/{item.points}점
-                          </p>
-                        </div>
-                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-extrabold ${item.tone.chip}`}>
-                          {item.tone.label}
-                        </span>
-                      </div>
-                      <div className="mt-3 flex items-center gap-3">
-                        <div className="h-2 flex-1 rounded-full bg-slate-200">
-                          <div className={`h-2 rounded-full ${item.tone.bar}`} style={{ width: `${boundedPercent(item.scoreRate)}%` }} />
-                        </div>
-                        <span className="w-10 text-right text-xs font-extrabold text-[#1A1C1E]">{boundedPercent(item.scoreRate)}%</span>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between text-xs font-bold">
-                        <span className="text-[#8B95A1]">손실</span>
-                        <span className={item.lost > 0 ? 'text-[#FF4D4D]' : 'text-[#2463EB]'}>{item.lost}점</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              {primaryFocus && (
+                <span className="rounded-full bg-white px-3 py-1.5 text-xs font-extrabold text-[#FF4D4D]">
+                  최우선 {primaryFocus.type}
+                </span>
               )}
             </div>
 
-            <div className="space-y-4">
-              <div className="rounded-[24px] bg-slate-50 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-extrabold">1~45 오답 맵</h3>
-                    <p className="mt-1 text-xs font-medium text-[#8B95A1]">붉은 번호는 오답, 진한 번호는 3점 문항</p>
-                  </div>
-                  <span className="rounded-full bg-white px-3 py-1.5 text-xs font-extrabold text-[#1A1C1E]">
-                    {wrongAnswers.length}/45
-                  </span>
-                </div>
-
-                <div className="mt-4 grid grid-cols-9 gap-1.5">
-                  {questionMap.map((item) => (
-                    <div
-                      key={item.questionNumber}
-                      className={[
-                        'flex h-8 items-center justify-center rounded-xl text-xs font-extrabold',
-                        item.wrong
-                          ? item.points >= 3
-                            ? 'bg-[#FF4D4D] text-white'
-                            : 'bg-red-50 text-[#FF4D4D]'
-                          : 'bg-white text-slate-300',
-                      ].join(' ')}
-                      title={item.wrong ? `${item.questionNumber}번 ${item.wrong.mock_exam_question?.question_type ?? ''}` : `${item.questionNumber}번`}
-                    >
-                      {item.questionNumber}
-                    </div>
-                  ))}
-                </div>
-
-                {wrongAnswers.length === 0 ? (
-                  <div className="mt-4 rounded-2xl bg-blue-50 p-4 text-sm font-bold text-[#2463EB]">
-                    오답 문항이 없습니다.
-                  </div>
-                ) : (
-                  <div className="mt-4 grid grid-cols-2 gap-2">
-                    {Object.entries(wrongByRange).map(([label, count]) => (
-                      <div key={label} className="rounded-2xl bg-white p-3">
-                        <p className="text-xs font-bold text-[#8B95A1]">{label}</p>
-                        <p className="mt-1 text-lg font-extrabold text-[#1A1C1E]">{count}문항</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
+            {typeRows.length === 0 ? (
+              <div className="mt-4 rounded-2xl bg-white p-6 text-center text-sm font-medium text-[#8B95A1]">
+                유형 분석 데이터가 없습니다.
               </div>
-
-              <div className="rounded-[24px] bg-[#1A1C1E] p-4 text-white">
-                <h3 className="text-sm font-extrabold">복습 우선순위</h3>
-                {highImpactWrong.length === 0 ? (
-                  <p className="mt-3 text-sm font-medium text-slate-300">고배점 오답이 없습니다.</p>
-                ) : (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {highImpactWrong.map((answer) => (
-                      <span
-                        key={answer.mock_exam_question?.question_number}
-                        className="rounded-full bg-white/10 px-3 py-2 text-xs font-extrabold text-white"
-                      >
-                        {answer.mock_exam_question?.question_number}번 · {answer.mock_exam_question?.points}점 · {answer.mock_exam_question?.question_type}
+            ) : (
+              <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {typeRows.map((item) => (
+                  <div key={item.type} className={`rounded-2xl p-4 ${item.tone.tile}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-extrabold text-[#1A1C1E]">{item.type}</p>
+                        <p className="mt-1 text-xs font-medium text-[#8B95A1]">
+                          {item.correct}/{item.total} 정답 · {item.earned}/{item.points}점
+                        </p>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-extrabold ${item.tone.chip}`}>
+                        {item.tone.label}
                       </span>
-                    ))}
-                  </div>
-                )}
-
-                {wrongTypeSummary.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    {wrongTypeSummary.map((item) => (
-                      <div key={item.type} className="flex items-center justify-between gap-3 rounded-2xl bg-white/10 px-3 py-2 text-xs">
-                        <span className="min-w-0 truncate font-bold">{item.type}</span>
-                        <span className="shrink-0 font-extrabold text-red-200">{item.lost}점 손실</span>
+                    </div>
+                    <div className="mt-3 flex items-center gap-3">
+                      <div className="h-2 flex-1 rounded-full bg-slate-200">
+                        <div className={`h-2 rounded-full ${item.tone.bar}`} style={{ width: `${boundedPercent(item.scoreRate)}%` }} />
                       </div>
-                    ))}
+                      <span className="w-10 text-right text-xs font-extrabold text-[#1A1C1E]">{boundedPercent(item.scoreRate)}%</span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between text-xs font-bold">
+                      <span className="text-[#8B95A1]">손실</span>
+                      <span className={item.lost > 0 ? 'text-[#FF4D4D]' : 'text-[#2463EB]'}>{item.lost}점</span>
+                    </div>
                   </div>
-                )}
+                ))}
               </div>
-            </div>
+            )}
           </div>
 
           {strongTypes.length > 0 && (
