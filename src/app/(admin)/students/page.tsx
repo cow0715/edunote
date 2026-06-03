@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { Plus, Users, Pencil, Trash2, ExternalLink, Search, Download, ChevronUp, ChevronDown, ChevronsUpDown, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,6 +14,7 @@ import * as XLSX from 'xlsx'
 
 type SortKey = 'name' | 'school' | 'grade' | 'class' | 'joined_at' | 'left_at'
 type SortDir = 'asc' | 'desc'
+const STUDENT_LIST_STATE_KEY = 'edunote:students:list-state'
 
 function getJoinedAt(s: StudentWithEnrollments): string | null {
   const dates = s.class_student.map((e) => e.joined_at).filter(Boolean) as string[]
@@ -70,6 +71,47 @@ export default function StudentsPage() {
   const [searchStatus, setSearchStatus] = useState<'all' | 'active' | 'withdrawn'>('all')
   const [sortKey, setSortKey] = useState<SortKey>('name')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [listStateRestored, setListStateRestored] = useState(false)
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(STUDENT_LIST_STATE_KEY)
+    if (!saved) {
+      setListStateRestored(true)
+      return
+    }
+    try {
+      const state = JSON.parse(saved) as {
+        searchName?: string
+        searchGrade?: string
+        searchClass?: string
+        searchStatus?: 'all' | 'active' | 'withdrawn'
+        sortKey?: SortKey
+        sortDir?: SortDir
+      }
+      setSearchName(state.searchName ?? '')
+      setSearchGrade(state.searchGrade ?? '')
+      setSearchClass(state.searchClass ?? '')
+      setSearchStatus(state.searchStatus ?? 'all')
+      setSortKey(state.sortKey ?? 'name')
+      setSortDir(state.sortDir ?? 'asc')
+    } catch {
+      window.localStorage.removeItem(STUDENT_LIST_STATE_KEY)
+    } finally {
+      setListStateRestored(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!listStateRestored) return
+    window.localStorage.setItem(STUDENT_LIST_STATE_KEY, JSON.stringify({
+      searchName,
+      searchGrade,
+      searchClass,
+      searchStatus,
+      sortKey,
+      sortDir,
+    }))
+  }, [listStateRestored, searchName, searchGrade, searchClass, searchStatus, sortKey, sortDir])
 
   const { data: classStudents } = useClassStudents(searchClass)
   const classStudentIds = useMemo(

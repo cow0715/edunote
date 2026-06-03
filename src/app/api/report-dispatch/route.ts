@@ -89,15 +89,12 @@ type ResultForSnapshot = {
   }[]
 }
 
-type ResultRankRow = {
-  id: string
-  raw_score: number | null
-}
-
 type DispatchBody = {
   kind?: DispatchKind
+  action?: 'publish' | 'send'
   year?: number
   month?: number
+  class_id?: string
   mock_exam_id?: string
   student_ids?: string[]
   result_ids?: string[]
@@ -157,35 +154,6 @@ function renderMockMessage(template: string, args: { studentName: string; examTi
     .replaceAll('{성적표링크}', args.reportUrl)
 }
 
-function buildRankSnapshot(rows: ResultRankRow[], resultId: string, rawScore: number | null) {
-  const scoredRows = rows.filter((row) => row.raw_score != null)
-  if (rawScore == null || scoredRows.length === 0) {
-    return {
-      rank: null,
-      total: scoredRows.length,
-      average_score: null,
-      top_score: null,
-      same_score_count: 0,
-      percentile: null,
-    }
-  }
-
-  const scores = scoredRows.map((row) => Number(row.raw_score))
-  const rank = scores.filter((score) => score > rawScore).length + 1
-  const lowerCount = scores.filter((score) => score < rawScore).length
-  const targetScoreCount = scoredRows.filter((row) => row.id === resultId).length
-  const sameScoreCount = scores.filter((score) => score === rawScore).length
-
-  return {
-    rank,
-    total: scoredRows.length,
-    average_score: Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length),
-    top_score: Math.max(...scores),
-    same_score_count: targetScoreCount > 0 ? sameScoreCount : 0,
-    percentile: Math.round((lowerCount / scoredRows.length) * 100),
-  }
-}
-
 async function publishMockExamReport(supabase: Awaited<ReturnType<typeof getAuth>>['supabase'], mockExamId: string, resultId: string) {
   const { data, error } = await supabase
     .from('mock_exam_result')
@@ -217,14 +185,6 @@ async function publishMockExamReport(supabase: Awaited<ReturnType<typeof getAuth
     .filter((answer) => answer.mock_exam_question && !answer.mock_exam_question.is_void && !answer.is_correct)
     .sort((a, b) => (a.mock_exam_question?.question_number ?? 0) - (b.mock_exam_question?.question_number ?? 0))
 
-  const { data: rankRows, error: rankError } = await supabase
-    .from('mock_exam_result')
-    .select('id, raw_score')
-    .eq('mock_exam_id', mockExamId)
-    .not('raw_score', 'is', null)
-
-  if (rankError) throw new Error(rankError.message)
-
   const snapshot = {
     version: 1,
     generated_at: new Date().toISOString(),
@@ -239,7 +199,7 @@ async function publishMockExamReport(supabase: Awaited<ReturnType<typeof getAuth
       reading_total: result.reading_total,
       type_analysis: result.type_analysis,
     },
-    cohort: buildRankSnapshot((rankRows ?? []) as ResultRankRow[], result.id, result.raw_score),
+    cohort: null,
     wrong_answers: wrongAnswers,
     teacher_comment: result.teacher_comment,
   }
@@ -266,22 +226,22 @@ async function publishMockExamReport(supabase: Awaited<ReturnType<typeof getAuth
   return report as MockReportRow
 }
 
-async function getActiveStudents(supabase: Awaited<ReturnType<typeof getAuth>>['supabase'], teacherId: string, grade: string | null) {
+async function getActiveStudents(supabase: Awaited<ReturnType<typeof getAuth>>['supabase'], teacherId: string, grade: string | null, classId: string | null) {
   const { data, error } = await supabase
     .from('student')
-    .select('id, name, phone, mother_phone, father_phone, school, grade, class_student(left_at, class(name, archived_at, grade_level))')
+    .select('id, name, phone, mother_phone, father_phone, school, grade, class_student(class_id, left_at, class(name, archived_at, grade_level))')
     .eq('teacher_id', teacherId)
     .order('name')
 
   if (error) throw new Error(error.message)
 
   return ((data ?? []) as unknown as (StudentPhone & {
-    class_student?: { left_at: string | null; class?: { archived_at: string | null; grade_level: number | null } | { archived_at: string | null; grade_level: number | null }[] | null }[]
+    class_student?: { class_id: string; left_at: string | null; class?: { archived_at: string | null; grade_level: number | null } | { archived_at: string | null; grade_level: number | null }[] | null }[]
   })[])
     .filter((student) => {
       const activeEnrollment = student.class_student?.some((enrollment) => {
         const classRow = one(enrollment.class)
-        return !enrollment.left_at && !classRow?.archived_at
+        return !enrollment.left_at && !classRow?.archived_at && (!classId || enrollment.class_id === classId)
       })
       if (!activeEnrollment) return false
       if (!grade) return true
@@ -308,10 +268,11 @@ export async function GET(request: Request) {
       const year = Number(searchParams.get('year'))
       const month = Number(searchParams.get('month'))
       const grade = searchParams.get('grade')
+      const classId = searchParams.get('class_id')
       if (!year || !month) return err('year, month가 필요합니다')
 
       const period = getMonthlyPeriod(year, month)
-      const students = await getActiveStudents(supabase, teacherId, grade && grade !== 'all' ? grade : null)
+      const students = await getActiveStudents(supabase, teacherId, grade && grade !== 'all' ? grade : null, classId && classId !== 'all' ? classId : null)
       const studentIds = students.map((student) => student.id)
       const { data: cards } = studentIds.length > 0
         ? await supabase
@@ -362,6 +323,7 @@ export async function GET(request: Request) {
 
     if (kind === 'mock') {
       const mockExamId = searchParams.get('mock_exam_id')
+      const classId = searchParams.get('class_id')
       if (!mockExamId) return err('mock_exam_id가 필요합니다')
       if (!(await assertMockExamOwner(supabase, mockExamId, teacherId))) return err('접근 권한이 없습니다', 403)
 
@@ -376,7 +338,23 @@ export async function GET(request: Request) {
       if (!exam) return err('모의고사를 찾을 수 없습니다', 404)
       if (resultError) return err(resultError.message, 500)
 
-      const reportIds = ((results ?? []) as unknown as MockResultRow[])
+      let filteredResults = (results ?? []) as unknown as MockResultRow[]
+      if (classId && classId !== 'all') {
+        const studentIds = [...new Set(filteredResults.map((result) => result.student_id).filter(Boolean))]
+        const { data: enrollments, error: enrollmentError } = studentIds.length > 0
+          ? await supabase
+              .from('class_student')
+              .select('student_id')
+              .eq('class_id', classId)
+              .is('left_at', null)
+              .in('student_id', studentIds)
+          : { data: [], error: null }
+        if (enrollmentError) return err(enrollmentError.message, 500)
+        const classStudentIds = new Set((enrollments ?? []).map((row: { student_id: string }) => row.student_id))
+        filteredResults = filteredResults.filter((result) => classStudentIds.has(result.student_id))
+      }
+
+      const reportIds = filteredResults
         .map((result) => reportList(result.mock_exam_report).find((report) => report.status === 'published')?.id)
         .filter(Boolean) as string[]
       const { data: logs } = reportIds.length > 0
@@ -396,7 +374,7 @@ export async function GET(request: Request) {
       return ok({
         kind,
         exam,
-        items: ((results ?? []) as unknown as MockResultRow[]).map((result) => {
+        items: filteredResults.map((result) => {
           const student = one(result.student)
           const report = reportList(result.mock_exam_report).find((item) => item.status === 'published') ?? null
           return {
@@ -433,15 +411,16 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({})) as DispatchBody
   const kind = body.kind
+  const action = body.action ?? 'send'
   const recipients = [...new Set(body.recipients ?? ['mother', 'student'])].filter((key): key is RecipientKey => (
     key === 'mother' || key === 'father' || key === 'student'
   ))
   const template = body.message_template?.trim()
 
   if (!kind) return err('kind가 필요합니다')
-  if (recipients.length === 0) return err('수신자를 선택해 주세요')
-  if (!template) return err('문자 내용을 입력해 주세요')
-  if (!template.includes('{성적표링크}')) return err('문자 내용에 {성적표링크}를 포함해 주세요')
+  if (action !== 'publish' && recipients.length === 0) return err('수신자를 선택해 주세요')
+  if (action !== 'publish' && !template) return err('문자 내용을 입력해 주세요')
+  if (action !== 'publish' && !template?.includes('{성적표링크}')) return err('문자 내용에 {성적표링크}를 포함해 주세요')
 
   const origin = new URL(request.url).origin
   const targets: SendTarget[] = []
@@ -515,6 +494,13 @@ export async function POST(request: Request) {
         if (publishError) return err(publishError.message, 500)
       }
 
+      if (action === 'publish') {
+        return ok({
+          published_count: cardIds.length,
+          created_count: missingRows.length,
+        })
+      }
+
       const { data: sentLogs } = cardIds.length > 0
         ? await supabase
             .from('message_log')
@@ -537,7 +523,7 @@ export async function POST(request: Request) {
           continue
         }
         const reportUrl = `${origin}/report-cards/${card.share_token}`
-        const message = renderMonthlyMessage(template, { studentName: student.name, periodLabel: period.label, reportUrl })
+        const message = renderMonthlyMessage(template!, { studentName: student.name, periodLabel: period.label, reportUrl })
         const sentPhones = new Set<string>()
         for (const recipient of recipients) {
           const phone = phoneFor(student, recipient)?.replace(/-/g, '').trim()
@@ -589,6 +575,16 @@ export async function POST(request: Request) {
         reportsByResultId.set(result.id, existing ?? await publishMockExamReport(supabase, mockExamId, result.id))
       }
 
+      if (action === 'publish') {
+        return ok({
+          published_count: reportsByResultId.size,
+          created_count: [...reportsByResultId.keys()].filter((resultId) => {
+            const result = ((results ?? []) as unknown as MockResultRow[]).find((item) => item.id === resultId)
+            return !reportList(result?.mock_exam_report).some((report) => report.status === 'published')
+          }).length,
+        })
+      }
+
       const reportIds = [...reportsByResultId.values()].map((report) => report.id)
       const { data: sentLogs } = reportIds.length > 0
         ? await supabase
@@ -610,7 +606,7 @@ export async function POST(request: Request) {
           continue
         }
         const reportUrl = `${origin}/mock-exam-reports/${report.share_token}`
-        const message = renderMockMessage(template, { studentName: student.name, examTitle: (exam as { title: string }).title, reportUrl })
+        const message = renderMockMessage(template!, { studentName: student.name, examTitle: (exam as { title: string }).title, reportUrl })
         const sentPhones = new Set<string>()
         for (const recipient of recipients) {
           const phone = phoneFor(student, recipient)?.replace(/-/g, '').trim()
