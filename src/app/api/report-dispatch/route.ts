@@ -129,11 +129,6 @@ function reportList(value: MockReportRow | MockReportRow[] | null | undefined) {
   return Array.isArray(value) ? value : [value]
 }
 
-function normalizeGrade(value: string | number | null | undefined) {
-  const match = String(value ?? '').match(/[1-3]/)
-  return match?.[0] ?? ''
-}
-
 function phoneFor(student: StudentPhone, recipient: RecipientKey) {
   if (recipient === 'mother') return student.mother_phone
   if (recipient === 'father') return student.father_phone
@@ -226,7 +221,7 @@ async function publishMockExamReport(supabase: Awaited<ReturnType<typeof getAuth
   return report as MockReportRow
 }
 
-async function getActiveStudents(supabase: Awaited<ReturnType<typeof getAuth>>['supabase'], teacherId: string, grade: string | null, classId: string | null) {
+async function getActiveStudents(supabase: Awaited<ReturnType<typeof getAuth>>['supabase'], teacherId: string, classId: string | null) {
   const { data, error } = await supabase
     .from('student')
     .select('id, name, phone, mother_phone, father_phone, school, grade, class_student(class_id, left_at, class(name, archived_at, grade_level))')
@@ -244,11 +239,7 @@ async function getActiveStudents(supabase: Awaited<ReturnType<typeof getAuth>>['
         return !enrollment.left_at && !classRow?.archived_at && (!classId || enrollment.class_id === classId)
       })
       if (!activeEnrollment) return false
-      if (!grade) return true
-      const classGrade = student.class_student
-        ?.map((enrollment) => one(enrollment.class)?.grade_level)
-        .find(Boolean)
-      return normalizeGrade(classGrade ?? student.grade) === grade
+      return true
     })
 }
 
@@ -267,12 +258,11 @@ export async function GET(request: Request) {
     if (kind === 'monthly') {
       const year = Number(searchParams.get('year'))
       const month = Number(searchParams.get('month'))
-      const grade = searchParams.get('grade')
       const classId = searchParams.get('class_id')
       if (!year || !month) return err('year, month가 필요합니다')
 
       const period = getMonthlyPeriod(year, month)
-      const students = await getActiveStudents(supabase, teacherId, grade && grade !== 'all' ? grade : null, classId && classId !== 'all' ? classId : null)
+      const students = await getActiveStudents(supabase, teacherId, classId && classId !== 'all' ? classId : null)
       const studentIds = students.map((student) => student.id)
       const { data: cards } = studentIds.length > 0
         ? await supabase

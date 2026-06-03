@@ -15,6 +15,7 @@ interface Props {
   onInsightChange?: (index: number, text: string) => void
   onInsightDelete?: (index: number) => void
   onInsightAdd?: () => void
+  displayMode?: 'paper' | 'mobile'
 }
 
 const BLUE = '#2463EB'
@@ -173,7 +174,7 @@ function RadarChart({ axes, classAvg }: {
   const sp = axes.map((ax, i) => pt(i, ax.value ?? 0))
   const cp = axes.map((ax, i) => pt(i, ax.classValue ?? 0))
   return (
-    <svg viewBox={`0 0 ${SIZE} ${SIZE}`} width={SIZE} height={SIZE} style={{ display: 'block', margin: '0 auto' }}>
+    <svg viewBox={`0 0 ${SIZE} ${SIZE}`} width={SIZE} height={SIZE} style={{ display: 'block', margin: '0 auto', maxWidth: '100%' }}>
       {[25, 50, 75, 100].map((lv) => <path key={lv} d={poly(axes.map((_, i) => pt(i, lv)))} fill="none" stroke="#F3F4F6" strokeWidth="0.8" />)}
       {axes.map((_, i) => { const p = pt(i, 100); return <line key={i} x1={cx} y1={cy} x2={p.x.toFixed(1)} y2={p.y.toFixed(1)} stroke="#F3F4F6" strokeWidth="0.8" /> })}
       {classAvg && axes.some((ax) => ax.classValue != null) && <path d={poly(cp)} fill="#94A3B8" fillOpacity="0.1" stroke="#94A3B8" strokeWidth="1" />}
@@ -203,7 +204,7 @@ function GrowthTrendCards({ rows, classContext }: {
   ]
 
   return (
-    <div className="grid grid-cols-3 gap-2.5">
+    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
       {domains.map(({ key, label, icon: Icon, color, getValue, classAvg }) => {
         const vals = rows.map(getValue).filter((v): v is number => v !== null)
         if (vals.length === 0) return null
@@ -298,7 +299,7 @@ function DomainCard({ icon: Icon, title, rate, classAvg, prevRate }: {
   )
 }
 
-export function ReportCardPreview({ student, card, metrics, previous, academy, classContext, editableInsights, onInsightChange, onInsightDelete, onInsightAdd }: Props) {
+export function ReportCardPreview({ student, card, metrics, previous, academy, classContext, editableInsights, onInsightChange, onInsightDelete, onInsightAdd, displayMode = 'paper' }: Props) {
   const {
     weekRows, avgReading, avgWriting, avgVocab, avgHomework, overallAvg,
     attendancePresent, attendanceLate, attendanceAbsent, attendanceTotal,
@@ -327,18 +328,24 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
     { label: '어휘', value: avgVocab, classValue: classContext?.classAvgVocab ?? null },
     { label: '과제', value: avgHomework, classValue: classContext?.classAvgHomework ?? null },
   ]
+  const isMobileDisplay = displayMode === 'mobile'
 
   return (
     <div
-      className="mx-auto bg-white text-gray-900"
-      style={{ fontFamily: "'Plus Jakarta Sans', 'Pretendard', system-ui, sans-serif", maxWidth: '210mm', minHeight: '297mm', padding: '28px' }}
+      className={`mx-auto w-full bg-white text-gray-900 ${isMobileDisplay ? 'rounded-[24px] p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)] sm:p-7' : ''}`}
+      style={{
+        fontFamily: "'Plus Jakarta Sans', 'Pretendard', system-ui, sans-serif",
+        maxWidth: isMobileDisplay ? '760px' : '210mm',
+        minHeight: isMobileDisplay ? undefined : '297mm',
+        padding: isMobileDisplay ? undefined : '28px',
+      }}
     >
       {/* ── 헤더 ─────────────────────────────────────────────── */}
       <header className="pb-5 border-b-2 border-gray-900">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
             <p className="text-[10px] text-gray-400 mb-1">{academy.name} · {periodEvalLabel}</p>
-            <h1 className="text-3xl font-extrabold tracking-tight leading-none">{student.name}</h1>
+            <h1 className="text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl">{student.name}</h1>
             <p className="text-sm text-gray-500 mt-1.5">
               {className}
               {academy.teacher_name ? ` · 담당 ${academy.teacher_name} 선생` : ''}
@@ -346,7 +353,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
             </p>
             <p className="text-[10px] text-gray-400 mt-1">{card.period_label} · 발급 {new Date(card.generated_at).toLocaleDateString('ko-KR')} · {reportNumber(card.id, card.generated_at)}</p>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-end justify-between gap-3 sm:shrink-0 sm:justify-end">
             {/* 종합 등급 — 눈에 띄게 */}
             {card.overall_grade && (
               <div className="flex flex-col items-center gap-0.5">
@@ -361,7 +368,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
             )}
             <div className="text-right">
               <div className="flex items-end justify-end gap-1.5">
-                <span className="text-5xl font-extrabold tabular-nums leading-none" style={{ color: BLUE }}>{overallAvg ?? '-'}</span>
+                <span className="text-4xl font-extrabold tabular-nums leading-none sm:text-5xl" style={{ color: BLUE }}>{overallAvg ?? '-'}</span>
                 <div className="pb-0.5">
                   <p className="text-sm text-gray-400">/ 100</p>
                   {overallDelta !== null && (
@@ -377,7 +384,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
       </header>
 
       {/* ── 요약 3카드 ───────────────────────────────────────── */}
-      <section className="mt-4 grid grid-cols-3 gap-3">
+      <section className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-xl bg-gray-50 px-4 py-3.5">
           <p className="text-[10px] text-gray-400">지난 기간 대비</p>
           {overallDelta !== null ? (
@@ -415,7 +422,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
       {/* ── 영역별 카드 (스파크라인 제거) ────────────────────────── */}
       <section className="mt-5">
         <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">영역별 성적 — 내 점수 vs 반 평균</p>
-        <div className={`grid gap-2.5 ${avgWriting !== null ? 'grid-cols-2' : 'grid-cols-3'}`}>
+        <div className={`grid grid-cols-1 gap-2.5 ${avgWriting !== null ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
           <DomainCard
             icon={BookOpen} title="독해"
             rate={avgReading} classAvg={classContext?.classAvgReading}
@@ -497,7 +504,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">성장 추이</p>
           <GrowthTrendCards rows={weekRows} classContext={classContext} />
           <div className="mt-2.5 rounded-xl border border-gray-100 p-4">
-            <div className="flex items-center justify-between mb-2">
+            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-[10px] font-semibold text-gray-400">역량 지도</p>
               {classContext && (
                 <div className="flex gap-3">
@@ -545,7 +552,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
       {focusItems.length > 0 && (
         <section className="mt-4">
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">다음 달 목표</p>
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             {focusItems.slice(0, 4).map((item, i) => {
               const labels = ['목표 점수', '집중 영역', '추가 과제', '다음 평가일']
               return (
@@ -556,7 +563,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
               )
             })}
             {focusItems.length > 4 && (
-              <div className="col-span-2 rounded-xl border border-gray-100 px-4 py-3">
+              <div className="rounded-xl border border-gray-100 px-4 py-3 sm:col-span-2">
                 <ul className="space-y-1.5">
                   {focusItems.slice(4).map((item, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
@@ -579,7 +586,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
 
       {/* ── 푸터 ──────────────────────────────────────────────── */}
       <footer className="mt-8 pt-4 border-t border-gray-200">
-        <div className="flex items-end justify-between gap-6">
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
           <div className="text-[10px] text-gray-400 min-w-0">
             {academy.name && <p className="font-semibold text-gray-500">{academy.name}</p>}
             {academy.address && <p className="mt-0.5 truncate">{academy.address}</p>}
