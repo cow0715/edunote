@@ -204,19 +204,19 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
     : '유형 데이터 없음'
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-white px-4 py-8 text-[#1A1C1E]">
-      <div className="mx-auto max-w-5xl space-y-5">
-        <section className="rounded-[24px] bg-white p-6 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+    <main className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-white px-3 py-4 text-[#1A1C1E] sm:px-4 sm:py-8">
+      <div className="mx-auto max-w-5xl space-y-4 sm:space-y-5">
+        <section className="rounded-[24px] bg-white p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)] sm:p-6">
           <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-sm font-semibold text-[#2463EB]">추지혜 영어 모의고사 성적표</p>
-              <h1 className="mt-2 text-2xl font-extrabold md:text-3xl">{snapshot.exam.title}</h1>
+              <h1 className="mt-2 text-2xl font-extrabold leading-tight md:text-3xl">{snapshot.exam.title}</h1>
               <p className="mt-2 text-sm text-[#8B95A1]">
                 {snapshot.exam.exam_year}년 {snapshot.exam.exam_month}월 · {examSourceLabel(snapshot.exam.source)}
                 {snapshot.exam.exam_date ? ` · ${snapshot.exam.exam_date}` : ''}
               </p>
             </div>
-            <div className="w-full rounded-[24px] bg-blue-50 p-5 md:w-[320px]">
+            <div className="w-full rounded-[24px] bg-blue-50 p-4 md:w-[320px] md:p-5">
               <p className="text-xl font-extrabold text-[#1A1C1E]">{snapshot.student.name}</p>
               <p className="mt-1 text-sm font-bold text-[#8B95A1]">
                 {[snapshot.student.school, snapshot.student.grade].filter(Boolean).join(' · ') || '학생 성적'}
@@ -224,12 +224,12 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <div className="rounded-2xl bg-white p-4">
                   <p className="text-xs font-bold text-[#8B95A1]">점수</p>
-                  <p className="mt-1 text-4xl font-extrabold text-[#2463EB]">{snapshot.score.raw_score ?? '-'}</p>
+                  <p className="mt-1 text-3xl font-extrabold text-[#2463EB] sm:text-4xl">{snapshot.score.raw_score ?? '-'}</p>
                   <p className="mt-1 text-xs font-bold text-[#8B95A1]">점</p>
                 </div>
                 <div className="rounded-2xl bg-white p-4 text-right">
                   <p className="text-xs font-bold text-[#8B95A1]">등급</p>
-                  <p className="mt-1 text-4xl font-extrabold text-[#1A1C1E]">{snapshot.score.grade ?? '-'}</p>
+                  <p className="mt-1 text-3xl font-extrabold text-[#1A1C1E] sm:text-4xl">{snapshot.score.grade ?? '-'}</p>
                   <p className="mt-1 text-xs font-bold text-[#8B95A1]">등급</p>
                 </div>
               </div>
@@ -265,7 +265,7 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
 
         <section className="grid gap-4 lg:grid-cols-[1.1fr_.9fr]">
           <div className="rounded-[24px] bg-white p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-lg font-extrabold">1~45 오답 맵</h2>
                 <p className="mt-1 text-sm font-medium text-[#8B95A1]">붉은 번호는 오답, 진한 번호는 3점 문항</p>
@@ -275,12 +275,12 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
               </span>
             </div>
 
-            <div className="mt-4 grid grid-cols-9 gap-1.5">
+            <div className="mt-4 grid grid-cols-9 gap-1">
               {questionMap.map((item) => (
                 <div
                   key={item.questionNumber}
                   className={[
-                    'flex h-8 items-center justify-center rounded-xl text-xs font-extrabold',
+                    'flex h-7 items-center justify-center rounded-lg text-[11px] font-extrabold sm:h-8 sm:rounded-xl sm:text-xs',
                     item.wrong
                       ? item.points >= 3
                         ? 'bg-[#FF4D4D] text-white'
@@ -341,7 +341,7 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
           </div>
         </section>
 
-        <section className="rounded-[24px] bg-white p-6 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+        <section className="rounded-[24px] bg-white p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)] sm:p-6">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-sm font-semibold text-[#2463EB]">객관 분석</p>
@@ -380,7 +380,7 @@ export default async function MockExamReportPage({ params }: { params: Promise<{
 
         </section>
 
-        <section className="rounded-[24px] bg-white p-6 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+        <section className="rounded-[24px] bg-white p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)] sm:p-6">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-sm font-semibold text-[#2463EB]">진단 보드</p>

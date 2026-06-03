@@ -107,7 +107,6 @@ export default function ReportDispatchPage() {
   const [kind, setKind] = useState<DispatchKind>('monthly')
   const [year, setYear] = useState(String(now.year))
   const [month, setMonth] = useState(String(now.month))
-  const [grade, setGrade] = useState('all')
   const [classId, setClassId] = useState('all')
   const [mockExamId, setMockExamId] = useState('')
   const [preview, setPreview] = useState<PreviewResponse | null>(null)
@@ -193,7 +192,6 @@ export default function ReportDispatchPage() {
       if (kind === 'monthly') {
         params.set('year', year)
         params.set('month', month)
-        params.set('grade', grade)
         if (classId !== 'all') params.set('class_id', classId)
       } else {
         if (!mockExamId) {
@@ -396,18 +394,6 @@ export default function ReportDispatchPage() {
                     </Select>
                   </div>
                   <div className="col-span-2 space-y-2">
-                    <Label>학년</Label>
-                    <Select value={grade} onValueChange={setGrade}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">전체 학년</SelectItem>
-                        <SelectItem value="1">고1</SelectItem>
-                        <SelectItem value="2">고2</SelectItem>
-                        <SelectItem value="3">고3</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="col-span-2 space-y-2">
                     <Label>반</Label>
                     <Select value={classId} onValueChange={setClassId}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
@@ -531,19 +517,19 @@ export default function ReportDispatchPage() {
                     체크된 학생에게만 성적표 링크를 전송합니다. 미체크 학생은 전송 대상에서 제외됩니다.
                   </p>
                 </div>
-                <div className="flex gap-2">
-                  <div className="relative">
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
+                  <div className="relative w-full sm:w-48">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <Input className="w-48 pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="학생 검색" />
+                    <Input className="w-full pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="학생 검색" />
                   </div>
-                  <Button variant="outline" className="rounded-full" onClick={toggleAllVisible} disabled={!preview}>
+                  <Button variant="outline" className="w-full rounded-full sm:w-auto" onClick={toggleAllVisible} disabled={!preview}>
                     보낼 수 있는 학생 체크
                   </Button>
-                  <Button variant="outline" className="rounded-full" onClick={generateSelectedReports} disabled={!preview || selectedItems.length === 0 || generating}>
+                  <Button variant="outline" className="w-full rounded-full sm:w-auto" onClick={generateSelectedReports} disabled={!preview || selectedItems.length === 0 || generating}>
                     {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                     체크 성적표 생성/확정
                   </Button>
-                  <Button className="rounded-full bg-[#2463EB]" onClick={sendSelected} disabled={!preview || sendableSelectedItems.length === 0 || sending}>
+                  <Button className="w-full rounded-full bg-[#2463EB] sm:w-auto" onClick={sendSelected} disabled={!preview || sendableSelectedItems.length === 0 || sending}>
                     {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                     체크한 학생에게 바로 보내기
                   </Button>

@@ -205,7 +205,7 @@ export default async function PublicReportCardPage({ params }: { params: Promise
   } : null
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-white px-4 py-6">
+    <main className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-white px-3 py-4 sm:px-4 sm:py-6">
       <ReportCardPreview
         student={studentForReport}
         card={card}
@@ -213,6 +213,7 @@ export default async function PublicReportCardPage({ params }: { params: Promise
         previous={previous}
         academy={academy}
         classContext={null}
+        displayMode="mobile"
       />
     </main>
   )
