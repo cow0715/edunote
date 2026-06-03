@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { FileText, Loader2, MessageSquare, RefreshCw, Search, Send, Users } from 'lucide-react'
+import { CheckCircle2, FileText, Loader2, MessageSquare, RefreshCw, Search, Send, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { useClasses } from '@/hooks/use-classes'
 import { useMockExams } from '@/hooks/use-mock-exams'
 import { cn } from '@/lib/utils'
 
@@ -107,6 +108,7 @@ export default function ReportDispatchPage() {
   const [year, setYear] = useState(String(now.year))
   const [month, setMonth] = useState(String(now.month))
   const [grade, setGrade] = useState('all')
+  const [classId, setClassId] = useState('all')
   const [mockExamId, setMockExamId] = useState('')
   const [preview, setPreview] = useState<PreviewResponse | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -114,10 +116,12 @@ export default function ReportDispatchPage() {
   const [includeResend, setIncludeResend] = useState(false)
   const [messageTemplate, setMessageTemplate] = useState(monthlyTemplate)
   const [loading, setLoading] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const [sending, setSending] = useState(false)
   const [search, setSearch] = useState('')
 
   const { data: mockExams = [] } = useMockExams()
+  const { data: classes = [] } = useClasses()
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -190,12 +194,14 @@ export default function ReportDispatchPage() {
         params.set('year', year)
         params.set('month', month)
         params.set('grade', grade)
+        if (classId !== 'all') params.set('class_id', classId)
       } else {
         if (!mockExamId) {
           toast.error('모의고사를 선택해 주세요')
           return
         }
         params.set('mock_exam_id', mockExamId)
+        if (classId !== 'all') params.set('class_id', classId)
       }
       const res = await fetch(`/api/report-dispatch?${params.toString()}`)
       const data = await res.json()
@@ -209,6 +215,44 @@ export default function ReportDispatchPage() {
       toast.error(error instanceof Error ? error.message : '대상 조회 실패')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function generateSelectedReports() {
+    if (!preview) return
+    if (selectedItems.length === 0) {
+      toast.error('성적표를 생성할 학생을 선택해 주세요')
+      return
+    }
+    setGenerating(true)
+    try {
+      const body = kind === 'monthly'
+        ? {
+            kind,
+            action: 'publish',
+            year: Number(year),
+            month: Number(month),
+            student_ids: selectedItems.map((item) => (item as MonthlyItem).student.id),
+          }
+        : {
+            kind,
+            action: 'publish',
+            mock_exam_id: mockExamId,
+            result_ids: selectedItems.map((item) => (item as MockItem).result_id),
+          }
+      const res = await fetch('/api/report-dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? '성적표 생성 실패')
+      toast.success(`성적표 ${data.published_count ?? selectedItems.length}건 생성/확정 완료`)
+      await loadPreview()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '성적표 생성 실패')
+    } finally {
+      setGenerating(false)
     }
   }
 
@@ -363,20 +407,46 @@ export default function ReportDispatchPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="col-span-2 space-y-2">
+                    <Label>반</Label>
+                    <Select value={classId} onValueChange={setClassId}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">전체 반</SelectItem>
+                        {classes.filter((c) => !c.archived_at).map((c) => (
+                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <Label>모의고사</Label>
-                  <Select value={mockExamId} onValueChange={setMockExamId}>
-                    <SelectTrigger><SelectValue placeholder="시험 선택" /></SelectTrigger>
-                    <SelectContent>
-                      {mockExams.map((exam) => (
-                        <SelectItem key={exam.id} value={exam.id}>
-                          {exam.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>모의고사</Label>
+                    <Select value={mockExamId} onValueChange={setMockExamId}>
+                      <SelectTrigger><SelectValue placeholder="시험 선택" /></SelectTrigger>
+                      <SelectContent>
+                        {mockExams.map((exam) => (
+                          <SelectItem key={exam.id} value={exam.id}>
+                            {exam.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>반</Label>
+                    <Select value={classId} onValueChange={setClassId}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">전체 반</SelectItem>
+                        {classes.filter((c) => !c.archived_at).map((c) => (
+                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               )}
 
@@ -468,6 +538,10 @@ export default function ReportDispatchPage() {
                   </div>
                   <Button variant="outline" className="rounded-full" onClick={toggleAllVisible} disabled={!preview}>
                     보낼 수 있는 학생 체크
+                  </Button>
+                  <Button variant="outline" className="rounded-full" onClick={generateSelectedReports} disabled={!preview || selectedItems.length === 0 || generating}>
+                    {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                    체크 성적표 생성/확정
                   </Button>
                   <Button className="rounded-full bg-[#2463EB]" onClick={sendSelected} disabled={!preview || sendableSelectedItems.length === 0 || sending}>
                     {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}

@@ -371,13 +371,6 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
                   )}
                 </div>
               </div>
-              {classContext?.classRank && (
-                <div className="flex items-center justify-end mt-2">
-                  <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: '#EBF3FF', color: BLUE }}>
-                    반 {classContext.classRank}위 / {classContext.classTotalStudents}명
-                  </span>
-                </div>
-              )}
             </div>
           </div>
         </div>

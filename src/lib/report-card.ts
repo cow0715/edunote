@@ -527,15 +527,8 @@ export function buildAutoSummary(
     }
   }
 
-  // 3. 반 석차
-  if (classContext?.classRank && classContext.classTotalStudents) {
-    const streak = metrics.achievements.find(a => /\d+주 연속 점수 상승/.test(a))
-    if (streak) {
-      parts.push(`${streak}을 이어가며 반 ${classContext.classTotalStudents}명 중 ${classContext.classRank}위를 기록했습니다.`)
-    } else {
-      parts.push(`현재 반 ${classContext.classTotalStudents}명 중 ${classContext.classRank}위입니다.`)
-    }
-  } else if (metrics.achievements.length > 0) {
+  // 3. 성취 흐름
+  if (metrics.achievements.length > 0) {
     const streak = metrics.achievements.find(a => /\d+주 연속 점수 상승/.test(a))
     if (streak) parts.push(`${streak}을 이어가고 있습니다.`)
   }

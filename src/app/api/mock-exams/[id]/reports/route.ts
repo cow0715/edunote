@@ -47,40 +47,6 @@ type ResultForSnapshot = {
   }[]
 }
 
-type ResultRankRow = {
-  id: string
-  raw_score: number | null
-}
-
-function buildRankSnapshot(rows: ResultRankRow[], resultId: string, rawScore: number | null) {
-  const scoredRows = rows.filter((row) => row.raw_score != null)
-  if (rawScore == null || scoredRows.length === 0) {
-    return {
-      rank: null,
-      total: scoredRows.length,
-      average_score: null,
-      top_score: null,
-      same_score_count: 0,
-      percentile: null,
-    }
-  }
-
-  const scores = scoredRows.map((row) => Number(row.raw_score))
-  const rank = scores.filter((score) => score > rawScore).length + 1
-  const lowerCount = scores.filter((score) => score < rawScore).length
-  const targetScoreCount = scoredRows.filter((row) => row.id === resultId).length
-  const sameScoreCount = scores.filter((score) => score === rawScore).length
-
-  return {
-    rank,
-    total: scoredRows.length,
-    average_score: Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length),
-    top_score: Math.max(...scores),
-    same_score_count: targetScoreCount > 0 ? sameScoreCount : 0,
-    percentile: Math.round((lowerCount / scoredRows.length) * 100),
-  }
-}
-
 async function publishMockExamReport(supabase: SupabaseClient, mockExamId: string, resultId: string) {
   const { data, error } = await supabase
     .from('mock_exam_result')
@@ -112,14 +78,6 @@ async function publishMockExamReport(supabase: SupabaseClient, mockExamId: strin
     .filter((answer) => answer.mock_exam_question && !answer.mock_exam_question.is_void && !answer.is_correct)
     .sort((a, b) => (a.mock_exam_question?.question_number ?? 0) - (b.mock_exam_question?.question_number ?? 0))
 
-  const { data: rankRows, error: rankError } = await supabase
-    .from('mock_exam_result')
-    .select('id, raw_score')
-    .eq('mock_exam_id', mockExamId)
-    .not('raw_score', 'is', null)
-
-  if (rankError) throw new Error(rankError.message)
-
   const snapshot = {
     version: 1,
     generated_at: new Date().toISOString(),
@@ -134,7 +92,7 @@ async function publishMockExamReport(supabase: SupabaseClient, mockExamId: strin
       reading_total: result.reading_total,
       type_analysis: result.type_analysis,
     },
-    cohort: buildRankSnapshot((rankRows ?? []) as ResultRankRow[], result.id, result.raw_score),
+    cohort: null,
     wrong_answers: wrongAnswers,
     teacher_comment: result.teacher_comment,
   }
