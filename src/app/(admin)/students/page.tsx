@@ -66,6 +66,7 @@ export default function StudentsPage() {
   const [editTarget, setEditTarget] = useState<Student | undefined>()
   const [reportCardTarget, setReportCardTarget] = useState<Student | null>(null)
   const [searchName, setSearchName] = useState('')
+  const [searchPhone, setSearchPhone] = useState('')
   const [searchGrade, setSearchGrade] = useState('')
   const [searchClass, setSearchClass] = useState('')
   const [searchStatus, setSearchStatus] = useState<'all' | 'active' | 'withdrawn'>('all')
@@ -82,6 +83,7 @@ export default function StudentsPage() {
     try {
       const state = JSON.parse(saved) as {
         searchName?: string
+        searchPhone?: string
         searchGrade?: string
         searchClass?: string
         searchStatus?: 'all' | 'active' | 'withdrawn'
@@ -89,6 +91,7 @@ export default function StudentsPage() {
         sortDir?: SortDir
       }
       setSearchName(state.searchName ?? '')
+      setSearchPhone(state.searchPhone ?? '')
       setSearchGrade(state.searchGrade ?? '')
       setSearchClass(state.searchClass ?? '')
       setSearchStatus(state.searchStatus ?? 'all')
@@ -105,13 +108,14 @@ export default function StudentsPage() {
     if (!listStateRestored) return
     window.localStorage.setItem(STUDENT_LIST_STATE_KEY, JSON.stringify({
       searchName,
+      searchPhone,
       searchGrade,
       searchClass,
       searchStatus,
       sortKey,
       sortDir,
     }))
-  }, [listStateRestored, searchName, searchGrade, searchClass, searchStatus, sortKey, sortDir])
+  }, [listStateRestored, searchName, searchPhone, searchGrade, searchClass, searchStatus, sortKey, sortDir])
 
   const { data: classStudents } = useClassStudents(searchClass)
   const classStudentIds = useMemo(
@@ -125,8 +129,14 @@ export default function StudentsPage() {
   }, [students])
 
   const filtered = useMemo(() => {
+    const phoneQuery = searchPhone.replace(/\D/g, '')
     let list = (students ?? []).filter((s) => {
       const nameMatch = !searchName || s.name.includes(searchName)
+      const phoneMatch =
+        !phoneQuery ||
+        [s.phone, s.father_phone, s.mother_phone].some(
+          (p) => p && p.replace(/\D/g, '').includes(phoneQuery)
+        )
       const gradeMatch = !searchGrade || s.grade === searchGrade
       const classMatch = !searchClass || classStudentIds.has(s.id)
       const withdrawn = isWithdrawn(s)
@@ -134,7 +144,7 @@ export default function StudentsPage() {
         searchStatus === 'all' ||
         (searchStatus === 'active' && !withdrawn) ||
         (searchStatus === 'withdrawn' && withdrawn)
-      return nameMatch && gradeMatch && classMatch && statusMatch
+      return nameMatch && phoneMatch && gradeMatch && classMatch && statusMatch
     })
 
     list = [...list].sort((a, b) => {
@@ -150,12 +160,13 @@ export default function StudentsPage() {
     })
 
     return list
-  }, [students, searchName, searchGrade, searchClass, searchStatus, classStudentIds, sortKey, sortDir])
+  }, [students, searchName, searchPhone, searchGrade, searchClass, searchStatus, classStudentIds, sortKey, sortDir])
 
-  const hasFilter = !!(searchName || searchGrade || searchClass || searchStatus !== 'all')
+  const hasFilter = !!(searchName || searchPhone || searchGrade || searchClass || searchStatus !== 'all')
 
   function resetFilters() {
     setSearchName('')
+    setSearchPhone('')
     setSearchGrade('')
     setSearchClass('')
     setSearchStatus('all')
@@ -279,6 +290,15 @@ export default function StudentsPage() {
             placeholder="이름 검색"
             value={searchName}
             onChange={(e) => setSearchName(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <div className="relative w-44">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Input
+            placeholder="전화번호 검색"
+            value={searchPhone}
+            onChange={(e) => setSearchPhone(e.target.value)}
             className="pl-9"
           />
         </div>
