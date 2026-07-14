@@ -42,6 +42,7 @@ export interface Class {
   academic_year: number | null;
   school_name: string | null;
   grade_level: number | null;
+  class_type: 'regular' | 'special';
   archived_at: string | null;
   created_at: string;
 }

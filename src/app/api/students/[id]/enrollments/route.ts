@@ -6,7 +6,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const { id: studentId } = await params
   const { data, error } = await supabase
     .from('class_student')
-    .select('class_id, joined_at, left_at, class(name)')
+    .select('class_id, joined_at, left_at, class(name, class_type, archived_at)')
     .eq('student_id', studentId)
     .order('joined_at')
   if (error) { console.error('[GET /api/students/[id]/enrollments]', error); return err(error.message, 500) }

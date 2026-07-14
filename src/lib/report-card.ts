@@ -9,6 +9,7 @@ export interface ReportCard {
   id: string
   teacher_id: string
   student_id: string
+  class_id: string | null
   period_type: PeriodType
   period_start: string
   period_end: string

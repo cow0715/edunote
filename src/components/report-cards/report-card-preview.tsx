@@ -16,6 +16,7 @@ interface Props {
   onInsightDelete?: (index: number) => void
   onInsightAdd?: () => void
   displayMode?: 'paper' | 'mobile'
+  cardClassName?: string | null
 }
 
 const BLUE = '#2463EB'
@@ -299,7 +300,7 @@ function DomainCard({ icon: Icon, title, rate, classAvg, prevRate }: {
   )
 }
 
-export function ReportCardPreview({ student, card, metrics, previous, academy, classContext, editableInsights, onInsightChange, onInsightDelete, onInsightAdd, displayMode = 'paper' }: Props) {
+export function ReportCardPreview({ student, card, metrics, previous, academy, classContext, editableInsights, onInsightChange, onInsightDelete, onInsightAdd, displayMode = 'paper', cardClassName }: Props) {
   const {
     weekRows, avgReading, avgWriting, avgVocab, avgHomework, overallAvg,
     attendancePresent, attendanceLate, attendanceAbsent, attendanceTotal,
@@ -309,7 +310,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
 
   const attendedCount = attendancePresent + attendanceLate
   const attendRate = attendanceTotal > 0 ? Math.round((attendedCount / attendanceTotal) * 100) : null
-  const className = weekRows[0]?.class_name ?? '-'
+  const className = cardClassName ?? weekRows[0]?.class_name ?? '-'
   const focusItems = (card.next_focus ?? '').split('\n').map((s) => s.trim()).filter(Boolean)
   const periodEvalLabel = card.period_type === 'monthly' ? '월간 평가'
     : card.period_type === 'quarterly' ? '분기 평가' : '학기 평가'

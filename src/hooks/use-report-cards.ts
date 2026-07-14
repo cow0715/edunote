@@ -11,6 +11,7 @@ export interface ReportCardDetail {
   previous: PeriodComparison | null
   academy: AcademyProfile
   classContext: ClassContext | null
+  card_class_name?: string | null
 }
 
 export function useReportCards(studentId: string | undefined) {
@@ -42,6 +43,7 @@ export function useCreateReportCard() {
   return useMutation({
     mutationFn: async (body: {
       student_id: string
+      class_id?: string | null
       period_type: PeriodType
       period_start: string
       period_end: string

@@ -33,6 +33,7 @@ export async function POST(request: Request) {
 
   const body = await request.json() as {
     student_id: string
+    class_id?: string | null
     period_type: 'monthly' | 'quarterly' | 'semester'
     period_start: string
     period_end: string
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
     .insert({
       teacher_id: teacherId,
       student_id: body.student_id,
+      class_id: body.class_id ?? null,
       period_type: body.period_type,
       period_start: body.period_start,
       period_end: body.period_end,

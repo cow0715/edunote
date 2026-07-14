@@ -48,12 +48,16 @@ export default async function PublicReportCardPage({ params }: { params: Promise
     teacher_name: teacherRow?.name ?? null,
   }
 
+  // 반별 성적표(class_id 지정)는 해당 반만, 레거시(null)는 전체 합산
+  const cardClassId = (card.class_id ?? null) as string | null
   const { data: classStudents } = await supabase
     .from('class_student')
     .select('class_id')
     .eq('student_id', student.id)
 
-  const classIds = (classStudents ?? []).map((cs: { class_id: string }) => cs.class_id)
+  const classIds = cardClassId
+    ? [cardClassId]
+    : (classStudents ?? []).map((cs: { class_id: string }) => cs.class_id)
   const { data: classRows } = classIds.length > 0
     ? await supabase.from('class').select('id, name, academic_year, school_name, grade_level').in('id', classIds)
     : { data: [] as ReportClassRow[] }
@@ -214,6 +218,7 @@ export default async function PublicReportCardPage({ params }: { params: Promise
         academy={academy}
         classContext={null}
         displayMode="mobile"
+        cardClassName={cardClassId ? classNameById.get(cardClassId) ?? null : null}
       />
     </main>
   )

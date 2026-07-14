@@ -19,9 +19,16 @@ type StudentPhone = {
 type ReportCardRow = {
   id: string
   student_id: string
+  class_id: string | null
   status: 'draft' | 'published'
   period_label: string
   share_token: string
+}
+
+type DispatchClass = {
+  id: string
+  name: string
+  class_type: 'regular' | 'special'
 }
 
 type MockReportRow = {
@@ -97,6 +104,7 @@ type DispatchBody = {
   class_id?: string
   mock_exam_id?: string
   student_ids?: string[]
+  pairs?: { student_id: string; class_id: string }[]
   result_ids?: string[]
   recipients?: RecipientKey[]
   message_template?: string
@@ -135,10 +143,11 @@ function phoneFor(student: StudentPhone, recipient: RecipientKey) {
   return student.phone
 }
 
-function renderMonthlyMessage(template: string, args: { studentName: string; periodLabel: string; reportUrl: string }) {
+function renderMonthlyMessage(template: string, args: { studentName: string; periodLabel: string; className: string; reportUrl: string }) {
   return template
     .replaceAll('{학생명}', args.studentName)
     .replaceAll('{기간명}', args.periodLabel)
+    .replaceAll('{수업명}', args.className)
     .replaceAll('{성적표링크}', args.reportUrl)
 }
 
@@ -224,23 +233,30 @@ async function publishMockExamReport(supabase: Awaited<ReturnType<typeof getAuth
 async function getActiveStudents(supabase: Awaited<ReturnType<typeof getAuth>>['supabase'], teacherId: string, classId: string | null) {
   const { data, error } = await supabase
     .from('student')
-    .select('id, name, phone, mother_phone, father_phone, school, grade, class_student(class_id, left_at, class(name, archived_at, grade_level))')
+    .select('id, name, phone, mother_phone, father_phone, school, grade, class_student(class_id, left_at, class(id, name, archived_at, grade_level, class_type))')
     .eq('teacher_id', teacherId)
     .order('name')
 
   if (error) throw new Error(error.message)
 
+  type ClassJoin = { id: string; name: string; archived_at: string | null; grade_level: number | null; class_type: 'regular' | 'special' | null }
   return ((data ?? []) as unknown as (StudentPhone & {
-    class_student?: { class_id: string; left_at: string | null; class?: { archived_at: string | null; grade_level: number | null } | { archived_at: string | null; grade_level: number | null }[] | null }[]
+    class_student?: { class_id: string; left_at: string | null; class?: ClassJoin | ClassJoin[] | null }[]
   })[])
-    .filter((student) => {
-      const activeEnrollment = student.class_student?.some((enrollment) => {
-        const classRow = one(enrollment.class)
-        return !enrollment.left_at && !classRow?.archived_at && (!classId || enrollment.class_id === classId)
-      })
-      if (!activeEnrollment) return false
-      return true
+    .map((student) => {
+      const active_classes: DispatchClass[] = (student.class_student ?? [])
+        .filter((enrollment) => {
+          const classRow = one(enrollment.class)
+          return !enrollment.left_at && classRow && !classRow.archived_at && (!classId || enrollment.class_id === classId)
+        })
+        .map((enrollment) => {
+          const classRow = one(enrollment.class)!
+          return { id: enrollment.class_id, name: classRow.name, class_type: classRow.class_type ?? 'regular' }
+        })
+        .sort((a, b) => (a.class_type === b.class_type ? a.name.localeCompare(b.name, 'ko') : a.class_type === 'regular' ? -1 : 1))
+      return { ...student, active_classes }
     })
+    .filter((student) => student.active_classes.length > 0)
 }
 
 export async function GET(request: Request) {
@@ -267,15 +283,20 @@ export async function GET(request: Request) {
       const { data: cards } = studentIds.length > 0
         ? await supabase
             .from('report_card')
-            .select('id, student_id, status, period_label, share_token')
+            .select('id, student_id, class_id, status, period_label, share_token')
             .eq('teacher_id', teacherId)
             .eq('period_type', 'monthly')
             .eq('period_start', period.start)
             .eq('period_end', period.end)
             .in('student_id', studentIds)
         : { data: [] }
-      const cardByStudentId = new Map((cards ?? []).map((card) => [(card as ReportCardRow).student_id, card as ReportCardRow]))
-      const cardIds = (cards ?? []).map((card) => (card as ReportCardRow).id)
+      // 반별 카드(class_id 있음)만 발송 관리 대상 — 레거시(null) 카드는 무시
+      const cardByKey = new Map(
+        ((cards ?? []) as ReportCardRow[])
+          .filter((card) => card.class_id)
+          .map((card) => [`${card.student_id}:${card.class_id}`, card]),
+      )
+      const cardIds = [...cardByKey.values()].map((card) => card.id)
       const { data: logs } = cardIds.length > 0
         ? await supabase
             .from('message_log')
@@ -293,10 +314,11 @@ export async function GET(request: Request) {
       return ok({
         kind,
         period,
-        items: students.map((student) => {
-          const card = cardByStudentId.get(student.id) ?? null
+        items: students.flatMap((student) => student.active_classes.map((cls) => {
+          const card = cardByKey.get(`${student.id}:${cls.id}`) ?? null
           return {
             student,
+            class: cls,
             report_id: card?.id ?? null,
             report_status: card?.status ?? 'missing',
             report_url: card ? `${origin}/report-cards/${card.share_token}` : null,
@@ -307,7 +329,7 @@ export async function GET(request: Request) {
               student: !!student.phone,
             },
           }
-        }),
+        })),
       })
     }
 
@@ -421,36 +443,68 @@ export async function POST(request: Request) {
     if (kind === 'monthly') {
       const year = Number(body.year)
       const month = Number(body.month)
-      const studentIds = [...new Set(body.student_ids ?? [])].filter(Boolean)
       if (!year || !month) return err('year, month가 필요합니다')
-      if (studentIds.length === 0) return err('전송할 학생을 선택해 주세요')
+
+      // 발송 단위: 학생×반(pairs). student_ids만 오면 활성 반으로 확장 (하위 호환)
+      let pairs = (body.pairs ?? []).filter((pair) => pair?.student_id && pair?.class_id)
+      if (pairs.length === 0) {
+        const studentIds = [...new Set(body.student_ids ?? [])].filter(Boolean)
+        if (studentIds.length === 0) return err('전송할 학생을 선택해 주세요')
+        const activeStudents = await getActiveStudents(supabase, teacherId, null)
+        const activeById = new Map(activeStudents.map((student) => [student.id, student]))
+        pairs = studentIds.flatMap((studentId) =>
+          (activeById.get(studentId)?.active_classes ?? []).map((cls) => ({ student_id: studentId, class_id: cls.id })))
+      }
+      pairs = [...new Map(pairs.map((pair) => [`${pair.student_id}:${pair.class_id}`, pair])).values()]
+      if (pairs.length === 0) return err('전송할 학생을 선택해 주세요')
 
       const period = getMonthlyPeriod(year, month)
-      const { data: students, error: studentError } = await supabase
-        .from('student')
-        .select('id, name, phone, mother_phone, father_phone, school, grade')
-        .eq('teacher_id', teacherId)
-        .in('id', studentIds)
-      if (studentError) return err(studentError.message, 500)
+      const studentIds = [...new Set(pairs.map((pair) => pair.student_id))]
+      const pairClassIds = [...new Set(pairs.map((pair) => pair.class_id))]
 
-      const cardQuery = await supabase
+      const [studentQuery, classQuery] = await Promise.all([
+        supabase
+          .from('student')
+          .select('id, name, phone, mother_phone, father_phone, school, grade')
+          .eq('teacher_id', teacherId)
+          .in('id', studentIds),
+        supabase
+          .from('class')
+          .select('id, name, class_type')
+          .eq('teacher_id', teacherId)
+          .in('id', pairClassIds),
+      ])
+      if (studentQuery.error) return err(studentQuery.error.message, 500)
+      if (classQuery.error) return err(classQuery.error.message, 500)
+      const students = studentQuery.data
+      const classById = new Map(((classQuery.data ?? []) as DispatchClass[]).map((cls) => [cls.id, cls]))
+      pairs = pairs.filter((pair) => classById.has(pair.class_id))
+      if (pairs.length === 0) return err('전송할 학생을 선택해 주세요')
+
+      const selectCards = () => supabase
         .from('report_card')
-        .select('id, student_id, status, period_label, share_token')
+        .select('id, student_id, class_id, status, period_label, share_token')
         .eq('teacher_id', teacherId)
         .eq('period_type', 'monthly')
         .eq('period_start', period.start)
         .eq('period_end', period.end)
         .in('student_id', studentIds)
-      let cards = cardQuery.data
-      const cardError = cardQuery.error
-      if (cardError) return err(cardError.message, 500)
+      const buildCardMap = (rows: unknown[] | null) => new Map(
+        ((rows ?? []) as ReportCardRow[])
+          .filter((card) => card.class_id)
+          .map((card) => [`${card.student_id}:${card.class_id}`, card]),
+      )
 
-      const existingStudentIds = new Set((cards ?? []).map((card) => (card as ReportCardRow).student_id))
-      const missingRows = studentIds
-        .filter((studentId) => !existingStudentIds.has(studentId))
-        .map((studentId) => ({
+      const cardQuery = await selectCards()
+      if (cardQuery.error) return err(cardQuery.error.message, 500)
+      let cardByKey = buildCardMap(cardQuery.data)
+
+      const missingRows = pairs
+        .filter((pair) => !cardByKey.has(`${pair.student_id}:${pair.class_id}`))
+        .map((pair) => ({
           teacher_id: teacherId,
-          student_id: studentId,
+          student_id: pair.student_id,
+          class_id: pair.class_id,
           period_type: 'monthly',
           period_start: period.start,
           period_end: period.end,
@@ -462,19 +516,15 @@ export async function POST(request: Request) {
       if (missingRows.length > 0) {
         const { error: insertError } = await supabase.from('report_card').insert(missingRows)
         if (insertError) return err(insertError.message, 500)
-        const refetch = await supabase
-          .from('report_card')
-          .select('id, student_id, status, period_label, share_token')
-          .eq('teacher_id', teacherId)
-          .eq('period_type', 'monthly')
-          .eq('period_start', period.start)
-          .eq('period_end', period.end)
-          .in('student_id', studentIds)
-        cards = refetch.data
+        const refetch = await selectCards()
+        if (refetch.error) return err(refetch.error.message, 500)
+        cardByKey = buildCardMap(refetch.data)
       }
 
-      const reportCards = (cards ?? []) as unknown as ReportCardRow[]
-      const cardIds = reportCards.map((card) => card.id)
+      const selectedCards = pairs
+        .map((pair) => cardByKey.get(`${pair.student_id}:${pair.class_id}`))
+        .filter(Boolean) as ReportCardRow[]
+      const cardIds = selectedCards.map((card) => card.id)
       if (cardIds.length > 0) {
         const { error: publishError } = await supabase
           .from('report_card')
@@ -504,23 +554,24 @@ export async function POST(request: Request) {
       }))
 
       const studentById = new Map(((students ?? []) as unknown as StudentPhone[]).map((student) => [student.id, student]))
-      const cardByStudentId = new Map(reportCards.map((card) => [card.student_id, card]))
-      for (const studentId of studentIds) {
-        const student = studentById.get(studentId)
-        const card = cardByStudentId.get(studentId)
-        if (!student || !card) {
-          skipped.push({ id: studentId, reason: '학생 또는 성적표 없음' })
+      for (const pair of pairs) {
+        const pairKey = `${pair.student_id}:${pair.class_id}`
+        const student = studentById.get(pair.student_id)
+        const cls = classById.get(pair.class_id)
+        const card = cardByKey.get(pairKey)
+        if (!student || !cls || !card) {
+          skipped.push({ id: pairKey, reason: '학생 또는 성적표 없음' })
           continue
         }
         const reportUrl = `${origin}/report-cards/${card.share_token}`
-        const message = renderMonthlyMessage(template!, { studentName: student.name, periodLabel: period.label, reportUrl })
+        const message = renderMonthlyMessage(template!, { studentName: student.name, periodLabel: period.label, className: cls.name, reportUrl })
         const sentPhones = new Set<string>()
         for (const recipient of recipients) {
           const phone = phoneFor(student, recipient)?.replace(/-/g, '').trim()
           if (!phone || sentPhones.has(phone)) continue
           sentPhones.add(phone)
           if (!body.include_resend && sentKeys.has(`${card.id}:${phone}`)) {
-            skipped.push({ id: studentId, student_name: student.name, reason: `${RECIPIENT_LABEL[recipient]} 이미 전송됨` })
+            skipped.push({ id: pairKey, student_name: student.name, reason: `${RECIPIENT_LABEL[recipient]} 이미 전송됨` })
             continue
           }
           targets.push({
@@ -539,7 +590,7 @@ export async function POST(request: Request) {
             message,
           })
         }
-        if (sentPhones.size === 0) skipped.push({ id: studentId, student_name: student.name, reason: '선택한 수신자 연락처 없음' })
+        if (sentPhones.size === 0) skipped.push({ id: pairKey, student_name: student.name, reason: '선택한 수신자 연락처 없음' })
       }
     } else if (kind === 'mock') {
       const mockExamId = body.mock_exam_id
