@@ -64,7 +64,7 @@ export function useStudentEnrollments(studentId: string | undefined) {
     queryFn: async () => {
       const res = await fetch(`/api/students/${studentId}/enrollments`)
       if (!res.ok) throw new Error('수강 목록 조회 실패')
-      return res.json() as Promise<{ class_id: string; joined_at: string; left_at: string | null; class: { name: string } | null }[]>
+      return res.json() as Promise<{ class_id: string; joined_at: string; left_at: string | null; class: { name: string; class_type?: 'regular' | 'special'; archived_at?: string | null } | null }[]>
     },
     enabled: !!studentId,
   })
@@ -83,6 +83,8 @@ export function useUpdateJoinedAt() {
     },
     onSuccess: (_, { studentId }) => {
       qc.invalidateQueries({ queryKey: ['student-enrollments', studentId] })
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['class-students'] })
       toast.success('입원일이 수정되었습니다')
     },
     onError: (e: Error) => toast.error(e.message),
@@ -100,8 +102,9 @@ export function useWithdrawStudent() {
       })
       if (!res.ok) throw new Error((await res.json()).error)
     },
-    onSuccess: () => {
+    onSuccess: (_, { studentId }) => {
       qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['student-enrollments', studentId] })
       qc.invalidateQueries({ queryKey: ['class-students'] })
       qc.invalidateQueries({ queryKey: ['clinic'] })
       qc.invalidateQueries({ queryKey: ['clinic-attendance'] })
@@ -150,7 +153,35 @@ export function useAddClassStudent(classId: string) {
       if (!res.ok) throw new Error((await res.json()).error)
       return res.json()
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['class-students', classId] }); toast.success('학생이 추가되었습니다') },
+    onSuccess: (_, { student_id }) => {
+      qc.invalidateQueries({ queryKey: ['class-students', classId] })
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['student-enrollments', student_id] })
+      toast.success('학생이 추가되었습니다')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
+// 퇴원 학생 재원 전환 — 기존 등록 API(upsert)로 left_at 해제 + 재입원일 갱신
+export function useReenrollClassStudent() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ classId, studentId, joined_at }: { classId: string; studentId: string; joined_at: string }) => {
+      const res = await fetch(`/api/classes/${classId}/students`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id: studentId, joined_at }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      return res.json()
+    },
+    onSuccess: (_, { classId, studentId }) => {
+      qc.invalidateQueries({ queryKey: ['class-students', classId] })
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['student-enrollments', studentId] })
+      toast.success('재원 처리되었습니다')
+    },
     onError: (e: Error) => toast.error(e.message),
   })
 }
@@ -166,8 +197,10 @@ export function useRemoveClassStudent(classId: string) {
       })
       if (!res.ok) throw new Error((await res.json()).error)
     },
-    onSuccess: () => {
+    onSuccess: (_, { studentId }) => {
       qc.invalidateQueries({ queryKey: ['class-students', classId] })
+      qc.invalidateQueries({ queryKey: ['students'] })
+      qc.invalidateQueries({ queryKey: ['student-enrollments', studentId] })
       qc.invalidateQueries({ queryKey: ['clinic'] })
       qc.invalidateQueries({ queryKey: ['clinic-attendance'] })
       toast.success('학생이 퇴원 처리되었습니다')
