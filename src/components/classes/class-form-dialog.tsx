@@ -41,6 +41,7 @@ export function ClassFormDialog({ open, onClose, editTarget }: Props) {
   const createClass = useCreateClass()
   const updateClass = useUpdateClass()
   const [scheduleDays, setScheduleDays] = useState<string[]>([])
+  const [classType, setClassType] = useState<'regular' | 'special'>('regular')
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>()
 
@@ -59,6 +60,7 @@ export function ClassFormDialog({ open, onClose, editTarget }: Props) {
         : { name: '', description: '', academic_year: new Date().getFullYear(), school_name: '', grade_level: null, start_date: '', end_date: '' }
       )
       setScheduleDays(editTarget?.schedule_days ?? [])
+      setClassType(editTarget?.class_type ?? 'regular')
     }
   }, [open, editTarget, reset])
 
@@ -70,9 +72,9 @@ export function ClassFormDialog({ open, onClose, editTarget }: Props) {
 
   async function onSubmit(values: FormValues) {
     if (isEdit && editTarget) {
-      await updateClass.mutateAsync({ id: editTarget.id, ...values, schedule_days: scheduleDays })
+      await updateClass.mutateAsync({ id: editTarget.id, ...values, schedule_days: scheduleDays, class_type: classType })
     } else {
-      await createClass.mutateAsync({ ...values, schedule_days: scheduleDays, period_label: '1학기 중간' })
+      await createClass.mutateAsync({ ...values, schedule_days: scheduleDays, class_type: classType, period_label: '1학기 중간' })
     }
     onClose()
   }
@@ -95,6 +97,29 @@ export function ClassFormDialog({ open, onClose, editTarget }: Props) {
               {...register('name', { required: '수업명을 입력해주세요' })}
             />
             {errors.name && <p className="text-xs text-red-500">{errors.name.message}</p>}
+          </div>
+
+          <div className="space-y-2">
+            <Label>수업 구분</Label>
+            <div className="flex gap-1.5">
+              {([['regular', '정규반'], ['special', '특강반']] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setClassType(key)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors
+                    ${classType === key
+                      ? 'bg-primary text-white border-primary'
+                      : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                    }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {classType === 'special' && (
+              <p className="text-xs text-gray-400">특강반 성적은 정규반과 분리되어 계산·발송됩니다</p>
+            )}
           </div>
 
           <div className="space-y-2">

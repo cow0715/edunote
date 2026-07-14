@@ -12,6 +12,7 @@ import {
   useCreateReportCard,
   useDeleteReportCard,
 } from '@/hooks/use-report-cards'
+import { useStudentEnrollments } from '@/hooks/use-students'
 import {
   getMonthlyPeriod,
   getQuarterlyPeriod,
@@ -29,8 +30,23 @@ interface Props {
 export function ReportCardListDialog({ open, onClose, studentId, studentName }: Props) {
   const router = useRouter()
   const { data: cards = [], isLoading } = useReportCards(open ? studentId : undefined)
+  const { data: enrollments = [] } = useStudentEnrollments(open ? studentId : undefined)
   const createCard = useCreateReportCard()
   const deleteCard = useDeleteReportCard()
+
+  const classNameById = useMemo(
+    () => new Map(enrollments.map((e) => [e.class_id, e.class?.name ?? ''])),
+    [enrollments],
+  )
+  const activeClasses = useMemo(
+    () => enrollments
+      .filter((e) => !e.left_at && e.class && !e.class.archived_at)
+      .map((e) => ({ id: e.class_id, name: e.class!.name, class_type: e.class!.class_type ?? 'regular' }))
+      .sort((a, b) => (a.class_type === b.class_type ? a.name.localeCompare(b.name, 'ko') : a.class_type === 'regular' ? -1 : 1)),
+    [enrollments],
+  )
+  const [selectedClassId, setSelectedClassId] = useState<string>('')
+  const effectiveClassId = selectedClassId || activeClasses[0]?.id || ''
 
   const [mode, setMode] = useState<'list' | 'create'>('list')
   const today = new Date()
@@ -49,6 +65,7 @@ export function ReportCardListDialog({ open, onClose, studentId, studentName }: 
   async function handleCreate() {
     const card = await createCard.mutateAsync({
       student_id: studentId,
+      class_id: effectiveClassId || null,
       period_type: periodType,
       period_start: preview.start,
       period_end: preview.end,
@@ -110,6 +127,11 @@ export function ReportCardListDialog({ open, onClose, studentId, studentName }: 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-gray-900">{c.period_label}</span>
+                        {c.class_id && (
+                          <Badge className="text-[10px] bg-gray-50 text-gray-600 border-gray-200" variant="secondary">
+                            {classNameById.get(c.class_id) || '반 정보 없음'}
+                          </Badge>
+                        )}
                         {c.status === 'published' ? (
                           <Badge className="text-[10px] bg-blue-50 text-blue-600 border-blue-200" variant="secondary">
                             발급 완료
@@ -145,6 +167,28 @@ export function ReportCardListDialog({ open, onClose, studentId, studentName }: 
           </div>
         ) : (
           <div className="space-y-4 pt-2">
+            {activeClasses.length > 0 && (
+              <div className="space-y-2">
+                <Label>반</Label>
+                <div className="flex flex-wrap gap-2">
+                  {activeClasses.map((cls) => (
+                    <button
+                      key={cls.id}
+                      type="button"
+                      onClick={() => setSelectedClassId(cls.id)}
+                      className={`rounded-md border px-3 py-2 text-sm transition ${
+                        effectiveClassId === cls.id
+                          ? 'border-primary bg-primary/5 text-primary font-medium'
+                          : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      {cls.name}{cls.class_type === 'special' ? ' · 특강' : ''}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label>종류</Label>
               <div className="grid grid-cols-3 gap-2">

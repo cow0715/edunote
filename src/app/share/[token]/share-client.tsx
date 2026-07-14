@@ -702,7 +702,11 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-[11px] font-medium text-[#8B95A1] dark:text-[#94A3B8]">
-                    {selectedPeriod ? '지난 기록 보기' : '현재 기간'}
+                    {selectedPeriod
+                      ? selectedPeriod.is_active_class && selectedPeriod.is_current
+                        ? '선택한 반'
+                        : '지난 기록 보기'
+                      : '현재 기간'}
                   </p>
                   <p className="truncate text-sm font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">
                     {currentViewLabel}
@@ -714,7 +718,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                   className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-[#2463EB] px-3 text-xs font-bold text-white active:scale-95 transition-transform dark:bg-[#3B82F6]"
                 >
                   <History className="h-3.5 w-3.5" />
-                  지난 기록
+                  반·기간 선택
                 </button>
               </div>
             </div>
@@ -1785,7 +1789,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-gray-200 dark:bg-white/20" />
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <SheetTitle className="text-base font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">지난 기록</SheetTitle>
+                  <SheetTitle className="text-base font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">반·기간 선택</SheetTitle>
                   <p className="mt-1 text-xs text-[#8B95A1] dark:text-[#94A3B8]">반과 기간을 선택하면 해당 범위로 다시 계산됩니다</p>
                 </div>
                 <button
@@ -1820,8 +1824,13 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
               <div className="space-y-4">
                 {[...periodGroups.entries()].map(([className, periods]) => (
                   <div key={className}>
-                    <p className="mb-2 px-1 text-[11px] font-bold uppercase tracking-wide text-[#8B95A1] dark:text-[#94A3B8]">
+                    <p className="mb-2 flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-wide text-[#8B95A1] dark:text-[#94A3B8]">
                       {className}
+                      {periods[0]?.class_type === 'special' && (
+                        <span className="rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold normal-case text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+                          특강
+                        </span>
+                      )}
                     </p>
                     <div className="space-y-1.5">
                       {periods.map((period) => {

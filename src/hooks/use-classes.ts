@@ -179,6 +179,7 @@ export function useCreateClass() {
       academic_year?: number | null
       school_name?: string
       grade_level?: number | null
+      class_type?: 'regular' | 'special'
       period_label?: string
     }) => {
       const res = await fetch('/api/classes', {
@@ -213,6 +214,7 @@ export function useUpdateClass() {
       academic_year?: number | null
       school_name?: string
       grade_level?: number | null
+      class_type?: 'regular' | 'special'
     }) => {
       const res = await fetch(`/api/classes/${id}`, {
         method: 'PUT',

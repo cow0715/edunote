@@ -80,6 +80,11 @@ export default function DashboardPage() {
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-base">
                     {cls.name}
+                    {cls.class_type === 'special' && (
+                      <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">
+                        특강
+                      </span>
+                    )}
                     {cls.archived_at && (
                       <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
                         지난 반

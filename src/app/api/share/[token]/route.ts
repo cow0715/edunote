@@ -10,6 +10,7 @@ type ClassRow = {
   academic_year: number | null
   school_name: string | null
   grade_level: number | null
+  class_type: 'regular' | 'special' | null
   archived_at: string | null
 }
 
@@ -119,7 +120,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
 
   const { data: allClassRows } = await supabase
     .from('class')
-    .select('id, name, start_date, end_date, academic_year, school_name, grade_level, archived_at')
+    .select('id, name, start_date, end_date, academic_year, school_name, grade_level, class_type, archived_at')
     .in('id', allClassIds)
 
   const allClasses = (allClassRows ?? []) as ClassRow[]
@@ -144,6 +145,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     id: period.id,
     class_id: period.class_id,
     class_name: classById.get(period.class_id)?.name ?? '',
+    class_type: classById.get(period.class_id)?.class_type ?? 'regular',
     label: period.label,
     start_date: period.start_date,
     end_date: period.end_date,
@@ -151,7 +153,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     is_active_class: activeClassIds.includes(period.class_id),
   }))
 
-  let selectedClassIds = activeClassIds
+  // 기본 화면은 정규반만 — 특강반은 기간 선택으로 전환 (정규반이 없으면 전체)
+  const regularActiveClassIds = activeClassIds.filter(
+    (id) => (classById.get(id)?.class_type ?? 'regular') === 'regular',
+  )
+  let selectedClassIds = regularActiveClassIds.length > 0 ? regularActiveClassIds : activeClassIds
   let selectedPeriods = allPeriods.filter((period) =>
     selectedClassIds.includes(period.class_id) && period.is_current
   )

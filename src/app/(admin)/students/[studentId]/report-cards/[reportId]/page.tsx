@@ -297,6 +297,7 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
             previous={previous}
             academy={academy}
             classContext={classContext}
+            cardClassName={data.card_class_name ?? null}
             editableInsights={insights}
             onInsightChange={(i, text) => {
               setInsights(prev => prev ? prev.map((line, idx) => idx === i ? { ...line, text } : line) : prev)

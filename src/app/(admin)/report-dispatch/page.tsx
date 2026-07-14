@@ -30,6 +30,7 @@ type DispatchStudent = {
 
 type MonthlyItem = {
   student: DispatchStudent
+  class: { id: string; name: string; class_type: 'regular' | 'special' }
   report_id: string | null
   report_status: 'missing' | 'draft' | 'published'
   report_url: string | null
@@ -62,11 +63,15 @@ const recipientLabels: Record<RecipientKey, string> = {
   student: '학생',
 }
 
-const monthlyTemplate = '{학생명} 학생 {기간명} 성적표입니다.\n{성적표링크}'
+const monthlyTemplate = '{학생명} 학생 {기간명} {수업명} 성적표입니다.\n{성적표링크}'
 const mockTemplate = '[{시험명}] {학생명} 학생 성적표입니다.\n{성적표링크}'
 
 function itemId(kind: DispatchKind, item: MonthlyItem | MockItem) {
-  return kind === 'monthly' ? (item as MonthlyItem).student.id : (item as MockItem).result_id
+  if (kind === 'monthly') {
+    const monthly = item as MonthlyItem
+    return `${monthly.student.id}:${monthly.class.id}`
+  }
+  return (item as MockItem).result_id
 }
 
 function itemStudent(item: MonthlyItem | MockItem) {
@@ -230,7 +235,10 @@ export default function ReportDispatchPage() {
             action: 'publish',
             year: Number(year),
             month: Number(month),
-            student_ids: selectedItems.map((item) => (item as MonthlyItem).student.id),
+            pairs: selectedItems.map((item) => {
+              const monthly = item as MonthlyItem
+              return { student_id: monthly.student.id, class_id: monthly.class.id }
+            }),
           }
         : {
             kind,
@@ -305,7 +313,10 @@ export default function ReportDispatchPage() {
             kind,
             year: Number(year),
             month: Number(month),
-            student_ids: sendableSelectedItems.map((item) => (item as MonthlyItem).student.id),
+            pairs: sendableSelectedItems.map((item) => {
+              const monthly = item as MonthlyItem
+              return { student_id: monthly.student.id, class_id: monthly.class.id }
+            }),
             recipients: selectedRecipients,
             message_template: messageTemplate,
             include_resend: includeResend,
@@ -472,6 +483,7 @@ export default function ReportDispatchPage() {
                 />
                 <p className="text-xs font-medium text-[#8B95A1]">
                   {'{성적표링크}'}는 발송할 때 학생별 링크로 자동 치환됩니다.
+                  {kind === 'monthly' && ' 월간 성적표는 반별로 각각 발송되며 {수업명}이 반 이름으로 치환됩니다.'}
                 </p>
               </div>
 
@@ -572,6 +584,11 @@ export default function ReportDispatchPage() {
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="font-extrabold text-[#1A1C1E]">{student?.name ?? '학생 정보 없음'}</span>
+                              {kind === 'monthly' && 'class' in item && (
+                                <Badge variant="outline" className={item.class.class_type === 'special' ? 'border-violet-200 bg-violet-50 text-violet-700' : ''}>
+                                  {item.class.name}{item.class.class_type === 'special' ? ' · 특강' : ''}
+                                </Badge>
+                              )}
                               <Badge className={itemReportStatus(item) === 'missing' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-[#2463EB]'}>
                                 {itemReportStatus(item) === 'missing' ? '생성 필요' : itemReportStatus(item) === 'draft' ? '임시저장' : '발급됨'}
                               </Badge>

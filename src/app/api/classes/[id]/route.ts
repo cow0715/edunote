@@ -17,7 +17,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params
   const teacherId = await getTeacherId(supabase, user.id)
   if (!teacherId) return err('강사 정보 없음', 404)
-  const { name, description, start_date, end_date, schedule_days, academic_year, school_name, grade_level } = await request.json()
+  const { name, description, start_date, end_date, schedule_days, academic_year, school_name, grade_level, class_type } = await request.json()
   const { data, error } = await supabase.from('class').update({
     name,
     description,
@@ -27,6 +27,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     school_name: school_name || null,
     grade_level: grade_level ? Number(grade_level) : null,
     ...(schedule_days !== undefined && { schedule_days }),
+    ...(class_type !== undefined && { class_type: class_type === 'special' ? 'special' : 'regular' }),
   }).eq('id', id).eq('teacher_id', teacherId).select().single()
   if (error) return err(error.message, 500)
   return ok(data)

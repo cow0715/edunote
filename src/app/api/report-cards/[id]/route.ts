@@ -52,13 +52,15 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   if (!student) return err('학생 정보 없음', 404)
 
-  // 학생의 수업 목록
+  // 학생의 수업 목록 — 반별 성적표(class_id 지정)는 해당 반만, 레거시(null)는 전체 합산
+  const cardClassId = (card.class_id ?? null) as string | null
   const { data: classStudents } = await supabase
     .from('class_student')
     .select('class_id')
     .eq('student_id', student.id)
 
-  const classIds = (classStudents ?? []).map((cs: { class_id: string }) => cs.class_id)
+  const enrolledClassIds = (classStudents ?? []).map((cs: { class_id: string }) => cs.class_id)
+  const classIds = cardClassId ? [cardClassId] : enrolledClassIds
   const { data: classRows } = classIds.length > 0
     ? await supabase.from('class').select('id, name, academic_year, school_name, grade_level').in('id', classIds)
     : { data: [] as ReportClassRow[] }
@@ -217,6 +219,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       .from('class_student')
       .select('student_id')
       .in('class_id', classIds)
+      .is('left_at', null)
     const classmateIds = [...new Set((classmates ?? []).map((c: { student_id: string }) => c.student_id))]
 
     if (classmateIds.length > 0) {
@@ -322,7 +325,15 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     }
   }
 
-  return ok({ card, student: studentForReport, metrics, previous, academy, classContext })
+  return ok({
+    card,
+    student: studentForReport,
+    metrics,
+    previous,
+    academy,
+    classContext,
+    card_class_name: cardClassId ? classNameById.get(cardClassId) ?? null : null,
+  })
 }
 
 // PATCH /api/report-cards/[id] — 편집 (코멘트, 등급, 오답 선별, 상태)

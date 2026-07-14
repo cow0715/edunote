@@ -43,6 +43,7 @@ export async function POST(request: Request) {
     academic_year,
     school_name,
     grade_level,
+    class_type,
     period_label = '1학기 중간',
   } = body
 
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
       academic_year: academic_year ? Number(academic_year) : null,
       school_name: school_name || null,
       grade_level: grade_level ? Number(grade_level) : null,
+      class_type: class_type === 'special' ? 'special' : 'regular',
     })
     .select()
     .single()

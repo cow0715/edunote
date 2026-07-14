@@ -58,7 +58,7 @@ export type ShareData = {
   student: { id: string; name: string; school: string | null; grade: string | null }
   classes: { id: string; name: string; academic_year?: number | null; school_name?: string | null; grade_level?: number | null }[]
   currentPeriod: { id: string; class_id: string; label: string; start_date: string; end_date: string | null; is_current: boolean } | null
-  periodOptions: { id: string; class_id: string; class_name: string; label: string; start_date: string; end_date: string | null; is_current: boolean; is_active_class: boolean }[]
+  periodOptions: { id: string; class_id: string; class_name: string; class_type?: 'regular' | 'special'; label: string; start_date: string; end_date: string | null; is_current: boolean; is_active_class: boolean }[]
   weeks: Week[]; weekScores: WeekScore[]; studentAnswers: StudentAnswer[]
   vocabAnswers: VocabAnswer[]; vocabWords: VocabWord[]; attendance: AttendanceRecord[]
   clinicAttendance: ClinicAttendanceRecord[]
