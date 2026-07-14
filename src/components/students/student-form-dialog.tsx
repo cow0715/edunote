@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Student } from '@/lib/types'
-import { useCreateStudent, useUpdateStudent, useWithdrawStudent, useStudentEnrollments, useUpdateJoinedAt } from '@/hooks/use-students'
+import { useCreateStudent, useUpdateStudent, useWithdrawStudent, useStudentEnrollments, useUpdateJoinedAt, useReenrollClassStudent } from '@/hooks/use-students'
 import { useClasses } from '@/hooks/use-classes'
 
 const GRADE_OPTIONS = [
@@ -48,15 +48,21 @@ export function StudentFormDialog({ open, onClose, editTarget }: Props) {
   const [withdrawDate, setWithdrawDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [withdrawConfirm, setWithdrawConfirm] = useState(false)
   const [editingJoinedAt, setEditingJoinedAt] = useState<Record<string, string>>({})
+  const reenrollStudent = useReenrollClassStudent()
+  const [reenrollTarget, setReenrollTarget] = useState<string | null>(null)
+  const [reenrollDate, setReenrollDate] = useState(() => new Date().toISOString().slice(0, 10))
 
   const { register, handleSubmit, reset, control, watch, formState: { errors } } = useForm<FormValues>()
   const classId = watch('class_id')
+  const hasActiveEnrollment = enrollments.some((e) => !e.left_at)
 
   useEffect(() => {
     if (open) {
       setWithdrawConfirm(false)
       setWithdrawDate(new Date().toISOString().slice(0, 10))
       setEditingJoinedAt({})
+      setReenrollTarget(null)
+      setReenrollDate(new Date().toISOString().slice(0, 10))
       reset(editTarget
         ? {
             name: editTarget.name,
@@ -198,32 +204,84 @@ export function StudentFormDialog({ open, onClose, editTarget }: Props) {
                   const current = editingJoinedAt[e.class_id] ?? (e.joined_at ? e.joined_at.slice(0, 10) : '')
                   const original = e.joined_at ? e.joined_at.slice(0, 10) : ''
                   const isDirty = current !== original
+                  const canReenroll = !!e.left_at && !!e.class && !e.class.archived_at
                   return (
-                    <div key={e.class_id} className="flex items-center gap-2">
-                      <span className={`flex-1 text-sm ${e.left_at ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
-                        {e.class?.name ?? '-'}
-                        {e.left_at && <span className="ml-1 text-xs">(퇴원)</span>}
-                      </span>
-                      <Input
-                        type="date"
-                        value={current}
-                        onChange={(ev) => setEditingJoinedAt((prev) => ({ ...prev, [e.class_id]: ev.target.value }))}
-                        className="w-36 h-7 text-xs"
-                      />
-                      {isDirty && (
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          disabled={updateJoinedAt.isPending}
-                          onClick={() => {
-                            if (!editTarget) return
-                            updateJoinedAt.mutate({ classId: e.class_id, studentId: editTarget.id, joined_at: current })
-                            setEditingJoinedAt((prev) => { const n = { ...prev }; delete n[e.class_id]; return n })
-                          }}
-                        >
-                          저장
-                        </Button>
+                    <div key={e.class_id} className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className={`flex-1 text-sm ${e.left_at ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
+                          {e.class?.name ?? '-'}
+                          {e.left_at && <span className="ml-1 text-xs">(퇴원)</span>}
+                        </span>
+                        {e.left_at ? (
+                          canReenroll && reenrollTarget !== e.class_id && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => {
+                                setReenrollTarget(e.class_id)
+                                setReenrollDate(new Date().toISOString().slice(0, 10))
+                              }}
+                            >
+                              재원 전환
+                            </Button>
+                          )
+                        ) : (
+                          <>
+                            <Input
+                              type="date"
+                              value={current}
+                              onChange={(ev) => setEditingJoinedAt((prev) => ({ ...prev, [e.class_id]: ev.target.value }))}
+                              className="w-36 h-7 text-xs"
+                            />
+                            {isDirty && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                disabled={updateJoinedAt.isPending}
+                                onClick={() => {
+                                  if (!editTarget) return
+                                  updateJoinedAt.mutate({ classId: e.class_id, studentId: editTarget.id, joined_at: current })
+                                  setEditingJoinedAt((prev) => { const n = { ...prev }; delete n[e.class_id]; return n })
+                                }}
+                              >
+                                저장
+                              </Button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      {reenrollTarget === e.class_id && (
+                        <p className="px-2 text-xs text-gray-400">재입원일 이후 주차부터 채점·문자 대상에 포함됩니다</p>
+                      )}
+                      {reenrollTarget === e.class_id && (
+                        <div className="flex items-center gap-2 rounded-md bg-gray-50 px-2 py-1.5">
+                          <span className="text-xs text-gray-500">재입원일</span>
+                          <Input
+                            type="date"
+                            value={reenrollDate}
+                            onChange={(ev) => setReenrollDate(ev.target.value)}
+                            className="w-36 h-7 text-xs"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            disabled={reenrollStudent.isPending || !reenrollDate}
+                            onClick={async () => {
+                              if (!editTarget) return
+                              await reenrollStudent.mutateAsync({ classId: e.class_id, studentId: editTarget.id, joined_at: reenrollDate })
+                              setReenrollTarget(null)
+                            }}
+                          >
+                            {reenrollStudent.isPending ? '처리 중...' : '확정'}
+                          </Button>
+                          <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setReenrollTarget(null)}>
+                            취소
+                          </Button>
+                        </div>
                       )}
                     </div>
                   )
@@ -232,8 +290,8 @@ export function StudentFormDialog({ open, onClose, editTarget }: Props) {
             </div>
           )}
 
-          {/* 수정: 퇴원 처리 */}
-          {isEdit && (
+          {/* 수정: 퇴원 처리 — 재원 중인 수업이 있을 때만 */}
+          {isEdit && hasActiveEnrollment && (
             <div className="space-y-2 rounded-lg border border-dashed p-3">
               <p className="text-xs font-medium text-gray-500">퇴원 처리</p>
               {withdrawConfirm ? (
