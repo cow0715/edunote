@@ -19,10 +19,13 @@ const HEADER_ALIASES: Record<HeaderKey, string[]> = {
   english_word: ['본문단어', '단어', '영어단어', 'word', 'englishword'],
   part_of_speech: ['품사', 'pos', 'partofspeech'],
   meaning: ['본문의미', '뜻', '의미', '한국어뜻', 'meaning'],
-  synonyms: ['문맥동의어', '유의어', '동의어', 'synonym', 'synonyms'],
-  derivatives: ['파생어변형주의', '파생어/변형주의', '파생어', '변형주의', 'derivatives'],
+  synonyms: ['문맥동의어', '문맥유의어', '유의어', '동의어', 'synonym', 'synonyms'],
+  derivatives: ['파생어변형주의', '파생어/변형주의', '핵심파생어', '파생어', '변형주의', 'derivatives'],
   antonyms: ['반의어', 'antonym', 'antonyms'],
 }
+
+// 접두 일치를 허용하는 컬럼 — "문맥 유의어(+뜻)", "반의어(+뜻)" 같은 접미 변형 흡수
+const PREFIX_MATCH_KEYS = new Set<HeaderKey>(['synonyms', 'antonyms', 'derivatives'])
 
 function normalizeHeader(value: unknown) {
   return String(value ?? '')
@@ -44,7 +47,22 @@ function cleanNullable(value: unknown) {
   return text.length > 0 ? text : null
 }
 
-function splitList(value: unknown) {
+// 줄바꿈으로 나뉜 항목을 ', '로 이어 한 줄 텍스트로 정리 (파생어 등)
+function cleanMultiline(value: unknown) {
+  const items = String(value ?? '')
+    .split(/\r?\n/)
+    .map((line) => cleanText(line))
+    .filter(Boolean)
+  return items.length > 0 ? items.join(', ') : null
+}
+
+function splitList(value: unknown): string[] {
+  // 줄바꿈으로 항목을 구분하는 형식 우선 처리 (한 줄 안에서는 기존 쉼표/세미콜론 구분 유지)
+  const lines = String(value ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  if (lines.length > 1) {
+    return lines.flatMap((line) => splitList(line))
+  }
+
   const text = cleanText(value)
     .replace(/[↔⇔]/g, '')
     .replace(/^[,;/\s]+|[,;/\s]+$/g, '')
@@ -82,7 +100,7 @@ function findColumn(headerRow: unknown[], key: HeaderKey) {
   return headerRow.findIndex((cell) => {
     const header = normalizeHeader(cell)
     if (aliases.has(header)) return true
-    return key === 'synonyms' && [...aliases].some((alias) => alias && header.startsWith(alias))
+    return PREFIX_MATCH_KEYS.has(key) && [...aliases].some((alias) => alias && header.startsWith(alias))
   })
 }
 
@@ -141,7 +159,7 @@ export function parseVocabRows(rows: unknown[][]): ParsedVocabEntry[] {
       correct_answer: cleanNullable(cell(row, header.columns.meaning)),
       synonyms: splitList(cell(row, header.columns.synonyms)),
       antonyms: splitList(cell(row, header.columns.antonyms)),
-      derivatives: cleanNullable(cell(row, header.columns.derivatives)),
+      derivatives: cleanMultiline(cell(row, header.columns.derivatives)),
       source_row_index: rowIndex + 1,
     })
   }
