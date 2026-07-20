@@ -127,7 +127,12 @@ function extractParentheticalDetails(value: string) {
   let pos: string | null = null
   const wordText = value.replace(/\(([^)]*?)\)/g, (_, inner: string) => {
     const detail = cleanText(inner)
-    if (POS_PATTERN.test(detail)) {
+    // "(adj. 해로운)"처럼 품사와 뜻이 함께 있는 형식 → 분해해서 각각 저장
+    const combined = detail.match(/^(n|v|a|ad|adj|adv|prep|conj|phr|phrase)\.?\s+(.+)$/i)
+    if (combined && (KOREAN_PATTERN.test(combined[2]) || combined[2].startsWith('~'))) {
+      pos = pos ?? `${combined[1].toLowerCase()}.`
+      meanings.push(cleanText(combined[2]))
+    } else if (POS_PATTERN.test(detail)) {
       pos = pos ?? normalizePos(detail)
     } else if (KOREAN_PATTERN.test(detail) || detail.startsWith('~')) {
       meanings.push(detail)
@@ -157,13 +162,13 @@ function parseItem(rawValue: string, relationType: VocabVariantRelationType, fal
   return {
     word,
     part_of_speech: parenthetical.pos,
-    meaning: relationType === 'synonym' ? (explicitMeaning ?? fallbackMeaning) : null,
+    meaning: explicitMeaning ?? (relationType === 'synonym' ? fallbackMeaning : null),
     relation_type: relationType,
     usage_note: note,
     excluded_meanings: extractExcludedMeanings(note),
     raw_text: rawText,
     exam_enabled: relationType !== 'antonym',
-    needs_review: relationType !== 'synonym' || (!explicitMeaning && !fallbackMeaning),
+    needs_review: relationType === 'synonym' ? (!explicitMeaning && !fallbackMeaning) : !explicitMeaning,
     confidence: explicitMeaning ? 0.9 : null,
     sort_order: 0,
   }
