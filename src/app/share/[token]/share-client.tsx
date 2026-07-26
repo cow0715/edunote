@@ -19,6 +19,8 @@ import { PatternCard } from './share-pattern'
 import { FormattedQuestionText } from '@/components/grade/formatted-question-text'
 import { SourceImagePreview } from '@/components/grade/source-image-preview'
 import { buildQuestionDisplayText } from '@/lib/question-structure'
+import { compareExamDomain, describeRadarAxis, resolveExamDomain, shouldExpandToDomains } from '@/lib/exam-domain'
+import { statusColor } from '@/lib/chart-colors'
 
 import { TrendItem } from '@/components/share/score-trend-chart'
 import { HomeworkItem } from '@/components/share/homework-bar-chart'
@@ -455,24 +457,40 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const typeData = [...typeWrongMap.values()].filter((d) => d.wrong > 0).sort((a, b) => b.wrong - a.wrong)
 
   // ── 카테고리별 정답률 (레이더 차트) ──────────────────────────────────────
-  const categoryAccMap = new Map<string, { name: string; correct: number; total: number }>()
+  // 서술형이 없는 학생(모의고사 형태로만 응시)은 카테고리가 독해/문법뿐이라 축이
+  // 빈약하다. 이 경우 태그를 수능 영역 단위로 펼친다.
+  const expandToDomains = shouldExpandToDomains(studentAnswers)
+  const categoryAccMap = new Map<string, { name: string; correct: number; total: number; tags: Map<string, number> }>()
   studentAnswers
     .filter((a) => a.exam_question?.exam_type === 'reading')
     .forEach((a) => {
       for (const t of a.exam_question?.exam_question_tag ?? []) {
         const tag = t.concept_tag
-        if (!tag?.category_name) continue
-        const key = tag.category_id ?? tag.category_name
-        const entry = categoryAccMap.get(key) ?? { name: tag.category_name, correct: 0, total: 0 }
+        const label = expandToDomains
+          ? resolveExamDomain(tag?.name ?? '', tag?.category_name ?? null)
+          : tag?.category_name ?? null
+        if (!label) continue
+        const key = expandToDomains ? label : tag!.category_id ?? label
+        const entry = categoryAccMap.get(key) ?? { name: label, correct: 0, total: 0, tags: new Map<string, number>() }
         entry.total++
         if (a.is_correct) entry.correct++
+        if (tag?.name) entry.tags.set(tag.name, (entry.tags.get(tag.name) ?? 0) + 1)
         categoryAccMap.set(key, entry)
       }
     })
-  const radarData: RadarItem[] = [...categoryAccMap.values()]
+  const radarEntries = [...categoryAccMap.values()]
     .filter((d) => d.total >= 1)
-    .map((d) => ({ name: d.name, rate: Math.round(d.correct / d.total * 100), correct: d.correct, total: d.total }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort((a, b) => (expandToDomains ? compareExamDomain(a.name, b.name) : a.name.localeCompare(b.name)))
+  const radarData: RadarItem[] = radarEntries.map((d) => ({
+    name: d.name, rate: Math.round(d.correct / d.total * 100), correct: d.correct, total: d.total,
+  }))
+  // 축 설명 패널용 — 축이 실제로 어떤 유형으로 채워졌는지 함께 보여준다
+  const radarLegend = radarEntries.map((d) => ({
+    name: d.name,
+    rate: Math.round(d.correct / d.total * 100),
+    desc: describeRadarAxis(d.name),
+    tags: [...d.tags.entries()].sort((x, y) => y[1] - x[1]).map(([tagName]) => tagName),
+  }))
 
   // ── 반복 오답 패턴 (약점 분류) ──────────────────────────────────────────
   const repeatPatterns = classifyPatterns(studentAnswers, weekNumberByWeekId)
@@ -1129,7 +1147,38 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
           {activeTab === 'analysis' && (
             <>
               {radarData.length >= 3 && (
-                <Card title="영역별 정답률" subtitle="카테고리별 누적 정답률">
+                <Card
+                  title="영역별 정답률"
+                  subtitle={expandToDomains ? '수능 유형 영역별 누적 정답률' : '카테고리별 누적 정답률'}
+                  infoNode={
+                    <div className="rounded-lg border border-gray-100 dark:border-white/[0.07] overflow-hidden">
+                      {radarLegend.map((d, i, arr) => (
+                        <div
+                          key={d.name}
+                          className={`bg-white dark:bg-card px-3 py-2 ${i < arr.length - 1 ? 'border-b border-gray-100 dark:border-white/[0.06]' : ''}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="h-4 w-[3px] shrink-0 rounded-full"
+                              style={{ backgroundColor: statusColor(d.rate, isDark) }}
+                            />
+                            <span className="text-[11px] font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">{d.name}</span>
+                          </div>
+                          {d.desc && (
+                            <p className="mt-1 pl-[11px] text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                              {d.desc}
+                            </p>
+                          )}
+                          {d.tags.length > 0 && (
+                            <p className="mt-0.5 pl-[11px] text-[11px] leading-relaxed text-gray-400 dark:text-gray-500">
+                              출제된 유형 · {d.tags.join(', ')}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  }
+                >
                   <ConceptRadarChart data={radarData} isDark={isDark} />
                 </Card>
               )}
