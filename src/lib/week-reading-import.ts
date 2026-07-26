@@ -17,10 +17,12 @@ import type {
 } from '@/lib/anthropic'
 import { recalcReadingCorrect, gradeMultiSelect, gradeOX } from '@/lib/grade-utils'
 
-export type MatchTagId = (questionType: string | null) => string | null
+export type MatchTagId = (questionType: string | null, questionStyle?: string | null) => string | null
+
+export type TagListEntry = { id: string; name: string; categoryName: string | null }
 
 export type TeacherTagContext = {
-  tagList: { id: string; name: string }[]
+  tagList: TagListEntry[]
   tagCategories: TagCategory[]
 }
 
@@ -244,7 +246,7 @@ export async function fetchTeacherTagContext(
     return { tagList: [], tagCategories: [] }
   }
 
-  const tagList: { id: string; name: string }[] = []
+  const tagList: TagListEntry[] = []
   const tagCategories: TagCategory[] = []
 
   const { data: categories } = await supabase
@@ -259,8 +261,14 @@ export async function fetchTeacherTagContext(
     .eq('teacher_id', teacherId)
     .order('sort_order')
 
+  const categoryNameById = new Map((categories ?? []).map((category) => [category.id, category.name]))
+
   for (const tag of tags ?? []) {
-    tagList.push({ id: tag.id, name: tag.name })
+    tagList.push({
+      id: tag.id,
+      name: tag.name,
+      categoryName: tag.concept_category_id ? categoryNameById.get(tag.concept_category_id) ?? null : null,
+    })
   }
 
   for (const category of categories ?? []) {
@@ -275,18 +283,45 @@ export async function fetchTeacherTagContext(
   return { tagList, tagCategories }
 }
 
-export function createTagMatcher(tagList: { id: string; name: string }[]): MatchTagId {
-  return (questionType: string | null) => {
+/** 텍스트 답안을 받는 형식 — 서술형 카테고리 태그가 붙어야 하는 문항 */
+const SUBJECTIVE_QUESTION_STYLES = new Set(['subjective', 'find_error'])
+
+/**
+ * 서술형 카테고리 판별. 카테고리에 플래그 컬럼이 없어 이름으로 본다.
+ * (시드 기본값이 '서술형 유형'. 강사가 카테고리명에서 '서술형'을 빼면 판별이 깨진다.)
+ */
+function isSubjectiveCategory(categoryName: string | null): boolean {
+  return !!categoryName && categoryName.includes('서술형')
+}
+
+/**
+ * AI가 반환하는 question_type은 태그 '이름'뿐이라 카테고리를 알 수 없다.
+ * 그런데 '어법'·'어휘'·'빈칸'은 독해 유형과 서술형 유형 양쪽에 같은 이름으로 존재한다.
+ * 이름만으로 첫 번째를 집으면 sort_order가 낮은 서술형 쪽이 항상 이겨서,
+ * 객관식 수능 문항이 서술형으로 분류돼 왔다. 문항 형식으로 갈라준다.
+ */
+export function createTagMatcher(tagList: TagListEntry[]): MatchTagId {
+  const normalize = (value: string) => value.replace(/\s/g, '').toLowerCase()
+
+  return (questionType: string | null, questionStyle: string | null = null) => {
     if (!questionType) return null
 
-    const exact = tagList.find((tag) => tag.name === questionType)
-    if (exact) return exact.id
+    const exact = tagList.filter((tag) => tag.name === questionType)
+    const normalizedQuestionType = normalize(questionType)
+    const candidates = exact.length > 0
+      ? exact
+      : tagList.filter((tag) => normalize(tag.name) === normalizedQuestionType)
 
-    const normalizedQuestionType = questionType.replace(/\s/g, '').toLowerCase()
-    const normalizedTag = tagList.find(
-      (tag) => tag.name.replace(/\s/g, '').toLowerCase() === normalizedQuestionType,
+    if (candidates.length === 0) return null
+    if (candidates.length === 1) return candidates[0].id
+
+    // 이름이 겹치면 문항 형식으로 고른다. 한쪽밖에 없으면(예: '요약문'은 서술형에만
+    // 존재) 억지로 버리지 않고 그대로 쓴다 — 태그를 잃는 것보다 낫다.
+    const wantSubjective = SUBJECTIVE_QUESTION_STYLES.has(questionStyle ?? '')
+    const preferred = candidates.filter(
+      (tag) => isSubjectiveCategory(tag.categoryName) === wantSubjective,
     )
-    return normalizedTag?.id ?? null
+    return (preferred[0] ?? candidates[0]).id
   }
 }
 
@@ -1381,7 +1416,7 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
         answer.question_number === question.question_number &&
         (answer.sub_label ?? null) === question.sub_label,
     )
-    const tagId = matchTagId(parsed?.question_type ?? null)
+    const tagId = matchTagId(parsed?.question_type ?? null, parsed?.question_style ?? null)
     if (tagId) {
       tagInserts.push({ exam_question_id: question.id, concept_tag_id: tagId })
     }
