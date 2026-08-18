@@ -64,3 +64,22 @@ export async function assertWeekOwner(supabase: SupabaseServerClient, weekId: st
   const { data: cls } = await supabase.from('class').select('id').eq('id', week.class_id).eq('teacher_id', teacherId).single()
   return !!cls
 }
+
+/**
+ * 이 주차에 채점된 단어 답안이 있는지 (개수 반환, 없으면 0).
+ * 채점이 시작된 뒤에는 시험지·단어장·예문을 바꾸면 정답 역산이 어긋나므로 잠근다.
+ * (2026-08-18 결정: 원본과 답안을 따로 유지하는 대신 아예 막는다. 출제 후 바꾸는 일은 거의 없다.)
+ */
+export async function countGradedVocabAnswers(supabase: SupabaseServerClient, weekId: string): Promise<number> {
+  const { data: scores } = await supabase.from('week_score').select('id').eq('week_id', weekId)
+  const scoreIds = (scores ?? []).map((s) => s.id)
+  if (scoreIds.length === 0) return 0
+  const { count } = await supabase
+    .from('student_vocab_answer')
+    .select('id', { count: 'exact', head: true })
+    .in('week_score_id', scoreIds)
+  return count ?? 0
+}
+
+export const VOCAB_LOCKED_MESSAGE = (count: number) =>
+  `이미 채점된 단어 답안이 ${count}개 있어 바꿀 수 없습니다. 바꾸려면 먼저 이 주차의 단어 채점을 지워야 합니다.`

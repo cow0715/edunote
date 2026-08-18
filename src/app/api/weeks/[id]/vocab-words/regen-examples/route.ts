@@ -11,6 +11,10 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   if (!teacherId) return err('강사 정보 없음', 404)
   if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
+  // ⚠️ 반드시 example_sentence 가 null 인 단어만 채운다.
+  // 예문 유형(빈칸/선택) 시험지는 원문 예문과 시험지 문장을 비교해 정답을 역산하므로,
+  // 이미 예문이 있는 단어를 덮어쓰면 채점된 시험지의 정답이 어긋난다.
+  // "덮어쓰기" 옵션을 추가하려면 countGradedVocabAnswers 로 채점 여부를 먼저 확인할 것.
   const { data: missing, error } = await supabase
     .from('vocab_word')
     .select('id, english_word')

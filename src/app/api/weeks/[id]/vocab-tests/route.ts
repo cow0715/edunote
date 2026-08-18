@@ -1,4 +1,4 @@
-import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertWeekOwner, countGradedVocabAnswers, VOCAB_LOCKED_MESSAGE, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { enrichVocabVariantMeanings } from '@/lib/vocab-variant-enrichment'
 
@@ -30,7 +30,8 @@ type VocabTestItemRow = {
     synonyms: string[] | null
     antonyms: string[] | null
     derivatives: string | null
-  } | { id: string; number: number; passage_label: string | null; english_word: string; part_of_speech: string | null; correct_answer: string | null; synonyms: string[] | null; antonyms: string[] | null; derivatives: string | null }[] | null
+    example_sentence: string | null
+  } | { id: string; number: number; passage_label: string | null; english_word: string; part_of_speech: string | null; correct_answer: string | null; synonyms: string[] | null; antonyms: string[] | null; derivatives: string | null; example_sentence: string | null }[] | null
   vocab_word_variant: {
     id: string
     word: string
@@ -109,7 +110,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { data: items, error: itemError } = testIds.length > 0
     ? await supabase
         .from('vocab_test_item')
-        .select('id, vocab_test_id, vocab_word_id, vocab_word_variant_id, test_number, sort_order, prompt_source, prompt_text, vocab_word(id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives), vocab_word_variant(id, word, part_of_speech, meaning, relation_type)')
+        .select('id, vocab_test_id, vocab_word_id, vocab_word_variant_id, test_number, sort_order, prompt_source, prompt_text, vocab_word(id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, example_sentence), vocab_word_variant(id, word, part_of_speech, meaning, relation_type)')
         .in('vocab_test_id', testIds)
         .order('sort_order')
     : { data: [], error: null }
@@ -128,7 +129,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     items: (itemsByTestId.get(test.id) ?? []).sort((a, b) => a.sort_order - b.sort_order),
   }))
 
-  return ok({ tests: data, activeTest: data.find((test) => test.is_active) ?? data[0] ?? null })
+  // 채점된 답안 수 — 0보다 크면 출제 UI가 시험지 변경을 잠근다
+  const gradedCount = await countGradedVocabAnswers(supabase, weekId)
+
+  return ok({ tests: data, activeTest: data.find((test) => test.is_active) ?? data[0] ?? null, gradedCount })
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -149,7 +153,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return {
         wordId,
         variantId: item?.variantId,
-        promptSource: item?.promptSource === 'synonym' || item?.promptSource === 'derivative' ? item.promptSource : 'word',
+        promptSource: item?.promptSource === 'synonym' || item?.promptSource === 'antonym' || item?.promptSource === 'derivative' || item?.promptSource === 'example' || item?.promptSource === 'example_meaning' || item?.promptSource === 'example_choice' ? item.promptSource : 'word',
         promptText: item?.promptText?.trim() || '',
         index,
       }
@@ -162,6 +166,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   })
   const wordIds = uniqueRequestedItems.map((item) => item.wordId)
   if (wordIds.length === 0) return err('시험 단어를 선택해주세요')
+
+  // 채점이 시작된 주차는 시험지를 바꿀 수 없다 (답안 삭제·정답 역산 어긋남 방지)
+  const gradedCount = await countGradedVocabAnswers(supabase, weekId)
+  if (gradedCount > 0) return err(VOCAB_LOCKED_MESSAGE(gradedCount), 409)
 
   const { data: words, error: wordError } = await supabase
     .from('vocab_word')
@@ -189,6 +197,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .filter((item) => allowedIds.has(item.wordId))
     .map((item) => {
       const wordVariants = variantsByWordId.get(item.wordId) ?? []
+      // 예문 문항(뜻쓰기/빈칸/선택)은 variant 를 쓰지 않는다. promptText 가 가공된 예문 전체.
+      if (item.promptSource === 'example' || item.promptSource === 'example_meaning' || item.promptSource === 'example_choice') {
+        return { ...item, variantId: null }
+      }
       const selectedVariant = item.promptSource === 'word'
         ? wordVariants.find((variant) => variant.relation_type === 'original') ?? null
         : wordVariants.find((variant) => variant.id === item.variantId)
@@ -202,9 +214,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         promptText: item.promptText || selectedVariant?.word || '',
       }
     })
-  const invalidVariantItems = validItems.filter((item) => item.promptSource !== 'word' && !item.variantId)
+  const exampleSources = ['example', 'example_meaning', 'example_choice']
+  const invalidVariantItems = validItems.filter((item) => item.promptSource !== 'word' && !exampleSources.includes(item.promptSource) && !item.variantId)
   if (invalidVariantItems.length > 0) {
-    return err('선택한 유의어/파생어를 찾을 수 없습니다. 단어를 다시 랜덤 선택해주세요.', 422)
+    return err('선택한 유의어/반의어/파생어를 찾을 수 없습니다. 단어를 다시 랜덤 선택해주세요.', 422)
+  }
+  const invalidExampleItems = validItems.filter((item) => exampleSources.includes(item.promptSource) && !item.promptText)
+  if (invalidExampleItems.length > 0) {
+    return err('예문 문항의 예문이 비어 있습니다. 예문을 먼저 생성해주세요.', 422)
   }
   const seenPromptKeys = new Set<string>()
   const dedupedValidItems = validItems.filter((item) => {

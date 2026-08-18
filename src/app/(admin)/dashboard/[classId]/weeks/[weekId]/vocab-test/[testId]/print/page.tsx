@@ -3,7 +3,7 @@
 import { use, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
-import { PrintFitText } from '@/components/grade/print-fit-text'
+import { VocabTestPrintSheet, VocabPrintItem } from '@/components/grade/vocab-test-print-sheet'
 
 type VocabTestItem = {
   id: string
@@ -30,15 +30,6 @@ type VocabTestResponse = {
   activeTest: VocabTest | null
 }
 
-const ITEMS_PER_PAGE = 50
-const ITEMS_PER_COLUMN = 25
-
-function chunk<T>(items: T[], size: number) {
-  const chunks: T[][] = []
-  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size))
-  return chunks
-}
-
 export default function VocabTestPrintPage({
   params,
 }: {
@@ -55,8 +46,13 @@ export default function VocabTestPrintPage({
   })
 
   const test = data?.tests[0] ?? null
-  const items = (test?.items ?? []).slice().sort((a, b) => a.test_number - b.test_number)
-  const pages = chunk(items, ITEMS_PER_PAGE)
+  const items: VocabPrintItem[] = (test?.items ?? []).map((item) => ({
+    id: item.id,
+    test_number: item.test_number,
+    prompt_source: item.prompt_source,
+    prompt_text: item.prompt_text,
+    display_word: item.vocab_word_variant?.word || item.prompt_text || item.vocab_word?.english_word || '',
+  }))
 
   useEffect(() => {
     document.body.classList.add('bg-white')
@@ -84,79 +80,7 @@ export default function VocabTestPrintPage({
         </div>
       </div>
 
-      <div className="mx-auto space-y-4 print:space-y-0">
-        {pages.map((pageItems, pageIndex) => {
-          const left = pageItems.slice(0, ITEMS_PER_COLUMN)
-          const right = pageItems.slice(ITEMS_PER_COLUMN)
-          return (
-            <section key={pageIndex} className="vocab-print-page bg-white shadow-sm print:shadow-none">
-              <header className="mb-6 flex items-end justify-between border-b-2 border-gray-900 pb-4">
-                <div>
-                  <p className="text-[10px] font-bold tracking-[0.28em] text-gray-500">Vocabulary Test</p>
-                  <h2 className="mt-1 text-2xl font-black text-gray-950">어휘 Test</h2>
-                </div>
-                <div className="grid grid-cols-[44px_150px] gap-y-3 text-sm">
-                  <span className="font-bold text-gray-700">이름</span>
-                  <span className="border-b border-gray-700" />
-                  <span className="font-bold text-gray-700">점수</span>
-                  <span className="border-b border-gray-700" />
-                </div>
-              </header>
-
-              <div className="grid grid-cols-2 gap-x-10">
-                {[left, right].map((column, columnIndex) => (
-                  <div key={columnIndex} className="space-y-0">
-                    {column.map((item) => {
-                      const word = item.vocab_word_variant?.word || item.prompt_text || item.vocab_word?.english_word || ''
-                      return (
-                        <div key={item.id} className="grid h-[34px] grid-cols-[36px_minmax(0,1fr)_132px] items-end gap-2">
-                          <span className="pb-1 text-right text-[13px] font-bold text-gray-900">{item.test_number}.</span>
-                          <PrintFitText text={word} maxSize={15} minSize={9} className="pb-1 font-semibold text-gray-900" />
-                          <span className="h-[22px] border-b border-gray-500" />
-                        </div>
-                      )
-                    })}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )
-        })}
-      </div>
-
-      <style jsx global>{`
-        @page {
-          size: A4 portrait;
-          margin: 10mm;
-        }
-
-        .vocab-print-page {
-          width: 210mm;
-          min-height: 297mm;
-          padding: 12mm 12mm 11mm;
-          box-sizing: border-box;
-          page-break-after: always;
-        }
-
-        .vocab-print-page:last-child {
-          page-break-after: auto;
-        }
-
-        @media print {
-          html,
-          body {
-            width: 210mm;
-            background: white !important;
-          }
-
-          .vocab-print-page {
-            width: auto;
-            min-height: auto;
-            padding: 0;
-            margin: 0;
-          }
-        }
-      `}</style>
+      <VocabTestPrintSheet items={items} />
     </div>
   )
 }

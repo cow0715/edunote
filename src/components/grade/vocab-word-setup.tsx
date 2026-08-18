@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Dice5, FileSpreadsheet, FileText, Loader2, Printer, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Upload, X } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Dice5, FileSpreadsheet, FileText, Loader2, Printer, RotateCcw, Save, Search, Sparkles, Upload, X } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,15 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { usePrompt, useSavePrompt } from '@/hooks/use-prompts'
 import { VOCAB_GRADING_RULES } from '@/lib/prompts'
+import { blankExampleSentence, choiceExampleSentence, extractChoiceAnswerIndex, parenthesizeExampleSentence, parseChoiceOptions } from '@/lib/vocab-example-blank'
+import {
+  DEFAULT_SOURCE_RATIO,
+  VocabRatioSource,
+  VocabSourceRatio,
+  allocatePromptTargets,
+  rebalanceSourceRatio,
+} from '@/lib/vocab-test-ratio'
+import { VocabSourceRatioPanel } from '@/components/grade/vocab-source-ratio-panel'
 import { useUploadStore, VocabEntry } from '@/store/upload-store'
 
 const PROMPT_KEY = 'vocab_grading_rules'
@@ -45,7 +54,8 @@ type VocabTest = {
   items: VocabTestItem[]
 }
 
-type VocabTestPromptSource = 'word' | 'synonym' | 'derivative'
+// 모든 출제 유형이 랜덤 비율 대상이다 (예문 유형은 예문이 있는 단어에만 배분).
+type VocabTestPromptSource = VocabRatioSource
 
 type SelectedPrompt = {
   prompt_source: VocabTestPromptSource
@@ -62,17 +72,6 @@ type RandomVocabSelection = {
   selected: Array<VocabEntry & { id: string }>
   prompts: Record<string, SelectedPrompt>
 }
-
-type VocabSourceRatio = Record<VocabTestPromptSource, number>
-
-const DEFAULT_SOURCE_RATIO: VocabSourceRatio = { word: 50, synonym: 25, derivative: 25 }
-
-const SOURCE_RATIO_PRESETS: Array<{ label: string; ratio: VocabSourceRatio }> = [
-  { label: '균형', ratio: DEFAULT_SOURCE_RATIO },
-  { label: '원본 위주', ratio: { word: 70, synonym: 15, derivative: 15 } },
-  { label: '유의어 강화', ratio: { word: 40, synonym: 45, derivative: 15 } },
-  { label: '파생어 강화', ratio: { word: 40, synonym: 15, derivative: 45 } },
-]
 
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -108,59 +107,6 @@ function randomItem<T>(items: T[]) {
   return items[Math.floor(Math.random() * items.length)]
 }
 
-function clampPercent(value: number) {
-  if (!Number.isFinite(value)) return 0
-  return Math.max(0, Math.min(100, Math.round(value)))
-}
-
-function rebalanceSourceRatio(
-  current: VocabSourceRatio,
-  source: VocabTestPromptSource,
-  rawValue: number
-): VocabSourceRatio {
-  const value = clampPercent(rawValue)
-  const otherSources = (['word', 'synonym', 'derivative'] as VocabTestPromptSource[]).filter((item) => item !== source)
-  const remaining = 100 - value
-  const currentOtherTotal = otherSources.reduce((sum, item) => sum + current[item], 0)
-
-  if (currentOtherTotal === 0) {
-    const first = Math.floor(remaining / 2)
-    return {
-      ...current,
-      [source]: value,
-      [otherSources[0]]: first,
-      [otherSources[1]]: remaining - first,
-    }
-  }
-
-  const firstValue = Math.round((current[otherSources[0]] / currentOtherTotal) * remaining)
-  return {
-    ...current,
-    [source]: value,
-    [otherSources[0]]: firstValue,
-    [otherSources[1]]: remaining - firstValue,
-  }
-}
-
-function allocatePromptTargets(count: number, ratio: VocabSourceRatio): VocabSourceRatio {
-  const sources: VocabTestPromptSource[] = ['word', 'synonym', 'derivative']
-  const rawTargets = sources.map((source) => ({
-    source,
-    raw: count * (ratio[source] / 100),
-  }))
-  const targets = rawTargets.reduce<VocabSourceRatio>((acc, item) => {
-    acc[item.source] = Math.floor(item.raw)
-    return acc
-  }, { word: 0, synonym: 0, derivative: 0 })
-  let assigned = sources.reduce((sum, source) => sum + targets[source], 0)
-  for (const item of rawTargets.sort((a, b) => (b.raw - Math.floor(b.raw)) - (a.raw - Math.floor(a.raw)))) {
-    if (assigned >= count) break
-    targets[item.source] += 1
-    assigned += 1
-  }
-  return targets
-}
-
 function normalizePromptCandidate(value: string | null | undefined) {
   let text = (value ?? '').replace(/\s+/g, ' ').trim()
   if (!text) return ''
@@ -193,7 +139,10 @@ function normalizePromptDuplicateKey(value: string | null | undefined) {
 
 function promptLabel(source: VocabTestPromptSource | null | undefined) {
   if (source === 'synonym') return '유의어'
+  if (source === 'antonym') return '반의어'
   if (source === 'derivative') return '파생어'
+  if (source === 'example_meaning') return '예문뜻'
+  if (source === 'example') return '예문빈칸'
   return '원본'
 }
 
@@ -225,19 +174,95 @@ function getPromptOptions(word: VocabEntry): PromptOption[] {
   }
 
   for (const variant of word.variants ?? []) {
-    if (variant.exam_enabled === false || variant.relation_type === 'antonym') continue
+    if (variant.exam_enabled === false) continue
     const source: VocabTestPromptSource = variant.relation_type === 'synonym'
       ? 'synonym'
       : variant.relation_type === 'derivative'
         ? 'derivative'
-        : 'word'
+        : variant.relation_type === 'antonym'
+          ? 'antonym'
+          : 'word'
     addOption(source, variant.word, variant.id ?? null)
   }
   addOption('word', word.english_word)
+
+  // 예문 옵션 2종: 예문 속 출제 단어(활용형 포함)가 매칭될 때만 제공.
+  // 괄호/빈칸 마커가 살아있어야 하므로 makePromptOption 의 정규화를 거치지 않는다.
+  const parenthesized = parenthesizeExampleSentence(word.example_sentence, word.english_word)
+  if (parenthesized.matched && parenthesized.text) {
+    options.push({
+      prompt_source: 'example_meaning',
+      prompt_text: parenthesized.text,
+      variant_id: null,
+      raw_text: word.example_sentence ?? '',
+      label: `예문뜻 · ${parenthesized.text}`,
+    })
+  }
+  const blanked = blankExampleSentence(word.example_sentence, word.english_word)
+  if (blanked.matched && blanked.text) {
+    options.push({
+      prompt_source: 'example',
+      prompt_text: blanked.text,
+      variant_id: null,
+      raw_text: word.example_sentence ?? '',
+      label: `예문빈칸 · ${blanked.text}`,
+    })
+  }
+  // 예문선택: 오답 후보는 반의어 우선. 옵션 목록에서는 정답을 왼쪽에 고정해 두고
+  // (텍스트가 흔들리면 저장된 시험지 복원 시 매칭이 깨진다), 실제 출제 시 좌우를 섞는다.
+  const distractor = choiceDistractor(word, fallbackDistractorWords)
+  if (distractor) {
+    const choice = choiceExampleSentence(word.example_sentence, word.english_word, distractor, false)
+    if (choice.matched && choice.text) {
+      options.push({
+        prompt_source: 'example_choice',
+        prompt_text: choice.text,
+        variant_id: null,
+        raw_text: word.example_sentence ?? '',
+        label: `예문선택 · ${choice.text}`,
+      })
+    }
+  }
   return options
 }
 
+/** 선택형 오답 후보: 반의어 variant → antonyms 필드 → (폴백) 다른 단어의 원형 */
+function choiceDistractor(word: VocabEntry, fallbackWords: VocabEntry[] = []): string | null {
+  const antonymVariant = (word.variants ?? []).find((v) => v.relation_type === 'antonym' && v.exam_enabled !== false && v.word.trim())
+  if (antonymVariant) return normalizePromptCandidate(antonymVariant.word) || antonymVariant.word.trim()
+  const antonym = (word.antonyms ?? []).map((a) => normalizePromptCandidate(a)).find(Boolean)
+  if (antonym) return antonym
+  const fallback = fallbackWords.find((other) =>
+    other.english_word.toLocaleLowerCase('en-US') !== word.english_word.toLocaleLowerCase('en-US') &&
+    !other.english_word.includes('~') &&
+    !other.english_word.includes(' ')
+  )
+  return fallback ? fallback.english_word.trim() : null
+}
+
+/** 폴백 오답 후보 풀. VocabWordSetup 이 단어 목록을 로드할 때 갱신한다 (module scope 캐시). */
+let fallbackDistractorWords: VocabEntry[] = []
+
+/** 정답 좌우를 랜덤으로 섞은 선택형 prompt 를 만든다 (실제 출제용) */
+function randomizedChoicePrompt(word: VocabEntry, option: PromptOption): SelectedPrompt {
+  const distractor = choiceDistractor(word, fallbackDistractorWords)
+  const choice = distractor
+    ? choiceExampleSentence(word.example_sentence, word.english_word, distractor, Math.random() < 0.5)
+    : null
+  return {
+    prompt_source: 'example_choice',
+    prompt_text: choice?.matched && choice.text ? choice.text : option.prompt_text,
+    variant_id: null,
+  }
+}
+
 function normalizeSelectedPrompt(word: VocabEntry | null | undefined, source: VocabTestPromptSource | null | undefined, text: string | null | undefined, variantId?: string | null): SelectedPrompt {
+  if (source === 'example' || source === 'example_meaning' || source === 'example_choice') {
+    const exampleOption = word ? getPromptOptions(word).find((option) => option.prompt_source === source) : null
+    const promptText = (text ?? '').trim() || exampleOption?.prompt_text || ''
+    if (promptText) return { prompt_source: source, prompt_text: promptText, variant_id: null }
+    // 예문 매칭 실패 → 원본 단어 뜻쓰기로 폴백
+  }
   const byVariantId = variantId && word
     ? getPromptOptions(word).find((option) => option.variant_id === variantId)
     : null
@@ -265,7 +290,7 @@ function normalizeSelectedPrompt(word: VocabEntry | null | undefined, source: Vo
 }
 
 function findVariantForPrompt(word: VocabEntry, prompt: SelectedPrompt) {
-  if (prompt.prompt_source === 'word') return null
+  if (prompt.prompt_source === 'word' || prompt.prompt_source === 'example' || prompt.prompt_source === 'example_meaning' || prompt.prompt_source === 'example_choice') return null
   if (prompt.variant_id) {
     return (word.variants ?? []).find((variant) => variant.id === prompt.variant_id) ?? null
   }
@@ -276,7 +301,16 @@ function findVariantForPrompt(word: VocabEntry, prompt: SelectedPrompt) {
 }
 
 function getPromptAnswer(word: VocabEntry, prompt: SelectedPrompt) {
-  if (prompt.prompt_source === 'word') return word.correct_answer
+  // 원본·예문뜻쓰기(영→한)의 정답은 한글 뜻, 예문빈칸(영→영)은 문장 속 영어 표면형
+  if (prompt.prompt_source === 'word' || prompt.prompt_source === 'example_meaning') return word.correct_answer
+  if (prompt.prompt_source === 'example') {
+    return blankExampleSentence(word.example_sentence, word.english_word).answer ?? word.english_word
+  }
+  if (prompt.prompt_source === 'example_choice') {
+    const index = extractChoiceAnswerIndex(word.example_sentence, prompt.prompt_text)
+    const options = parseChoiceOptions(prompt.prompt_text)
+    return (index !== null && options ? options[index] : null) ?? word.english_word
+  }
   return findVariantForPrompt(word, prompt)?.meaning ?? null
 }
 
@@ -303,23 +337,22 @@ function buildRandomVocabSelection(words: Array<VocabEntry & { id: string }>, co
       selected.push(word)
       usedIds.add(word.id)
       if (promptKey) usedPromptKeys.add(promptKey)
-      prompts[word.id] = { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null }
+      prompts[word.id] = option.prompt_source === 'example_choice'
+        ? randomizedChoicePrompt(word, option)
+        : { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null }
       target -= 1
     }
   }
 
-  addWords(
-    'derivative',
-    targets.derivative,
-    words.filter((word) => getPromptOptions(word).some((option) => option.prompt_source === 'derivative')),
-    (word) => randomItem(getPromptOptions(word).filter((option) => option.prompt_source === 'derivative')) ?? null
-  )
-  addWords(
-    'synonym',
-    targets.synonym,
-    words.filter((word) => getPromptOptions(word).some((option) => option.prompt_source === 'synonym')),
-    (word) => randomItem(getPromptOptions(word).filter((option) => option.prompt_source === 'synonym')) ?? null
-  )
+  // 후보가 귀한 유형부터 채우고, 남는 자리는 원본으로 메운다
+  for (const source of ['example_choice', 'example', 'example_meaning', 'antonym', 'derivative', 'synonym'] as const) {
+    addWords(
+      source,
+      targets[source],
+      words.filter((word) => getPromptOptions(word).some((option) => option.prompt_source === source)),
+      (word) => randomItem(getPromptOptions(word).filter((option) => option.prompt_source === source)) ?? null
+    )
+  }
   addWords('word', targets.word, words, (word) => getPromptOptions(word).find((option) => option.prompt_source === 'word') ?? null)
   addWords('word', count - selected.length, words, (word) => getPromptOptions(word).find((option) => option.prompt_source === 'word') ?? null)
 
@@ -336,6 +369,9 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const [meaningLoading, setMeaningLoading] = useState(false)
   const [editWords, setEditWords] = useState<VocabEntry[]>([])
   const [activeTest, setActiveTest] = useState<VocabTest | null>(null)
+  // 채점된 답안 수. 0보다 크면 시험지 변경(저장·랜덤)을 잠근다 — 정답 역산이 어긋나는 걸 원천 차단
+  const [gradedCount, setGradedCount] = useState(0)
+  const testLocked = gradedCount > 0
   const [selectedWordIds, setSelectedWordIds] = useState<string[]>([])
   const [selectedPrompts, setSelectedPrompts] = useState<Record<string, SelectedPrompt>>({})
   const [testSearch, setTestSearch] = useState('')
@@ -345,6 +381,9 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const [testSaving, setTestSaving] = useState(false)
   const [promptText, setPromptText] = useState(VOCAB_GRADING_RULES)
   const [promptOpen, setPromptOpen] = useState(false)
+  // 단어 직접 수정은 평소에 쓸 일이 거의 없는데 목록이 길어 스크롤만 만든다.
+  // 아래 "채점 규칙 수정"과 같은 방식으로 접어둔다.
+  const [wordEditOpen, setWordEditOpen] = useState(false)
 
   const qc = useQueryClient()
   const vocabState = useUploadStore((s) => s.vocab[weekId])
@@ -381,10 +420,11 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const loadActiveTest = useCallback(async () => {
     const res = await fetch(`/api/weeks/${weekId}/vocab-tests`)
     if (!res.ok) return
-    const data = await res.json() as { activeTest: VocabTest | null }
+    const data = await res.json() as { activeTest: VocabTest | null; gradedCount?: number }
     const test = data.activeTest ?? null
     const sortedItems = (test?.items ?? []).slice().sort((a, b) => a.sort_order - b.sort_order)
     setActiveTest(test)
+    setGradedCount(data.gradedCount ?? 0)
     setSelectedWordIds(sortedItems.map((item) => item.vocab_word_id))
     setSelectedPrompts(Object.fromEntries(sortedItems.map((item) => {
       return [
@@ -650,7 +690,9 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       toast.error(`${promptLabel(source)} 후보가 없습니다`)
       return
     }
-    const nextPrompt = { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null }
+    const nextPrompt = option.prompt_source === 'example_choice'
+      ? randomizedChoicePrompt(word, option)
+      : { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null }
     if (hasDuplicatePrompt(word.id, nextPrompt)) {
       toast.error('이미 같은 시험 단어가 선택되어 있습니다')
       return
@@ -665,7 +707,9 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   function updateSelectedPrompt(word: VocabEntry & { id: string }, optionIndex: number) {
     const option = getPromptOptions(word)[optionIndex] ?? getPromptOptions(word)[0]
     if (!option) return
-    const nextPrompt = { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null }
+    const nextPrompt = option.prompt_source === 'example_choice'
+      ? randomizedChoicePrompt(word, option)
+      : { prompt_source: option.prompt_source, prompt_text: option.prompt_text, variant_id: option.variant_id ?? null }
     if (hasDuplicatePrompt(word.id, nextPrompt)) {
       toast.error('이미 같은 시험 단어가 선택되어 있습니다')
       return
@@ -687,7 +731,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     })
   }
 
-  function updateSourceRatio(source: VocabTestPromptSource, value: number) {
+  function updateSourceRatio(source: VocabRatioSource, value: number) {
     setSourceRatio((prev) => rebalanceSourceRatio(prev, source, value))
   }
 
@@ -708,7 +752,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       const source = prompts[word.id]?.prompt_source ?? 'word'
       acc[source] += 1
       return acc
-    }, { word: 0, synonym: 0, derivative: 0 })
+    }, { word: 0, synonym: 0, antonym: 0, derivative: 0, example_meaning: 0, example: 0, example_choice: 0 })
     if (variantIds.length > 0) {
       setMeaningLoading(true)
       try {
@@ -722,7 +766,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       }
     }
     await persistVocabTest(selected.map((word) => word.id), prompts, { showToast: false })
-    toast.success(`${selected.length}개 선택: 원본 ${counts.word}, 유의어 ${counts.synonym}, 파생어 ${counts.derivative}`)
+    toast.success(`${selected.length}개 선택: 원본 ${counts.word}, 유의어 ${counts.synonym}, 반의어 ${counts.antonym}, 파생어 ${counts.derivative}, 예문 ${counts.example_meaning + counts.example + counts.example_choice}`)
   }
 
   async function openClinicPrint(mode: 'student' | 'grading') {
@@ -765,6 +809,10 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         const prompt = prompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word, variant_id: null }
         const variant = findVariantForPrompt(word, prompt)
         const variantMeaning = variant?.id ? enrichedMeanings.get(variant.id) ?? variant.meaning : variant?.meaning
+        // 예문 유형 포함 유형별 정답 계산. variant 는 방금 enrich 된 뜻을 우선 사용
+        const answer = variant
+          ? variantMeaning ?? null
+          : getPromptAnswer(word, prompt)
         return {
           id: `${word.id}-${index}`,
           test_number: index + 1,
@@ -772,7 +820,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
           prompt_source: prompt.prompt_source,
           vocab_word: {
             english_word: word.english_word,
-            correct_answer: prompt.prompt_source === 'word' ? word.correct_answer : variantMeaning ?? null,
+            correct_answer: answer,
           },
         }
       }),
@@ -804,6 +852,8 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     () => editWords.filter((word): word is VocabEntry & { id: string } => !!word.id),
     [editWords],
   )
+  // 선택형 오답 폴백 풀 갱신 (반의어 없는 단어용). 렌더 중 module 변수 대입 — 부작용 없는 캐시.
+  fallbackDistractorWords = savedWordsWithIds
   const savedWordsById = useMemo(
     () => new Map(savedWordsWithIds.map((word) => [word.id, word])),
     [savedWordsWithIds],
@@ -820,7 +870,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       const source = selectedPrompts[word.id]?.prompt_source ?? 'word'
       acc[source] += 1
       return acc
-    }, { word: 0, synonym: 0, derivative: 0 }),
+    }, { word: 0, synonym: 0, antonym: 0, derivative: 0, example_meaning: 0, example: 0, example_choice: 0 }),
     [selectedPrompts, selectedWords],
   )
   const passageOptions = useMemo(
@@ -961,6 +1011,12 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
               원본 단어장 {savedWordsWithIds.length}개 중 실제 시험에 낼 단어만 선택합니다.
               {activeTest && <span className="ml-1 text-blue-600">현재 시험지 {activeTest.item_count}문항</span>}
             </p>
+            {testLocked && (
+              <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-amber-700">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                채점된 답안이 {gradedCount}개 있어 시험지를 바꿀 수 없습니다. 인쇄는 가능합니다.
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -992,7 +1048,12 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
               </Button>
             </div>
             <span className="mx-1 hidden h-6 w-px bg-gray-200 sm:block" />
-            <Button size="sm" onClick={saveVocabTest} disabled={testSaving || selectedWordIds.length === 0}>
+            <Button
+              size="sm"
+              onClick={saveVocabTest}
+              disabled={testSaving || selectedWordIds.length === 0 || testLocked}
+              title={testLocked ? '채점된 답안이 있어 시험지를 바꿀 수 없습니다' : undefined}
+            >
               {testSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />}
               {selectedWordIds.length}문항 시험지 저장
             </Button>
@@ -1052,7 +1113,8 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                   size="sm"
                   className="h-6 px-1.5 text-xs"
                   onClick={selectRandomTestWords}
-                  disabled={meaningLoading}
+                  disabled={meaningLoading || testLocked}
+                  title={testLocked ? '채점된 답안이 있어 시험지를 바꿀 수 없습니다' : undefined}
                 >
                   {meaningLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Dice5 className="mr-1 h-3.5 w-3.5" />}
                   랜덤
@@ -1063,68 +1125,16 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
             <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/70 px-4 py-2 text-[11px] font-semibold text-gray-500">
               <span>{filteredTestWords.length}개 표시</span>
               <span>
-                {selectedWordIds.length}개 선택됨 · 원본 {selectedPromptCounts.word} · 유의어 {selectedPromptCounts.synonym} · 파생어 {selectedPromptCounts.derivative}
+                {selectedWordIds.length}개 선택됨 · 원본 {selectedPromptCounts.word} · 유의어 {selectedPromptCounts.synonym} · 반의어 {selectedPromptCounts.antonym} · 파생어 {selectedPromptCounts.derivative} · 예문뜻 {selectedPromptCounts.example_meaning} · 예문빈칸 {selectedPromptCounts.example} · 예문선택 {selectedPromptCounts.example_choice}
               </span>
             </div>
 
-            <div className="border-b border-gray-100 bg-white px-4 py-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <SlidersHorizontal className="h-3.5 w-3.5 text-blue-500" />
-                  <span className="text-xs font-bold text-gray-800">출제 비율</span>
-                  <span className="text-[11px] text-gray-400">
-                    예상 {randomRatioTargets.word}/{randomRatioTargets.synonym}/{randomRatioTargets.derivative}문항
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {SOURCE_RATIO_PRESETS.map((preset) => {
-                    const active = sourceRatio.word === preset.ratio.word &&
-                      sourceRatio.synonym === preset.ratio.synonym &&
-                      sourceRatio.derivative === preset.ratio.derivative
-                    return (
-                      <button
-                        key={preset.label}
-                        type="button"
-                        onClick={() => setSourceRatio(preset.ratio)}
-                        className={`rounded-full px-2 py-1 text-[11px] font-bold transition-colors ${
-                          active ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-blue-50 hover:text-blue-700'
-                        }`}
-                      >
-                        {preset.label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-              <div className="mt-3 grid gap-2 md:grid-cols-3">
-                {(['word', 'synonym', 'derivative'] as VocabTestPromptSource[]).map((source) => (
-                  <label key={source} className="min-w-0 rounded-lg bg-gray-50 px-3 py-2">
-                    <div className="mb-1.5 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold text-gray-700">{promptLabel(source)}</span>
-                      <div className="flex items-center gap-1">
-                        <Input
-                          type="number"
-                          min={0}
-                          max={100}
-                          value={sourceRatio[source]}
-                          onChange={(e) => updateSourceRatio(source, Number(e.target.value))}
-                          className="h-6 w-12 px-1 text-center text-[11px] font-bold"
-                        />
-                        <span className="text-[11px] font-semibold text-gray-400">%</span>
-                      </div>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={sourceRatio[source]}
-                      onChange={(e) => updateSourceRatio(source, Number(e.target.value))}
-                      className="h-2 w-full accent-blue-600"
-                    />
-                  </label>
-                ))}
-              </div>
-            </div>
+            <VocabSourceRatioPanel
+              ratio={sourceRatio}
+              targets={randomRatioTargets}
+              onChangeRatio={updateSourceRatio}
+              onSelectPreset={setSourceRatio}
+            />
 
             <div className="max-h-[520px] divide-y divide-gray-100 overflow-y-auto">
               {filteredTestWords.length === 0 ? (
@@ -1133,7 +1143,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                 const promptOptions = getPromptOptions(word)
                 const selectedPrompt = selectedPrompts[word.id]
                 const isSelected = selectedSet.has(word.id)
-                const availableSources: VocabTestPromptSource[] = ['word', 'synonym', 'derivative']
+                const availableSources: VocabTestPromptSource[] = ['word', 'synonym', 'antonym', 'derivative', 'example_meaning', 'example', 'example_choice']
                 return (
                   <div key={word.id} className={`flex items-start gap-3 px-4 py-3 transition-colors hover:bg-blue-50/50 ${isSelected ? 'bg-blue-50/35' : ''}`}>
                     <input
@@ -1206,7 +1216,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                 <div>
                   <p className="text-xs font-bold text-gray-700">시험지 미리보기</p>
                   <p className="mt-0.5 text-[11px] text-gray-400">
-                    원본 {selectedPromptCounts.word} · 유의어 {selectedPromptCounts.synonym} · 파생어 {selectedPromptCounts.derivative}
+                    원본 {selectedPromptCounts.word} · 유의어 {selectedPromptCounts.synonym} · 반의어 {selectedPromptCounts.antonym} · 파생어 {selectedPromptCounts.derivative} · 예문뜻 {selectedPromptCounts.example_meaning} · 예문빈칸 {selectedPromptCounts.example} · 예문선택 {selectedPromptCounts.example_choice}
                   </p>
                 </div>
               <button
@@ -1277,7 +1287,27 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       </div>
 
       <div className="overflow-hidden rounded-lg border border-gray-200">
-        <div className="hidden grid-cols-[3.5rem_4.25rem_1.3fr_4.25rem_1.4fr_1.4fr_1.2fr_1.5fr] gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 xl:grid">
+        <button
+          type="button"
+          onClick={() => setWordEditOpen((v) => !v)}
+          className="flex w-full items-center justify-between px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-50"
+        >
+          <span className="flex items-center gap-1.5">
+            단어 직접 수정
+            <span className="text-gray-300">{editWords.length}개</span>
+            {isDirty && (
+              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">미저장</span>
+            )}
+          </span>
+          {wordEditOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        </button>
+
+        {wordEditOpen && (
+        <div className="border-t border-gray-200">
+        <p className="px-3 pt-2 text-[11px] text-gray-400">
+          채점을 마친 뒤에도 여기서 고치면 학생 점수가 유지됩니다. 파일을 다시 올리면 그 주차 점수가 초기화됩니다.
+        </p>
+        <div className="mt-2 hidden grid-cols-[3.5rem_4.25rem_1.3fr_4.25rem_1.4fr_1.4fr_1.2fr_1.5fr] gap-2 border-y border-gray-200 bg-gray-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 xl:grid">
           <span>#</span>
           <span>지문</span>
           <span>본문 단어</span>
@@ -1365,12 +1395,13 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
             </div>
           ))}
         </div>
-      </div>
-
-      <div className="flex justify-end">
-        <Button onClick={() => saveWords(editWords)} disabled={!isDirty}>
-          변경사항 저장
-        </Button>
+        <div className="flex justify-end border-t border-gray-200 p-3">
+          <Button onClick={() => saveWords(editWords)} disabled={!isDirty}>
+            변경사항 저장
+          </Button>
+        </div>
+        </div>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-lg border border-gray-200">
