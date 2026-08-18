@@ -1,13 +1,17 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeVocabPhoto } from '@/lib/anthropic'
+import type { VocabOcrExampleItem } from '@/lib/prompts'
+import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
 
-export const maxDuration = 60
+// 한 학생 15~20초. 일괄 채점(15명 안쪽)을 한 요청에서 병렬로 돌릴 수 있게 Pro 상한까지.
+export const maxDuration = 300
 
 type VocabWordForGrading = {
   id: string
   number: number
   english_word: string
   correct_answer: string | null
+  example_sentence?: string | null
   test_word?: string | null
   test_source?: string | null
   vocab_word_variant_id?: string | null
@@ -72,7 +76,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (activeTest) {
     const { data } = await supabase
       .from('vocab_test_item')
-      .select('test_number, sort_order, prompt_source, prompt_text, vocab_word(id, number, english_word, correct_answer), vocab_word_variant(id, word, meaning, relation_type)')
+      .select('test_number, sort_order, prompt_source, prompt_text, vocab_word(id, number, english_word, correct_answer, example_sentence), vocab_word_variant(id, word, meaning, relation_type)')
       .eq('vocab_test_id', activeTest.id)
       .order('sort_order')
     testItems = (data ?? []) as unknown as VocabTestItemForGrading[]
@@ -87,19 +91,51 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return err('시험용 단어를 먼저 선택해주세요', 422)
   }
 
+  // 예문 파트 문항: OCR 파서에 인쇄 원문을 알려주기 위해 따로 모은다 (정답은 넣지 않음)
+  const exampleItems: VocabOcrExampleItem[] = []
+
   const gradingWords: VocabWordForGrading[] = testItems.length > 0
     ? testItems
         .flatMap((item) => {
           const word = one(item.vocab_word)
           if (!word) return []
           const variant = one(item.vocab_word_variant)
+          const source = item.prompt_source ?? 'word'
+
+          if (source === 'example_meaning' || source === 'example' || source === 'example_choice') {
+            const kind = source === 'example' ? 'blank' : source === 'example_choice' ? 'choice' : 'meaning'
+            exampleItems.push({
+              number: item.test_number,
+              printed_sentence: item.prompt_text ?? word.example_sentence ?? '',
+              kind,
+            })
+            // 예문뜻: 정답은 단어의 한글 뜻 / 예문빈칸: 문장 속 영어 표면형 / 예문선택: 정답 후보 단어
+            let correctAnswer: string | null = word.correct_answer
+            if (kind === 'blank') {
+              correctAnswer = extractBlankAnswer(word.example_sentence, item.prompt_text) ?? word.english_word
+            } else if (kind === 'choice') {
+              const index = extractChoiceAnswerIndex(word.example_sentence, item.prompt_text)
+              const options = parseChoiceOptions(item.prompt_text)
+              correctAnswer = (index !== null && options ? options[index] : null) ?? word.english_word
+            }
+            return [{
+              ...word,
+              number: item.test_number,
+              english_word: word.english_word,
+              correct_answer: correctAnswer,
+              test_word: word.english_word,
+              test_source: source,
+              vocab_word_variant_id: null,
+            }]
+          }
+
           return [{
             ...word,
             number: item.test_number,
             english_word: variant?.word ?? item.prompt_text ?? word.english_word,
             correct_answer: variant?.meaning ?? word.correct_answer,
             test_word: variant?.word ?? item.prompt_text ?? word.english_word,
-            test_source: variant?.relation_type ?? item.prompt_source ?? 'word',
+            test_source: variant?.relation_type ?? source,
             vocab_word_variant_id: variant?.id ?? null,
           }]
         })
@@ -115,7 +151,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   let results
   try {
-    results = await gradeVocabPhoto(fileData, mimeType, correctAnswerMap.size > 0 ? correctAnswerMap : undefined, customRules)
+    results = await gradeVocabPhoto(fileData, mimeType, {
+      correctAnswers: correctAnswerMap.size > 0 ? correctAnswerMap : undefined,
+      customRules,
+      exampleItems: exampleItems.length > 0 ? exampleItems : undefined,
+    })
   } catch (e) {
     console.error('[grade-vocab-photo] AI 채점 실패', e)
     return err('단어 채점 실패. 사진을 확인해주세요.', 422)

@@ -4,13 +4,16 @@ import { jsonrepair } from 'jsonrepair'
 import {
   GRADING_SYSTEM, GRADING_RULES,
   PARSE_ANSWER_SHEET_RULES, SMS_RULES,
-  buildVocabOcrClovaPrompt, VOCAB_OCR_VISION_PROMPT,
+  buildVocabOcrClovaPrompt, buildVocabOcrVisionPrompt,
   buildVocabGradingPrompt, VOCAB_PDF_PROMPT,
   buildExamOcrVisionPrompt,
   ExamOcrQuestion,
+  VocabOcrExampleItem,
   EXAM_BANK_PARSE_RULES,
 } from './prompts'
 import type { ParsedExplanation } from './explanation-parser'
+import { reconstructClovaLayout, ClovaField } from './clova-layout'
+import { gradeBlankAnswer, gradeChoiceAnswer } from './vocab-blank-grading'
 
 export type { ExamOcrQuestion }
 
@@ -391,12 +394,6 @@ async function callClovaOCR(fileData: string, mimeType: string): Promise<string 
   }
 
   const data = await res.json()
-  type Vertex = { x: number; y: number }
-  type ClovaField = {
-    inferText: string
-    lineBreak: boolean
-    boundingPoly?: { vertices: Vertex[] }
-  }
   const fields: ClovaField[] = data.images?.[0]?.fields ?? []
 
   if (fields.length === 0) {
@@ -404,113 +401,23 @@ async function callClovaOCR(fileData: string, mimeType: string): Promise<string 
     throw new Error(`CLOVA OCR 결과 없음 (inferResult: ${inferResult})`)
   }
 
-  // boundingPoly 없는 필드가 섞여 있으면 좌표 기반 재구성 포기 → 기존 방식
-  const hasCoords = fields.every((f) => f.boundingPoly?.vertices && f.boundingPoly.vertices.length >= 4)
-  if (!hasCoords) {
-    const lines: string[] = []
-    let buf: string[] = []
-    for (const field of fields) {
-      buf.push(field.inferText)
-      if (field.lineBreak) {
-        lines.push(buf.join(' '))
-        buf = []
-      }
-    }
-    if (buf.length > 0) lines.push(buf.join(' '))
-    return lines.join('\n')
-  }
+  return reconstructClovaLayout(fields, (msg) => console.log(msg))
+}
 
-  // ── 각 필드에 중심 좌표/크기 부여 ──────────────────────────────────────
-  type Tok = { text: string; cx: number; cy: number; xMin: number; xMax: number; h: number }
-  const toks: Tok[] = fields.map((f) => {
-    const vs = f.boundingPoly!.vertices
-    const xs = vs.map((v) => v.x ?? 0)
-    const ys = vs.map((v) => v.y ?? 0)
-    const xMin = Math.min(...xs), xMax = Math.max(...xs)
-    const yMin = Math.min(...ys), yMax = Math.max(...ys)
-    return {
-      text: f.inferText,
-      cx: (xMin + xMax) / 2,
-      cy: (yMin + yMax) / 2,
-      xMin,
-      xMax,
-      h: yMax - yMin,
-    }
-  })
-
-  // ── 2단 레이아웃 감지 ────────────────────────────────────────────────
-  // cx 분포에서 정렬 후 연속된 두 cx 사이의 최대 gap을 찾는다.
-  // gap이 전체 x-range의 12% 이상이고, 그 gap 중점이 전체 x-range의 30~70% 구간에 있으면 2단으로 판단.
-  const sortedCx = [...toks.map((t) => t.cx)].sort((a, b) => a - b)
-  const xMinAll = sortedCx[0]
-  const xMaxAll = sortedCx[sortedCx.length - 1]
-  const xRange = xMaxAll - xMinAll
-  let bestGap = 0
-  let bestGapMid = 0
-  for (let i = 1; i < sortedCx.length; i++) {
-    const g = sortedCx[i] - sortedCx[i - 1]
-    if (g > bestGap) {
-      bestGap = g
-      bestGapMid = (sortedCx[i] + sortedCx[i - 1]) / 2
-    }
-  }
-  const gapRatio = xRange > 0 ? bestGap / xRange : 0
-  const gapPos = xRange > 0 ? (bestGapMid - xMinAll) / xRange : 0
-  const isTwoColumn = gapRatio >= 0.12 && gapPos >= 0.3 && gapPos <= 0.7
-
-  // ── 라인 그룹핑 (컬럼별) ─────────────────────────────────────────────
-  // 같은 y ± (line height * 0.6) 안이면 같은 라인.
-  const medianH = (() => {
-    const hs = [...toks.map((t) => t.h)].sort((a, b) => a - b)
-    return hs[Math.floor(hs.length / 2)] || 20
-  })()
-  const yTol = Math.max(medianH * 0.6, 8)
-
-  function groupIntoLines(list: Tok[]): string[] {
-    if (list.length === 0) return []
-    // cy로 정렬
-    const sorted = [...list].sort((a, b) => a.cy - b.cy)
-    const lineBuckets: Tok[][] = []
-    for (const t of sorted) {
-      const last = lineBuckets[lineBuckets.length - 1]
-      if (last && Math.abs(t.cy - last[last.length - 1].cy) <= yTol) {
-        last.push(t)
-      } else {
-        lineBuckets.push([t])
-      }
-    }
-    // 각 라인 내부 x순 정렬 후 텍스트 조립
-    return lineBuckets.map((bucket) => bucket.sort((a, b) => a.cx - b.cx).map((t) => t.text).join(' '))
-  }
-
-  if (!isTwoColumn) {
-    const lines = groupIntoLines(toks)
-    console.log(`[CLOVA] 1단 레이아웃 감지 (gap=${gapRatio.toFixed(2)}, pos=${gapPos.toFixed(2)}), 라인 ${lines.length}개`)
-    return lines.join('\n')
-  }
-
-  // 2단: gap 중점 기준으로 좌/우 분할
-  const splitX = bestGapMid
-  const leftToks = toks.filter((t) => t.cx < splitX)
-  const rightToks = toks.filter((t) => t.cx >= splitX)
-  const leftLines = groupIntoLines(leftToks)
-  const rightLines = groupIntoLines(rightToks)
-  console.log(`[CLOVA] 2단 레이아웃 감지 (gap=${gapRatio.toFixed(2)}, pos=${gapPos.toFixed(2)}), 좌 ${leftLines.length}줄 / 우 ${rightLines.length}줄`)
-
-  return [
-    '━━━ LEFT COLUMN ━━━',
-    ...leftLines,
-    '━━━ RIGHT COLUMN ━━━',
-    ...rightLines,
-  ].join('\n')
+export type GradeVocabPhotoOptions = {
+  /** 번호 → 정답 (뜻쓰기·예문뜻: 한글 뜻 / 예문빈칸: 영어 표면형) */
+  correctAnswers?: Map<number, string | null>
+  customRules?: string
+  /** 예문 파트 문항 (인쇄 원문). OCR 파서에 인쇄 텍스트를 알려주는 용도 — 정답은 포함하지 않는다 */
+  exampleItems?: VocabOcrExampleItem[]
 }
 
 export async function gradeVocabPhoto(
   fileData: string,
   mimeType: string,
-  correctAnswers?: Map<number, string | null>,
-  customRules?: string,
+  options: GradeVocabPhotoOptions = {},
 ): Promise<VocabGradingResult[]> {
+  const { correctAnswers, customRules, exampleItems } = options
   const isImage = mimeType.startsWith('image/')
   const isPdf = mimeType === 'application/pdf'
   if (!isImage && !isPdf) throw new Error('지원하지 않는 파일 형식 (이미지 또는 PDF만 가능)')
@@ -521,15 +428,17 @@ export async function gradeVocabPhoto(
 
   // ── Step 1: OCR ───────────────────────────────────────────────────────
   // CLOVA 설정 있으면 CLOVA, 없으면 Claude Vision fallback
+  const t0 = Date.now()
   const clovaText = await callClovaOCR(fileData, mimeType)
+  const tOcr = Date.now()
 
   type OcrItem = { number: number; english_word: string; student_answer: string | null }
   let ocrItems: OcrItem[]
 
   if (clovaText !== null) {
     // CLOVA OCR 성공 → Claude Vision으로 구조 파싱 + 동그라미 감지
-    console.log('[gradeVocabPhoto] CLOVA OCR 사용, 텍스트 길이:', clovaText.length)
-    const parsePrompt = buildVocabOcrClovaPrompt(clovaText)
+    console.log(`[gradeVocabPhoto] CLOVA OCR 사용, 텍스트 길이: ${clovaText.length} (${tOcr - t0}ms)`)
+    const parsePrompt = buildVocabOcrClovaPrompt(clovaText, exampleItems)
 
     const parseRes = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
@@ -537,7 +446,7 @@ export async function gradeVocabPhoto(
       messages: [{ role: 'user', content: [fileContent, { type: 'text', text: parsePrompt }] }],
     })
     const parseRaw = parseRes.content[0].type === 'text' ? parseRes.content[0].text : ''
-    console.log('[gradeVocabPhoto] 구조 파싱 raw length:', parseRaw.length)
+    console.log(`[gradeVocabPhoto] 구조 파싱 raw length: ${parseRaw.length} (${Date.now() - tOcr}ms, in=${parseRes.usage.input_tokens} out=${parseRes.usage.output_tokens})`)
     try {
       ocrItems = JSON.parse(jsonrepair(parseRaw.replace(/```json\n?|\n?```/g, '').trim()))
     } catch (e) {
@@ -547,7 +456,7 @@ export async function gradeVocabPhoto(
   } else {
     // CLOVA 미설정 → Claude Vision으로 직접 OCR
     console.log('[gradeVocabPhoto] Claude Vision OCR fallback')
-    const ocrPrompt = VOCAB_OCR_VISION_PROMPT
+    const ocrPrompt = buildVocabOcrVisionPrompt(exampleItems)
 
     const ocrRes = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
@@ -565,19 +474,48 @@ export async function gradeVocabPhoto(
   }
 
   // ── Step 2: 채점 ─────────────────────────────────────────────────────
-  const itemsWithAnswer = correctAnswers
+  const itemsWithAnswer: VocabItem[] = correctAnswers
     ? ocrItems.map((item) => ({ ...item, correct_answer: correctAnswers.get(item.number) ?? null }))
     : ocrItems
-  return await gradeVocabItems(itemsWithAnswer, customRules)
+
+  // 예문빈칸(영→영)·예문선택(동그라미)은 영어 비교라 LLM 없이 코드로 결정적으로 채점한다.
+  // 나머지(뜻쓰기·예문뜻쓰기)는 한글 뜻 판정이라 기존 LLM 채점 규칙을 그대로 쓴다.
+  const kindByNumber = new Map((exampleItems ?? []).map((item) => [item.number, item.kind]))
+  const codeGradedItems = itemsWithAnswer.filter((item) => {
+    const kind = kindByNumber.get(item.number)
+    return kind === 'blank' || kind === 'choice'
+  })
+  const meaningItems = itemsWithAnswer.filter((item) => !codeGradedItems.includes(item))
+
+  const codeResults: VocabGradingResult[] = codeGradedItems.map((item) => ({
+    number: item.number,
+    english_word: item.english_word,
+    student_answer: item.student_answer,
+    is_correct: kindByNumber.get(item.number) === 'choice'
+      ? gradeChoiceAnswer(item.student_answer, item.correct_answer ?? null)
+      : gradeBlankAnswer(item.student_answer, item.correct_answer ?? null),
+  }))
+  const tGrade = Date.now()
+  const meaningResults = meaningItems.length > 0 ? await gradeVocabItems(meaningItems, customRules) : []
+  console.log(`[gradeVocabPhoto] 채점 완료: LLM ${meaningItems.length}개 + 코드 ${codeGradedItems.length}개 (${Date.now() - tGrade}ms) · 총 ${Date.now() - t0}ms`)
+  return [...meaningResults, ...codeResults].sort((a, b) => a.number - b.number)
 }
 
 type VocabItem = { number: number; english_word: string; student_answer: string | null; correct_answer?: string | null }
 
-export async function gradeVocabItems(items: VocabItem[], customRules?: string): Promise<{ number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]> {
+/**
+ * 단어 뜻 채점 모델. 기본 Haiku (2026-08-18 전환).
+ * 42개 경계 사례(다의어·유사어·품사·오타·-ing/-ed) 3회 비교: Sonnet 40/42 · Haiku 39/42, 시간 11.3s → 4.9s.
+ * 유일한 차이는 오타 관용(가셜→가설)이 Haiku 가 약간 박한 것. 문제 생기면 환경변수로 즉시 롤백:
+ *   VOCAB_GRADING_MODEL=claude-sonnet-4-6
+ */
+export const VOCAB_GRADING_MODEL = process.env.VOCAB_GRADING_MODEL || 'claude-haiku-4-5-20251001'
+
+export async function gradeVocabItems(items: VocabItem[], customRules?: string, model: string = VOCAB_GRADING_MODEL): Promise<{ number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]> {
   const gradingPrompt = buildVocabGradingPrompt(items, customRules)
 
   const gradingRes = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+    model,
     max_tokens: 4096,
     messages: [{ role: 'user', content: gradingPrompt }],
   })

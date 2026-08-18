@@ -1,7 +1,11 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok, SupabaseServerClient } from '@/lib/api'
 import { gradeVocabItems } from '@/lib/anthropic'
+import { gradeBlankAnswer, gradeChoiceAnswer } from '@/lib/vocab-blank-grading'
+import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
 
-export const maxDuration = 60
+const CODE_GRADED_SOURCES = ['example', 'example_choice']
+
+export const maxDuration = 120
 
 type AnswerOwnerRow = {
   id: string
@@ -84,18 +88,70 @@ export async function POST(request: Request) {
   const actualWeekScoreId = owned.rows[0]?.week_score_id
 
   // correct_answer 조회 (student_vocab_answer → vocab_word)
+  // 예문빈칸(test_source='example')은 정답이 문장 속 영어 표면형이라 활성 시험지의 prompt_text 로 역산한다.
   const { data: answerDetails } = await supabase
     .from('student_vocab_answer')
-    .select('id, vocab_word(correct_answer), vocab_word_variant(meaning)')
+    .select('id, test_source, test_number, vocab_word_id, vocab_word(correct_answer, english_word, example_sentence), vocab_word_variant(meaning)')
     .in('id', items.map((i) => i.id))
 
+  const detailRows = (answerDetails ?? []) as unknown as Array<{
+    id: string
+    test_source: string | null
+    test_number: number | null
+    vocab_word_id: string
+    vocab_word: { correct_answer: string | null; english_word: string; example_sentence: string | null } | null
+    vocab_word_variant: { meaning: string | null } | null
+  }>
+
+  const blankRows = detailRows.filter((a) => CODE_GRADED_SOURCES.includes(a.test_source ?? ''))
+  const blankPromptByWordId = new Map<string, string | null>()
+  if (blankRows.length > 0 && (actualWeekScoreId || weekScoreId)) {
+    const { data: scoreRow } = await supabase
+      .from('week_score')
+      .select('week_id')
+      .eq('id', actualWeekScoreId ?? weekScoreId)
+      .maybeSingle()
+    if (scoreRow?.week_id) {
+      const { data: activeTest } = await supabase
+        .from('vocab_test')
+        .select('id')
+        .eq('week_id', scoreRow.week_id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (activeTest) {
+        const { data: testItems } = await supabase
+          .from('vocab_test_item')
+          .select('vocab_word_id, prompt_text')
+          .eq('vocab_test_id', activeTest.id)
+          .in('prompt_source', CODE_GRADED_SOURCES)
+          .in('vocab_word_id', blankRows.map((a) => a.vocab_word_id))
+        for (const ti of testItems ?? []) blankPromptByWordId.set(ti.vocab_word_id, ti.prompt_text)
+      }
+    }
+  }
+
   const correctAnswerById = new Map(
-    (answerDetails ?? []).map((a) => {
-      const vw = a.vocab_word as unknown as { correct_answer: string | null } | null
-      const variant = a.vocab_word_variant as unknown as { meaning: string | null } | null
-      return [a.id, variant?.meaning ?? vw?.correct_answer ?? null]
+    detailRows.map((a) => {
+      if (a.test_source === 'example') {
+        const answer = extractBlankAnswer(a.vocab_word?.example_sentence, blankPromptByWordId.get(a.vocab_word_id))
+          ?? a.vocab_word?.english_word
+          ?? null
+        return [a.id, answer] as const
+      }
+      if (a.test_source === 'example_choice') {
+        const promptText = blankPromptByWordId.get(a.vocab_word_id)
+        const index = extractChoiceAnswerIndex(a.vocab_word?.example_sentence, promptText)
+        const options = parseChoiceOptions(promptText)
+        const answer = (index !== null && options ? options[index] : null) ?? a.vocab_word?.english_word ?? null
+        return [a.id, answer] as const
+      }
+      return [a.id, a.vocab_word_variant?.meaning ?? a.vocab_word?.correct_answer ?? null] as const
     })
   )
+  const blankIds = new Set(blankRows.map((a) => a.id))
+  const choiceIds = new Set(blankRows.filter((a) => a.test_source === 'example_choice').map((a) => a.id))
 
   const itemsWithAnswer = items.map((i) => ({
     ...i,
@@ -105,7 +161,20 @@ export async function POST(request: Request) {
   const { data: promptRow } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
   const customRules = promptRow?.content ?? undefined
 
-  const graded = await gradeVocabItems(itemsWithAnswer, customRules)
+  // 예문빈칸은 코드 비교, 나머지는 LLM 뜻 채점
+  const blankItems = itemsWithAnswer.filter((i) => blankIds.has(i.id))
+  const meaningItems = itemsWithAnswer.filter((i) => !blankIds.has(i.id))
+  const graded = [
+    ...(meaningItems.length > 0 ? await gradeVocabItems(meaningItems, customRules) : []),
+    ...blankItems.map((i) => ({
+      number: i.number,
+      english_word: i.english_word,
+      student_answer: i.student_answer,
+      is_correct: choiceIds.has(i.id)
+        ? gradeChoiceAnswer(i.student_answer, i.correct_answer)
+        : gradeBlankAnswer(i.student_answer, i.correct_answer),
+    })),
+  ]
 
   // DB 업데이트 (재채점 완료 → teacher_locked: false 해제)
   await Promise.all(graded.map((g) => {
