@@ -45,6 +45,19 @@ export function ClassFormDialog({ open, onClose, editTarget }: Props) {
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>()
 
+  // 다이얼로그가 열리거나 대상이 바뀌면 로컬 state 를 초기화한다.
+  // 렌더 중 조정(React 공식 패턴) — effect 로 하면 이전 수업의 요일/유형이 한 프레임 보인다.
+  const targetKey = `${open}:${editTarget?.id ?? 'new'}`
+  const [syncedKey, setSyncedKey] = useState(targetKey)
+  if (syncedKey !== targetKey) {
+    setSyncedKey(targetKey)
+    if (open) {
+      setScheduleDays(editTarget?.schedule_days ?? [])
+      setClassType(editTarget?.class_type ?? 'regular')
+    }
+  }
+
+  // react-hook-form 의 reset 은 외부 스토어를 건드리므로 렌더 중이 아니라 커밋 후에 호출한다.
   useEffect(() => {
     if (open) {
       reset(editTarget
@@ -59,8 +72,6 @@ export function ClassFormDialog({ open, onClose, editTarget }: Props) {
           }
         : { name: '', description: '', academic_year: new Date().getFullYear(), school_name: '', grade_level: null, start_date: '', end_date: '' }
       )
-      setScheduleDays(editTarget?.schedule_days ?? [])
-      setClassType(editTarget?.class_type ?? 'regular')
     }
   }, [open, editTarget, reset])
 

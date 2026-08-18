@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { SourceImagePreview } from '@/components/grade/source-image-preview'
@@ -39,10 +39,10 @@ export const OXInput = memo(function OXInput({
   const isO = upper === 'O'
   const isX = upper.startsWith('X')
   const currentCorr = isX ? textValue.trim().slice(1).trim() : ''
+  // 수정어를 기억해 둔다 (X → O → X 로 되돌아올 때 복원용).
+  // 렌더 중 조정 — effect 로 하면 한 박자 늦게 반영된다.
   const [rememberedCorr, setRememberedCorr] = useState(currentCorr)
-  useEffect(() => {
-    if (currentCorr) setRememberedCorr(currentCorr)
-  }, [currentCorr])
+  if (currentCorr && currentCorr !== rememberedCorr) setRememberedCorr(currentCorr)
 
   function selectO() { onChange('O') }
   function selectX() { onChange(rememberedCorr ? `X ${rememberedCorr}` : 'X') }
@@ -227,13 +227,13 @@ export const QuestionRow = memo(function QuestionRow({
   // 서술형 로컬 state — 타이핑은 로컬에서만, 부모 sync는 onBlur에만
   const externalText = answer?.student_answer_text ?? ''
   const [localText, setLocalText] = useState(externalText)
-  const prevExternalRef = useRef(externalText)
-  useEffect(() => {
-    if (prevExternalRef.current !== externalText) {
-      setLocalText(externalText)
-      prevExternalRef.current = externalText
-    }
-  }, [externalText])
+  // 부모 값이 실제로 바뀐 경우에만 로컬 입력을 덮어쓴다.
+  // (타이핑 중에는 externalText 가 그대로라 덮어쓰지 않는다.)
+  const [syncedExternal, setSyncedExternal] = useState(externalText)
+  if (syncedExternal !== externalText) {
+    setSyncedExternal(externalText)
+    setLocalText(externalText)
+  }
 
   return (
     <div className={cn('px-4 py-3', isSubjective || hasSourceImage ? 'flex flex-col gap-2' : 'flex items-center gap-3')}>

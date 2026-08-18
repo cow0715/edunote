@@ -27,10 +27,19 @@ export function SourceImagePreview({
     return typeof data.url === 'string' ? data.url : null
   }
 
-  useEffect(() => {
-    let active = true
+  // 대상 이미지가 바뀌면 이전 결과를 즉시 지운다.
+  // effect 안에서 setState 하면 렌더가 한 번 더 돌아 이전 이미지가 잠깐 남는다 —
+  // 렌더 중 조정(React 공식 패턴)이 더 정확하고 빠르다.
+  const requestKey = `${question.source_image_path ?? ''}|${signedUrlEndpoint}`
+  const [loadedKey, setLoadedKey] = useState(requestKey)
+  if (loadedKey !== requestKey) {
+    setLoadedKey(requestKey)
     setUrl(null)
     setFailed(false)
+  }
+
+  useEffect(() => {
+    let active = true
 
     if (!question.source_image_path) return
 

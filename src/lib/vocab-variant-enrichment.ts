@@ -1,10 +1,10 @@
 import { generateVariantMeanings, type VocabVariantMeaningCandidate } from '@/lib/vocab-variants'
+import type { SupabaseServerClient } from '@/lib/api'
 
 const DEFAULT_LIMIT = 50
 
-type SupabaseClientLike = {
-  from: (table: string) => any
-}
+// 호출부는 전부 getAuth() 가 준 서버 클라이언트를 넘긴다 (vocab-tests, enrich-variants 라우트).
+type SupabaseClientLike = SupabaseServerClient
 
 type WordRow = {
   id: string

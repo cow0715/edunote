@@ -250,6 +250,10 @@ function MarkdownField({
   minRows?: number
 }) {
   const editor = useEditor({
+    // Next.js(SSR) 환경에서는 반드시 false 여야 한다.
+    // 설정하지 않으면 Tiptap 이 "SSR has been detected" 예외를 던져
+    // 문항 수정 다이얼로그를 여는 순간 페이지 전체가 크래시한다.
+    immediatelyRender: false,
     extensions: [
       StarterKit.configure({ heading: false, blockquote: false, code: false, codeBlock: false, horizontalRule: false }),
       Underline,
@@ -573,9 +577,13 @@ function VocabCollections() {
     enabled: !!selectedId,
   })
 
-  useEffect(() => {
+  // 생성 조건이 바뀌면 이전 "중복 단어장" 안내를 지운다 (렌더 중 조정).
+  const filterKey = `${yearFrom}|${yearTo}|${months.join(',')}`
+  const [syncedFilterKey, setSyncedFilterKey] = useState(filterKey)
+  if (syncedFilterKey !== filterKey) {
+    setSyncedFilterKey(filterKey)
     setDuplicateCollection(null)
-  }, [yearFrom, yearTo, months])
+  }
 
   const generateMutation = useMutation({
     mutationFn: async ({ force = false }: { force?: boolean } = {}) => {
@@ -661,10 +669,17 @@ function VocabCollections() {
       .sort((a, b) => b.count - a.count || a.topic.localeCompare(b.topic))
   }, [selectedCollection])
 
+  // 고른 주제가 현재 목록에 없으면 'all' 로 취급한다.
+  // state 를 되돌리는 대신 파생값을 쓰면 애초에 잘못된 state 가 생기지 않는다.
+  const effectiveTopicFilter =
+    topicFilter !== 'all' && !topicOptions.some((option) => option.topic === topicFilter)
+      ? 'all'
+      : topicFilter
+
   const displayedItems = useMemo(() => {
     const minimum = Math.max(1, Number(minFrequency) || 1)
     return [...(selectedCollection?.items ?? [])]
-      .filter((item) => topicFilter === 'all' || (item.topic || '기타') === topicFilter)
+      .filter((item) => effectiveTopicFilter === 'all' || (item.topic || '기타') === effectiveTopicFilter)
       .filter((item) => item.frequency >= minimum)
       .sort((a, b) => {
         for (const rule of VOCAB_SORT_COLUMN_ORDER) {
@@ -673,7 +688,7 @@ function VocabCollections() {
         }
         return a.word.localeCompare(b.word)
       })
-  }, [minFrequency, selectedCollection, sortDirections, topicFilter])
+  }, [minFrequency, selectedCollection, sortDirections, effectiveTopicFilter])
 
   const toggleSortDirection = (key: VocabSortKey) =>
     setSortDirections((current) => ({
@@ -686,11 +701,6 @@ function VocabCollections() {
       ? <ChevronUp className="h-3.5 w-3.5" />
       : <ChevronDown className="h-3.5 w-3.5" />
 
-  useEffect(() => {
-    if (topicFilter !== 'all' && !topicOptions.some((option) => option.topic === topicFilter)) {
-      setTopicFilter('all')
-    }
-  }, [topicFilter, topicOptions])
 
   return (
     <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
@@ -850,7 +860,7 @@ function VocabCollections() {
                   <div className="grid flex-1 gap-2 sm:max-w-md sm:grid-cols-[1fr_120px]">
                     <div>
                       <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">주제</p>
-                      <Select value={topicFilter} onValueChange={setTopicFilter}>
+                      <Select value={effectiveTopicFilter} onValueChange={setTopicFilter}>
                         <SelectTrigger className="h-8 bg-white text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">전체 주제</SelectItem>
@@ -2191,9 +2201,11 @@ function QuestionEditDialog({
 
   const [form, setForm] = useState(EMPTY_FORM)
 
-  const prevTarget = useRef<typeof target>(null)
-  if (target !== prevTarget.current) {
-    prevTarget.current = target
+  // 이미 렌더 중 조정 패턴이지만, 직전 값을 ref 로 들고 있으면 렌더 중 ref 접근이 된다.
+  // 같은 역할을 state 로 하면 React 가 지원하는 형태가 된다.
+  const [syncedTarget, setSyncedTarget] = useState<typeof target>(null)
+  if (target !== syncedTarget) {
+    setSyncedTarget(target)
     if (target && target !== 'new') {
       const q = target
       setForm({
