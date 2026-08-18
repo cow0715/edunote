@@ -84,8 +84,11 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
       setPhase('pick')
     }
   }
-  // 언마운트 시 남은 URL 해제
-  useEffect(() => () => { items.forEach((it) => URL.revokeObjectURL(it.previewUrl)) }, [items])
+  // 언마운트 시 남은 URL 해제. deps 를 [items] 로 두면 items 가 바뀔 때마다(채점 진행 patch 등)
+  // 이전 썸네일 URL 이 해제돼 이미지가 깨진다 → 최신 items 를 ref 로 들고 언마운트 때만 해제
+  const itemsRef = useRef<Item[]>([])
+  useEffect(() => { itemsRef.current = items }, [items])
+  useEffect(() => () => { itemsRef.current.forEach((it) => URL.revokeObjectURL(it.previewUrl)) }, [])
 
   const presentStudents = useMemo(() => students.filter((s) => s.present), [students])
 
