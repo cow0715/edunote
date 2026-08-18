@@ -136,6 +136,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           test_number: number | null
           test_word: string | null
           test_source: string | null
+          test_prompt?: string | null
+          test_answer?: string | null
           student_answer: string | null
           is_correct: boolean
           teacher_locked: boolean
@@ -150,6 +152,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           english_word: a.vocab_word!.english_word,
           test_word: a.test_word ?? a.vocab_word!.english_word,
           test_source: a.test_source ?? null,
+          test_prompt: a.test_prompt ?? null,
+          test_answer: a.test_answer ?? null,
           student_answer: a.student_answer,
           is_correct: a.is_correct,
           teacher_locked: a.teacher_locked ?? false,

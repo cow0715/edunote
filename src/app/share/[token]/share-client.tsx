@@ -18,6 +18,8 @@ import { Card, StatCard, AttendanceCalendar, ThemeToggle } from './share-compone
 import { PatternCard } from './share-pattern'
 import { FormattedQuestionText } from '@/components/grade/formatted-question-text'
 import { SourceImagePreview } from '@/components/grade/source-image-preview'
+import { ExampleSentenceInline, ANSWER_RIGHT_CLASS, ANSWER_WRONG_CLASS, isExampleSourceValue } from '@/components/grade/vocab-example-inline'
+import { parseChoiceOptions } from '@/lib/vocab-example-blank'
 import { buildQuestionDisplayText } from '@/lib/question-structure'
 
 import { TrendItem } from '@/components/share/score-trend-chart'
@@ -1678,40 +1680,90 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                       .map((va) => {
                                         const vw = va.vocab_word
                                         if (!vw) return null
+                                        const exampleSource = isExampleSourceValue(va.test_source) ? va.test_source : null
+                                        const isEnglishAnswer = va.test_source === 'example' || va.test_source === 'example_choice'
+                                        // 카드 뼈대는 유형 무관하게 통일: [문제 — 시험지 그대로] → 내 답 · 정답
+                                        // 빈칸/선택은 문장 속 문제 자리에 내 답을 넣어 "시험지에 쓴 그대로" 보여주고, 정답만 따로.
+                                        const correctText = isEnglishAnswer ? va.example_answer : vw.correct_answer
+                                        const studentInSentence = isEnglishAnswer && !!va.student_answer
                                         return (
                                           <div key={va.id} className={`px-5 py-3 ${va.retake_is_correct === true ? 'opacity-60' : ''}`}>
-                                            <div className="flex items-center justify-between gap-2">
-                                              <div className="flex items-center gap-2 flex-wrap min-w-0">
-                                                <span className="text-sm font-bold text-gray-900 dark:text-white">{va.test_word ?? vw.english_word}</span>
-                                                {va.test_word && va.test_word !== vw.english_word && (
-                                                  <span className="shrink-0 text-[10px] font-medium text-gray-400 dark:text-gray-500">
-                                                    원본 {vw.english_word}
-                                                  </span>
+                                            {/* 1. 문제 (시험지 그대로) */}
+                                            <div className="flex items-start justify-between gap-2">
+                                              <div className="min-w-0 flex-1">
+                                                {exampleSource && va.test_prompt ? (
+                                                  <>
+                                                    <ExampleSentenceInline
+                                                      source={exampleSource}
+                                                      promptText={va.test_prompt}
+                                                      answer={correctText}
+                                                      studentAnswer={va.student_answer}
+                                                      isCorrect={false}
+                                                      fill="student"
+                                                    />
+                                                    {/* 예문 해석 — 문장 바로 아래 작게 */}
+                                                    {vw.example_translation && (
+                                                      <p className="mt-0.5 text-[11px] leading-4 text-gray-400 dark:text-gray-500">{vw.example_translation}</p>
+                                                    )}
+                                                  </>
+                                                ) : (
+                                                  <span className="text-sm font-bold text-gray-900 dark:text-white">{va.test_word ?? vw.english_word}</span>
                                                 )}
+                                                {va.test_word && va.test_word !== vw.english_word && !exampleSource && (
+                                                  <span className="ml-2 text-[10px] font-medium text-gray-400 dark:text-gray-500">원본 {vw.english_word}</span>
+                                                )}
+                                              </div>
+                                              <div className="flex shrink-0 items-center gap-1.5">
                                                 {va.retake_is_correct === true && (
-                                                  <span className="shrink-0 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded-full">
-                                                    재시험 ✓
-                                                  </span>
+                                                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded-full">재시험 ✓</span>
                                                 )}
                                                 {va.retake_is_correct === false && (
-                                                  <span className="shrink-0 text-[10px] font-bold text-rose-500 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 px-1.5 py-0.5 rounded-full">
-                                                    재시험 ✗
-                                                  </span>
+                                                  <span className="text-[10px] font-bold text-rose-500 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 px-1.5 py-0.5 rounded-full">재시험 ✗</span>
                                                 )}
+                                                <span className="text-xs text-gray-400 dark:text-gray-500">#{va.test_number ?? vw.number}</span>
                                               </div>
-                                              <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">#{va.test_number ?? vw.number}</span>
                                             </div>
-                                            {vw.correct_answer && (
-                                              <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                                                <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500 mr-1">뜻</span>
-                                                {vw.correct_answer}
-                                              </div>
-                                            )}
-                                            <div className="mt-1.5 flex items-center flex-wrap gap-x-2 gap-y-1">
-                                              <span className="text-xs text-gray-400 dark:text-gray-500">내 답:</span>
-                                              <span className="text-sm text-rose-400 dark:text-rose-500 line-through">
-                                                {va.student_answer || '미작성'}
-                                              </span>
+                                            {/* 2. 내 답 · 정답 — 한 줄 */}
+                                            <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+                                              {!studentInSentence && (
+                                                <span>
+                                                  <span className="mr-1 text-[11px] text-gray-400 dark:text-gray-500">내 답</span>
+                                                  <span className={ANSWER_WRONG_CLASS}>{va.student_answer || '미작성'}</span>
+                                                </span>
+                                              )}
+                                              {exampleSource === 'example_choice' && va.test_prompt ? (
+                                                // 선택형: 두 후보를 뜻과 함께 나란히. 정답 쪽 초록, 학생이 고른 오답 빨강 취소선
+                                                (() => {
+                                                  const options = parseChoiceOptions(va.test_prompt)
+                                                  if (!options) return null
+                                                  const answerLower = (correctText ?? '').toLowerCase()
+                                                  const pickedLower = (va.student_answer ?? '').toLowerCase()
+                                                  return options.map((option, index) => {
+                                                    const isAnswer = option.toLowerCase() === answerLower
+                                                    const isPicked = !isAnswer && option.toLowerCase() === pickedLower
+                                                    return (
+                                                      <span key={index}>
+                                                        <span className={isAnswer ? ANSWER_RIGHT_CLASS : isPicked ? ANSWER_WRONG_CLASS : 'font-semibold text-gray-700 dark:text-gray-300'}>{option}</span>
+                                                        <span className="ml-1 text-gray-500 dark:text-gray-400">{va.choice_meanings?.[index] ?? ''}</span>
+                                                      </span>
+                                                    )
+                                                  })
+                                                })()
+                                              ) : (
+                                                <>
+                                                  <span>
+                                                    <span className="mr-1 text-[11px] text-gray-400 dark:text-gray-500">정답</span>
+                                                    <span className={ANSWER_RIGHT_CLASS}>{correctText || '-'}</span>
+                                                  </span>
+                                                  {/* 예문 유형은 단어의 뜻도 참고로 */}
+                                                  {exampleSource && (
+                                                    <span className="text-gray-500 dark:text-gray-400">
+                                                      <span className="mr-1 text-[11px] text-gray-400 dark:text-gray-500">{vw.english_word}</span>
+                                                      {vw.correct_answer}
+                                                    </span>
+                                                  )}
+                                                </>
+                                              )}
                                             </div>
                                             {(vw.synonyms?.length ?? 0) > 0 && (
                                               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1731,7 +1783,8 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                                 ))}
                                               </div>
                                             )}
-                                            {vw.example_sentence && (
+                                            {/* 예문 유형 카드는 같은 문장이 위에 이미 있으므로 하단 예문 박스 생략 */}
+                                            {vw.example_sentence && !exampleSource && (
                                               <div className="mt-2 rounded-lg bg-gray-100 dark:bg-white/[0.05] px-3 py-2 space-y-0.5">
                                                 <p className="text-xs text-gray-700 dark:text-gray-300 italic">{vw.example_sentence}</p>
                                                 {vw.example_translation && (

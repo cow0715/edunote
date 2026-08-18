@@ -1,22 +1,46 @@
 'use client'
 
-import { use, useCallback, useEffect, useRef, useState } from 'react'
+import { use, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Sparkles, Timer, XCircle } from 'lucide-react'
+import { ExampleSentenceInline, ANSWER_RIGHT_CLASS, ANSWER_WRONG_CLASS, type ExampleSource } from '@/components/grade/vocab-example-inline'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+// 재시험 문항 유형. 원 시험지 유형을 그대로 따른다.
+//   meaning: 단어(또는 괄호 문장) 보고 한글 뜻 입력
+//   blank:   빈칸 문장 보고 영어 단어 입력
+//   choice:  [ A / B ] 중 하나 탭
+type RetakeKind = 'meaning' | 'blank' | 'choice'
 
 type Word = {
   answer_id: string
   number: number
   english_word: string
   correct_answer: string | null
+  test_source?: string | null
+  kind?: RetakeKind
+  /** 예문 유형일 때 시험지에 나온 문장 */
+  prompt_text?: string | null
+  /** 선택형 후보 2개 */
+  choice_options?: [string, string] | null
+  /** 빈칸/선택의 정답 영어 */
+  example_answer?: string | null
   synonyms: string[] | null
   antonyms: string[] | null
   example_sentence: string | null
   example_translation: string | null
   retake_answer: string | null
   retake_is_correct: boolean | null
+}
+
+const KIND_LABEL: Record<RetakeKind, string> = { meaning: '뜻 쓰기', blank: '빈칸 채우기', choice: '알맞은 단어 고르기' }
+
+/** "I _____ you." 형태를 앞/뒤로 나눈다 (빈칸 카드 렌더용) */
+function splitBlank(text: string): [string, string] | null {
+  const m = /_{3,}/.exec(text)
+  if (!m) return null
+  return [text.slice(0, m.index), text.slice(m.index + m[0].length)]
 }
 
 type RetakeData = {
@@ -45,13 +69,38 @@ type Phase = 'loading' | 'playing' | 'grading' | 'revealing' | 'done' | 'error'
 
 const SECS_PER_WORD = 10
 
+// ── 테마 ──────────────────────────────────────────────────────────────────────
+// 이 페이지에는 테마 토글이 없다. 저장된 값(공유 페이지에서 고른 값)이나 OS 설정을 읽기만 한다.
+// localStorage 는 외부 스토어라 useSyncExternalStore 가 정석 — SSR 스냅샷도 안전하게 준다.
+
+function subscribeToTheme(onChange: () => void) {
+  const media = window.matchMedia('(prefers-color-scheme: dark)')
+  window.addEventListener('storage', onChange)
+  media.addEventListener('change', onChange)
+  return () => {
+    window.removeEventListener('storage', onChange)
+    media.removeEventListener('change', onChange)
+  }
+}
+
+function getIsDarkSnapshot() {
+  const saved = localStorage.getItem('share-theme')
+  if (saved) return saved === 'dark'
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+}
+
+// 서버에서는 항상 라이트로 그린다 (기존 useState(false) 초기값과 같다).
+function getIsDarkServerSnapshot() {
+  return false
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function RetakePage({ params }: { params: Promise<{ token: string; weekId: string }> }) {
   const { token, weekId } = use(params)
   const router = useRouter()
 
-  const [isDark, setIsDark] = useState(false)
+  const isDark = useSyncExternalStore(subscribeToTheme, getIsDarkSnapshot, getIsDarkServerSnapshot)
   const [data, setData] = useState<RetakeData | null>(null)
   const [phase, setPhase] = useState<Phase>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -107,12 +156,10 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
   // ── Effects ──────────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    const saved = localStorage.getItem('share-theme')
-    if (saved) setIsDark(saved === 'dark')
-    else setIsDark(window.matchMedia('(prefers-color-scheme: dark)').matches)
-  }, [])
-
+  // 의도적 예외: 마운트 시 데이터 로드. loadData 첫 줄의 setPhase('loading') 이 규칙에 걸린다.
+  // 초기 state 가 이미 'loading' 이라 지워도 되지만, 그러면 token/weekId 가 바뀌는 경우
+  // 로딩 화면 없이 이전 단어가 남는다. 학부모/학생이 보는 화면이라 동작을 그대로 둔다.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadData() }, [token, weekId])
 
   useEffect(() => {
@@ -129,6 +176,9 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
   const handleSubmit = useCallback(async () => {
     if (!data) return
     clearInterval(timerRef.current!)
+    // 자동 제출 트리거를 여기서 내린다. (예전에는 effect 안에서 내렸는데,
+    // 그러면 effect 본문에서 setState 하는 꼴이 된다. 시점은 동일하다.)
+    setTimeExpired(false)
     const payload = data.words.map(w => ({
       answer_id: w.answer_id,
       english_word: w.english_word,
@@ -154,11 +204,15 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
     }
   }, [data, answers, token, weekId])
 
+  // 의도적 예외: 시간이 다 되면 자동 제출. 플래그는 handleSubmit 첫 줄에서 내린다.
+  // 규칙을 피하려면 타이머를 latest-ref 패턴으로 재구성해야 하는데, 시험 시간 계산이
+  // 틀리면 학생 답안이 일찍 제출되거나 아예 제출되지 않는다. 위험 대비 이득이 없어 그대로 둔다.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!timeExpired) return
-    setTimeExpired(false)
     handleSubmit()
   }, [timeExpired, handleSubmit])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     if (phase === 'playing' && cardVisible) {
@@ -345,10 +399,50 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
                 <p className="text-[11px] font-bold text-gray-300 dark:text-gray-600 uppercase tracking-widest mb-4">
                   No. {currentWord?.number}
+                  {currentWord?.kind && currentWord.kind !== 'meaning' && (
+                    <span className="ml-2 normal-case tracking-normal text-indigo-400 dark:text-indigo-300">· {KIND_LABEL[currentWord.kind]}</span>
+                  )}
+                  {currentWord?.kind === 'meaning' && currentWord.prompt_text && (
+                    <span className="ml-2 normal-case tracking-normal text-indigo-400 dark:text-indigo-300">· 괄호 단어의 뜻</span>
+                  )}
                 </p>
-                <p className="text-3xl font-black text-gray-900 dark:text-white tracking-wide break-words leading-snug w-full">
-                  {currentWord?.english_word}
-                </p>
+                {currentWord?.kind === 'blank' && currentWord.prompt_text ? (
+                  // 빈칸: 문장 속 빈칸 자리에 학생이 입력 중인 답을 실시간 표시
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white break-words leading-relaxed w-full">
+                    {(() => {
+                      const parts = splitBlank(currentWord.prompt_text)
+                      const typed = answers[currentWord.answer_id]?.trim()
+                      if (!parts) return currentWord.prompt_text
+                      return (
+                        <>
+                          {parts[0]}
+                          <span className={`inline-block min-w-[72px] border-b-2 px-1 text-center ${typed ? 'border-indigo-400 text-indigo-600 dark:text-indigo-300' : 'border-gray-300 dark:border-gray-600'}`}>
+                            {typed || ' '}
+                          </span>
+                          {parts[1]}
+                        </>
+                      )
+                    })()}
+                  </p>
+                ) : currentWord?.kind === 'choice' && currentWord.prompt_text ? (
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white break-words leading-relaxed w-full">
+                    {currentWord.prompt_text.replace(/\[\s*[^\]]+\]/, '[ ? ]')}
+                  </p>
+                ) : currentWord?.prompt_text ? (
+                  // 예문 뜻쓰기: 괄호 문장을 보여주고 괄호 단어를 크게
+                  <>
+                    <p className="text-base font-medium text-gray-700 dark:text-gray-300 break-words leading-relaxed w-full mb-3">
+                      {currentWord.prompt_text}
+                    </p>
+                    <p className="text-2xl font-black text-gray-900 dark:text-white tracking-wide break-words leading-snug w-full">
+                      {currentWord.english_word}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-3xl font-black text-gray-900 dark:text-white tracking-wide break-words leading-snug w-full">
+                    {currentWord?.english_word}
+                  </p>
+                )}
 
                 {/* 다음/제출 아이콘 */}
                 <button
@@ -362,23 +456,47 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
               </div>
             </div>
 
-            {/* 입력 */}
+            {/* 입력 — 유형별 */}
             <div className={`w-full max-w-sm transition-all duration-150 delay-[60ms] ${
               cardVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
             }`}>
-              <input
-                ref={inputRef}
-                type="text"
-                inputMode="text"
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck={false}
-                placeholder="한글 뜻을 입력하세요"
-                value={answers[currentWord?.answer_id ?? ''] ?? ''}
-                onChange={e => setAnswers(p => ({ ...p, [currentWord.answer_id]: e.target.value }))}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); goNext() } }}
-                className="w-full rounded-2xl border-2 border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1E293B] px-5 py-4 text-xl text-gray-900 dark:text-white placeholder:text-gray-300 dark:placeholder:text-gray-600 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-all text-center font-semibold"
-              />
+              {currentWord?.kind === 'choice' && currentWord.choice_options ? (
+                // 선택형: 후보 2개 중 탭. 종이의 동그라미 대신 버튼이라 판독 문제가 없다
+                <div className="grid grid-cols-2 gap-3">
+                  {currentWord.choice_options.map((option) => {
+                    const selected = answers[currentWord.answer_id] === option
+                    return (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => setAnswers(p => ({ ...p, [currentWord.answer_id]: option }))}
+                        className={`rounded-2xl border-2 px-4 py-4 text-lg font-bold transition-all active:scale-[0.98] ${
+                          selected
+                            ? 'border-indigo-500 bg-indigo-500 text-white dark:border-indigo-400 dark:bg-indigo-500'
+                            : 'border-gray-200 bg-white text-gray-800 dark:border-white/[0.1] dark:bg-[#1E293B] dark:text-gray-100'
+                        }`}
+                      >
+                        {option}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : (
+                <input
+                  ref={inputRef}
+                  type="text"
+                  inputMode="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize={currentWord?.kind === 'blank' ? 'none' : undefined}
+                  spellCheck={false}
+                  placeholder={currentWord?.kind === 'blank' ? '영어 단어를 입력하세요' : '한글 뜻을 입력하세요'}
+                  value={answers[currentWord?.answer_id ?? ''] ?? ''}
+                  onChange={e => setAnswers(p => ({ ...p, [currentWord.answer_id]: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); goNext() } }}
+                  className="w-full rounded-2xl border-2 border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1E293B] px-5 py-4 text-xl text-gray-900 dark:text-white placeholder:text-gray-300 dark:placeholder:text-gray-600 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-all text-center font-semibold"
+                />
+              )}
             </div>
           </div>
 
@@ -455,7 +573,9 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
               {roundResults.slice(0, revealCount).map((r) => {
                 const word = data?.words.find(w => w.answer_id === r.answer_id)
                 const isExpanded = expandedId === r.answer_id
-                const hasDetail = !r.is_correct && (word?.synonyms?.length || word?.antonyms?.length || word?.example_sentence)
+                // 예문 유형은 문장이 카드 본문에 이미 있으므로 상세의 예문 박스는 유의어/반의어만
+                const showExampleDetail = !!word?.example_sentence && !word?.prompt_text
+                const hasDetail = !r.is_correct && (word?.synonyms?.length || word?.antonyms?.length || showExampleDetail)
 
                 return (
                   <div key={r.answer_id} className={`rounded-2xl overflow-hidden ring-1 bg-white dark:bg-[#1E293B] ${
@@ -476,13 +596,65 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                           : <XCircle className="h-5 w-5 text-rose-400" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white leading-tight">{r.english_word}</p>
-                        {!r.is_correct && word?.correct_answer && (
-                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 leading-tight">{word.correct_answer}</p>
+                        {/* 학부모 오답 카드와 같은 뼈대: [문제 그대로] → 내 답 · 정답 */}
+                        {word?.prompt_text && (word.kind === 'blank' || word.kind === 'choice') && word.test_source ? (
+                          <>
+                            {/* 빈칸/선택: 문장 속 문제 자리에 내 답을 채워서 (맞으면 초록, 틀리면 빨강 취소선) */}
+                            <ExampleSentenceInline
+                              source={word.test_source as ExampleSource}
+                              promptText={word.prompt_text}
+                              answer={word.example_answer}
+                              studentAnswer={r.retake_answer}
+                              isCorrect={r.is_correct}
+                              fill="student"
+                            />
+                            {word.example_translation && (
+                              <p className="mt-0.5 text-[11px] leading-4 text-gray-400 dark:text-gray-500">{word.example_translation}</p>
+                            )}
+                            {!r.is_correct && (
+                              <p className="mt-1 text-sm">
+                                {word.kind === 'choice' && word.choice_options ? (
+                                  word.choice_options.map((option, index) => {
+                                    const isAnswer = option.toLowerCase() === (word.example_answer ?? '').toLowerCase()
+                                    const isPicked = !isAnswer && option.toLowerCase() === (r.retake_answer ?? '').toLowerCase()
+                                    return (
+                                      <span key={index} className={index === 1 ? 'ml-3' : ''}>
+                                        <span className={isAnswer ? ANSWER_RIGHT_CLASS : isPicked ? ANSWER_WRONG_CLASS : 'font-semibold text-gray-700 dark:text-gray-300'}>{option}</span>
+                                      </span>
+                                    )
+                                  })
+                                ) : (
+                                  <><span className="mr-1 text-[11px] text-gray-400 dark:text-gray-500">정답</span><span className={ANSWER_RIGHT_CLASS}>{word.example_answer}</span></>
+                                )}
+                                <span className="ml-3 text-gray-500 dark:text-gray-400"><span className="mr-1 text-[11px] text-gray-400 dark:text-gray-500">{r.english_word}</span>{word.correct_answer}</span>
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {/* 뜻쓰기 / 예문뜻: 문제(문장 또는 단어) → 내 답 · 정답 */}
+                            {word?.prompt_text && word.test_source ? (
+                              <>
+                                <ExampleSentenceInline source={word.test_source as ExampleSource} promptText={word.prompt_text} />
+                                {word.example_translation && (
+                                  <p className="mt-0.5 text-[11px] leading-4 text-gray-400 dark:text-gray-500">{word.example_translation}</p>
+                                )}
+                              </>
+                            ) : (
+                              <p className="text-sm font-semibold text-gray-900 dark:text-white leading-tight">{r.english_word}</p>
+                            )}
+                            <p className="mt-1 text-sm">
+                              <span className="mr-1 text-[11px] text-gray-400 dark:text-gray-500">내 답</span>
+                              <span className={r.is_correct ? ANSWER_RIGHT_CLASS : ANSWER_WRONG_CLASS}>{r.retake_answer || '미작성'}</span>
+                              {!r.is_correct && word?.correct_answer && (
+                                <><span className="ml-3 mr-1 text-[11px] text-gray-400 dark:text-gray-500">정답</span><span className={ANSWER_RIGHT_CLASS}>{word.correct_answer}</span></>
+                              )}
+                              {word?.prompt_text && (
+                                <span className="ml-3 text-[11px] text-gray-400 dark:text-gray-500">{r.english_word}</span>
+                              )}
+                            </p>
+                          </>
                         )}
-                        <p className={`text-sm mt-0.5 ${r.is_correct ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
-                          {r.retake_answer || '(미작성)'}
-                        </p>
                       </div>
                       {hasDetail && (
                         <ChevronDown className={`h-4 w-4 text-gray-300 dark:text-gray-600 shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
@@ -514,7 +686,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                                 </div>
                               </div>
                             )}
-                            {word?.example_sentence && (
+                            {showExampleDetail && word?.example_sentence && (
                               <div>
                                 <p className="text-[10px] font-bold text-sky-400 uppercase tracking-widest mb-1.5">예문</p>
                                 <div className="space-y-1">

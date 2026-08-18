@@ -1,6 +1,7 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeSubjectiveAnswers, SubjectiveStudentAnswer } from '@/lib/anthropic'
 import { recalcReadingCorrect, gradeOX, gradeMultiSelect } from '@/lib/grade-utils'
+import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
 
 function one<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null
@@ -75,14 +76,32 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   const displayWeekScores = (weekScores ?? []).map((score) => ({
     ...score,
-    student_vocab_answer: (score.student_vocab_answer ?? []).map((answer: { vocab_word_id: string; test_number: number | null; test_word: string | null; test_source: string | null; vocab_word_variant?: { word: string; meaning: string | null; relation_type: string } | null }) => {
+    student_vocab_answer: (score.student_vocab_answer ?? []).map((answer: { vocab_word_id: string; test_number: number | null; test_word: string | null; test_source: string | null; vocab_word?: { english_word: string; correct_answer?: string | null; example_sentence?: string | null } | null; vocab_word_variant?: { word: string; meaning: string | null; relation_type: string } | null }) => {
       const testItem = vocabTestItemByWordId.get(answer.vocab_word_id)
       const variant = answer.vocab_word_variant ?? testItem?.vocab_word_variant ?? null
+      const testSource = variant?.relation_type ?? answer.test_source ?? testItem?.prompt_source ?? null
+      const isExample = testSource === 'example' || testSource === 'example_meaning' || testSource === 'example_choice'
+      // 예문 유형 정답: 뜻쓰기는 한글 뜻, 빈칸/선택은 원문·시험지 문장으로 역산한 영어
+      let testAnswer: string | null = null
+      if (testSource === 'example_meaning') {
+        testAnswer = answer.vocab_word?.correct_answer ?? null
+      } else if (testSource === 'example') {
+        testAnswer = extractBlankAnswer(answer.vocab_word?.example_sentence, testItem?.prompt_text) ?? answer.vocab_word?.english_word ?? null
+      } else if (testSource === 'example_choice') {
+        const index = extractChoiceAnswerIndex(answer.vocab_word?.example_sentence, testItem?.prompt_text)
+        const options = parseChoiceOptions(testItem?.prompt_text)
+        testAnswer = (index !== null && options ? options[index] : null) ?? answer.vocab_word?.english_word ?? null
+      }
       return {
         ...answer,
         test_number: answer.test_number ?? testItem?.test_number ?? null,
-        test_word: variant?.word ?? answer.test_word ?? testItem?.prompt_text ?? null,
-        test_source: variant?.relation_type ?? answer.test_source ?? testItem?.prompt_source ?? null,
+        // 예문 유형은 test_word 에 원본 단어, test_prompt 에 인쇄된 문장을 따로 내린다
+        test_word: isExample
+          ? (answer.test_word ?? answer.vocab_word?.english_word ?? null)
+          : (variant?.word ?? answer.test_word ?? testItem?.prompt_text ?? null),
+        test_source: testSource,
+        test_prompt: isExample ? (testItem?.prompt_text ?? null) : null,
+        test_answer: testAnswer,
       }
     }),
   }))
