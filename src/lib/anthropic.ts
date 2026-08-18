@@ -530,6 +530,88 @@ export async function gradeVocabItems(items: VocabItem[], customRules?: string, 
   }
 }
 
+// ── 단어 시험지 이름란 판독 (일괄 채점 매칭용) ─────────────────────────────
+
+export type VocabSheetNameResult = {
+  /** 후보 명단 중 매칭된 이름. 확신 없으면 null */
+  name: string | null
+  /** 이미지에서 읽은 그대로 (매칭 실패 시 강사가 참고) */
+  rawName: string | null
+  confidence: 'high' | 'low' | 'none'
+}
+
+/** 두 문자열이 한 글자 차이(치환/누락/추가) 이내인지 */
+function withinOneChar(a: string, b: string): boolean {
+  if (a === b) return true
+  if (Math.abs(a.length - b.length) > 1) return false
+  if (a.length === b.length) return [...a].filter((ch, i) => ch !== b[i]).length === 1
+  const [s, l] = a.length < b.length ? [a, b] : [b, a]
+  let i = 0
+  while (i < s.length && s[i] === l[i]) i++
+  return s.slice(i) === l.slice(i + 1)
+}
+
+/**
+ * 시험지 상단 "이름" 칸의 손글씨를 읽어 반 학생 명단 중 누구인지 고른다. Haiku Vision 한 번(1~2초).
+ *
+ * 명단은 **읽기 힌트로만** 준다 (한글 손글씨는 명단 없이 읽으면 오독이 잦음 — 김테스트→징혜스트).
+ * 대신 모델에게 (1) 보이는 그대로(rawName) 와 (2) 명단 매칭(name) 을 따로 보고하게 하고,
+ * 코드가 rawName↔name 이 한 글자 이내로 가까울 때만 인정한다. 멀면 "억지 매칭"으로 보고 버린다.
+ * (명단만 주고 고르게 했더니 명단에 없는 이름도 가장 비슷한 학생에 붙이는 걸 확인함.
+ *  잘못 매칭이 미매칭보다 훨씬 나쁘므로 확신 없으면 null — 강사가 확인 단계에서 직접 고른다.)
+ */
+export async function readVocabSheetName(fileData: string, mimeType: string, candidateNames: string[]): Promise<VocabSheetNameResult> {
+  const isImage = mimeType.startsWith('image/')
+  const fileContent = isImage
+    ? { type: 'image' as const, source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: fileData } }
+    : { type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: fileData } }
+
+  const prompt = `이 시험지 상단 "이름" 칸에 손으로 쓴 학생 이름을 읽으세요.
+
+1단계 — rawName: 보이는 글자를 **그대로** 옮기세요. 명단은 보지 말고 손글씨만 보고 읽으세요.
+2단계 — name: 아래 명단 중 rawName 과 같은 이름이 있으면 그 이름. 같은 이름이 없으면 null.
+        비슷하다고 억지로 고르지 마세요 — 없으면 null 이 정답입니다.
+
+명단: ${candidateNames.join(', ')}
+
+이름 칸이 비었거나 못 읽으면 둘 다 null.
+JSON 만 출력: {"rawName": "홍길동", "name": "홍길동"} / {"rawName": "홍길둥", "name": null} / {"rawName": null, "name": null}`
+
+  const res = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 120,
+    messages: [{ role: 'user', content: [fileContent, { type: 'text', text: prompt }] }],
+  })
+  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
+  let rawName: string | null = null
+  let modelName: string | null = null
+  try {
+    const parsed = JSON.parse(jsonrepair(raw.replace(/```json\n?|\n?```/g, '').trim())) as { rawName?: unknown; name?: unknown }
+    rawName = typeof parsed.rawName === 'string' && parsed.rawName.trim() ? parsed.rawName.trim() : null
+    modelName = typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim() : null
+  } catch {
+    return { name: null, rawName: null, confidence: 'none' }
+  }
+  if (!rawName) return { name: null, rawName: null, confidence: 'none' }
+
+  const norm = (s: string) => s.replace(/\s+/g, '')
+  const target = norm(rawName)
+
+  // 1) 코드 기준 정확 일치가 최우선
+  const exact = candidateNames.find((c) => norm(c) === target)
+  if (exact) return { name: exact, rawName, confidence: 'high' }
+
+  // 2) 모델이 고른 이름이 명단에 있고 rawName 과 한 글자 이내면 low 로 제안
+  if (modelName && candidateNames.includes(modelName) && withinOneChar(norm(modelName), target)) {
+    return { name: modelName, rawName, confidence: 'low' }
+  }
+
+  // 3) 코드 기준 한 글자 차이 후보가 정확히 하나면 low 로 제안 (둘 이상이면 판단 불가 → none)
+  const near = candidateNames.filter((c) => withinOneChar(norm(c), target))
+  if (near.length === 1) return { name: near[0], rawName, confidence: 'low' }
+  return { name: null, rawName, confidence: 'none' }
+}
+
 // ── 단어 PDF 파싱 ────────────────────────────────────────────────────────
 
 export type VocabWordEnrichment = {

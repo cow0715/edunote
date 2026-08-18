@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { CheckCircle2, ChevronLeft, ChevronRight, Images, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useGradeData, useSaveGrade, useSaveGradeDraft, useSaveWeekScore, GradeRow } from '@/hooks/use-grade'
@@ -10,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { VocabSheetContent, VocabAnswerRow } from './vocab-sheet-content'
 import { ExamSheetContent } from './exam-sheet-content'
 import { SubjectiveReviewPanel } from './subjective-review-panel'
+import { VocabBatchGradeDialog } from './vocab-batch-grade-dialog'
 
 // 빈 배열 상수 — 매 렌더마다 새 참조 생성 방지 (useEffect 의존성 안정화)
 const EMPTY_VOCAB: VocabAnswerRow[] = []
@@ -34,6 +36,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [sheetView, setSheetView] = useState<{ type: 'vocab' | 'exam'; studentIndex: number } | null>(null)
   const [showReviewPanel, setShowReviewPanel] = useState(false)
+  const [batchOpen, setBatchOpen] = useState(false)
+  const queryClient = useQueryClient()
 
   useEffect(() => {
     if (!data) return
@@ -262,6 +266,35 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
         <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
           진단평가 채점 칸은 설정 → 해설지 탭에서 PDF를 올리면 자동으로 생성됩니다.
         </p>
+      )}
+
+      {/* 단어 일괄 채점 */}
+      {showVocab && (
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => setBatchOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-1.5 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
+          >
+            <Images className="h-3.5 w-3.5" />
+            단어 시험지 일괄 채점
+          </button>
+          <VocabBatchGradeDialog
+            open={batchOpen}
+            onOpenChange={setBatchOpen}
+            weekId={weekId}
+            students={rows.map((r) => ({
+              student_id: r.student_id,
+              student_name: r.student_name,
+              present: r.present,
+              hasExisting: r.vocab_correct !== null,
+            }))}
+            onGraded={(studentId, vocabCorrect) => {
+              updateRow(studentId, 'vocab_correct', vocabCorrect)
+              queryClient.refetchQueries({ queryKey: ['grade', weekId] })
+            }}
+          />
+        </div>
       )}
 
       {/* 테이블 */}
