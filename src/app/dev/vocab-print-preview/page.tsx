@@ -5,8 +5,9 @@
 // 채점 정오표·학부모 오답 카드·재시험 카드는 해당 화면의 마크업을 샘플로 재현한다.
 
 import { useEffect, useState } from 'react'
-import { CheckCircle2, ChevronDown, XCircle } from 'lucide-react'
+import { CheckCircle2, ChevronDown, Images, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { VocabBatchGradeDialog } from '@/components/grade/vocab-batch-grade-dialog'
 import { VocabTestPrintSheet } from '@/components/grade/vocab-test-print-sheet'
 import { VocabGradingPrintSheet } from '@/components/grade/vocab-grading-print-sheet'
 import { VocabSourceRatioPanel } from '@/components/grade/vocab-source-ratio-panel'
@@ -23,7 +24,7 @@ const PRESETS = [
   { label: '40 (기존 레이아웃)', meaning: 40, exampleMeaning: 0, exampleBlank: 0, exampleChoice: 0 },
 ] as const
 
-type Tab = 'test' | 'filled' | 'grading' | 'sheet' | 'share' | 'retake' | 'retakeResult'
+type Tab = 'test' | 'filled' | 'grading' | 'sheet' | 'share' | 'retake' | 'retakeResult' | 'batch'
 const TABS: Array<{ key: Tab; label: string; desc: string }> = [
   { key: 'test', label: '시험지', desc: 'A(뜻쓰기 2단) + B/C/D 예문 파트. 예문 있으면 1페이지 압축' },
   { key: 'filled', label: '채워진 시험지', desc: '채점 테스트용 — 학생이 답을 쓴 상태 (손글씨풍). 이걸 캡처해 OCR 채점에 넣는다' },
@@ -32,6 +33,7 @@ const TABS: Array<{ key: Tab; label: string; desc: string }> = [
   { key: 'share', label: '학부모 오답 카드', desc: 'share 화면 — 문제 그대로 → 내 답 · 정답' },
   { key: 'retake', label: '재시험 카드', desc: '유형 그대로 — 예문뜻/빈칸 입력, 선택은 버튼 2개' },
   { key: 'retakeResult', label: '재시험 결과', desc: '제출 후 카드가 하나씩 뒤집히며 정오 표시. 오답은 펼쳐서 유의어·반의어' },
+  { key: 'batch', label: '일괄 채점', desc: '사진 여러 장 → 이름 자동 매칭 확인 → 병렬 채점. 실제 다이얼로그, API 는 가짜 응답' },
 ]
 
 /** 샘플 오답 생성: 유형별로 그럴듯한 틀린 답 */
@@ -354,6 +356,137 @@ function readInitialParams(): { tab: Tab; bare: boolean; presetIndex: number } {
   return { tab: valid && t ? t : 'test', bare: sp.get('bare') === '1', presetIndex }
 }
 
+// ── 일괄 채점 다이얼로그 (실제 컴포넌트, fetch 만 가짜) ──────────────────────
+const BATCH_SAMPLE_STUDENTS = [
+  { student_id: 's1', student_name: '김민준', present: true, hasExisting: false },
+  { student_id: 's2', student_name: '이서연', present: true, hasExisting: true },
+  { student_id: 's3', student_name: '박지호', present: true, hasExisting: false },
+  { student_id: 's4', student_name: '김테스트', present: true, hasExisting: false },
+  { student_id: 's5', student_name: '최수아', present: false, hasExisting: false },
+  { student_id: 's6', student_name: '정하은', present: true, hasExisting: false },
+]
+
+/**
+ * 갤러리 전용: /api/weeks/*\/vocab-photo-name 과 grade-vocab-photo 를 가로채 그럴듯한 응답을 준다.
+ * 파일명에 학생 이름이 있으면 그 학생(high), "low"가 있으면 low, "none"이면 미매칭. 채점은 1.5~3초 후 랜덤 점수, "fail" 이면 실패.
+ */
+function installBatchMockFetch() {
+  const real = window.fetch.bind(window)
+  // 갤러리에서는 덮어쓰기 confirm 을 자동 수락 (headless/자동화 캡처에서 모달이 렌더러를 막지 않도록)
+  const realConfirm = window.confirm
+  window.confirm = () => true
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  /** 샘플 파일 내용("sample:파일명")을 base64 에서 되살린다. 진짜 이미지면 빈 문자열 */
+  const hintOf = (b64: string | undefined) => {
+    try {
+      const text = decodeURIComponent(escape(atob((b64 ?? '').slice(0, 200))))
+      return text.startsWith('sample:') ? text : ''
+    } catch { return '' }
+  }
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (url.includes('/vocab-photo-name')) {
+      await sleep(600 + Math.random() * 900)
+      const body = JSON.parse(String(init?.body ?? '{}')) as { fileData?: string }
+      const hint = hintOf(body.fileData)
+      const found = BATCH_SAMPLE_STUDENTS.find((s) => hint.includes(s.student_name))
+      if (hint.includes('none') || !found) return new Response(JSON.stringify({ studentId: null, name: null, rawName: hint.includes('none') ? '징혜스트' : null, confidence: 'none' }))
+      const low = hint.includes('low')
+      return new Response(JSON.stringify({ studentId: found.student_id, name: found.student_name, rawName: low ? found.student_name.slice(0, -1) + '민' : found.student_name, confidence: low ? 'low' : 'high' }))
+    }
+    if (url.includes('/grade-vocab-photo')) {
+      await sleep(1500 + Math.random() * 1500)
+      const body = JSON.parse(String(init?.body ?? '{}')) as { fileData?: string }
+      if (hintOf(body.fileData).includes('fail')) return new Response(JSON.stringify({ ok: false, error: '단어를 찾을 수 없습니다' }), { status: 422 })
+      const correct = 20 + Math.floor(Math.random() * 14)
+      return new Response(JSON.stringify({ ok: true, vocab_correct: correct, vocab_total: 34, results: [] }))
+    }
+    return real(input, init)
+  }) as typeof window.fetch
+  return () => { window.fetch = real; window.confirm = realConfirm }
+}
+
+/** 갤러리용 가짜 파일 — 파일명을 base64 대신 힌트로 쓸 수 있게 내용에 파일명을 박는다 */
+function makeSampleFile(name: string) {
+  return new File([`sample:${name}`], name, { type: 'image/png' })
+}
+
+function BatchGradePreview() {
+  const [open, setOpen] = useState(false)
+  useEffect(() => installBatchMockFetch(), [])
+  // ?auto=review 면 샘플 5장으로 자동 열기(매칭 화면), ?auto=done 이면 채점까지 자동 진행 (headless 캡처용)
+  useEffect(() => {
+    const auto = new URLSearchParams(window.location.search).get('auto')
+    if (!auto) return
+    const t = setTimeout(() => {
+      document.querySelector<HTMLButtonElement>('[data-batch-sample]')?.click()
+      if (auto === 'done') {
+        setTimeout(() => {
+          const start = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => /채점 시작/.test(b.textContent ?? ''))
+          start?.click()
+        }, 3500)
+      }
+    }, 600)
+    return () => clearTimeout(t)
+  }, [])
+  // 갤러리에서는 실제 사진 대신 이 파일들을 드롭한 셈 친다 — 열면 안내 + 버튼
+  const sampleFiles = [
+    makeSampleFile('IMG_0412_김민준.jpg'),
+    makeSampleFile('IMG_0413_이서연.jpg'),
+    makeSampleFile('IMG_0414_박지호_low.jpg'),
+    makeSampleFile('IMG_0415_none.jpg'),
+    makeSampleFile('IMG_0416_정하은_fail.jpg'),
+  ]
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-gray-200 bg-white p-4 text-xs text-gray-600">
+        <p className="mb-2 font-bold text-gray-800">채점 그리드 상단에 이 버튼이 생깁니다 →</p>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-1.5 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
+        >
+          <Images className="h-3.5 w-3.5" />
+          단어 시험지 일괄 채점
+        </button>
+        <p className="mt-3 text-[11px] leading-5 text-gray-500">
+          갤러리에서는 API 가 가짜 응답입니다. 다이얼로그에서 아무 이미지나 드롭하면 파일명으로 흉내냅니다 —
+          파일명에 <b>김민준/이서연/박지호/정하은/김테스트</b> 가 있으면 그 학생에 매칭(high), <b>low</b> 가 있으면 노란 점,
+          <b>none</b> 이면 미매칭, <b>fail</b> 이면 채점 실패. 이서연은 기채점 학생(덮어쓰기 confirm), 최수아는 결석.
+          <br />
+          바로 보려면 아래 「샘플 5장으로 열기」.
+        </p>
+        <button
+          type="button"
+          data-batch-sample
+          onClick={() => {
+            setOpen(true)
+            // 다이얼로그가 마운트된 뒤 숨은 file input 을 찾아 샘플 파일을 주입
+            setTimeout(() => {
+              const input = document.querySelector<HTMLInputElement>('[role="dialog"] input[type="file"]')
+              if (!input) return
+              const dt = new DataTransfer()
+              sampleFiles.forEach((f) => dt.items.add(f))
+              input.files = dt.files
+              input.dispatchEvent(new Event('change', { bubbles: true }))
+            }, 250)
+          }}
+          className="mt-2 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800"
+        >
+          샘플 5장으로 열기
+        </button>
+      </div>
+      <VocabBatchGradeDialog
+        open={open}
+        onOpenChange={setOpen}
+        weekId="sample-week"
+        students={BATCH_SAMPLE_STUDENTS}
+        onGraded={() => {}}
+      />
+    </div>
+  )
+}
+
 export default function VocabPrintPreviewPage() {
   const [preset, setPreset] = useState<(typeof PRESETS)[number]>(PRESETS[0])
   const [ratio, setRatio] = useState<VocabSourceRatio>(DEFAULT_SOURCE_RATIO)
@@ -432,6 +565,7 @@ export default function VocabPrintPreviewPage() {
           {tab === 'share' && <ShareCardPreview items={items} />}
           {tab === 'retake' && <RetakeCardPreview items={items} />}
           {tab === 'retakeResult' && <RetakeResultPreview items={items} />}
+          {tab === 'batch' && <BatchGradePreview />}
         </div>
       )}
     </div>
