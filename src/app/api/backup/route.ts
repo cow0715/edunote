@@ -2,6 +2,7 @@ import { getAuth, err, ok } from '@/lib/api'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { uploadToS3 } from '@/lib/s3-backup'
 import { pruneOldBackups } from '@/lib/backup-retention'
+import { pruneOldVocabPhotos } from '@/lib/vocab-photo-retention'
 
 const TABLES = [
   'teacher', 'concept_category', 'concept_tag', 'class',
@@ -121,6 +122,16 @@ export async function POST(request: Request) {
     console.warn('[backup] 오래된 백업 정리 실패:', prune.error)
   } else if (prune.deleted.length > 0) {
     console.log(`[backup] 오래된 백업 ${prune.deleted.length}개 삭제 (보관 ${prune.kept}개)`)
+  }
+
+  // ── 단어 시험지 사진 정리 (기본 30일, VOCAB_PHOTO_RETENTION_DAYS) ─────────
+  // 폰 사진 원본이 학생당 3~6MB 씩 쌓여 Storage 를 채웠다. 업로드 압축(1/15)과 함께 용량 대책.
+  // 백업과 무관한 작업이라 실패해도 경고만.
+  const photoPrune = await pruneOldVocabPhotos(supabase)
+  if (photoPrune.error) {
+    console.warn('[backup] 단어 사진 정리 실패:', photoPrune.error)
+  } else if (photoPrune.deleted.length > 0) {
+    console.log(`[backup] 단어 사진 ${photoPrune.deleted.length}개 삭제 (전체 ${photoPrune.scanned}개 중)`)
   }
 
   await supabase.from('backup_log').insert({
