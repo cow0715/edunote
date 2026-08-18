@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Ban, CheckCheck, ChevronDown, ChevronUp, ImagePlus, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -104,8 +104,11 @@ export function QuestionTypeEditor({ weekId }: Props) {
     .map((q) => `${q.id}:${q.question_style}:${q.correct_answer}:${q.correct_answer_text}:${q.explanation}:${q.grading_criteria}:${q.question_text}:${q.question_stem}:${q.passage}:${JSON.stringify(q.choices ?? [])}:${q.is_void}:${q.all_correct}:${(q.exam_question_tag ?? []).map((t) => t.concept_tag?.id).sort().join(',')}`)
     .join('|')
 
-  useEffect(() => {
-    if (!readingQuestions.length) return
+  // 서버에서 온 문항 데이터를 편집용 로컬 state 로 펼친다. snapshot 이 바뀔 때만 다시 계산한다.
+  // 렌더 중 조정(React 공식 패턴) — effect 로 하면 첫 렌더에 빈 맵이 한 번 그려진다.
+  const [syncedSnapshot, setSyncedSnapshot] = useState<string | null>(null)
+  if (readingQuestions.length > 0 && syncedSnapshot !== snapshot) {
+    setSyncedSnapshot(snapshot)
 
     const nextTagMap: Record<string, string[]> = {}
     const nextStyleMap: Record<string, string> = {}
@@ -141,7 +144,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
     setVoidMap(nextVoidMap)
     setAllCorrectMap(nextAllCorrectMap)
     setEditMap(nextEditMap)
-  }, [snapshot, readingQuestions])
+  }
 
   function toggleExpanded(id: string) {
     setExpandedIds((prev) => (
