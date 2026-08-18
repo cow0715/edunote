@@ -3,7 +3,8 @@
 import { use, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
-import { PrintFitText } from '@/components/grade/print-fit-text'
+import { VocabGradingPrintSheet, VocabGradingItem } from '@/components/grade/vocab-grading-print-sheet'
+import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
 
 type VocabTestItem = {
   id: string
@@ -13,6 +14,7 @@ type VocabTestItem = {
   vocab_word: {
     english_word: string
     correct_answer: string | null
+    example_sentence?: string | null
   } | null
   vocab_word_variant?: {
     word: string
@@ -32,13 +34,22 @@ type VocabTestResponse = {
   activeTest: VocabTest | null
 }
 
-const ITEMS_PER_PAGE = 50
-const ITEMS_PER_COLUMN = 25
-
-function chunk<T>(items: T[], size: number) {
-  const chunks: T[][] = []
-  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size))
-  return chunks
+function itemAnswer(item: VocabTestItem): string {
+  if (item.prompt_source === 'example') {
+    return extractBlankAnswer(item.vocab_word?.example_sentence, item.prompt_text)
+      ?? item.vocab_word?.english_word
+      ?? '-'
+  }
+  if (item.prompt_source === 'example_meaning') {
+    return item.vocab_word?.correct_answer || '-'
+  }
+  if (item.prompt_source === 'example_choice') {
+    const index = extractChoiceAnswerIndex(item.vocab_word?.example_sentence, item.prompt_text)
+    const options = parseChoiceOptions(item.prompt_text)
+    return (index !== null && options ? options[index] : null) ?? item.vocab_word?.english_word ?? '-'
+  }
+  if (item.vocab_word_variant) return item.vocab_word_variant.meaning || '-'
+  return item.vocab_word?.correct_answer || '-'
 }
 
 export default function VocabGradingPrintPage({
@@ -57,8 +68,14 @@ export default function VocabGradingPrintPage({
   })
 
   const test = data?.tests[0] ?? null
-  const items = (test?.items ?? []).slice().sort((a, b) => a.test_number - b.test_number)
-  const pages = chunk(items, ITEMS_PER_PAGE)
+  const items: VocabGradingItem[] = (test?.items ?? []).map((item) => ({
+    id: item.id,
+    test_number: item.test_number,
+    prompt_source: item.prompt_source,
+    prompt_text: item.prompt_text,
+    display_word: item.vocab_word_variant?.word || item.prompt_text || item.vocab_word?.english_word || '',
+    answer: itemAnswer(item),
+  }))
 
   useEffect(() => {
     document.body.classList.add('bg-white')
@@ -86,80 +103,7 @@ export default function VocabGradingPrintPage({
         </div>
       </div>
 
-      <div className="mx-auto space-y-4 print:space-y-0">
-        {pages.map((pageItems, pageIndex) => {
-          const left = pageItems.slice(0, ITEMS_PER_COLUMN)
-          const right = pageItems.slice(ITEMS_PER_COLUMN)
-          return (
-            <section key={pageIndex} className="vocab-print-page bg-white shadow-sm print:shadow-none">
-              <header className="mb-5 flex items-end justify-between border-b-2 border-gray-900 pb-3">
-                <div>
-                  <p className="text-[10px] font-bold tracking-[0.24em] text-gray-500">Vocabulary Grading Sheet</p>
-                  <h2 className="mt-1 text-2xl font-black text-gray-950">어휘 채점용</h2>
-                </div>
-                <p className="text-sm font-bold text-gray-700">{items.length}문항</p>
-              </header>
-
-              <div className="grid grid-cols-2 gap-x-8">
-                {[left, right].map((column, columnIndex) => (
-                  <div key={columnIndex} className="space-y-0">
-                    {column.map((item) => {
-                      const word = item.vocab_word_variant?.word || item.prompt_text || item.vocab_word?.english_word || ''
-                      const answer = item.vocab_word_variant
-                        ? item.vocab_word_variant.meaning || '-'
-                        : item.vocab_word?.correct_answer || '-'
-                      return (
-                        <div
-                          key={item.id}
-                          className="grid h-[34px] grid-cols-[34px_minmax(0,1fr)_minmax(0,1.05fr)] items-center gap-2 border-b border-gray-200"
-                        >
-                          <span className="text-right text-[13px] font-bold text-gray-900">{item.test_number}.</span>
-                          <PrintFitText text={word} maxSize={14} minSize={9} className="font-semibold text-gray-900" />
-                          <PrintFitText text={answer} maxSize={14} minSize={9} className="font-bold text-gray-950" />
-                        </div>
-                      )
-                    })}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )
-        })}
-      </div>
-
-      <style jsx global>{`
-        @page {
-          size: A4 portrait;
-          margin: 10mm;
-        }
-
-        .vocab-print-page {
-          width: 210mm;
-          min-height: 297mm;
-          padding: 12mm 12mm 11mm;
-          box-sizing: border-box;
-          page-break-after: always;
-        }
-
-        .vocab-print-page:last-child {
-          page-break-after: auto;
-        }
-
-        @media print {
-          html,
-          body {
-            width: 210mm;
-            background: white !important;
-          }
-
-          .vocab-print-page {
-            width: auto;
-            min-height: auto;
-            padding: 0;
-            margin: 0;
-          }
-        }
-      `}</style>
+      <VocabGradingPrintSheet items={items} />
     </div>
   )
 }

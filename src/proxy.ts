@@ -41,7 +41,9 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/share') ||
     pathname.startsWith('/api/cron') ||
-    pathname.startsWith('/api/backup')
+    pathname.startsWith('/api/backup') ||
+    // 인쇄 레이아웃 프리뷰(샘플 데이터 전용)는 로컬 개발에서만 공개
+    (process.env.NODE_ENV === 'development' && pathname.startsWith('/dev/vocab-print-preview'))
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
