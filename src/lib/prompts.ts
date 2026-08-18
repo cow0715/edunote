@@ -272,15 +272,74 @@ export const SMS_RULES = `작성 기준:
 아래 링크를 통해 학습현황을 확인하실 수 있습니다.
 https://edunote.kr/share/abc123`
 
+// ── 단어 시험지 OCR — 예문 문항 컨텍스트 ─────────────────────────────────
+// 시험지에 예문 파트(뜻쓰기 영→한 / 빈칸 영→영)가 있으면 인쇄된 문장을 파서에 알려준다.
+// 인쇄 텍스트를 미리 알면 "어디까지가 인쇄고 어디가 손글씨인지" 분리 문제가 사라진다.
+// ⚠️ 정답(뜻/영어 단어)은 절대 넣지 않는다 — 판독 편향 방지. 정답은 채점 단계에서만 쓴다.
+
+export type VocabOcrExampleItem = {
+  number: number
+  /** 시험지에 인쇄된 문장 (뜻쓰기: 괄호 포함 / 빈칸: ___ 마커 포함 / 선택: [ A / B ] 포함) */
+  printed_sentence: string
+  kind: 'meaning' | 'blank' | 'choice'
+}
+
+export function buildVocabOcrExampleSection(items: VocabOcrExampleItem[] | undefined): string {
+  if (!items || items.length === 0) return ''
+  const meaningItems = items.filter((item) => item.kind === 'meaning')
+  const blankItems = items.filter((item) => item.kind === 'blank')
+  const choiceItems = items.filter((item) => item.kind === 'choice')
+  const lines: string[] = [
+    '',
+    '━━━ [최우선] 예문 파트 ━━━',
+    '이 시험지 아래쪽에는 뜻쓰기 표와 별개로 **예문 파트(1단, 문장 목록)** 가 있습니다.',
+    '아래는 각 번호에 **인쇄된 문장 원문**입니다. 인쇄된 글자는 학생 답이 아니므로 절대 student_answer 에 넣지 마세요.',
+    '이 파트는 2단이 아니라 **위에서 아래로 한 줄에 한 문항**입니다. 컬럼 분리 규칙을 적용하지 마세요.',
+  ]
+  if (meaningItems.length > 0) {
+    lines.push(
+      '',
+      '[예문 뜻쓰기] — 괄호 안 단어의 **한글 뜻**을 문장 끝 밑줄에 손으로 씁니다.',
+      'student_answer 는 그 행의 밑줄 위 한글 손글씨입니다. english_word 는 괄호 안 단어를 넣으세요.',
+      ...meaningItems.map((item) => `- ${item.number}번: ${item.printed_sentence}`),
+    )
+  }
+  if (blankItems.length > 0) {
+    lines.push(
+      '',
+      '[예문 빈칸] — 문장 속 ____ 자리에 **영어 단어**를 손으로 씁니다.',
+      'student_answer 는 빈칸 위(또는 빈칸 바로 위/아래 여백)에 쓰인 영어 손글씨 **철자 그대로**입니다. 인쇄된 앞뒤 단어는 제외하세요.',
+      '철자가 틀려 보여도 보이는 대로 옮기세요. 정답을 추측해 교정하지 마세요. english_word 는 빈칸 문장 전체 대신 "(blank)" 로 넣으세요.',
+      ...blankItems.map((item) => `- ${item.number}번: ${item.printed_sentence}`),
+    )
+  }
+  if (choiceItems.length > 0) {
+    lines.push(
+      '',
+      '[예문 선택] — 문장 속 [ A / B ] 두 후보 중 문맥에 맞는 쪽에 학생이 **동그라미(또는 밑줄·체크·빗금)** 표시를 합니다. 손글씨 답은 없습니다.',
+      '이 문항은 **이미지를 보고** 어느 후보에 표시가 있는지 판단하세요. CLOVA 텍스트에는 동그라미가 나타나지 않습니다.',
+      'student_answer 는 표시된 후보의 단어를 인쇄된 철자 그대로 넣으세요 (예: "includes"). english_word 는 "(choice)" 로 넣으세요.',
+      '- 동그라미·밑줄·체크·빗금 등 어떤 표시든 "선택"으로 인정합니다.',
+      '- 한 후보에 X 또는 취소선이 있고 다른 후보에 표시가 있으면, 취소되지 않은 쪽이 답입니다.',
+      '- 두 후보 모두에 표시가 있거나(취소 없이), 어느 쪽에도 표시가 없으면 student_answer: "" (미기재).',
+      '- 표시가 애매하면 추측하지 말고 "" 로 두세요. 정답을 아는 것처럼 판단하지 마세요.',
+      ...choiceItems.map((item) => `- ${item.number}번: ${item.printed_sentence}`),
+    )
+  }
+  lines.push('', '예문 파트도 번호를 빠짐없이 포함하세요 (미기재 → student_answer: "").')
+  return lines.join('\n')
+}
+
 // ── 단어 시험지 OCR (CLOVA + Claude 구조 파싱) ───────────────────────────
 
-export function buildVocabOcrClovaPrompt(clovaText: string): string {
+export function buildVocabOcrClovaPrompt(clovaText: string, exampleItems?: VocabOcrExampleItem[]): string {
   return `단어 시험지의 학생 답안을 구조화하세요.
 이미지와 CLOVA OCR 텍스트를 **둘 다** 보고 서로 교차 검증하세요.
 충돌하면 **이미지가 우선**입니다. CLOVA 텍스트는 오인식·순서 오류가 있을 수 있습니다.
 
 CLOVA OCR 텍스트:
 ${clovaText}
+${buildVocabOcrExampleSection(exampleItems)}
 
 ━━━ [최우선] 2단 레이아웃 규칙 ━━━
 이 시험지는 대부분 좌/우 2단 레이아웃입니다 (예: 1~25는 왼쪽, 26~50은 오른쪽).
@@ -290,6 +349,7 @@ ${clovaText}
    - 좌단의 답이 우단 번호(또는 그 반대)에 절대 섞이면 안 됩니다.
 2. 표시가 없어도 이미지상으로 2단이면 동일하게 처리하세요.
 3. 같은 y좌표에 좌/우 두 답이 있으면 그 둘은 서로 다른 번호의 답입니다. 하나로 합치지 마세요.
+4. \`━━━ EXAMPLE SECTION (single column) ━━━\` 아래는 예문 파트입니다. 이 구간은 2단이 아니라 1단이며, 컬럼 규칙을 적용하지 않습니다.
 
 ━━━ [최우선] 행(row) 매칭 규칙 ━━━
 번호 N의 student_answer는 **이미지에서 번호 N·영어 단어와 같은 수평선(row) 위**에 있는 학생 손글씨만 사용하세요.
@@ -407,6 +467,11 @@ export const VOCAB_OCR_VISION_PROMPT = `이 단어 시험지에서 각 문항의
 
 JSON 배열만 출력:
 [{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":""}]`
+
+export function buildVocabOcrVisionPrompt(exampleItems?: VocabOcrExampleItem[]): string {
+  return `${VOCAB_OCR_VISION_PROMPT}
+${buildVocabOcrExampleSection(exampleItems)}`
+}
 
 // ── 시험 답안지 OCR ───────────────────────────────────────────────────────
 
