@@ -40,4 +40,14 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# claude code (에이전트 작업용 worktree / 훅 실행 락)
+.claude/worktrees/
+.claude/hooks/.check.lock/
+
+# supabase cli 임시 파일
+supabase/.temp/
+
 .vercel
+
+# 개인 로컬 설정 (권한 allowlist 등) — 커밋하지 않음
+.claude/settings.local.json
