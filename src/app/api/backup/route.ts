@@ -1,6 +1,7 @@
 import { getAuth, err, ok } from '@/lib/api'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { uploadToS3 } from '@/lib/s3-backup'
+import { pruneOldBackups } from '@/lib/backup-retention'
 
 const TABLES = [
   'teacher', 'concept_category', 'concept_tag', 'class',
@@ -109,6 +110,19 @@ export async function POST(request: Request) {
     console.warn('[backup] S3 이중 업로드 실패 (Supabase는 성공):', s3Err)
   }
 
+  // ── 오래된 백업 정리 ────────────────────────────────────────────────────
+  // 이게 없어서 백업이 무한정 쌓였고 Storage 용량을 초과했다.
+  // 보관 개수는 BACKUP_RETENTION_COUNT 환경변수로 조절 (기본 14).
+  // 정리 실패는 백업 실패가 아니므로 경고만 남기고 넘어간다.
+  // justUploaded: 목록 조회가 제대로 됐는지 확인하는 기준점.
+  // storage.list() 는 접속 실패해도 빈 배열을 주기 때문에 이 검사가 필요하다.
+  const prune = await pruneOldBackups(supabase, { justUploaded: fileName })
+  if (prune.error) {
+    console.warn('[backup] 오래된 백업 정리 실패:', prune.error)
+  } else if (prune.deleted.length > 0) {
+    console.log(`[backup] 오래된 백업 ${prune.deleted.length}개 삭제 (보관 ${prune.kept}개)`)
+  }
+
   await supabase.from('backup_log').insert({
     triggered_by: isCron ? 'cron' : 'manual',
     status: 'success',
@@ -117,7 +131,15 @@ export async function POST(request: Request) {
   })
 
   console.log('[backup] 완료:', fileName, rowCounts, s3Err ? `S3경고: ${s3Err}` : 'S3도 성공')
-  return ok({ ok: true, file: fileName, rows: rowCounts, s3_warning: s3Err ?? null })
+  return ok({
+    ok: true,
+    file: fileName,
+    rows: rowCounts,
+    s3_warning: s3Err ?? null,
+    pruned: prune.deleted.length,
+    kept: prune.kept,
+    prune_warning: prune.error ?? null,
+  })
 }
 
 // 백업 파일 목록 조회 or signed URL 발급
