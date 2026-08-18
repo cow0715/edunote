@@ -39,6 +39,28 @@ export type ProblemSheetUploadInput = {
 }
 
 const PDF_PARSE_CHUNK_PAGES = 3
+const PDF_PARSE_CONCURRENCY = 2
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await mapper(items[index], index)
+    }
+  }
+
+  const workerCount = Math.min(Math.max(1, concurrency), items.length)
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  return results
+}
 
 async function splitPdfUploadInput(
   file: ProblemSheetUploadInput,
@@ -428,8 +450,6 @@ async function parseProblemSheetQuestionInputs(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
 ): Promise<WeekProblemSheetQuestion[]> {
-  const collected: WeekProblemSheetQuestion[] = []
-
   const normalizeParsedForFile = (
     parsed: WeekProblemSheetQuestion[],
     file: ProblemSheetUploadInput,
@@ -451,10 +471,11 @@ async function parseProblemSheetQuestionInputs(
     .filter((question): question is WeekProblemSheetQuestion => question !== null)
 
   const parseFiles = await splitProblemSheetUploadInputs(files)
-  for (const file of parseFiles) {
+  const parsedGroups = await mapWithConcurrency(parseFiles, PDF_PARSE_CONCURRENCY, async (file) => {
     if (!file.fileData) {
       throw new Error('업로드 파일 데이터를 읽지 못했습니다.')
     }
+
     let parsed: WeekProblemSheetQuestion[]
     try {
       parsed = await parseWeekProblemSheetPage(file.fileData, file.mimeType, tagCategories)
@@ -468,13 +489,12 @@ async function parseProblemSheetQuestionInputs(
         const fallbackPage = await parseWeekProblemSheetPage(fallbackFile.fileData, fallbackFile.mimeType, tagCategories)
         fallbackParsed.push(...normalizeParsedForFile(fallbackPage, fallbackFile))
       }
-      collected.push(...fallbackParsed)
-      continue
+      return fallbackParsed
     }
-    collected.push(...normalizeParsedForFile(parsed, file))
-  }
+    return normalizeParsedForFile(parsed, file)
+  })
 
-  return normalizeProblemSheetQuestions(collected)
+  return normalizeProblemSheetQuestions(parsedGroups.flat())
 }
 
 function normalizeQuestionStyle(
@@ -1035,12 +1055,24 @@ async function renderPdfPageToPng(
   globalScope.ImageData ??= ImageData
   globalScope.Path2D ??= Path2D
 
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  type PdfJsPage = {
+    getViewport(args: { scale: number }): { width: number; height: number }
+    render(args: { canvasContext: unknown; viewport: unknown }): { promise: Promise<void> }
+  }
+  type PdfJsDocument = {
+    getPage(pageNumber: number): Promise<PdfJsPage>
+  }
+  type PdfJsModule = {
+    GlobalWorkerOptions: { workerSrc: string }
+    getDocument(args: unknown): { promise: Promise<PdfJsDocument> }
+  }
+
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs') as unknown as PdfJsModule
   const [{ join }, { pathToFileURL }] = await Promise.all([
     import('node:path'),
     import('node:url'),
   ])
-  ;(pdfjs as any).GlobalWorkerOptions.workerSrc = pathToFileURL(
+  pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(
     join(process.cwd(), 'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'),
   ).href
 
@@ -1068,7 +1100,7 @@ async function renderPdfPageToPng(
     }
   }
 
-  const pdf = await (pdfjs as any).getDocument({
+  const pdf = await pdfjs.getDocument({
     data: pdfData,
     CanvasFactory: NapiCanvasFactory,
     isEvalSupported: false,
@@ -1079,7 +1111,7 @@ async function renderPdfPageToPng(
   const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height))
   const canvasContext = canvas.getContext('2d')
 
-  await page.render({ canvasContext: canvasContext as any, viewport }).promise
+  await page.render({ canvasContext, viewport }).promise
   return {
     buffer: canvas.toBuffer('image/png'),
     width: canvas.width,
