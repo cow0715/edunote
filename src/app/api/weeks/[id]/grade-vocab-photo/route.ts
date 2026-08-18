@@ -289,15 +289,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   await supabase.from('week').update({ vocab_total: vocabTotal }).eq('id', weekId)
 
   // ── 7. 사진 Storage 업로드 (채점과 독립적으로 처리) ───────────────────
+  // 경로는 확장자 없이 {weekId}/{studentId} — 확장자를 붙이면 png→jpg 재채점 때 파일이 2개가 돼 upsert 가 안 된다.
+  // contentType 은 업로드 시 따로 주므로 서명 URL 로 볼 때 문제 없다.
+  // 예전 형식(.jpg/.png)으로 저장된 파일이 있으면 같이 지운다 (DB 경로는 새 것으로 갱신되니 참조 안 됨).
   try {
-    const ext = mimeType.includes('png') ? 'png' : 'jpg'
-    const storagePath = `${weekId}/${studentId}.${ext}`
+    const storagePath = `${weekId}/${studentId}`
     const buffer = Buffer.from(fileData, 'base64')
-    const { error: uploadError } = await supabase.storage
-      .from('vocab-photos')
-      .upload(storagePath, buffer, { contentType: mimeType, upsert: true })
+    const bucket = supabase.storage.from('vocab-photos')
+    const { error: uploadError } = await bucket.upload(storagePath, buffer, { contentType: mimeType, upsert: true })
     if (!uploadError) {
       await supabase.from('week_score').update({ vocab_photo_path: storagePath }).eq('id', score.id)
+      // 구 형식 잔여 파일 정리 (없으면 remove 가 조용히 무시)
+      void bucket.remove([`${storagePath}.jpg`, `${storagePath}.png`])
     } else {
       console.error('[grade-vocab-photo] 사진 업로드 실패', uploadError)
     }
