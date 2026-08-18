@@ -209,8 +209,26 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
   const gradingCount = items.filter((it) => it.status === 'grading').length
   const isBusy = phase === 'matching' || phase === 'grading'
 
+  /**
+   * 닫기 요청 처리 (X · 바깥 클릭 · 취소 · Esc 공통).
+   * - 채점 중이면 아예 안 닫힘 (요청은 이미 서버에서 돌고 있어 화면만 잃는다)
+   * - 사진을 넣어둔 상태(매칭 확인 중)나 실패 건이 남은 상태면 confirm — 닫으면 목록이 사라진다
+   * - 그 외(빈 상태, 전부 완료)는 바로 닫힘
+   */
+  function requestClose() {
+    if (isBusy) return
+    const pendingCount = items.filter((it) => it.status !== 'done').length
+    if (items.length > 0 && pendingCount > 0) {
+      const msg = phase === 'done'
+        ? `실패 ${errorCount}건이 남아 있습니다. 닫으면 목록이 사라집니다. (완료된 ${doneCount}명 결과는 이미 저장됨)\n닫을까요?`
+        : `넣어둔 사진 ${items.length}장이 사라집니다. 닫을까요?`
+      if (!window.confirm(msg)) return
+    }
+    onOpenChange(false)
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!isBusy) onOpenChange(v) }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) requestClose(); else onOpenChange(v) }}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-hidden p-0">
         <DialogHeader className="border-b px-5 py-4">
           <DialogTitle className="text-base">단어 시험지 일괄 채점</DialogTitle>
@@ -356,10 +374,10 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
               </Button>
             )}
             {phase === 'done' ? (
-              <Button size="sm" onClick={() => onOpenChange(false)}>닫기</Button>
+              <Button size="sm" onClick={requestClose}>닫기</Button>
             ) : (
               <>
-                <Button size="sm" variant="ghost" disabled={isBusy} onClick={() => onOpenChange(false)}>취소</Button>
+                <Button size="sm" variant="ghost" disabled={isBusy} onClick={requestClose}>취소</Button>
                 <Button size="sm" disabled={phase !== 'review' || readyToGrade.length === 0 || duplicateStudentIds.size > 0} onClick={startGrading}>
                   {phase === 'grading' ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
                   {readyToGrade.length > 0 ? `${readyToGrade.length}명 채점 시작` : '채점 시작'}
