@@ -7,8 +7,9 @@ import { toast } from 'sonner'
 import { GradeRow } from '@/hooks/use-grade'
 import { cn } from '@/lib/utils'
 import { VocabPhotoButton } from './vocab-photo-button'
+import { ExampleSentenceInline, EXAMPLE_LABEL, isExampleSourceValue } from './vocab-example-inline'
 
-export type VocabAnswerRow = { id: string; number: number; source_number?: number; english_word: string; test_word?: string | null; test_source?: string | null; student_answer: string | null; is_correct: boolean; teacher_locked: boolean }
+export type VocabAnswerRow = { id: string; number: number; source_number?: number; english_word: string; test_word?: string | null; test_source?: string | null; test_prompt?: string | null; test_answer?: string | null; student_answer: string | null; is_correct: boolean; teacher_locked: boolean }
 
 export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, vocabPhotoPath, updateRow }: {
   row: GradeRow
@@ -152,17 +153,23 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
               ) : null
             })()}
           </div>
-          <div className="columns-1 sm:columns-2 gap-x-4">
-            {editableVocab.map((a) => (
-              <div key={a.number} className={cn(
-                'flex items-center gap-1 text-xs min-w-0 py-0.5 break-inside-avoid rounded px-0.5',
-                a.teacher_locked ? 'bg-blue-50' : dirtyIds.has(a.id) ? 'bg-amber-50' : ''
-              )}>
-                <span className="text-gray-300 w-5 shrink-0 text-right">{a.number}.</span>
-                <span className="font-mono text-gray-600 shrink-0 w-24 truncate">{a.test_word ?? a.english_word}</span>
-                <span className="text-gray-300 shrink-0">→</span>
+          {/* 시험지와 같은 순서로 배치: 뜻쓰기(2단) → 예문 파트(전폭 1단). 강사가 종이와 대조하기 쉽게 */}
+          {(() => {
+            const meaningRows = editableVocab.filter((a) => !isExampleSourceValue(a.test_source))
+            const exampleParts = (['example_meaning', 'example', 'example_choice'] as const)
+              .map((source) => ({ source, rows: editableVocab.filter((a) => a.test_source === source) }))
+              .filter((part) => part.rows.length > 0)
+            const showPartLabels = exampleParts.length > 0 && meaningRows.length > 0
+
+            const renderAnswerControls = (a: VocabAnswerRow, inputClass: string) => (
+              <>
                 <input
-                  className="flex-1 min-w-0 border-b border-gray-200 bg-transparent text-xs outline-none focus:border-indigo-400 px-0.5"
+                  className={cn(
+                    'min-w-0 border-b border-gray-200 bg-transparent text-xs outline-none focus:border-indigo-400 px-0.5',
+                    // 정오에 맞춰 학생 답 텍스트 색 — ✓✗ 아이콘만으로는 훑기 느림
+                    a.is_correct ? 'text-emerald-700' : 'text-rose-500',
+                    inputClass,
+                  )}
                   value={a.student_answer ?? ''}
                   onChange={(e) => {
                     const val = e.target.value
@@ -193,9 +200,63 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
                 >
                   {a.is_correct ? '✓' : '✗'}
                 </button>
+              </>
+            )
+
+            const rowBg = (a: VocabAnswerRow) => a.teacher_locked ? 'bg-blue-50' : dirtyIds.has(a.id) ? 'bg-amber-50' : ''
+
+            return (
+              <div className="space-y-3">
+                {meaningRows.length > 0 && (
+                  <div>
+                    {showPartLabels && <p className="mb-1 text-[11px] font-bold text-gray-500">뜻쓰기 <span className="font-normal text-gray-400">{meaningRows.length}문항</span></p>}
+                    <div className="columns-1 sm:columns-2 gap-x-4">
+                      {meaningRows.map((a) => (
+                        <div key={a.id} className={cn('flex items-center gap-1 text-xs min-w-0 py-0.5 break-inside-avoid rounded px-0.5', rowBg(a))}>
+                          <span className="text-gray-300 w-5 shrink-0 text-right">{a.number}.</span>
+                          <span className="font-mono text-gray-600 shrink-0 w-24 truncate">{a.test_word ?? a.english_word}</span>
+                          <span className="text-gray-300 shrink-0">→</span>
+                          {renderAnswerControls(a, 'flex-1')}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {exampleParts.map((part) => (
+                  <div key={part.source} className={showPartLabels ? 'border-t border-gray-100 pt-2' : ''}>
+                    <p className="mb-1 text-[11px] font-bold text-gray-500">
+                      {EXAMPLE_LABEL[part.source].long} <span className="font-normal text-gray-400">{part.rows.length}문항 · {EXAMPLE_LABEL[part.source].hint}</span>
+                    </p>
+                    <div className="space-y-0.5">
+                      {part.rows.map((a) => (
+                        <div key={a.id} className={cn('flex items-center gap-1 text-xs min-w-0 py-0.5 rounded px-0.5', rowBg(a))}>
+                          <span className="text-gray-300 w-5 shrink-0 text-right">{a.number}.</span>
+                          {/* 예문 파트: 시험지 문장이 메인, 학생 답 입력칸은 오른쪽 고정폭 */}
+                          <div className="min-w-0 flex-1">
+                            {a.test_prompt ? (
+                              <ExampleSentenceInline
+                                source={part.source}
+                                promptText={a.test_prompt}
+                                answer={a.test_answer}
+                                // 학생 답은 오른쪽 입력칸에 있으므로 문장 안에는 정답만 표시
+                                isCorrect={a.is_correct}
+                                size="xs"
+                              />
+                            ) : (
+                              <span className="font-mono text-gray-600">{a.test_word ?? a.english_word}</span>
+                            )}
+                          </div>
+                          <span className="text-gray-300 shrink-0">→</span>
+                          {renderAnswerControls(a, 'w-28 shrink-0')}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )
+          })()}
         </div>
       ) : (
         <p className="text-xs text-gray-400">사진 채점 후 단어 정오표가 표시됩니다.</p>

@@ -2,6 +2,33 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { gradeVocabItems } from '@/lib/anthropic'
 import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
+import { gradeBlankAnswer, gradeChoiceAnswer } from '@/lib/vocab-blank-grading'
+import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
+
+// 재시험은 원 시험지 유형 그대로 다시 낸다.
+//   뜻쓰기·유의어·반의어·파생어·예문뜻 → 텍스트(뜻) 입력, LLM 채점
+//   예문빈칸 → 텍스트(영어) 입력, 코드 채점
+//   예문선택 → 후보 2개 중 탭, 코드 채점
+type RetakeKind = 'meaning' | 'blank' | 'choice'
+
+function retakeKindOf(source: string | null | undefined): RetakeKind {
+  if (source === 'example') return 'blank'
+  if (source === 'example_choice') return 'choice'
+  return 'meaning'
+}
+
+/** 예문빈칸/선택의 정답 영어를 원문·시험지 문장으로 역산 */
+function exampleAnswerOf(kind: RetakeKind, exampleSentence: string | null | undefined, promptText: string | null | undefined, englishWord: string) {
+  if (kind === 'blank') return extractBlankAnswer(exampleSentence, promptText) ?? englishWord
+  if (kind === 'choice') {
+    const index = extractChoiceAnswerIndex(exampleSentence, promptText)
+    const options = parseChoiceOptions(promptText)
+    return (index !== null && options ? options[index] : null) ?? englishWord
+  }
+  return null
+}
+
+export const maxDuration = 60
 
 type Params = { token: string; weekId: string }
 
@@ -115,11 +142,23 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
       const vw = one(a.vocab_word) as VocabWordRow
       const variant = one(a.vocab_word_variant) as { word: string; meaning: string | null } | null
       const testItem = testItemByWordId.get(vw.id)
+      const testSource = a.test_source ?? testItem?.prompt_source ?? null
+      const kind = retakeKindOf(testSource)
+      const isExample = testSource === 'example' || testSource === 'example_meaning' || testSource === 'example_choice'
+      const promptText = isExample ? (testItem?.prompt_text ?? null) : null
       return {
         answer_id: a.id,
         number: a.test_number ?? testItem?.test_number ?? vw.number,
-        english_word: variant?.word ?? a.test_word ?? testItem?.prompt_text ?? vw.english_word,
+        // 예문 유형은 english_word 에 원본 단어, prompt_text 에 문장
+        english_word: isExample
+          ? vw.english_word
+          : (variant?.word ?? a.test_word ?? testItem?.prompt_text ?? vw.english_word),
         correct_answer: variant?.meaning ?? vw.correct_answer,
+        test_source: testSource,
+        kind,
+        prompt_text: promptText,
+        choice_options: kind === 'choice' ? parseChoiceOptions(promptText) : null,
+        example_answer: exampleAnswerOf(kind, vw.example_sentence, promptText, vw.english_word),
         synonyms: vw.synonyms ?? null,
         antonyms: vw.antonyms ?? null,
         example_sentence: vw.example_sentence ?? null,
@@ -187,36 +226,79 @@ export async function POST(request: Request, { params }: { params: Promise<Param
     .maybeSingle()
   const customRules = promptRow?.content ?? undefined
 
-  // AI 채점
+  // 정답·유형 조회. 예문빈칸/선택은 활성 시험지 prompt_text 로 정답 영어를 역산한다
   const { data: answerDetails } = await supabase
     .from('student_vocab_answer')
-    .select('id, vocab_word(correct_answer), vocab_word_variant(meaning)')
+    .select('id, test_source, vocab_word_id, vocab_word(english_word, correct_answer, example_sentence), vocab_word_variant(meaning)')
     .in('id', answers.map((a) => a.answer_id))
 
-  const correctAnswerById = new Map(
-    (answerDetails ?? []).map((a) => {
-      const vw = one(a.vocab_word) as { correct_answer: string | null } | null
-      const variant = one(a.vocab_word_variant) as { meaning: string | null } | null
-      return [a.id, variant?.meaning ?? vw?.correct_answer ?? null]
-    })
-  )
+  const detailRows = (answerDetails ?? []) as unknown as Array<{
+    id: string
+    test_source: string | null
+    vocab_word_id: string
+    vocab_word: { english_word: string; correct_answer: string | null; example_sentence: string | null } | { english_word: string; correct_answer: string | null; example_sentence: string | null }[] | null
+    vocab_word_variant: { meaning: string | null } | { meaning: string | null }[] | null
+  }>
 
-  const gradingItems = answers.map((a) => ({
-    number: 0,
-    english_word: a.english_word,
-    student_answer: a.retake_answer || null,
-    correct_answer: correctAnswerById.get(a.answer_id) ?? null,
-  }))
-
-  let graded: { number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]
-  try {
-    graded = await gradeVocabItems(gradingItems, customRules)
-  } catch (e) {
-    console.error('[retake] AI 채점 실패', e)
-    return NextResponse.json({ error: '채점 중 오류가 발생했습니다' }, { status: 500 })
+  const codeGradedRows = detailRows.filter((a) => retakeKindOf(a.test_source) !== 'meaning')
+  const promptByWordId = new Map<string, string | null>()
+  if (codeGradedRows.length > 0) {
+    const { data: activeTest } = await supabase
+      .from('vocab_test')
+      .select('id')
+      .eq('week_id', weekId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (activeTest) {
+      const { data: testItems } = await supabase
+        .from('vocab_test_item')
+        .select('vocab_word_id, prompt_text')
+        .eq('vocab_test_id', activeTest.id)
+        .in('vocab_word_id', codeGradedRows.map((a) => a.vocab_word_id))
+      for (const ti of testItems ?? []) promptByWordId.set(ti.vocab_word_id, ti.prompt_text)
+    }
   }
 
-  const resultMap = new Map(graded.map((g, i) => [answers[i].answer_id, g.is_correct]))
+  const detailById = new Map(detailRows.map((a) => {
+    const vw = one(a.vocab_word)
+    const variant = one(a.vocab_word_variant)
+    const kind = retakeKindOf(a.test_source)
+    const correct = kind === 'meaning'
+      ? (variant?.meaning ?? vw?.correct_answer ?? null)
+      : exampleAnswerOf(kind, vw?.example_sentence, promptByWordId.get(a.vocab_word_id), vw?.english_word ?? '')
+    return [a.id, { kind, correct }] as const
+  }))
+
+  // 뜻 유형만 LLM, 나머지는 코드 채점
+  const meaningAnswers = answers.filter((a) => detailById.get(a.answer_id)?.kind === 'meaning')
+  const resultMap = new Map<string, boolean>()
+
+  for (const a of answers) {
+    const detail = detailById.get(a.answer_id)
+    if (!detail || detail.kind === 'meaning') continue
+    resultMap.set(a.answer_id, detail.kind === 'choice'
+      ? gradeChoiceAnswer(a.retake_answer, detail.correct)
+      : gradeBlankAnswer(a.retake_answer, detail.correct))
+  }
+
+  if (meaningAnswers.length > 0) {
+    const gradingItems = meaningAnswers.map((a) => ({
+      number: 0,
+      english_word: a.english_word,
+      student_answer: a.retake_answer || null,
+      correct_answer: detailById.get(a.answer_id)?.correct ?? null,
+    }))
+    let graded: { number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]
+    try {
+      graded = await gradeVocabItems(gradingItems, customRules)
+    } catch (e) {
+      console.error('[retake] AI 채점 실패', e)
+      return NextResponse.json({ error: '채점 중 오류가 발생했습니다' }, { status: 500 })
+    }
+    graded.forEach((g, i) => resultMap.set(meaningAnswers[i].answer_id, g.is_correct))
+  }
 
   // 채점 결과 저장 (이전 시도 덮어씌우기)
   await Promise.all(

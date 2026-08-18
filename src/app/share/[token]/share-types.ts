@@ -50,6 +50,12 @@ export type VocabAnswer = {
   test_number: number | null
   test_word: string | null
   test_source: string | null
+  /** 예문 유형일 때 시험지에 인쇄된 문장 (예문뜻: 괄호 / 빈칸: ___ / 선택: [ A / B ]) */
+  test_prompt?: string | null
+  /** 예문빈칸/선택의 정답 영어 (역산). 그 외 null */
+  example_answer?: string | null
+  /** 예문선택의 두 후보 뜻 [왼쪽, 오른쪽]. 그 외 null */
+  choice_meanings?: [string | null, string | null] | null
   student_answer: string | null
   retake_answer: string | null; retake_is_correct: boolean | null
   vocab_word: VocabWord | null

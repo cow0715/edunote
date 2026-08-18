@@ -1,5 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/server'
 import { buildWeekDisplayMap, isWeekInPeriod, type ClassPeriod, type WeekForPeriod } from '@/lib/class-periods'
+import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
 import { NextResponse } from 'next/server'
 
 type ClassRow = {
@@ -306,24 +307,88 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
       .filter((item) => activeVocabTestIdSet.has(item.vocab_test_id))
       .map((item) => [item.vocab_word_id, item])
   )
+
+  // 예문선택 오답 카드용: 두 후보(정답 + 오답)의 뜻. 오답 후보는 반의어 variant 또는 같은 주차 다른 단어라
+  // 주차 내 variant·단어를 모아 "영어 → 뜻" 맵을 만든다 (선택형 문항이 있을 때만 조회)
+  const choiceWordIds = (activeVocabTestItems ?? [])
+    .filter((item) => activeVocabTestIdSet.has(item.vocab_test_id) && item.prompt_source === 'example_choice')
+    .map((item) => item.vocab_word_id)
+  const wordMeaningByEnglish = new Map<string, string>()
+  if (choiceWordIds.length > 0 && weekIds.length > 0) {
+    const [{ data: weekWords }, { data: weekVariants }] = await Promise.all([
+      supabase.from('vocab_word').select('english_word, correct_answer').in('week_id', weekIds),
+      supabase.from('vocab_word_variant').select('word, meaning, vocab_word!inner(week_id)').in('vocab_word.week_id', weekIds),
+    ])
+    for (const w of (weekWords ?? []) as { english_word: string; correct_answer: string | null }[]) {
+      if (w.correct_answer) wordMeaningByEnglish.set(w.english_word.trim().toLowerCase(), w.correct_answer)
+    }
+    for (const v of (weekVariants ?? []) as { word: string; meaning: string | null }[]) {
+      // variant 뜻이 있으면 우선 (반의어는 vocab_word 에 없음)
+      if (v.meaning) wordMeaningByEnglish.set(v.word.trim().toLowerCase(), v.meaning)
+    }
+  }
+  /** 굴절형 표면형(includes)으로도 뜻을 찾을 수 있게 원형 후보를 몇 개 시도 */
+  const meaningOf = (english: string | null | undefined): string | null => {
+    if (!english) return null
+    const w = english.trim().toLowerCase()
+    const candidates = [w]
+    for (const suffix of ['ing', 'ed', 'es', 's', 'd']) {
+      if (w.endsWith(suffix) && w.length > suffix.length + 1) {
+        const stem = w.slice(0, -suffix.length)
+        candidates.push(stem, `${stem}e`)
+        if (stem.endsWith('i')) candidates.push(`${stem.slice(0, -1)}y`)
+        if (stem.length > 1 && stem[stem.length - 1] === stem[stem.length - 2]) candidates.push(stem.slice(0, -1))
+      }
+    }
+    for (const c of candidates) {
+      const m = wordMeaningByEnglish.get(c)
+      if (m) return m
+    }
+    return null
+  }
+
   const displayVocabAnswers = ((vocabAnswers ?? []) as {
     test_number: number | null
     test_word: string | null
     test_source: string | null
-    vocab_word: { id: string; correct_answer?: string | null } | { id: string; correct_answer?: string | null }[] | null
+    vocab_word: { id: string; english_word?: string; correct_answer?: string | null; example_sentence?: string | null } | { id: string; english_word?: string; correct_answer?: string | null; example_sentence?: string | null }[] | null
     vocab_word_variant?: { word: string; meaning: string | null; relation_type: string } | { word: string; meaning: string | null; relation_type: string }[] | null
   }[]).map((answer) => {
     const vocabWord = one(answer.vocab_word)
     const variant = one(answer.vocab_word_variant)
     const testItem = vocabWord ? vocabTestItemByWordId.get(vocabWord.id) : null
+    const testSource = variant?.relation_type ?? answer.test_source ?? testItem?.prompt_source ?? null
+    const isExample = testSource === 'example' || testSource === 'example_meaning' || testSource === 'example_choice'
+    // 예문빈칸/선택은 정답이 영어 표면형. 원문과 시험지 문장을 비교해 역산한다
+    let exampleAnswer: string | null = null
+    let choiceMeanings: [string | null, string | null] | null = null
+    if (testSource === 'example') {
+      exampleAnswer = extractBlankAnswer(vocabWord?.example_sentence, testItem?.prompt_text) ?? vocabWord?.english_word ?? null
+    } else if (testSource === 'example_choice') {
+      const index = extractChoiceAnswerIndex(vocabWord?.example_sentence, testItem?.prompt_text)
+      const options = parseChoiceOptions(testItem?.prompt_text)
+      exampleAnswer = (index !== null && options ? options[index] : null) ?? vocabWord?.english_word ?? null
+      if (options) {
+        // 정답 후보의 뜻은 단어 자체의 뜻을 우선 사용 (variant 맵보다 정확)
+        choiceMeanings = [
+          index === 0 ? (vocabWord?.correct_answer ?? meaningOf(options[0])) : meaningOf(options[0]),
+          index === 1 ? (vocabWord?.correct_answer ?? meaningOf(options[1])) : meaningOf(options[1]),
+        ]
+      }
+    }
     return {
       ...answer,
       vocab_word: vocabWord && variant?.meaning
         ? { ...vocabWord, correct_answer: variant.meaning }
         : vocabWord,
       test_number: answer.test_number ?? testItem?.test_number ?? null,
-      test_word: variant?.word ?? answer.test_word ?? testItem?.prompt_text ?? null,
-      test_source: variant?.relation_type ?? answer.test_source ?? testItem?.prompt_source ?? null,
+      test_word: isExample
+        ? (answer.test_word ?? vocabWord?.english_word ?? null)
+        : (variant?.word ?? answer.test_word ?? testItem?.prompt_text ?? null),
+      test_source: testSource,
+      test_prompt: isExample ? (testItem?.prompt_text ?? null) : null,
+      example_answer: exampleAnswer,
+      choice_meanings: choiceMeanings,
     }
   })
 
