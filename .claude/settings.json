@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/check.sh\"",
+            "asyncRewake": true,
+            "timeout": 300,
+            "statusMessage": "타입체크 + 테스트 (백그라운드)",
+            "rewakeSummary": "npm run check 실패"
+          }
+        ]
+      }
+    ]
+  }
+}
