@@ -13,6 +13,7 @@ import { AlertTriangle, CheckCircle2, ImagePlus, Loader2, RefreshCw, Trash2, XCi
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { compressImageForUpload } from '@/lib/image-compress'
 import type { VocabResult } from './vocab-photo-button'
 
 type Student = { student_id: string; student_name: string; present: boolean; hasExisting: boolean }
@@ -24,7 +25,9 @@ type Item = {
   id: string
   file: File
   previewUrl: string
+  /** 압축된 base64 + mime (원본이 아니라 압축본을 보낸다) */
   b64: string | null
+  mimeType: string
   studentId: string | null
   confidence: Confidence
   rawName: string | null
@@ -34,15 +37,6 @@ type Item = {
 }
 
 const CONCURRENCY = 3
-
-function readAsBase64(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve((reader.result as string).split(',')[1] ?? '')
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
 
 /** 동시 실행 수를 제한하며 순서대로 작업을 돌린다 */
 async function runPool<T>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>) {
@@ -100,6 +94,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
       file,
       previewUrl: URL.createObjectURL(file),
       b64: null,
+      mimeType: file.type,
       studentId: null,
       confidence: 'none',
       rawName: null,
@@ -112,12 +107,13 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
     await runPool(fresh, CONCURRENCY, async (it) => {
       patch(it.id, { status: 'reading' })
       try {
-        const b64 = await readAsBase64(it.file)
-        patch(it.id, { b64 })
+        // 압축본을 이름 판독·채점 양쪽에 재사용
+        const { base64: b64, mimeType } = await compressImageForUpload(it.file)
+        patch(it.id, { b64, mimeType })
         const resp = await fetch(`/api/weeks/${weekId}/vocab-photo-name`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileData: b64, mimeType: it.file.type }),
+          body: JSON.stringify({ fileData: b64, mimeType }),
         })
         const data = await resp.json() as { studentId: string | null; rawName: string | null; confidence: Confidence }
         // 자동 매칭은 present 학생으로만
@@ -167,7 +163,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
         const resp = await fetch(`/api/weeks/${weekId}/grade-vocab-photo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ studentId: it.studentId, fileData: it.b64, mimeType: it.file.type }),
+          body: JSON.stringify({ studentId: it.studentId, fileData: it.b64, mimeType: it.mimeType }),
         })
         const data = await resp.json()
         if (data.ok) {
@@ -193,7 +189,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
         const resp = await fetch(`/api/weeks/${weekId}/grade-vocab-photo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ studentId: it.studentId, fileData: it.b64, mimeType: it.file.type }),
+          body: JSON.stringify({ studentId: it.studentId, fileData: it.b64, mimeType: it.mimeType }),
         })
         const data = await resp.json()
         if (data.ok) {

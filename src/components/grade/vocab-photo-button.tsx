@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import { Camera, Loader2, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { compressImageForUpload } from '@/lib/image-compress'
 
 export type VocabResult = { number: number; english_word: string; student_answer: string; is_correct: boolean }
 
@@ -32,15 +33,12 @@ export function VocabPhotoButton({ weekId, studentId, disabled, hasExistingData,
     setLoading(true)
     setError(null)
     try {
-      const b64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve((reader.result as string).split(',')[1])
-        reader.readAsDataURL(file)
-      })
+      // 업로드 전 압축 (긴 변 1600 · JPEG 80%). Storage 용량 + 전송/OCR 시간 절약
+      const { base64: b64, mimeType } = await compressImageForUpload(file)
       const resp = await fetch(`/api/weeks/${weekId}/grade-vocab-photo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId, fileData: b64, mimeType: file.type }),
+        body: JSON.stringify({ studentId, fileData: b64, mimeType }),
       })
       const data = await resp.json()
       if (data.ok) {
