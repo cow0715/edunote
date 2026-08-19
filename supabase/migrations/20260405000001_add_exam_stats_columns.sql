@@ -2,7 +2,7 @@
 ALTER TABLE exam_bank
   ADD COLUMN IF NOT EXISTS form_type text NOT NULL DEFAULT '홀수형';
 
--- exam_bank_question: 메가스터디 통계 컬럼
+-- exam_bank_question: 외부 통계 컬럼 (정답률·난이도 등)
 ALTER TABLE exam_bank_question
   ADD COLUMN IF NOT EXISTS difficulty text,
   ADD COLUMN IF NOT EXISTS points integer,

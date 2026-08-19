@@ -1,5 +1,5 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
-import { getMegastudyStats } from '@/lib/megastudy'
+import { fetchExamStats, isExamStatsConfigured } from '@/lib/exam-stats-source'
 
 export const runtime = 'nodejs'
 
@@ -22,16 +22,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .single()
 
   if (examErr || !exam) return err('시험을 찾을 수 없습니다', 404)
+  if (!isExamStatsConfigured()) return err('외부 통계 연동이 설정되지 않았습니다 (EXAM_STATS_* 환경변수)', 503)
 
   let stats
   try {
-    stats = await getMegastudyStats(exam.grade, exam.exam_year, exam.exam_month, formType)
+    stats = await fetchExamStats(exam.grade, exam.exam_year, exam.exam_month, formType)
   } catch {
-    return err('메가스터디 연결에 실패했습니다', 502)
+    return err('외부 통계 사이트 연결에 실패했습니다', 502)
   }
 
   if (!stats || stats.length === 0) {
-    return err('메가스터디에 해당 시험 데이터가 없습니다. 연도/월/학년을 확인해주세요.', 404)
+    return err('외부 통계에 해당 시험 데이터가 없습니다. 연도/월/학년을 확인해주세요.', 404)
   }
 
   let updated = 0

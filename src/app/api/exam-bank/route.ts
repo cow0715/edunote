@@ -1,7 +1,7 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parseExamBankPage } from '@/lib/anthropic'
-import { getMegastudyStats } from '@/lib/megastudy'
+import { fetchExamStats } from '@/lib/exam-stats-source'
 import { NextResponse } from 'next/server'
 
 export const maxDuration = 300
@@ -126,7 +126,7 @@ export async function POST(request: Request) {
     let statsFetched = 0
     try {
       const formTypeVal: '홀수형' | '짝수형' = form_type === '짝수형' ? '짝수형' : '홀수형'
-      const stats = await getMegastudyStats(grade, exam_year, exam_month, formTypeVal)
+      const stats = await fetchExamStats(grade, exam_year, exam_month, formTypeVal)
       if (stats && stats.length > 0) {
         for (const row of stats) {
           const { error: updateErr } = await supabase
@@ -188,7 +188,7 @@ export async function POST(request: Request) {
     let statsFetched = 0
     try {
       const formTypeVal: '홀수형' | '짝수형' = form_type === '짝수형' ? '짝수형' : '홀수형'
-      const stats = await getMegastudyStats(grade, exam_year, exam_month, formTypeVal)
+      const stats = await fetchExamStats(grade, exam_year, exam_month, formTypeVal)
       if (stats && stats.length > 0) {
         for (const row of stats) {
           const { error: updateErr } = await supabase
