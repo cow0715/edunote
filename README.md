@@ -107,7 +107,6 @@ DB 스키마는 `supabase/migrations/` 의 SQL 을 Supabase SQL Editor 에 순�
 | `CLOVA_OCR_API_URL`, `CLOVA_OCR_SECRET` | Naver Clova OCR |
 | `SOLAPI_API_KEY`, `SOLAPI_API_SECRET`, `SOLAPI_SENDER` | SMS 발송 |
 | `CRON_SECRET` | Vercel Cron → `/api/cron/cleanup` 인증 |
-| `EXAM_STATS_*` | (선택) 기출 문항 정답률·난이도 외부 통계 연동 — 미설정 시 비활성 |
 | `NEXT_PUBLIC_DB_ENV` | (선택) `dev` / `prod` — 개발자 도구 페이지의 DB 표시용 |
 
 전체 목록은 [`.env.example`](.env.example) 참고.
