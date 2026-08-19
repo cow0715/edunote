@@ -16,6 +16,7 @@ import type {
   WeekProblemSheetQuestion,
 } from '@/lib/anthropic'
 import { recalcReadingCorrect, gradeMultiSelect, gradeOX } from '@/lib/grade-utils'
+import { mapWithConcurrency } from '@/lib/concurrency'
 
 export type MatchTagId = (questionType: string | null) => string | null
 
@@ -40,27 +41,6 @@ export type ProblemSheetUploadInput = {
 
 const PDF_PARSE_CHUNK_PAGES = 3
 const PDF_PARSE_CONCURRENCY = 2
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length)
-  let nextIndex = 0
-
-  async function worker() {
-    while (nextIndex < items.length) {
-      const index = nextIndex
-      nextIndex += 1
-      results[index] = await mapper(items[index], index)
-    }
-  }
-
-  const workerCount = Math.min(Math.max(1, concurrency), items.length)
-  await Promise.all(Array.from({ length: workerCount }, () => worker()))
-  return results
-}
 
 async function splitPdfUploadInput(
   file: ProblemSheetUploadInput,
