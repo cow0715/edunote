@@ -724,9 +724,13 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       return
     }
     const count = Math.max(1, Math.min(randomPickCount, filteredTestWords.length))
-    const { selected, prompts } = buildRandomVocabSelection(filteredTestWords, count, effectiveRatio)
+    const picked = buildRandomVocabSelection(filteredTestWords, count, effectiveRatio)
+    const prompts = picked.prompts
+    // 랜덤은 후보 귀한 유형부터 채우므로 그대로 저장하면 번호가 인쇄 파트를 거스른다 → 파트 순으로 정렬해 저장
+    const orderedIds = sortIdsBySection(picked.selected.map((word) => word.id), prompts)
+    const selected = orderedIds.map((id) => picked.selected.find((word) => word.id === id)!)
 
-    setSelectedWordIds(selected.map((word) => word.id))
+    setSelectedWordIds(orderedIds)
     setSelectedPrompts(prompts)
     const variantIds = selected
       .map((word) => findVariantForPrompt(word, prompts[word.id])?.id)

@@ -61,6 +61,11 @@ function one<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null
 }
 
+/** 인쇄 파트 순서. vocab-test-print-sheet 의 섹션 순서·vocab-word-setup 의 sortIdsBySection 과 같이 바꿔야 한다 */
+const SECTION_RANK: Record<string, number> = {
+  word: 0, synonym: 0, antonym: 0, derivative: 0, example_meaning: 1, example: 2, example_choice: 3,
+}
+
 function chunks<T>(items: T[], size: number) {
   const result: T[][] = []
   for (let i = 0; i < items.length; i += size) result.push(items.slice(i, i + size))
@@ -224,13 +229,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return err('예문 문항의 예문이 비어 있습니다. 예문을 먼저 생성해주세요.', 422)
   }
   const seenPromptKeys = new Set<string>()
-  const dedupedValidItems = validItems.filter((item) => {
-    const key = normalizePromptDuplicateKey(item.promptText)
-    if (!key) return true
-    if (seenPromptKeys.has(key)) return false
-    seenPromptKeys.add(key)
-    return true
-  })
+  const dedupedValidItems = validItems
+    .filter((item) => {
+      const key = normalizePromptDuplicateKey(item.promptText)
+      if (!key) return true
+      if (seenPromptKeys.has(key)) return false
+      seenPromptKeys.add(key)
+      return true
+    })
+    // 문항 번호 = 인쇄 시험지 파트 순서 (A 뜻쓰기 → B 예문뜻 → C 예문빈칸 → D 예문선택). 파트 안에서는 요청 순서 유지.
+    // 클라이언트도 정렬해 보내지만, 번호와 종이가 어긋나면 채점이 틀어지므로 서버에서 한 번 더 보장한다.
+    .map((item, index) => ({ item, index, rank: SECTION_RANK[item.promptSource] ?? 0 }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map(({ item }) => item)
   const selectedVariantIds = dedupedValidItems
     .map((item) => item.variantId)
     .filter((id): id is string => Boolean(id))
