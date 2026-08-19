@@ -14,6 +14,7 @@ import {
 import type { ParsedExplanation } from './explanation-parser'
 import { reconstructClovaLayout, ClovaField } from './clova-layout'
 import { gradeBlankAnswer, gradeChoiceAnswer } from './vocab-blank-grading'
+import { fixUnescapedQuotesInJson } from './json-lenient'
 
 export type { ExamOcrQuestion }
 
@@ -74,7 +75,20 @@ function extractJsonArrayCandidate(raw: string): string {
 }
 
 function parseJsonArrayResponse<T>(raw: string): T[] {
-  return JSON.parse(jsonrepair(extractJsonArrayCandidate(raw))) as T[]
+  const candidate = extractJsonArrayCandidate(raw)
+  try {
+    return JSON.parse(jsonrepair(candidate)) as T[]
+  } catch (error) {
+    // 문자열 값 안의 이스케이프 안 된 큰따옴표(지문 속 대화 등) — jsonrepair 가 못 고치는 케이스.
+    // 실패했을 때만 한 번 더 시도하므로 정상 응답 경로는 그대로.
+    try {
+      const parsed = JSON.parse(jsonrepair(fixUnescapedQuotesInJson(candidate))) as T[]
+      console.warn('[parseJsonArrayResponse] 문자열 안 따옴표 복구 후 파싱 성공')
+      return parsed
+    } catch {
+      throw error
+    }
+  }
 }
 
 export type SubjectiveQuestion = {
@@ -1395,7 +1409,7 @@ function normalizeMultiSelectOcrAnswer(text: string): string {
 
 async function splitPdfToSinglePageBase64(fileData: string): Promise<string[]> {
   const { PDFDocument } = await import('pdf-lib')
-  const srcDoc = await PDFDocument.load(Buffer.from(fileData, 'base64'))
+  const srcDoc = await PDFDocument.load(Buffer.from(fileData, 'base64'), { ignoreEncryption: true })
   const pageDocs: string[] = []
 
   for (let i = 0; i < srcDoc.getPageCount(); i += 1) {

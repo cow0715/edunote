@@ -149,7 +149,7 @@ export async function POST(request: Request) {
 
     // 2차: 페이지별 처리
     const { PDFDocument } = await import('pdf-lib')
-    const srcDoc = await PDFDocument.load(buffer)
+    const srcDoc = await PDFDocument.load(buffer, { ignoreEncryption: true })
     const pageCount = srcDoc.getPageCount()
 
     type PageResult = { pageNum: number; text: string; filtered: boolean }
