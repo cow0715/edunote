@@ -38,13 +38,13 @@ function getAnthropic() {
 
 async function getPdfPageCount(fileData: string) {
   const { PDFDocument } = await import('pdf-lib')
-  const pdf = await PDFDocument.load(Buffer.from(fileData, 'base64'))
+  const pdf = await PDFDocument.load(Buffer.from(fileData, 'base64'), { ignoreEncryption: true })
   return pdf.getPageCount()
 }
 
 async function slicePdfFirstPages(fileData: string, maxPages: number) {
   const { PDFDocument } = await import('pdf-lib')
-  const sourcePdf = await PDFDocument.load(Buffer.from(fileData, 'base64'))
+  const sourcePdf = await PDFDocument.load(Buffer.from(fileData, 'base64'), { ignoreEncryption: true })
   const pageCount = sourcePdf.getPageCount()
   const testedPageCount = Math.min(Math.max(1, maxPages), pageCount)
 

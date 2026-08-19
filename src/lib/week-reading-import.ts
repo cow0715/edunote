@@ -51,7 +51,7 @@ async function splitPdfUploadInput(
   }
 
   const { PDFDocument } = await import('pdf-lib')
-  const sourcePdf = await PDFDocument.load(Buffer.from(file.fileData, 'base64'))
+  const sourcePdf = await PDFDocument.load(Buffer.from(file.fileData, 'base64'), { ignoreEncryption: true })
   const pageCount = sourcePdf.getPageCount()
 
   if (pageCount <= pagesPerChunk) {
@@ -1206,7 +1206,7 @@ export async function saveSourceImagesForQuestions(
 
     try {
       const { PDFDocument } = await import('pdf-lib')
-      const sourcePdf = await PDFDocument.load(Buffer.from(file.fileData, 'base64'))
+      const sourcePdf = await PDFDocument.load(Buffer.from(file.fileData, 'base64'), { ignoreEncryption: true })
       const pageCount = sourcePdf.getPageCount()
       const pageOffset = file.pageOffset ?? 0
 
