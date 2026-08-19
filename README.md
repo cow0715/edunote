@@ -1,10 +1,8 @@
 # EduNote
 
-영어 학원 강사를 위한 **학생 관리 · 채점 자동화 · 학부모 리포트** 웹 서비스입니다.
+영어 학원 강사를 위한 학생 관리 · 채점 자동화 · 학부모 리포트 웹 서비스입니다.
 매주 치르는 진단평가(독해)·단어 시험의 시험지 PDF와 답안지 사진을 올리면 AI(OCR + LLM)가
 문항을 구조화하고 채점하며, 결과를 학생/학부모에게 공유 링크·성적표·문자로 전달합니다.
-
-> 실제 학원 운영에 사용 중인 프로젝트입니다. 개발 DB 와 운영 DB 를 분리해 운영합니다.
 
 ## 주요 기능
 
@@ -14,19 +12,18 @@
 | 시험지 PDF 구조화 | 진단평가 해설지/문제지 PDF → LLM 파싱 → 문항(지문·발문·선지·정답·유형·개념 태그) 자동 생성, 도표 문항은 원본 이미지 크롭 보존 → [아래 상세](#시험지-pdf--구조화-문항-파이프라인) |
 | AI 채점 | 답안지 사진 업로드 → Clova OCR / Claude Vision 인식 → 객관식·단어·빈칸 자동 채점 + 서술형 LLM 채점, 강사 검수 후 확정 |
 | 단어 시험 | 단어장(xlsx) 업로드, 유형별(뜻·철자·선택형·예문 빈칸) 비율로 시험지 자동 출제·인쇄, 오답 규칙 기반 채점 |
-| 기출문제 은행 | 수능·모평·학평 기출 PDF 파싱 → 25종 유형 분류 → 메가스터디 정답률·난이도 연동 → 전문 검색(tsvector), 해설 PDF 파싱·AI 보완 |
+| 기출문제 은행 | 수능·모평·학평 기출 PDF 파싱 → 25종 유형 분류 → 정답률·난이도 메타데이터 보강 → 전문 검색(tsvector), 해설 PDF 파싱·AI 보완 |
 | 모의고사 | 문제지·정답표·해설지 다중 PDF에서 메타데이터(정답·배점·유형·난이도·복수정답) 추출, OMR 일괄 인식·학생 자동 매칭, 등급 산출, 리포트 발송 |
 | 학생 현황 분석 | 강사 화면: 주차별 점수 추이·반 평균 비교 / 학부모 공유 페이지: 유형별 취약점 레이더·오답 유형 파이, 불안정 패턴 감지 |
 | 학부모 공유 | 학생별 공유 토큰 링크(로그인 불필요), 성적표 공개 뷰, 모의고사 리포트, 재시험(retake) 페이지 |
 | 메시지 발송 | Solapi SMS — 주차 결과·성적표·모의고사 리포트 일괄 발송, LLM 으로 문구 다듬기 |
 | 클리닉 | 보충 수업 슬롯·등록·출석 관리 및 안내 문자 |
 | 운영 | 가입 승인제, Vercel Cron 으로 보관 기간 지난 Storage 객체(단어 시험지 사진) 매일 정리 |
-| DB 백업 · 복원 | **구현 예정** — 앱 레벨 JSON 덤프 대신 DB 단 표준 방식(Supabase PITR / `pg_dump` 를 GitHub Actions 스케줄로 외부 저장소에 적재)으로 설계 중 |
+| DB 백업 · 복원 | 구현 예정 — 앱 레벨 JSON 덤프 대신 DB 단 표준 방식(Supabase PITR / `pg_dump` 를 GitHub Actions 스케줄로 외부 저장소에 적재)으로 설계 중 |
 
 ## 시험지 PDF → 구조화 문항 파이프라인
 
-이 프로젝트에서 가장 공을 들인 부분입니다. 학원 자체 **진단평가**(주차별 독해 시험) PDF를
-채점 가능한 문항 데이터로 바꾸는 흐름:
+진단평가(주차별 독해 시험) PDF 를 채점 가능한 문항 데이터로 바꾸는 흐름:
 
 ```
 PDF 업로드 (Supabase Storage signed URL — Vercel 4.5MB body 한도 우회)
@@ -47,10 +44,10 @@ PDF 업로드 (Supabase Storage signed URL — Vercel 4.5MB body 한도 우회)
 
 | 파이프라인 | 입력 | 산출 | 특징 |
 |---|---|---|---|
-| **기출문제 은행** (`/api/exam-bank`) | 수능·모평·학평 PDF | `exam_bank_question` | 18~45번 추출, 유형 25종 enum 강제, 콘텐츠 필터 시 페이지 PNG 렌더로 재시도, **메가스터디 통계 스크래핑**(EUC-KR 디코딩, 시험 월 변동 대응)으로 정답·배점·난이도·선지별 선택률 채움, 해설 PDF 는 정규식/Vision 3경로 파싱 |
+| **기출문제 은행** (`/api/exam-bank`) | 수능·모평·학평 PDF | `exam_bank_question` | 18~45번 추출, 유형 25종 enum 강제, 콘텐츠 필터 시 페이지 PNG 렌더로 재시도, 정답·배점·난이도·선지별 선택률 메타데이터 보강, 해설 PDF 는 정규식/Vision 3경로 파싱 |
 | **모의고사** (`/api/mock-exams/[id]/metadata`) | 문제지+정답표+해설지 다중 파일 | `mock_exam_question` | 본문 없이 메타데이터만(토큰 절약), 정답표 집중 2차 패스로 정답 신뢰도 보정, OMR 인식은 응답률 75% 미만 시 strict 재인식 + 성명 칸 별도 재시도, Levenshtein 기반 재원생 자동 매칭(임계 미달 시 `review_required`) |
 
-**신뢰성 장치**
+신뢰성 장치:
 - LLM JSON 응답 복구 2단: `jsonrepair` → 실패 시 지문 속 미이스케이프 따옴표 보정(`json-lenient.ts`) → 그래도 실패하면 문항 객체 단위 정규식 추출
 - 서술형 채점은 배치 분할 + `Promise.allSettled`, 실패 배치는 `needs_review` 로 강등해 강사가 확인
 - 암호화(owner-lock) PDF 대응, 긴 PDF 청크/페이지 단위 재시도, 외부 통계 실패는 파싱 결과에 영향 없음
@@ -110,6 +107,7 @@ DB 스키마는 `supabase/migrations/` 의 SQL 을 Supabase SQL Editor 에 순�
 | `CLOVA_OCR_API_URL`, `CLOVA_OCR_SECRET` | Naver Clova OCR |
 | `SOLAPI_API_KEY`, `SOLAPI_API_SECRET`, `SOLAPI_SENDER` | SMS 발송 |
 | `CRON_SECRET` | Vercel Cron → `/api/cron/cleanup` 인증 |
+| `EXAM_STATS_*` | (선택) 기출 문항 정답률·난이도 외부 통계 연동 — 미설정 시 비활성 |
 | `NEXT_PUBLIC_DB_ENV` | (선택) `dev` / `prod` — 개발자 도구 페이지의 DB 표시용 |
 
 전체 목록은 [`.env.example`](.env.example) 참고.
@@ -126,8 +124,3 @@ npm run test:parse   # ⚠ 실제 LLM 호출 (과금) — 해설지 파싱 회�
 - `src/lib/` 의 순수 로직을 수정하면 `tests/unit/` 에 테스트를 함께 추가합니다.
 - 스키마 변경은 반드시 `supabase/migrations/` 에 SQL 파일을 같이 남깁니다.
 - 협업 규칙(검증·디자인 시스템·마이그레이션)은 [AGENTS.md](AGENTS.md), 디자인 사양은 [design.md](design.md) 에 정리되어 있습니다.
-
-## 문서
-
-- [docs/weakness-analysis-design.md](docs/weakness-analysis-design.md) — 취약점 분석 설계 (불안정 패턴·최근 가중 정답률, 반영 완료)
-- [docs/worklog/](docs/worklog/) — 작업 로그
