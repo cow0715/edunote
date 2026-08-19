@@ -63,6 +63,43 @@ export function rebalanceSourceRatio(
   return next
 }
 
+/**
+ * 후보가 없는 유형(예: 예문 생성 전이라 예문 유형 후보 0)의 비율을 0으로 접고,
+ * 그 몫을 후보가 있는 나머지 유형에 기존 비중대로 나눠 준다. 나눠 줄 데가 없으면 원본으로.
+ * 화면·랜덤 출제는 이 "실효 비율" 을 쓴다 — 안 그러면 예문 10% 라고 써 놓고 조용히 원본으로 채워진다.
+ */
+export function applySourceAvailability(
+  ratio: VocabSourceRatio,
+  candidateCounts: Partial<Record<VocabRatioSource, number>>,
+): VocabSourceRatio {
+  const available = RATIO_SOURCES.filter((source) => (candidateCounts[source] ?? 0) > 0)
+  const unavailable = RATIO_SOURCES.filter((source) => (candidateCounts[source] ?? 0) === 0)
+  if (unavailable.length === 0) return ratio
+  const lost = unavailable.reduce((sum, source) => sum + ratio[source], 0)
+  const next: VocabSourceRatio = { ...ratio }
+  unavailable.forEach((source) => { next[source] = 0 })
+  if (lost === 0) return next
+  const keepTotal = available.reduce((sum, source) => sum + ratio[source], 0)
+  if (available.length === 0) return next
+  if (keepTotal === 0) {
+    // 남은 유형이 전부 0% 였으면 원본(있으면)에 몰아준다
+    const target = available.includes('word') ? 'word' : available[0]
+    next[target] = 100
+    return next
+  }
+  let assigned = 0
+  available.forEach((source, index) => {
+    if (index === available.length - 1) {
+      next[source] = 100 - assigned
+      return
+    }
+    const value = Math.round((ratio[source] / keepTotal) * 100)
+    next[source] = value
+    assigned += value
+  })
+  return next
+}
+
 /** 문항 수를 비율대로 배분한다 (내림 후 소수점 큰 순서로 잔여 배분, 합계 = count). */
 export function allocatePromptTargets(count: number, ratio: VocabSourceRatio): VocabSourceRatio {
   const rawTargets = RATIO_SOURCES.map((source) => ({
