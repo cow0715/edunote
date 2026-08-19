@@ -168,7 +168,7 @@ export const GroupedQuestionRow = memo(function GroupedQuestionRow({
 })
 
 // ── 정답 표시 ───────────────────────────────────────────
-function AnswerKey({ q }: { q: ExamQuestion }) {
+export function AnswerKey({ q }: { q: ExamQuestion }) {
   let text: string | null
   if (q.question_style === 'objective') {
     if (!q.correct_answer) { text = null }
@@ -188,7 +188,7 @@ function AnswerKey({ q }: { q: ExamQuestion }) {
 }
 
 // ── 정오 칩 ────────────────────────────────────────────
-function CorrectChip({ isCorrect, needsReview, feedback }: { isCorrect: boolean | undefined; needsReview?: boolean; feedback?: string }) {
+export function CorrectChip({ isCorrect, needsReview, feedback }: { isCorrect: boolean | undefined; needsReview?: boolean; feedback?: string }) {
   if (isCorrect === undefined) return null
   return (
     <div className="flex items-center gap-1.5 flex-wrap">

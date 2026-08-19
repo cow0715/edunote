@@ -8,6 +8,9 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, ChevronDown, Images, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { VocabBatchGradeDialog } from '@/components/grade/vocab-batch-grade-dialog'
+import { ExamSheetContent } from '@/components/grade/exam-sheet-content'
+import type { ExamQuestion } from '@/lib/types'
+import type { GradeRow } from '@/hooks/use-grade'
 import { VocabTestPrintSheet } from '@/components/grade/vocab-test-print-sheet'
 import { VocabGradingPrintSheet } from '@/components/grade/vocab-grading-print-sheet'
 import { VocabSourceRatioPanel } from '@/components/grade/vocab-source-ratio-panel'
@@ -24,7 +27,7 @@ const PRESETS = [
   { label: '40 (기존 레이아웃)', meaning: 40, exampleMeaning: 0, exampleBlank: 0, exampleChoice: 0 },
 ] as const
 
-type Tab = 'test' | 'filled' | 'grading' | 'sheet' | 'share' | 'retake' | 'retakeResult' | 'batch'
+type Tab = 'test' | 'filled' | 'grading' | 'sheet' | 'share' | 'retake' | 'retakeResult' | 'batch' | 'exam'
 const TABS: Array<{ key: Tab; label: string; desc: string }> = [
   { key: 'test', label: '시험지', desc: 'A(뜻쓰기 2단) + B/C/D 예문 파트. 예문 있으면 1페이지 압축' },
   { key: 'filled', label: '채워진 시험지', desc: '채점 테스트용 — 학생이 답을 쓴 상태 (손글씨풍). 이걸 캡처해 OCR 채점에 넣는다' },
@@ -34,6 +37,7 @@ const TABS: Array<{ key: Tab; label: string; desc: string }> = [
   { key: 'retake', label: '재시험 카드', desc: '유형 그대로 — 예문뜻/빈칸 입력, 선택은 버튼 2개' },
   { key: 'retakeResult', label: '재시험 결과', desc: '제출 후 카드가 하나씩 뒤집히며 정오 표시. 오답은 펼쳐서 유의어·반의어' },
   { key: 'batch', label: '일괄 채점', desc: '사진 여러 장 → 이름 자동 매칭 확인 → 병렬 채점. 실제 다이얼로그, API 는 가짜 응답' },
+  { key: 'exam', label: '진단평가 채점지', desc: '강사 채점 화면(시험 셀) — 인쇄 답안지와 같은 표(번호 | 답), 같은 순서. 정답 테두리·오답 빨강. 실제 컴포넌트' },
 ]
 
 /** 샘플 오답 생성: 유형별로 그럴듯한 틀린 답 */
@@ -487,6 +491,76 @@ function BatchGradePreview() {
   )
 }
 
+// ── 진단평가 정오표 (실제 ExamSheetContent, 답안은 로컬 state) ──────────────────
+function sampleExamQuestion(partial: Partial<ExamQuestion> & { id: string; question_number: number }): ExamQuestion {
+  return {
+    week_id: 'sample-week', sub_label: null, question_type: null, question_text: null, question_stem: null, passage: null,
+    choices: null, correct_answer: 0, correct_answer_text: null, extra_correct_answers: [], grading_criteria: null,
+    explanation: null, needs_source_image: false, source_image_reason: null, source_page: null, source_bbox: null,
+    source_image_path: null, exam_type: 'reading', question_style: 'objective', is_void: false, all_correct: false,
+    created_at: '', ...partial,
+  }
+}
+
+const EXAM_SAMPLE_QUESTIONS: ExamQuestion[] = [
+  ...Array.from({ length: 18 }, (_, i) => sampleExamQuestion({ id: `q${i + 1}`, question_number: i + 1, correct_answer: (i * 7) % 5 + 1 })),
+  sampleExamQuestion({ id: 'q19a', question_number: 19, sub_label: 'a', correct_answer: 2 }),
+  sampleExamQuestion({ id: 'q19b', question_number: 19, sub_label: 'b', correct_answer: 4 }),
+  sampleExamQuestion({ id: 'q19c', question_number: 19, sub_label: 'c', correct_answer: 1 }),
+  sampleExamQuestion({ id: 'q20', question_number: 20, correct_answer: 3, extra_correct_answers: [5] }),
+  sampleExamQuestion({ id: 'q21', question_number: 21, correct_answer: 2, all_correct: true }),
+  sampleExamQuestion({ id: 'q22', question_number: 22, correct_answer: 4, is_void: true }),
+  sampleExamQuestion({ id: 'q23', question_number: 23, correct_answer: 1, needs_source_image: true, source_image_reason: '도표' }),
+  sampleExamQuestion({ id: 'q24', question_number: 24, correct_answer: 5 }),
+  sampleExamQuestion({ id: 'q25', question_number: 25, question_style: 'ox', correct_answer_text: 'X → have' }),
+  sampleExamQuestion({ id: 'q26', question_number: 26, question_style: 'subjective', correct_answer_text: 'The author claims that ...' }),
+]
+
+function ExamSheetPreview() {
+  const [row, setRow] = useState<GradeRow>(() => ({
+    student_id: 's1', student_name: '김테스트', present: true, vocab_correct: null, reading_present: true, reading_correct: null,
+    homework_done: null, memo: '',
+    // 샘플 답: 대부분 정답, 3·8·13·20 오답, 24 미입력, 21 전원정답, 22 무효
+    answers: EXAM_SAMPLE_QUESTIONS.filter((q) => q.question_style === 'objective').map((q) => {
+      const wrong = [3, 8, 13, 20].includes(q.question_number)
+      const empty = q.question_number === 24
+      return { exam_question_id: q.id, student_answer: empty ? null : wrong ? (q.correct_answer % 5) + 1 : q.correct_answer, is_correct: !wrong }
+    }),
+  }))
+  const updateRow = (_: string, key: keyof GradeRow, value: unknown) => setRow((r) => ({ ...r, [key]: value }))
+  const updateAnswer = (_: string, questionId: string, value: number | null) =>
+    setRow((r) => ({ ...r, answers: r.answers.map((a) => a.exam_question_id === questionId ? { ...a, student_answer: value } : a) }))
+  const updateAnswerText = (_: string, questionId: string, text: string) =>
+    setRow((r) => {
+      const exists = r.answers.some((a) => a.exam_question_id === questionId)
+      return {
+        ...r,
+        answers: exists
+          ? r.answers.map((a) => a.exam_question_id === questionId ? { ...a, student_answer_text: text } : a)
+          : [...r.answers, { exam_question_id: questionId, student_answer: null, student_answer_text: text }],
+      }
+    })
+
+  return (
+    <div className="mx-auto w-[600px] overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className="flex items-center gap-2 border-b px-4 py-3">
+        <span className="text-base font-semibold">{row.student_name}</span>
+        <span className="text-xs text-gray-400">1/12</span>
+        <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-600">시험</span>
+      </div>
+      <ExamSheetContent
+        weekId="sample-week"
+        row={row}
+        questions={EXAM_SAMPLE_QUESTIONS}
+        readingTotal={EXAM_SAMPLE_QUESTIONS.length}
+        updateRow={updateRow}
+        updateAnswer={updateAnswer}
+        updateAnswerText={updateAnswerText}
+      />
+    </div>
+  )
+}
+
 export default function VocabPrintPreviewPage() {
   const [preset, setPreset] = useState<(typeof PRESETS)[number]>(PRESETS[0])
   const [ratio, setRatio] = useState<VocabSourceRatio>(DEFAULT_SOURCE_RATIO)
@@ -566,6 +640,7 @@ export default function VocabPrintPreviewPage() {
           {tab === 'retake' && <RetakeCardPreview items={items} />}
           {tab === 'retakeResult' && <RetakeResultPreview items={items} />}
           {tab === 'batch' && <BatchGradePreview />}
+          {tab === 'exam' && <ExamSheetPreview />}
         </div>
       )}
     </div>

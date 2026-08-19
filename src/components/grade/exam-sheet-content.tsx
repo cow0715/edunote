@@ -1,13 +1,171 @@
 'use client'
 
+import { useState } from 'react'
+import { ImageIcon } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { acceptedObjectiveAnswers, gradeObjective } from '@/lib/objective-grading'
 import { ScoreToggleField } from './score-toggle-field'
-import { GroupedQuestionRow, QuestionRow } from './question-inputs'
+import { AnswerKey, CorrectChip, OXInput } from './question-inputs'
+import { SourceImagePreview } from './source-image-preview'
 import { ExamBatchUploadButton } from './exam-batch-upload-button'
 import { ExamPhotoButton, ExamOcrResult } from './exam-photo-button'
+
+/**
+ * 진단평가 채점지 — 인쇄 답안지(answer-sheet/print)와 같은 표.
+ *   [번호] | ① ② ③ ④ ⑤            (객관식)
+ *   [번호] | (a) ①②③④⑤ (b) ①②③④⑤ (소문항, 가로)
+ *   [번호] | O / X  수정답: ____     (O/X)
+ *   [번호] | ______________          (서술형)
+ * 학생이 쓴 종이를 위에서 아래로 훑으며 그대로 옮겨 적는 흐름. 순서·행 구성은 답안지와 동일.
+ */
+
+type AnswerLike = GradeRow['answers'][number] | undefined
+const CHOICES = [1, 2, 3, 4, 5] as const
+
+function ObjectiveMarks({ q, answer, disabled, onChange }: {
+  q: ExamQuestion
+  answer: AnswerLike
+  disabled: boolean
+  onChange: (n: number | null) => void
+}) {
+  const value = answer?.student_answer ?? null
+  const accepted = acceptedObjectiveAnswers(q)
+  const hasKey = accepted.size > 0 || q.all_correct
+  const result = q.is_void ? undefined : hasKey ? gradeObjective(q, value) : undefined
+
+  return (
+    <div className="flex items-center gap-1">
+      <div className="flex gap-1">
+        {CHOICES.map((n) => {
+          const selected = value === n
+          const isAccepted = accepted.has(n)
+          return (
+            <button
+              key={n}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(selected ? null : n)}
+              className={cn(
+                'flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors',
+                selected
+                  ? result === true
+                    ? 'bg-emerald-500 text-white'
+                    : result === false
+                      ? 'bg-rose-500 text-white'
+                      : 'bg-indigo-600 text-white'
+                  : isAccepted && !q.is_void
+                    ? 'bg-white text-emerald-600 ring-1 ring-inset ring-emerald-400 hover:bg-emerald-50'
+                    : 'bg-gray-100 text-gray-400 hover:bg-gray-200',
+              )}
+            >
+              {n}
+            </button>
+          )
+        })}
+      </div>
+      <span className={cn('w-4 shrink-0 text-center text-xs font-bold', result === true ? 'text-green-500' : result === false ? 'text-red-400' : 'text-transparent')}>
+        {result === true ? '✓' : result === false ? '✗' : '·'}
+      </span>
+    </div>
+  )
+}
+
+/** 서술형/오류교정 — 타이핑은 로컬, 부모 sync 는 blur (QuestionRow 와 같은 패턴) */
+function TextAnswerCell({ q, answer, disabled, onChangeText }: {
+  q: ExamQuestion
+  answer: AnswerLike
+  disabled: boolean
+  onChangeText: (t: string) => void
+}) {
+  const externalText = answer?.student_answer_text ?? ''
+  const [localText, setLocalText] = useState(externalText)
+  const [syncedExternal, setSyncedExternal] = useState(externalText)
+  if (syncedExternal !== externalText) {
+    setSyncedExternal(externalText)
+    setLocalText(externalText)
+  }
+  const isFindError = q.question_style === 'find_error'
+  const correction = q.correct_answer_text?.split(':')[1]?.trim() ?? ''
+  const isSymbolCorr = !!q.correct_answer_text && /^[a-z]:.+$/i.test(q.correct_answer_text.trim())
+  const placeholder = isFindError
+    ? (correction ? `수정어 입력 (예: ${correction})` : '수정어 입력')
+    : isSymbolCorr ? `수정어만 입력 (예: ${correction})` : '답안 입력'
+  const hasAnswer = !!answer?.student_answer_text
+
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-1">
+      <Textarea
+        value={localText}
+        onChange={(e) => setLocalText(e.target.value)}
+        onBlur={() => onChangeText(localText)}
+        disabled={disabled}
+        placeholder={placeholder}
+        rows={1}
+        className="min-h-8 text-sm resize-none py-1"
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        {hasAnswer && <CorrectChip isCorrect={answer?.is_correct} needsReview={answer?.needs_review === true} feedback={answer?.ai_feedback} />}
+        <AnswerKey q={q} />
+      </div>
+    </div>
+  )
+}
+
+function AnswerCell({ q, answer, disabled, onChangeAnswer, onChangeText }: {
+  q: ExamQuestion
+  answer: AnswerLike
+  disabled: boolean
+  onChangeAnswer: (n: number | null) => void
+  onChangeText: (t: string) => void
+}) {
+  if (q.question_style === 'objective') {
+    return <ObjectiveMarks q={q} answer={answer} disabled={disabled} onChange={onChangeAnswer} />
+  }
+  if (q.question_style === 'ox') {
+    const savedText = answer?.student_answer_text?.trim() ?? ''
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <OXInput textValue={savedText} onChange={onChangeText} disabled={disabled} />
+        {savedText && (
+          <span className={cn('text-xs font-bold', answer?.is_correct ? 'text-green-500' : 'text-red-400')}>
+            {answer?.is_correct ? '✓' : '✗'}
+          </span>
+        )}
+        <AnswerKey q={q} />
+      </div>
+    )
+  }
+  if (q.question_style === 'multi_select') {
+    const hasAnswer = !!answer?.student_answer_text
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={answer?.student_answer_text ?? ''}
+          onChange={(e) => onChangeText(e.target.value)}
+          disabled={disabled}
+          placeholder={`예: ${q.correct_answer_text ?? '1,3'}`}
+          className="h-7 w-28 text-sm"
+        />
+        {hasAnswer && <CorrectChip isCorrect={answer?.is_correct} />}
+        <AnswerKey q={q} />
+      </div>
+    )
+  }
+  return <TextAnswerCell q={q} answer={answer} disabled={disabled} onChangeText={onChangeText} />
+}
+
+const STYLE_SHORT: Record<ExamQuestion['question_style'], string | null> = {
+  objective: null,
+  ox: 'O/X',
+  subjective: '서술',
+  multi_select: '복수',
+  find_error: '교정',
+}
 
 export function ExamSheetContent({ weekId, row, questions, readingTotal, updateRow, updateAnswer, updateAnswerText }: {
   weekId: string
@@ -20,6 +178,7 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, updateR
 }) {
   const hasSubjective = questions.some((q) => q.question_style === 'subjective')
   const disabled = !row.present || !row.reading_present
+  const [openImageIds, setOpenImageIds] = useState<Set<string>>(new Set())
 
   function applyOcrResults(results: ExamOcrResult[]) {
     for (const r of results) {
@@ -33,6 +192,49 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, updateR
         updateAnswerText(row.student_id, q.id, r.student_answer_text)
       }
     }
+  }
+
+  function toggleImage(id: string) {
+    setOpenImageIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const answerOf = (q: ExamQuestion): AnswerLike => row.answers.find((a) => a.exam_question_id === q.id)
+
+  // 답안지와 같은 행 구성: 번호별로 묶고(소문항은 한 행에 가로), 번호 순서
+  const groups = [...questions
+    .reduce<Map<number, ExamQuestion[]>>((acc, q) => {
+      const list = acc.get(q.question_number) ?? []
+      list.push(q)
+      acc.set(q.question_number, list)
+      return acc
+    }, new Map())
+    .entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([qNum, group]) => ({ qNum, group }))
+
+  // 요약: 정 / 오 / 입력 수 (무효 문항 제외)
+  const gradable = questions.filter((q) => !q.is_void)
+  let correctCount = 0
+  let wrongCount = 0
+  let answeredCount = 0
+  for (const q of gradable) {
+    const a = answerOf(q)
+    let result: boolean | undefined
+    if (q.question_style === 'objective') {
+      result = gradeObjective(q, a?.student_answer)
+    } else {
+      const hasText = !!a?.student_answer_text?.trim()
+      result = hasText ? a?.is_correct : undefined
+    }
+    if (result === undefined) continue
+    answeredCount += 1
+    if (result) correctCount += 1
+    else wrongCount += 1
   }
 
   return (
@@ -96,38 +298,90 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, updateR
       )}
 
       {questions.length > 0 && (
-        <div className={cn('divide-y', !row.reading_present && 'opacity-40 pointer-events-none')}>
-          {Object.values(
-            questions.reduce<Record<number, ExamQuestion[]>>((acc, q) => {
-              ;(acc[q.question_number] ??= []).push(q)
-              return acc
-            }, {})
-          ).map((group) => {
-            if (group.length > 1 && group.every((q) => q.question_style === 'objective')) {
-              return (
-                <GroupedQuestionRow
-                  key={group[0].question_number}
-                  questions={group}
-                  answers={group.map((q) => row.answers.find((a) => a.exam_question_id === q.id))}
-                  disabled={disabled}
-                  onChangeAnswer={(qId, n) => updateAnswer(row.student_id, qId, n)}
-                />
-              )
-            }
-            return group.map((q) => {
-              const answer = row.answers.find((a) => a.exam_question_id === q.id)
-              return (
-                <QuestionRow
-                  key={q.id}
-                  q={q}
-                  answer={answer}
-                  disabled={disabled}
-                  onChangeAnswer={(n) => updateAnswer(row.student_id, q.id, n)}
-                  onChangeText={(t) => updateAnswerText(row.student_id, q.id, t)}
-                />
-              )
-            })
-          })}
+        <div className={cn('p-4 space-y-2', !row.reading_present && 'opacity-40 pointer-events-none')}>
+          {/* 요약 — 단어 정오표와 같은 형식 */}
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-400">
+              <span className="text-green-600 font-medium">{correctCount}정</span>
+              &nbsp;/&nbsp;
+              <span className="text-red-400 font-medium">{wrongCount}오</span>
+              &nbsp;/ {answeredCount}/{gradable.length}개 입력
+            </p>
+            <p className="text-[11px] text-gray-300">
+              <span className="inline-block h-2.5 w-2.5 rounded-full ring-1 ring-inset ring-emerald-400 align-[-1px] mr-1" />정답
+            </p>
+          </div>
+
+          {/* 답안지 표 */}
+          <div className="overflow-hidden rounded-lg border border-gray-200">
+          <table className="w-full border-collapse text-sm">
+            <colgroup>
+              <col className="w-11" />
+              <col />
+            </colgroup>
+            <tbody>
+              {groups.map(({ qNum, group }) => {
+                const first = group[0]
+                const hasSub = group.length > 1 || first.sub_label !== null
+                const groupHasImage = group.some((q) => q.source_image_path || q.needs_source_image)
+                const imageOpen = openImageIds.has(first.id)
+                const anyVoid = group.some((q) => q.is_void)
+                const anyAllCorrect = group.some((q) => q.all_correct)
+                const styleLabel = STYLE_SHORT[first.question_style]
+                return (
+                  <tr key={qNum} className="border-b border-gray-200 last:border-b-0">
+                    {/* 번호 칸 — 답안지의 주황 칸 */}
+                    <td className="border-r border-gray-200 bg-orange-50 px-1 py-1.5 text-center align-top text-xs font-bold text-gray-800">
+                      <div className="pt-1">{qNum}</div>
+                      {styleLabel && <div className="text-[9px] font-medium text-gray-400">{styleLabel}</div>}
+                    </td>
+                    {/* 답 칸 */}
+                    <td className="px-2 py-1.5 align-top">
+                      <div className="flex flex-wrap items-start gap-x-4 gap-y-1">
+                        {group.map((q) => (
+                          <div key={q.id} className={cn('flex items-center gap-1.5', !hasSub && 'min-w-0 flex-1')}>
+                            {hasSub && (
+                              <span className="w-6 shrink-0 text-center text-xs font-bold text-gray-500">({q.sub_label})</span>
+                            )}
+                            <AnswerCell
+                              q={q}
+                              answer={answerOf(q)}
+                              disabled={disabled}
+                              onChangeAnswer={(n) => updateAnswer(row.student_id, q.id, n)}
+                              onChangeText={(t) => updateAnswerText(row.student_id, q.id, t)}
+                            />
+                          </div>
+                        ))}
+                        <div className="ml-auto flex items-center gap-1 self-center">
+                          {anyVoid && <span className="rounded bg-gray-100 px-1 text-[10px] text-gray-400">무효</span>}
+                          {!anyVoid && anyAllCorrect && <span className="rounded bg-emerald-50 px-1 text-[10px] text-emerald-600">전원정답</span>}
+                          {groupHasImage && (
+                            <button
+                              type="button"
+                              onClick={() => toggleImage(first.id)}
+                              title={first.source_image_path ? '원본 페이지 보기' : '원본 이미지 필요 (저장된 이미지 없음)'}
+                              className={cn(
+                                'shrink-0 rounded p-0.5 transition-colors',
+                                imageOpen ? 'bg-slate-200 text-slate-600' : first.source_image_path ? 'text-gray-300 hover:text-gray-500' : 'text-amber-400 hover:text-amber-500',
+                              )}
+                            >
+                              <ImageIcon className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {imageOpen && (
+                        <div className="mt-2">
+                          <SourceImagePreview question={first} compact />
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          </div>
         </div>
       )}
 
