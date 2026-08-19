@@ -407,7 +407,7 @@ export default function ExamBankPage() {
   )
 }
 
-// ── 외부 통계 버튼 ──────────────────────────────────────────────────
+// ── 메가스터디 통계 버튼 ──────────────────────────────────────────────────
 
 function FetchStatsButton({ examId, formType }: { examId: string; formType: string }) {
   const queryClient = useQueryClient()
@@ -438,7 +438,7 @@ function FetchStatsButton({ examId, formType }: { examId: string; formType: stri
       size="sm"
       onClick={handleFetch}
       disabled={loading}
-      title="외부 통계 가져오기 (정답률·난이도)"
+      title="메가스터디 통계 가져오기"
     >
       {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart2 className="h-4 w-4" />}
     </Button>
@@ -1157,7 +1157,7 @@ const DIFFICULTY_CRITERIA = [
   ['중하', '80~89%'],
   ['하', '90~100%'],
 ] as const
-const DIFFICULTY_CRITERIA_TEXT = `정답률 기준: ${DIFFICULTY_CRITERIA.map(([level, range]) => `${level} ${range}`).join(' · ')}`
+const DIFFICULTY_CRITERIA_TEXT = `메가스터디 정답률 기준: ${DIFFICULTY_CRITERIA.map(([level, range]) => `${level} ${range}`).join(' · ')}`
 
 // ── 문항 카드 ─────────────────────────────────────────────────────────────
 
@@ -1997,7 +1997,7 @@ function QuestionSearch() {
                   <Info className="h-3.5 w-3.5" />
                 </button>
                 <div className="pointer-events-none absolute left-1/2 top-6 z-20 hidden w-[280px] -translate-x-1/2 rounded-xl border border-gray-100 bg-white p-3 text-left shadow-[0px_12px_36px_rgba(0,75,198,0.12)] group-hover:block group-focus-within:block">
-                  <p className="mb-2 text-[11px] font-semibold text-gray-500">정답률 기준</p>
+                  <p className="mb-2 text-[11px] font-semibold text-gray-500">메가스터디 정답률 기준</p>
                   <div className="grid grid-cols-2 gap-1.5">
                     {DIFFICULTY_CRITERIA.map(([level, range]) => {
                       const s = DIFFICULTY_STYLE[level]
@@ -2449,7 +2449,7 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
       }
 
       const skippedMsg = data.skipped_pages?.length ? ` · ${data.skipped_pages.length}개 페이지 건너뜀` : ''
-      const statsMsg = data.stats_fetched > 0 ? ` · 외부 통계 ${data.stats_fetched}문항` : ''
+      const statsMsg = data.stats_fetched > 0 ? ` · 메가스터디 통계 ${data.stats_fetched}문항` : ''
       toast.success(`${data.question_count}개 문항 추출 완료${statsMsg}${skippedMsg}`)
       queryClient.invalidateQueries({ queryKey: ['exam-bank'] })
       onOpenChange(false)
