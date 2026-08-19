@@ -1,6 +1,7 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeSubjectiveAnswers, SubjectiveStudentAnswer } from '@/lib/anthropic'
 import { recalcReadingCorrect, gradeOX, gradeMultiSelect } from '@/lib/grade-utils'
+import { gradeObjective } from '@/lib/objective-grading'
 import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
 
 function one<T>(value: T | T[] | null | undefined): T | null {
@@ -182,7 +183,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
   // 이 주차의 모든 문항 정보 한 번에 조회 (style, correct_answer, 모범답안)
   const { data: allQuestions } = await supabase
     .from('exam_question')
-    .select('id, question_number, sub_label, correct_answer, correct_answer_text, grading_criteria, question_style')
+    .select('id, question_number, sub_label, correct_answer, extra_correct_answers, all_correct, correct_answer_text, grading_criteria, question_style')
     .eq('week_id', weekId)
 
   const questionMap = new Map(allQuestions?.map((q) => [q.id, q]) ?? [])
@@ -272,7 +273,8 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         let ai_feedback: string | null = null
 
         if (style === 'objective') {
-          is_correct = a.student_answer !== null && a.student_answer === q?.correct_answer
+          // 복수정답(extra_correct_answers)·전원정답(all_correct)은 문항 편집 API 의 재채점과 같은 규칙
+          is_correct = q ? (gradeObjective(q, a.student_answer) ?? false) : false
         } else if (style === 'multi_select') {
           is_correct = q?.correct_answer_text ? gradeMultiSelect(q.correct_answer_text, a.student_answer_text ?? '') : false
         } else if (isSubjective && skipAI) {
