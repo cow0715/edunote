@@ -4,6 +4,7 @@ import {
   DEFAULT_SOURCE_RATIO,
   SOURCE_RATIO_PRESETS,
   allocatePromptTargets,
+  applySourceAvailability,
   clampPercent,
   rebalanceSourceRatio,
   VocabSourceRatio,
@@ -78,5 +79,37 @@ describe('allocatePromptTargets', () => {
     expect(targets.synonym).toBe(8)
     expect(targets.antonym).toBe(8)
     expect(targets.example_meaning).toBe(8)
+  })
+})
+
+describe('applySourceAvailability', () => {
+  const ALL = { word: 40, synonym: 20, antonym: 20, derivative: 0, example_meaning: 20, example: 0, example_choice: 0 }
+
+  it('후보가 없는 유형은 0으로 접고 몫을 나머지에 비중대로 나눈다 (예문 생성 전 = 예문 유형 후보 0)', () => {
+    const next = applySourceAvailability(ALL, { word: 68, synonym: 60, antonym: 30, derivative: 10 })
+    expect(next.example_meaning).toBe(0)
+    expect(next.example).toBe(0)
+    expect(next.example_choice).toBe(0)
+    expect(sum(next)).toBe(100)
+    // 40:20:20 비중 유지 → 50:25:25
+    expect(next.word).toBe(50)
+    expect(next.synonym).toBe(25)
+    expect(next.antonym).toBe(25)
+  })
+
+  it('전 유형에 후보가 있으면 그대로 돌려준다', () => {
+    const counts = { word: 1, synonym: 1, antonym: 1, derivative: 1, example_meaning: 1, example: 1, example_choice: 1 }
+    expect(applySourceAvailability(ALL, counts)).toEqual(ALL)
+  })
+
+  it('없는 유형이 원래 0% 면 재분배 없이 그대로', () => {
+    const next = applySourceAvailability(ALL, { word: 1, synonym: 1, antonym: 1, example_meaning: 1 })
+    expect(next).toEqual(ALL)
+  })
+
+  it('남은 유형이 전부 0% 였으면 원본에 몰아준다', () => {
+    const next = applySourceAvailability({ word: 0, synonym: 0, antonym: 0, derivative: 0, example_meaning: 100, example: 0, example_choice: 0 }, { word: 5 })
+    expect(next.word).toBe(100)
+    expect(sum(next)).toBe(100)
   })
 })
