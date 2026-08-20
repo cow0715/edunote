@@ -9,7 +9,7 @@
   [backup/route.ts](../../src/app/api/backup/route.ts)). 기본 **최신 14개 보관** (`BACKUP_RETENTION_COUNT`).
   누적분 일회성 정리는 `npm run backups:purge` (기본 미리보기, `--apply` 붙여야 삭제).
 - **부작용 가능 지점**:
-  - 운영 배포 시 다음 cron부터 실제 삭제 시작. **R2 이중화(backup-todo #1)가 아직 미설정이라
+  - 운영 배포 시 다음 cron부터 실제 삭제 시작. **R2 이중화(당시 backup-todo #1, 이후 JSON 백업 방식 자체를 폐기)가 아직 미설정이라
     삭제된 백업은 복구 불가** — 배포 전에 R2 환경변수 먼저 채우는 걸 권장.
   - `backup_YYYY-MM-DD_HHMM.json` 패턴만 삭제. 수동 업로드 파일은 안전.
   - 개수 기반(14개)이지 날짜 기반(30일)이 아님 — todo 문서의 원래 계획과 다름.
