@@ -31,7 +31,7 @@ Claude 전용 사항(자동 검증 훅)만 CLAUDE.md 에 따로 둔다. 규칙�
 - 사용자가 명시적으로 요청하기 전까지 절대 혼자 커밋하거나 푸시하지 않는다.
 
 ## DB 환경
-- `.env.local` → 개발 DB (Supabase: otlyfjciikngdoazjusq)
+- `.env.local` → 개발 DB (Supabase 개발 프로젝트)
 - Vercel 환경변수 → 운영 DB (별도 프로젝트)
 - 두 DB는 독립적으로 운영됨
 
