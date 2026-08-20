@@ -908,39 +908,6 @@ const WEEK_PROBLEM_SHEET_PARSE_RULES = `이 PDF는 주차별 설정의 '중간·
 - 문항을 건너뛰지 마세요
 - JSON 배열만 출력하세요`
 
-function buildWeekProblemSheetAnswerPrompt(
-  rawText: string,
-  questions: WeekProblemSheetQuestion[],
-): string {
-  return `다음은 영어 시험지 PDF에서 추출한 원문 텍스트입니다.
-이 문서는 상단에 문제, 하단에 정답표가 따로 있는 형식입니다.
-하단 정답표 영역만 읽어서 각 문항의 정답만 구조화하세요.
-
-원문 텍스트:
-${rawText}
-
-문항 목록:
-${questions.map((q) => `- ${q.question_number}번 (${q.question_style})${q.choices.length ? ` 보기 ${q.choices.length}개` : ''}`).join('\n')}
-
-출력 필드:
-- question_number: 문항 번호
-- question_style: objective | subjective | ox | multi_select
-- correct_answer: objective면 1~5, 아니면 0
-- correct_answer_text:
-  * objective면 null
-  * ox면 "O" 또는 "X (...)"
-  * multi_select면 "1,3" 같은 형식
-  * subjective면 정답 텍스트
-
-중요 규칙:
-- 상단 문제 본문에 나온 숫자나 선지는 무시하고, 하단 정답표에 적힌 정답만 사용하세요
-- 위 문항 목록에 있는 번호만 출력하세요
-- 정답이 불명확한 문항은 제외하세요
-- objective는 correct_answer에 숫자를 넣고 correct_answer_text는 null로 두세요
-- subjective는 correct_answer를 0으로 두고 correct_answer_text에 정답 텍스트를 넣으세요
-- JSON 배열만 출력하세요`
-}
-
 function buildWeekProblemSheetAnswerVisionPrompt(
   questions: WeekProblemSheetQuestion[],
 ): string {
@@ -1027,31 +994,6 @@ Return these fields in every JSON object.`,
       )
     }
     console.error('[parseWeekProblemSheetPage] JSON parse 실패:', e)
-    throw e
-  }
-}
-
-export async function parseProblemSheetAnswerKey(
-  rawText: string,
-  questions: WeekProblemSheetQuestion[],
-): Promise<ProblemSheetAnswerKeyItem[]> {
-  const prompt = buildWeekProblemSheetAnswerPrompt(rawText, questions)
-  const res = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 8192,
-    messages: [{ role: 'user', content: prompt }],
-  })
-
-  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
-  console.log('[parseProblemSheetAnswerKey] raw response length:', raw.length)
-
-  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
-  try {
-    const parsed = JSON.parse(jsonrepair(cleaned)) as ProblemSheetAnswerKeyItem[]
-    console.log('[parseProblemSheetAnswerKey] parsed count:', parsed.length, '| questions:', parsed.map((p) => p.question_number).join(', '))
-    return parsed
-  } catch (e) {
-    console.error('[parseProblemSheetAnswerKey] JSON parse 실패:', e)
     throw e
   }
 }
