@@ -38,6 +38,6 @@ API 라우트를 고쳤으면 이 스킬로 따로 돌린다.
 
 ## 테스트를 추가할 때
 
-- **읽기(GET)만.** 쓰기·문자발송·백업 라우트는 실제 부수효과가 있어 하네스에서 제외한다.
+- **읽기(GET)만.** 쓰기·문자발송·cron 라우트는 실제 부수효과가 있어 하네스에서 제외한다.
 - fixture 의존은 `it.skipIf` + `announcePrerequisites` 패턴을 따른다
   (tests/api/public-routes.test.ts, tests/api/_harness.ts 참고).

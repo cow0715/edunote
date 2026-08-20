@@ -1,6 +1,6 @@
 // ── 단어 시험지 사진 보관 기간 ─────────────────────────────────────────────
 // vocab-photos 버킷의 {weekId}/{studentId}.jpg 는 강사가 정오표에서 "원본 사진"으로 OCR 오독을 확인하는 용도.
-// 채점 후 한 달이면 충분하므로 30일(VOCAB_PHOTO_RETENTION_DAYS) 지난 파일을 매일 백업 cron 에서 지운다.
+// 채점 후 한 달이면 충분하므로 30일(VOCAB_PHOTO_RETENTION_DAYS) 지난 파일을 매일 정리 cron(/api/cron/cleanup) 에서 지운다.
 // 지워지면 정오표의 "원본 사진" 버튼은 404 → 그냥 안 뜸 (vocab-photo-url 이 이미 처리).
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -39,7 +39,7 @@ export function selectExpiredPhotoPaths(
 /**
  * vocab-photos 버킷을 훑어 보관 기간 지난 사진을 삭제한다.
  * 버킷 구조가 {weekId}/{file} 2단이라 최상위 폴더 목록 → 각 폴더 파일 목록 순으로 본다.
- * 실패해도 호출부(백업)에 영향 주지 않도록 에러는 문자열로 돌려준다.
+ * 실패해도 호출부(cron)에 영향 주지 않도록 에러는 문자열로 돌려준다.
  */
 export async function pruneOldVocabPhotos(
   supabase: SupabaseClient,

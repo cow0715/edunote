@@ -12,12 +12,10 @@
     "test:api": "vitest run --config vitest.api.config.ts",
     "check": "tsc --noEmit && eslint src scripts tests && vitest run",
     "test:parse": "npx tsx scripts/test-parse.ts",
-    "test:vocab-grade": "npx tsx scripts/test-vocab-grade-image.ts",
-    "backups:purge": "npx tsx scripts/purge-old-backups.ts"
+    "test:vocab-grade": "npx tsx scripts/test-vocab-grade-image.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
-    "@aws-sdk/client-s3": "^3.1021.0",
     "@hookform/resolvers": "^5.2.2",
     "@nivo/radar": "^0.99.0",
     "@supabase/ssr": "^0.8.0",
