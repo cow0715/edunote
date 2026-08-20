@@ -66,7 +66,9 @@ type DbStatus = { ok: boolean; label: string; url: string; isProd: boolean; user
 async function fetchDbStatus(): Promise<DbStatus> {
   const supabase = createClient()
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
-  const isProd = !url.includes('otlyfjciikngdoazjusq')
+  // 운영/개발 판별: NEXT_PUBLIC_DB_ENV(prod|dev) 가 있으면 우선, 없으면 빌드 모드로 추정
+  const dbEnv = process.env.NEXT_PUBLIC_DB_ENV
+  const isProd = dbEnv ? dbEnv === 'prod' : process.env.NODE_ENV === 'production'
 
   const [{ data: { user } }, { count }] = await Promise.all([
     supabase.auth.getUser(),

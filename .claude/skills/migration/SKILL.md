@@ -41,6 +41,6 @@ EduNote 는 개발 DB(.env.local)와 운영 DB(Vercel)가 분리되어 있고, �
 - 생성한 파일 경로
 - 복사용 SQL 전문 (```sql 블록)
 - 적용 체크리스트:
-  - [ ] 개발 DB (otlyfjciikngdoazjusq) SQL Editor 에 적용
+  - [ ] 개발 DB (`.env.local` 의 Supabase 프로젝트) SQL Editor 에 적용
   - [ ] 운영 DB (Vercel 프로젝트) SQL Editor 에 적용
 - 마이그레이션 적용 전에는 새 코드가 동작하지 않는다는 점을 명시
