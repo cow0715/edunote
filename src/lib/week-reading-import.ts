@@ -189,6 +189,30 @@ function underlinePassageChoices(text: string, choices: string[]): string {
   return next
 }
 
+function isCircledChoiceLine(line: string): boolean {
+  return /^\s*(?:[①②③④⑤⑥⑦⑧⑨⑩]|\d+[.)])\s*\S/.test(line)
+}
+
+/**
+ * 해설지형(question_text 단일 컬럼)용 밑줄 자동 부착 안전망.
+ * "밑줄 친 낱말" 유형이고 하단에 선지 목록(①… 줄)이 있으면, 지문 속 `① word` 에 <u> 를 붙인다.
+ * 선지 목록 줄 자체에는 붙이지 않는다. 밑줄 구간 정보가 없는 유형(지문 내 ① 마커만 있고
+ * 선지 목록이 없는 어법형)은 복원 불가라 그대로 둔다. 멱등 (이미 <u> 면 다시 안 감쌈).
+ * 문제지형은 파싱 단계에서 normalizeQuestionVisualMarkup 이 같은 일을 한다.
+ */
+export function applyUnderlineMarkupToQuestionText(questionText: string): string {
+  const asksUnderlinedWord = /밑줄\s*친|낱말의\s*쓰임|문맥상\s*낱말/.test(questionText)
+  if (!asksUnderlinedWord) return questionText
+
+  const lines = questionText.split('\n')
+  const choices = lines.filter((line) => isCircledChoiceLine(line)).map((line) => line.trim())
+  if (choices.length < 2) return questionText
+
+  return lines
+    .map((line) => (isCircledChoiceLine(line) ? line : underlinePassageChoices(line, choices)))
+    .join('\n')
+}
+
 function normalizeQuestionVisualMarkup(question: {
   question_text: string
   passage: string
