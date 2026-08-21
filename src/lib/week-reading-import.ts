@@ -15,6 +15,7 @@ import type {
 } from '@/lib/anthropic'
 import { recalcReadingCorrect, gradeMultiSelect, gradeOX } from '@/lib/grade-utils'
 import { mapWithConcurrency } from '@/lib/concurrency'
+import { splitPdfIntoChunksBase64, getPdfPageCount } from '@/lib/pdf'
 
 export type MatchTagId = (questionType: string | null, questionStyle?: string | null) => string | null
 
@@ -50,35 +51,22 @@ async function splitPdfUploadInput(
     return [{ ...file, pageOffset: file.pageOffset ?? 0 }]
   }
 
-  const { PDFDocument } = await import('pdf-lib')
-  const sourcePdf = await PDFDocument.load(Buffer.from(file.fileData, 'base64'), { ignoreEncryption: true })
-  const pageCount = sourcePdf.getPageCount()
-
-  if (pageCount <= pagesPerChunk) {
+  const pdfChunks = await splitPdfIntoChunksBase64(file.fileData, pagesPerChunk)
+  if (pdfChunks.length === 1) {
     return [{ ...file, pageOffset: file.pageOffset ?? 0 }]
   }
 
-  const chunks: ProblemSheetUploadInput[] = []
-  for (let start = 0; start < pageCount; start += pagesPerChunk) {
-    const end = Math.min(start + pagesPerChunk, pageCount)
-    const chunkPdf = await PDFDocument.create()
-    const copiedPages = await chunkPdf.copyPages(
-      sourcePdf,
-      Array.from({ length: end - start }, (_, index) => start + index),
-    )
-    copiedPages.forEach((page) => chunkPdf.addPage(page))
-
-    const chunkBytes = await chunkPdf.save()
-    const pageLabel = `${start + 1}-${end}`
-    chunks.push({
-      fileData: Buffer.from(chunkBytes).toString('base64'),
+  const chunks: ProblemSheetUploadInput[] = pdfChunks.map((chunk) => {
+    const pageLabel = `${chunk.startPage + 1}-${chunk.endPage}`
+    return {
+      fileData: chunk.fileData,
       mimeType: 'application/pdf',
       fileName: file.fileName ? `${file.fileName}#p${pageLabel}` : `chunk-p${pageLabel}.pdf`,
-      pageOffset: (file.pageOffset ?? 0) + start,
-    })
-  }
+      pageOffset: (file.pageOffset ?? 0) + chunk.startPage,
+    }
+  })
 
-  console.log(`[week-reading-import] split PDF into ${chunks.length} chunks (${pageCount} pages)`)
+  console.log(`[week-reading-import] split PDF into ${chunks.length} chunks`)
   return chunks
 }
 
@@ -899,9 +887,7 @@ export async function saveSourceImagesForQuestions(
     if (file.mimeType !== 'application/pdf' || !file.fileData) continue
 
     try {
-      const { PDFDocument } = await import('pdf-lib')
-      const sourcePdf = await PDFDocument.load(Buffer.from(file.fileData, 'base64'), { ignoreEncryption: true })
-      const pageCount = sourcePdf.getPageCount()
+      const pageCount = await getPdfPageCount(file.fileData)
       const pageOffset = file.pageOffset ?? 0
 
       for (let localPage = 1; localPage <= pageCount; localPage += 1) {

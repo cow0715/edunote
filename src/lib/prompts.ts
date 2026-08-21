@@ -54,6 +54,15 @@ export const GRADING_RULES = `━━━ 관대하게 처리 — 오답 처리하
 - "모범답안과 다릅니다"처럼 막연한 피드백 금지 — 구체적 차이를 명시할 것
 - confidence: "high" 또는 "low" 반드시 포함`
 
+// ── 문항 텍스트 마크업 규약 (파서 ↔ FormattedQuestionText 렌더러 공유 계약) ──
+// 해설지형(parseAnswerSheet)·문제지형(parseWeekProblemSheetPage) 공용.
+// 기출은행(EXAM_BANK_PARSE_RULES)도 같은 규약을 자체 문구로 담고 있다 — 표기 형식을 바꿀 땐 셋 다 확인.
+
+export const QUESTION_MARKUP_RULES = `- Preserve simple visual emphasis in question_text instead of using an image: wrap bold text as **text** and underlined text as <u>text</u>.
+- Vocabulary/glossary notes that begin with * (for example "*default 디폴트...") are not emphasis. Keep those words as plain text and do not wrap them in **.
+- In vocabulary/glossary note lines, keep the leading asterisks exactly as they appear in the PDF/OCR (for example "*word", "**word", "***word"). They are not bold markers.
+- For questions asking about "밑줄 친 부분/낱말", apply <u>...</u> to the numbered words inside the passage (for example "① <u>direct</u>"), not to the separate answer choices list.`
+
 // ── 해설지 파싱 ──────────────────────────────────────────────────────────
 
 export const PARSE_ANSWER_SHEET_RULES = `추출 규칙:

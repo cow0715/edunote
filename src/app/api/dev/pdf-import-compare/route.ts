@@ -1,7 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { jsonrepair } from 'jsonrepair'
+import type Anthropic from '@anthropic-ai/sdk'
 import { err, getAuth, ok } from '@/lib/api'
-import { parseWeekProblemSheetPage, type WeekProblemSheetQuestion } from '@/lib/anthropic'
+import { anthropic, parseWeekProblemSheetPage, type WeekProblemSheetQuestion } from '@/lib/anthropic'
+import { parseJsonArrayResponse } from '@/lib/llm/client'
+import { getPdfPageCount, slicePdfFirstPagesBase64 } from '@/lib/pdf'
 import { extractPdfText } from '@/lib/week-reading-import'
 
 export const maxDuration = 300
@@ -27,48 +28,6 @@ export type PdfImportCompareResponse = {
   testedPageCount: number
   maxPages: number
   results: Partial<Record<CompareMode, PdfImportCompareResult>>
-}
-
-let anthropicClient: Anthropic | null = null
-
-function getAnthropic() {
-  anthropicClient ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  return anthropicClient
-}
-
-async function getPdfPageCount(fileData: string) {
-  const { PDFDocument } = await import('pdf-lib')
-  const pdf = await PDFDocument.load(Buffer.from(fileData, 'base64'), { ignoreEncryption: true })
-  return pdf.getPageCount()
-}
-
-async function slicePdfFirstPages(fileData: string, maxPages: number) {
-  const { PDFDocument } = await import('pdf-lib')
-  const sourcePdf = await PDFDocument.load(Buffer.from(fileData, 'base64'), { ignoreEncryption: true })
-  const pageCount = sourcePdf.getPageCount()
-  const testedPageCount = Math.min(Math.max(1, maxPages), pageCount)
-
-  if (testedPageCount === pageCount) {
-    return { fileData, originalPageCount: pageCount, testedPageCount }
-  }
-
-  const sliced = await PDFDocument.create()
-  const copied = await sliced.copyPages(
-    sourcePdf,
-    Array.from({ length: testedPageCount }, (_, index) => index),
-  )
-  copied.forEach((page) => sliced.addPage(page))
-
-  const bytes = await sliced.save()
-  return {
-    fileData: Buffer.from(bytes).toString('base64'),
-    originalPageCount: pageCount,
-    testedPageCount,
-  }
-}
-
-function parseJsonArray(raw: string): WeekProblemSheetQuestion[] {
-  return JSON.parse(jsonrepair(raw.replace(/```json\n?|\n?```/g, '').trim())) as WeekProblemSheetQuestion[]
 }
 
 function buildTextParsePrompt(rawText: string) {
@@ -115,14 +74,14 @@ async function parseLocalText(rawText: string, mode: CompareMode, fileData?: str
       ]
     : buildTextParsePrompt(rawText)
 
-  const response = await getAnthropic().messages.create({
+  const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 16384,
     messages: [{ role: 'user', content }],
   })
 
   const raw = response.content[0].type === 'text' ? response.content[0].text : ''
-  const questions = parseJsonArray(raw)
+  const questions = parseJsonArrayResponse<WeekProblemSheetQuestion>(raw, 'pdf-import-compare')
 
   return {
     mode,
@@ -192,7 +151,7 @@ export async function POST(request: Request) {
 
   const maxPages = Math.min(Math.max(Number(body.maxPages ?? 3), 1), 20)
   const originalPageCount = await getPdfPageCount(body.fileData)
-  const sliced = await slicePdfFirstPages(body.fileData, maxPages)
+  const sliced = await slicePdfFirstPagesBase64(body.fileData, maxPages)
   const results: PdfImportCompareResponse['results'] = {}
 
   await Promise.all(modes.map(async (mode) => {
