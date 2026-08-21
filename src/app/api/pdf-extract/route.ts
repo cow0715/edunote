@@ -1,4 +1,5 @@
 import { anthropic } from '@/lib/anthropic'
+import { splitPdfToSinglePageBase64 } from '@/lib/pdf'
 import { err, getAuth, getTeacherId } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 
@@ -148,19 +149,13 @@ export async function POST(request: Request) {
     }
 
     // 2차: 페이지별 처리
-    const { PDFDocument } = await import('pdf-lib')
-    const srcDoc = await PDFDocument.load(buffer, { ignoreEncryption: true })
-    const pageCount = srcDoc.getPageCount()
+    const pages = await splitPdfToSinglePageBase64(base64)
+    const pageCount = pages.length
 
     type PageResult = { pageNum: number; text: string; filtered: boolean }
 
     const pageResults: PageResult[] = await Promise.all(
-      Array.from({ length: pageCount }, async (_, i): Promise<PageResult> => {
-        const newDoc = await PDFDocument.create()
-        const [copiedPage] = await newDoc.copyPages(srcDoc, [i])
-        newDoc.addPage(copiedPage)
-        const bytes = await newDoc.save()
-        const pageBase64 = Buffer.from(bytes.buffer as ArrayBuffer).toString('base64')
+      pages.map(async (pageBase64, i): Promise<PageResult> => {
         try {
           const text = await extractWithClaude(pageBase64, 8192)
           return { pageNum: i + 1, text, filtered: false }
