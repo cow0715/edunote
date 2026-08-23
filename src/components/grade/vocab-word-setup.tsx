@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Dice5, FileSpreadsheet, FileText, Loader2, Lock, Printer, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Upload, X } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -159,7 +159,33 @@ function makePromptOption(source: VocabTestPromptSource, rawText: string, varian
   }
 }
 
+/** 폴백 오답 후보 풀. VocabWordSetup 이 단어 목록을 로드할 때 갱신한다 (module scope 캐시). */
+let fallbackDistractorWords: VocabEntry[] = []
+/** 컴포넌트 렌더에서 모듈 변수에 직접 대입하면 React Compiler 가 컴포넌트를 건너뛰므로 함수로 감싼다. */
+function setFallbackDistractorWords(words: VocabEntry[]) {
+  fallbackDistractorWords = words
+}
+
+// getPromptOptions 는 예문 정규식 + 오답 후보 탐색(단어장 전체 스캔)이라 호출당 O(N) 이다.
+// 렌더마다 7유형 × N단어 + 행마다 다시 부르면 O(N²~N³) 이 돼 비율 입력 한 글자에 1초 넘게 걸렸다.
+// 단어 객체는 목록이 바뀌기 전까지 동일 참조이므로 WeakMap 으로 결과를 캐시한다.
+// 오답 후보 풀(fallbackDistractorWords)이 바뀌면 예문선택 옵션이 달라지므로 그때 캐시를 통째로 버린다.
+let promptOptionsCache = new WeakMap<VocabEntry, PromptOption[]>()
+let promptOptionsCachePool: VocabEntry[] | null = null
+
 function getPromptOptions(word: VocabEntry): PromptOption[] {
+  if (promptOptionsCachePool !== fallbackDistractorWords) {
+    promptOptionsCache = new WeakMap()
+    promptOptionsCachePool = fallbackDistractorWords
+  }
+  const cached = promptOptionsCache.get(word)
+  if (cached) return cached
+  const options = computePromptOptions(word)
+  promptOptionsCache.set(word, options)
+  return options
+}
+
+function computePromptOptions(word: VocabEntry): PromptOption[] {
   const options: PromptOption[] = []
   const seen = new Set<string>()
 
@@ -226,8 +252,6 @@ function getPromptOptions(word: VocabEntry): PromptOption[] {
   return options
 }
 
-/** 폴백 오답 후보 풀. VocabWordSetup 이 단어 목록을 로드할 때 갱신한다 (module scope 캐시). */
-let fallbackDistractorWords: VocabEntry[] = []
 
 /** 정답 좌우를 랜덤으로 섞은 선택형 prompt 를 만든다 (실제 출제용) */
 function randomizedChoicePrompt(word: VocabEntry, option: PromptOption): SelectedPrompt {
@@ -345,6 +369,183 @@ function buildRandomVocabSelection(words: Array<VocabEntry & { id: string }>, co
   return { selected, prompts }
 }
 
+// ── 단어 목록 행 ───────────────────────────────────────────────────────────
+// memo: 단어장이 수십~수백 행이라 체크박스 하나를 눌러도 전체 행이 다시 그려지면 조작당 0.5초가 넘었다.
+// props 를 원시값(isSelected / selectedSource / orderNo)으로 내려 바뀐 행만 리렌더되게 한다.
+// 콜백(onToggle / onSelectPrompt)은 부모가 ref 패턴으로 참조를 고정해서 내려준다.
+/**
+ * 로딩 플래그를 켜고 fn 을 실행한다. 실패하면 toast 를 띄우고 false 를 돌려준다.
+ * 컴포넌트 안에 try/finally 를 두면 React Compiler 가 그 컴포넌트를 통째로 건너뛰므로(finally 미지원)
+ * try/finally 는 여기 모듈 함수에만 둔다.
+ */
+async function runWithLoading(
+  setLoading: (value: boolean) => void,
+  fn: () => Promise<void>,
+  errorMessage: string | ((error: unknown) => string),
+): Promise<boolean> {
+  setLoading(true)
+  try {
+    await fn()
+    return true
+  } catch (error) {
+    toast.error(typeof errorMessage === 'function' ? errorMessage(error) : errorMessage)
+    return false
+  } finally {
+    setLoading(false)
+  }
+}
+
+/** try/catch 도 같은 이유로 모듈 함수에 둔다 (try 안에 `?.`/`??` 가 있으면 컴파일러가 컴포넌트를 건너뛴다). */
+async function runOrReport(fn: () => Promise<void>, onError: () => void) {
+  try {
+    await fn()
+  } catch {
+    onError()
+  }
+}
+
+/** 클릭 핸들러에서만 쓰지만 컴포넌트 본문에 Date.now() 가 있으면 react-hooks/purity 린트가 렌더 중 호출로 오인한다. */
+function makeClinicPrintStamp(weekId: string) {
+  const now = new Date()
+  return { key: `clinic-vocab-test:${weekId}:${now.getTime()}`, createdAt: now.toISOString() }
+}
+
+const variantMeaningError = (error: unknown) => (error instanceof Error ? error.message : '단어 뜻 저장 중 오류가 발생했습니다')
+
+// ── 미리보기 행 ────────────────────────────────────────────────────────────
+// memo: 미리보기는 선택 단어 수(30~50)만큼 <select>(옵션 7개)를 그려 한 번 렌더에 120ms 를 먹었다.
+// prompt 는 selectedPrompts 의 항목 참조 그대로 내려 바뀐 행만 리렌더되게 한다.
+type PreviewRowProps = {
+  word: VocabEntry & { id: string }
+  index: number
+  prompt: SelectedPrompt | undefined
+  testLocked: boolean
+  onUpdatePrompt: (word: VocabEntry & { id: string }, optionIndex: number) => void
+  onMove: (wordId: string, direction: -1 | 1) => void
+  onToggle: (wordId: string) => void
+}
+
+const PreviewRow = memo(function PreviewRow({ word, index, prompt: selected, testLocked, onUpdatePrompt, onMove, onToggle }: PreviewRowProps) {
+  const prompt = selected ?? { prompt_source: 'word' as const, prompt_text: word.english_word, variant_id: null }
+  const promptOptions = getPromptOptions(word)
+  const selectedPromptIndex = Math.max(0, promptOptions.findIndex((option) =>
+    option.prompt_source === prompt.prompt_source && option.prompt_text === prompt.prompt_text
+  ))
+  return (
+    <div className="flex items-start gap-2 px-3 py-2.5">
+      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
+        {index + 1}
+      </span>
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className="break-words text-sm font-bold leading-5 text-gray-950">{prompt.prompt_text}</p>
+        <p className="break-words text-[11px] text-gray-500">
+          <span className="font-semibold text-blue-600">{promptLabel(prompt.prompt_source)}</span> · 정답 {getPromptAnswer(word, prompt) || '-'}
+          {prompt.prompt_source !== 'word' && <span className="text-gray-400"> · 원본 {word.english_word}</span>}
+        </p>
+        {promptOptions.length > 1 && !testLocked && (
+          <select
+            value={selectedPromptIndex}
+            onChange={(e) => onUpdatePrompt(word, Number(e.target.value))}
+            className="h-7 w-full rounded-md border border-gray-200 bg-white px-2 text-[11px] text-gray-600 outline-none focus:border-blue-300"
+          >
+            {promptOptions.map((option, optionIndex) => (
+              <option key={`${option.prompt_source}-${option.prompt_text}-${optionIndex}`} value={optionIndex}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      {!testLocked && (
+        <div className="flex shrink-0 flex-col">
+          <button type="button" aria-label="위로 이동" onClick={() => onMove(word.id, -1)} className="rounded p-0.5 text-gray-300 hover:bg-white hover:text-gray-700">
+            <ArrowUp className="h-3.5 w-3.5" />
+          </button>
+          <button type="button" aria-label="아래로 이동" onClick={() => onMove(word.id, 1)} className="rounded p-0.5 text-gray-300 hover:bg-white hover:text-gray-700">
+            <ArrowDown className="h-3.5 w-3.5" />
+          </button>
+          <button type="button" aria-label="선택 해제" onClick={() => onToggle(word.id)} className="rounded p-0.5 text-gray-300 hover:bg-white hover:text-rose-500">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
+  )
+})
+
+type WordRowProps = {
+  word: VocabEntry & { id: string }
+  isSelected: boolean
+  /** 선택된 경우 현재 고른 출제 유형 (미선택이면 null) */
+  selectedSource: VocabTestPromptSource | null
+  /** 선택된 경우 시험지 번호 (미선택이면 null) */
+  orderNo: number | null
+  testLocked: boolean
+  onToggle: (wordId: string) => void
+  onSelectPrompt: (word: VocabEntry & { id: string }, source: VocabTestPromptSource) => void
+}
+
+const WordRow = memo(function WordRow({ word, isSelected, selectedSource, orderNo, testLocked, onToggle, onSelectPrompt }: WordRowProps) {
+  const promptOptions = getPromptOptions(word)
+  const availableSources = RATIO_SOURCES.filter((source) => promptOptions.some((option) => option.prompt_source === source))
+  const extras = [
+    formatWordList(word.synonyms) ? `유 ${formatWordList(word.synonyms)}` : null,
+    formatWordList(word.antonyms) ? `반 ${formatWordList(word.antonyms)}` : null,
+    word.derivatives ? `파생 ${word.derivatives}` : null,
+  ].filter(Boolean)
+  return (
+    <label
+      className={`flex cursor-pointer items-start gap-3 px-4 py-2.5 transition-colors ${isSelected ? 'bg-blue-50/40' : 'hover:bg-gray-50/70'} ${testLocked ? 'cursor-default' : ''}`}
+    >
+      <input
+        type="checkbox"
+        checked={isSelected}
+        disabled={testLocked}
+        onChange={() => onToggle(word.id)}
+        className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600"
+      />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span className="w-6 shrink-0 text-right text-[11px] font-bold text-gray-300">{word.number}</span>
+          <span className="text-sm font-bold text-gray-950">{word.english_word}</span>
+          <span className="min-w-0 truncate text-xs text-gray-500">{word.correct_answer || '-'}</span>
+          {word.passage_label && <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-600">지문 {word.passage_label}</span>}
+          {word.part_of_speech && <span className="text-[10px] text-gray-400">{word.part_of_speech}</span>}
+          {isSelected && orderNo !== null && (
+            <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+              {orderNo}번
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1 pl-8">
+          {availableSources.map((source) => {
+            const options = promptOptions.filter((option) => option.prompt_source === source)
+            const isActive = isSelected && (selectedSource ?? 'word') === source
+            return (
+              <button
+                key={source}
+                type="button"
+                disabled={testLocked}
+                onClick={(e) => { e.preventDefault(); onSelectPrompt(word, source) }}
+                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-blue-100 hover:text-blue-700'
+                } ${testLocked ? 'cursor-default hover:bg-gray-100 hover:text-gray-500' : ''}`}
+              >
+                {promptLabel(source)}{options.length > 1 ? ` ${options.length}` : ''}
+              </button>
+            )
+          })}
+        </div>
+        {extras.length > 0 && (
+          <p className="truncate pl-8 text-[11px] text-gray-400">{extras.join(' · ')}</p>
+        )}
+      </div>
+    </label>
+  )
+})
+
 export function VocabWordSetup({ weekId }: { weekId: string }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const legacyInputRef = useRef<HTMLInputElement>(null)
@@ -385,11 +586,21 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const isPromptModified = promptText !== activePrompt
   const isDirty = JSON.stringify(editWords) !== JSON.stringify(savedWords)
 
-  useEffect(() => { if (savedPrompt) setPromptText(savedPrompt) }, [savedPrompt])
+  // 서버 프롬프트가 바뀌면 편집창 내용을 맞춘다 — 렌더 중 조정 (effect 에서 setState 하면 한 프레임 늦게 반영)
+  const [syncedPrompt, setSyncedPrompt] = useState(savedPrompt)
+  if (syncedPrompt !== savedPrompt) {
+    setSyncedPrompt(savedPrompt)
+    if (savedPrompt) setPromptText(savedPrompt)
+  }
 
+  // 로딩 상태로 들어갈 때 경과 시간을 0 으로 — 렌더 중 조정. 타이머만 effect 에서 돌린다
+  const [elapsedStatus, setElapsedStatus] = useState(status.type)
+  if (elapsedStatus !== status.type) {
+    setElapsedStatus(status.type)
+    setElapsed(0)
+  }
   useEffect(() => {
     if (status.type !== 'loading') return
-    setElapsed(0)
     const timer = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => clearInterval(timer)
   }, [status.type])
@@ -421,19 +632,108 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     })))
   }, [weekId])
 
+  // 스토어의 저장본이 바뀌면 편집본을 거기에 맞춘다 — 렌더 중 조정
+  const [syncedSavedWords, setSyncedSavedWords] = useState(savedWords)
+  if (syncedSavedWords !== savedWords) {
+    setSyncedSavedWords(savedWords)
+    if (savedWords.length > 0) setEditWords(savedWords)
+  }
+
   useEffect(() => {
-    if (savedWords.length > 0) {
-      setEditWords(savedWords)
-      return
-    }
-    if (status.type !== 'idle') return
+    if (savedWords.length > 0 || status.type !== 'idle') return
+    // 서버 fetch 후(await 뒤) setState — 동기 호출이 아니라 캐스케이드 렌더가 아니지만 린트는 구분하지 못한다
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSavedWords().catch(() => {})
   }, [loadSavedWords, savedWords, status.type])
 
   useEffect(() => {
     if (status.type !== 'ready') return
+    // 위와 같은 이유 (fetch 후 setState)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadActiveTest().catch(() => {})
   }, [loadActiveTest, status.type])
+
+  // ── 파생값 (핸들러 함수 선언보다 앞에 둔다 — 아래 function 들이 이 값을 호이스팅으로 참조하면
+  //    React Compiler 가 "나중에 변경될 수 있는 값"으로 보고 컴포넌트를 건너뛴다) ─────────────
+  const savedWordsWithIds = useMemo(
+    () => editWords.filter((word): word is VocabEntry & { id: string } => !!word.id),
+    [editWords],
+  )
+  // 선택형 오답 폴백 풀 갱신 (반의어 없는 단어용). 렌더 중 module 변수 대입 — 부작용 없는 캐시.
+  setFallbackDistractorWords(savedWordsWithIds)
+  const savedWordsById = useMemo(
+    () => new Map(savedWordsWithIds.map((word) => [word.id, word])),
+    [savedWordsWithIds],
+  )
+  const selectedSet = useMemo(() => new Set(selectedWordIds), [selectedWordIds])
+  // 화면·저장·번호 전부 이 순서를 쓴다 (파트 순서 → 그 안에서는 고른 순서)
+  // 잠긴(채점된) 시험지는 저장된 번호 그대로 보여준다 — 이 규칙 이전에 저장된 시험지가 있을 수 있어서
+  const orderedSelectedWordIds = useMemo(
+    () => (testLocked ? selectedWordIds : sortIdsBySection(selectedWordIds, selectedPrompts)),
+    [selectedWordIds, selectedPrompts, testLocked],
+  )
+  const selectedWords = useMemo(
+    () => orderedSelectedWordIds
+      .map((id) => savedWordsById.get(id))
+      .filter((word): word is VocabEntry & { id: string } => !!word),
+    [savedWordsById, orderedSelectedWordIds],
+  )
+  // 행별 시험지 번호 — indexOf 를 행마다 부르면 O(N²) 이라 한 번만 색인한다
+  const selectedOrderNo = useMemo(
+    () => new Map(orderedSelectedWordIds.map((id, index) => [id, index + 1])),
+    [orderedSelectedWordIds],
+  )
+  // WordRow/PreviewRow(memo) 에 내려주는 콜백은 참조가 고정돼야 한다. 원래 핸들러들은 최신 선택 상태를
+  // closure 로 읽으므로 ref 에 담아 두고 고정된 래퍼만 내려준다. ref 갱신은 effect 에서 한다 —
+  const selectedPromptCounts = useMemo(
+    () => selectedWords.reduce<Record<VocabTestPromptSource, number>>((acc, word) => {
+      const source = selectedPrompts[word.id]?.prompt_source ?? 'word'
+      acc[source] += 1
+      return acc
+    }, { word: 0, synonym: 0, antonym: 0, derivative: 0, example_meaning: 0, example: 0, example_choice: 0 }),
+    [selectedPrompts, selectedWords],
+  )
+  // 보완 대상이 있을 때만 버튼을 살린다 — 서버(enrich-variants / regen-examples)가 채우는 조건과 같은 기준
+  const missingMeaningVariantIds = useMemo(
+    () => savedWordsWithIds.flatMap((word) => (word.variants ?? [])
+      .filter((variant) => !!variant.id && (!variant.meaning?.trim() || variant.needs_review === true))
+      .map((variant) => variant.id as string)),
+    [savedWordsWithIds],
+  )
+  const missingExampleCount = useMemo(
+    () => savedWordsWithIds.filter((word) => !word.example_sentence?.trim()).length,
+    [savedWordsWithIds],
+  )
+  const passageOptions = useMemo(
+    () => [...new Set(savedWordsWithIds.map((word) => word.passage_label?.trim()).filter((value): value is string => !!value))]
+      .sort((a, b) => a.localeCompare(b, 'ko-KR', { numeric: true })),
+    [savedWordsWithIds],
+  )
+  const searchQuery = normalizeSearch(testSearch)
+  const filteredTestWords = useMemo(
+    () => savedWordsWithIds.filter((word) => {
+      if (testPassageFilter !== 'all' && (word.passage_label ?? '') !== testPassageFilter) return false
+      if (!searchQuery) return true
+      return [
+        word.english_word,
+        word.correct_answer,
+        word.passage_label,
+        word.part_of_speech,
+        word.derivatives,
+        formatWordList(word.synonyms),
+        formatWordList(word.antonyms),
+      ].some((value) => normalizeSearch(value).includes(searchQuery))
+    }),
+    [savedWordsWithIds, searchQuery, testPassageFilter],
+  )
+  // (early return 앞에 둔다 — 훅 순서 고정) 유형별로 실제 출제 가능한 단어 수 (현재 필터 기준). 예문 생성 전이면 예문 유형은 0 → 비율에서 접는다
+  const candidateCounts = useMemo(
+    () => RATIO_SOURCES.reduce<Record<VocabRatioSource, number>>((acc, source) => {
+      acc[source] = filteredTestWords.filter((word) => getPromptOptions(word).some((option) => option.prompt_source === source)).length
+      return acc
+    }, { word: 0, synonym: 0, antonym: 0, derivative: 0, example_meaning: 0, example: 0, example_choice: 0 }),
+    [filteredTestWords],
+  )
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>, mode: 'xlsx' | 'legacy_ai') {
     const selected = e.target.files?.[0]
@@ -476,7 +776,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
 
   async function saveWords(words: VocabEntry[], source?: SourceMeta) {
     setVocabStatus(weekId, { type: 'saving', step: '단어 저장 중...' })
-    try {
+    await runOrReport(async () => {
       const res = await fetch(`/api/weeks/${weekId}/vocab-words`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -497,9 +797,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       toast.success(`단어 ${data.saved}개 저장 완료`)
       await loadSavedWords()
       await loadActiveTest()
-    } catch {
-      setVocabStatus(weekId, { type: 'error', message: '저장 중 오류가 발생했습니다' })
-    }
+    }, () => setVocabStatus(weekId, { type: 'error', message: '저장 중 오류가 발생했습니다' }))
   }
 
   async function handleUpload() {
@@ -509,7 +807,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       step: '업로드 파일 처리 중...',
     })
 
-    try {
+    await runOrReport(async () => {
       const base64 = await readFileAsBase64(file)
       const endpoint = uploadMode === 'xlsx'
         ? `/api/weeks/${weekId}/parse-vocab-xlsx`
@@ -527,14 +825,11 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
 
       setEditWords(data.words)
       await saveWords(data.words, { sourceType: uploadMode, sourceFileName: file.name })
-    } catch {
-      setVocabStatus(weekId, { type: 'error', message: '파일 처리 중 오류가 발생했습니다' })
-    }
+    }, () => setVocabStatus(weekId, { type: 'error', message: '파일 처리 중 오류가 발생했습니다' }))
   }
 
   async function handleRegenExamples() {
-    setRegenLoading(true)
-    try {
+    await runWithLoading(setRegenLoading, async () => {
       const res = await fetch(`/api/weeks/${weekId}/vocab-words/regen-examples`, { method: 'POST' })
       const data = await res.json()
       if (!res.ok) {
@@ -545,11 +840,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       else if (data.failedBatches > 0) toast.warning(`${data.saved ?? data.generated}개 예문 생성 완료 — 일부 배치가 실패했습니다. 다시 누르면 빈 단어만 이어서 채웁니다`)
       else toast.success(`${data.saved ?? data.generated}개 예문 생성 완료`)
       await loadSavedWords()
-    } catch {
-      toast.error('예문 생성 중 오류가 발생했습니다')
-    } finally {
-      setRegenLoading(false)
-    }
+    }, '예문 생성 중 오류가 발생했습니다')
   }
 
   async function handleEnrichMeanings() {
@@ -558,17 +849,12 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       toast.success('뜻이 비어 있는 유의어/반의어/파생어가 없습니다')
       return
     }
-    setMeaningLoading(true)
-    try {
+    await runWithLoading(setMeaningLoading, async () => {
       const filled = await enrichSelectedVariantMeanings(missingMeaningVariantIds)
       toast.success(`뜻 ${filled.size}개 보완 완료`)
       await loadSavedWords()
       await loadActiveTest()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '단어 뜻 저장 중 오류가 발생했습니다')
-    } finally {
-      setMeaningLoading(false)
-    }
+    }, variantMeaningError)
   }
 
   async function persistVocabTest(wordIds: string[], prompts: Record<string, SelectedPrompt>, options: { showToast?: boolean } = {}) {
@@ -576,8 +862,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       toast.error('시험에 넣을 단어를 선택해주세요')
       return
     }
-    setTestSaving(true)
-    try {
+    await runWithLoading(setTestSaving, async () => {
       const res = await fetch(`/api/weeks/${weekId}/vocab-tests`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -615,11 +900,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       qc.invalidateQueries({ queryKey: ['weeks'] })
       qc.invalidateQueries({ queryKey: ['grade', weekId] })
       await loadActiveTest()
-    } catch {
-      toast.error('시험지 저장 중 오류가 발생했습니다')
-    } finally {
-      setTestSaving(false)
-    }
+    }, '시험지 저장 중 오류가 발생했습니다')
   }
 
   async function saveVocabTest() {
@@ -742,16 +1023,11 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       return acc
     }, { word: 0, synonym: 0, antonym: 0, derivative: 0, example_meaning: 0, example: 0, example_choice: 0 })
     if (variantIds.length > 0) {
-      setMeaningLoading(true)
-      try {
+      const ok = await runWithLoading(setMeaningLoading, async () => {
         await enrichSelectedVariantMeanings(variantIds)
         await loadSavedWords()
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : '단어 뜻 저장 중 오류가 발생했습니다')
-        return
-      } finally {
-        setMeaningLoading(false)
-      }
+      }, variantMeaningError)
+      if (!ok) return
     }
     await persistVocabTest(selected.map((word) => word.id), prompts, { showToast: false })
     toast.success(`${selected.length}개 선택: 원본 ${counts.word}, 유의어 ${counts.synonym}, 반의어 ${counts.antonym}, 파생어 ${counts.derivative}, 예문 ${counts.example_meaning + counts.example + counts.example_choice}`)
@@ -781,22 +1057,17 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     })
     let enrichedMeanings = new Map<string, string | null>()
     const selectedVariantIds = selectedVariants.map((variant) => variant?.id).filter((id): id is string => Boolean(id))
-    try {
-      if (selectedVariantIds.length > 0) {
-        setMeaningLoading(true)
+    if (selectedVariantIds.length > 0) {
+      const ok = await runWithLoading(setMeaningLoading, async () => {
         enrichedMeanings = await enrichSelectedVariantMeanings(selectedVariantIds)
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '단어 뜻 저장 중 오류가 발생했습니다')
-      return
-    } finally {
-      setMeaningLoading(false)
+      }, variantMeaningError)
+      if (!ok) return
     }
 
-    const key = `clinic-vocab-test:${weekId}:${Date.now()}`
+    const { key, createdAt } = makeClinicPrintStamp(weekId)
     const payload = {
       title: `어휘시험 ${selected.length}문항`,
-      createdAt: new Date().toISOString(),
+      createdAt,
       items: selected.map((word, index) => {
         const prompt = prompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word, variant_id: null }
         const variant = findVariantForPrompt(word, prompt)
@@ -840,70 +1111,21 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     }))
   }
 
-  const savedWordsWithIds = useMemo(
-    () => editWords.filter((word): word is VocabEntry & { id: string } => !!word.id),
-    [editWords],
+  // 렌더 중 ref.current 에 대입하면 React Compiler 가 이 컴포넌트를 건너뛴다.
+  const rowHandlersRef = useRef({ toggleTestWord, selectPromptForWord, updateSelectedPrompt, moveSelectedWord })
+  useEffect(() => {
+    rowHandlersRef.current = { toggleTestWord, selectPromptForWord, updateSelectedPrompt, moveSelectedWord }
+  })
+  const handleToggleWord = useCallback((wordId: string) => rowHandlersRef.current.toggleTestWord(wordId), [])
+  const handleSelectPrompt = useCallback(
+    (word: VocabEntry & { id: string }, source: VocabTestPromptSource) => rowHandlersRef.current.selectPromptForWord(word, source),
+    [],
   )
-  // 선택형 오답 폴백 풀 갱신 (반의어 없는 단어용). 렌더 중 module 변수 대입 — 부작용 없는 캐시.
-  fallbackDistractorWords = savedWordsWithIds
-  const savedWordsById = useMemo(
-    () => new Map(savedWordsWithIds.map((word) => [word.id, word])),
-    [savedWordsWithIds],
+  const handleUpdatePrompt = useCallback(
+    (word: VocabEntry & { id: string }, optionIndex: number) => rowHandlersRef.current.updateSelectedPrompt(word, optionIndex),
+    [],
   )
-  const selectedSet = useMemo(() => new Set(selectedWordIds), [selectedWordIds])
-  // 화면·저장·번호 전부 이 순서를 쓴다 (파트 순서 → 그 안에서는 고른 순서)
-  // 잠긴(채점된) 시험지는 저장된 번호 그대로 보여준다 — 이 규칙 이전에 저장된 시험지가 있을 수 있어서
-  const orderedSelectedWordIds = useMemo(
-    () => (testLocked ? selectedWordIds : sortIdsBySection(selectedWordIds, selectedPrompts)),
-    [selectedWordIds, selectedPrompts, testLocked],
-  )
-  const selectedWords = useMemo(
-    () => orderedSelectedWordIds
-      .map((id) => savedWordsById.get(id))
-      .filter((word): word is VocabEntry & { id: string } => !!word),
-    [savedWordsById, orderedSelectedWordIds],
-  )
-  const selectedPromptCounts = useMemo(
-    () => selectedWords.reduce<Record<VocabTestPromptSource, number>>((acc, word) => {
-      const source = selectedPrompts[word.id]?.prompt_source ?? 'word'
-      acc[source] += 1
-      return acc
-    }, { word: 0, synonym: 0, antonym: 0, derivative: 0, example_meaning: 0, example: 0, example_choice: 0 }),
-    [selectedPrompts, selectedWords],
-  )
-  // 보완 대상이 있을 때만 버튼을 살린다 — 서버(enrich-variants / regen-examples)가 채우는 조건과 같은 기준
-  const missingMeaningVariantIds = useMemo(
-    () => savedWordsWithIds.flatMap((word) => (word.variants ?? [])
-      .filter((variant) => !!variant.id && (!variant.meaning?.trim() || variant.needs_review === true))
-      .map((variant) => variant.id as string)),
-    [savedWordsWithIds],
-  )
-  const missingExampleCount = useMemo(
-    () => savedWordsWithIds.filter((word) => !word.example_sentence?.trim()).length,
-    [savedWordsWithIds],
-  )
-  const passageOptions = useMemo(
-    () => [...new Set(savedWordsWithIds.map((word) => word.passage_label?.trim()).filter((value): value is string => !!value))]
-      .sort((a, b) => a.localeCompare(b, 'ko-KR', { numeric: true })),
-    [savedWordsWithIds],
-  )
-  const searchQuery = normalizeSearch(testSearch)
-  const filteredTestWords = useMemo(
-    () => savedWordsWithIds.filter((word) => {
-      if (testPassageFilter !== 'all' && (word.passage_label ?? '') !== testPassageFilter) return false
-      if (!searchQuery) return true
-      return [
-        word.english_word,
-        word.correct_answer,
-        word.passage_label,
-        word.part_of_speech,
-        word.derivatives,
-        formatWordList(word.synonyms),
-        formatWordList(word.antonyms),
-      ].some((value) => normalizeSearch(value).includes(searchQuery))
-    }),
-    [savedWordsWithIds, searchQuery, testPassageFilter],
-  )
+  const handleMoveWord = useCallback((wordId: string, direction: -1 | 1) => rowHandlersRef.current.moveSelectedWord(wordId, direction), [])
 
   if (status.type === 'idle' || status.type === 'error') return (
     <div className="space-y-4">
@@ -978,11 +1200,6 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   )
 
   const clinicPickCount = Math.max(1, Math.min(randomPickCount, Math.max(1, filteredTestWords.length)))
-  // 유형별로 실제 출제 가능한 단어 수 (현재 필터 기준). 예문 생성 전이면 예문 유형은 0 → 비율에서 접는다
-  const candidateCounts = RATIO_SOURCES.reduce<Record<VocabRatioSource, number>>((acc, source) => {
-    acc[source] = filteredTestWords.filter((word) => getPromptOptions(word).some((option) => option.prompt_source === source)).length
-    return acc
-  }, { word: 0, synonym: 0, antonym: 0, derivative: 0, example_meaning: 0, example: 0, example_choice: 0 })
   const effectiveRatio = applySourceAvailability(sourceRatio, candidateCounts)
   const foldedSources = RATIO_SOURCES.filter((source) => sourceRatio[source] > 0 && effectiveRatio[source] === 0)
   const randomRatioTargets = allocatePromptTargets(clinicPickCount, effectiveRatio)
@@ -1208,69 +1425,18 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
             <div className="max-h-[520px] divide-y divide-gray-100 overflow-y-auto">
               {filteredTestWords.length === 0 ? (
                 <p className="px-4 py-8 text-center text-xs text-gray-400">조건에 맞는 단어가 없습니다.</p>
-              ) : filteredTestWords.map((word) => {
-                const promptOptions = getPromptOptions(word)
-                const selectedPrompt = selectedPrompts[word.id]
-                const isSelected = selectedSet.has(word.id)
-                const availableSources = RATIO_SOURCES.filter((source) => promptOptions.some((option) => option.prompt_source === source))
-                const extras = [
-                  formatWordList(word.synonyms) ? `유 ${formatWordList(word.synonyms)}` : null,
-                  formatWordList(word.antonyms) ? `반 ${formatWordList(word.antonyms)}` : null,
-                  word.derivatives ? `파생 ${word.derivatives}` : null,
-                ].filter(Boolean)
-                return (
-                  <label
-                    key={word.id}
-                    className={`flex cursor-pointer items-start gap-3 px-4 py-2.5 transition-colors ${isSelected ? 'bg-blue-50/40' : 'hover:bg-gray-50/70'} ${testLocked ? 'cursor-default' : ''}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      disabled={testLocked}
-                      onChange={() => toggleTestWord(word.id)}
-                      className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600"
-                    />
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                        <span className="w-6 shrink-0 text-right text-[11px] font-bold text-gray-300">{word.number}</span>
-                        <span className="text-sm font-bold text-gray-950">{word.english_word}</span>
-                        <span className="min-w-0 truncate text-xs text-gray-500">{word.correct_answer || '-'}</span>
-                        {word.passage_label && <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-600">지문 {word.passage_label}</span>}
-                        {word.part_of_speech && <span className="text-[10px] text-gray-400">{word.part_of_speech}</span>}
-                        {isSelected && (
-                          <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                            {orderedSelectedWordIds.indexOf(word.id) + 1}번
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-1 pl-8">
-                        {availableSources.map((source) => {
-                          const options = promptOptions.filter((option) => option.prompt_source === source)
-                          const isActive = isSelected && (selectedPrompt?.prompt_source ?? 'word') === source
-                          return (
-                            <button
-                              key={source}
-                              type="button"
-                              disabled={testLocked}
-                              onClick={(e) => { e.preventDefault(); selectPromptForWord(word, source) }}
-                              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold transition-colors ${
-                                isActive
-                                  ? 'bg-blue-600 text-white'
-                                  : 'bg-gray-100 text-gray-500 hover:bg-blue-100 hover:text-blue-700'
-                              } ${testLocked ? 'cursor-default hover:bg-gray-100 hover:text-gray-500' : ''}`}
-                            >
-                              {promptLabel(source)}{options.length > 1 ? ` ${options.length}` : ''}
-                            </button>
-                          )
-                        })}
-                      </div>
-                      {extras.length > 0 && (
-                        <p className="truncate pl-8 text-[11px] text-gray-400">{extras.join(' · ')}</p>
-                      )}
-                    </div>
-                  </label>
-                )
-              })}
+              ) : filteredTestWords.map((word) => (
+                <WordRow
+                  key={word.id}
+                  word={word}
+                  isSelected={selectedSet.has(word.id)}
+                  selectedSource={selectedPrompts[word.id]?.prompt_source ?? null}
+                  orderNo={selectedOrderNo.get(word.id) ?? null}
+                  testLocked={testLocked}
+                  onToggle={handleToggleWord}
+                  onSelectPrompt={handleSelectPrompt}
+                />
+              ))}
             </div>
           </div>
 
@@ -1303,53 +1469,18 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
             <div className="max-h-[520px] divide-y divide-gray-100 overflow-y-auto">
               {selectedWords.length === 0 ? (
                 <p className="px-4 py-10 text-center text-xs text-gray-400">왼쪽에서 시험에 낼 항목을 선택하세요.</p>
-              ) : selectedWords.map((word, index) => {
-                const prompt = selectedPrompts[word.id] ?? { prompt_source: 'word' as const, prompt_text: word.english_word, variant_id: null }
-                const promptOptions = getPromptOptions(word)
-                const selectedPromptIndex = Math.max(0, promptOptions.findIndex((option) =>
-                  option.prompt_source === prompt.prompt_source && option.prompt_text === prompt.prompt_text
-                ))
-                return (
-                  <div key={word.id} className="flex items-start gap-2 px-3 py-2.5">
-                    <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
-                      {index + 1}
-                    </span>
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <p className="break-words text-sm font-bold leading-5 text-gray-950">{prompt.prompt_text}</p>
-                      <p className="break-words text-[11px] text-gray-500">
-                        <span className="font-semibold text-blue-600">{promptLabel(prompt.prompt_source)}</span> · 정답 {getPromptAnswer(word, prompt) || '-'}
-                        {prompt.prompt_source !== 'word' && <span className="text-gray-400"> · 원본 {word.english_word}</span>}
-                      </p>
-                      {promptOptions.length > 1 && !testLocked && (
-                        <select
-                          value={selectedPromptIndex}
-                          onChange={(e) => updateSelectedPrompt(word, Number(e.target.value))}
-                          className="h-7 w-full rounded-md border border-gray-200 bg-white px-2 text-[11px] text-gray-600 outline-none focus:border-blue-300"
-                        >
-                          {promptOptions.map((option, optionIndex) => (
-                            <option key={`${option.prompt_source}-${option.prompt_text}-${optionIndex}`} value={optionIndex}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                    {!testLocked && (
-                      <div className="flex shrink-0 flex-col">
-                        <button type="button" aria-label="위로 이동" onClick={() => moveSelectedWord(word.id, -1)} className="rounded p-0.5 text-gray-300 hover:bg-white hover:text-gray-700">
-                          <ArrowUp className="h-3.5 w-3.5" />
-                        </button>
-                        <button type="button" aria-label="아래로 이동" onClick={() => moveSelectedWord(word.id, 1)} className="rounded p-0.5 text-gray-300 hover:bg-white hover:text-gray-700">
-                          <ArrowDown className="h-3.5 w-3.5" />
-                        </button>
-                        <button type="button" aria-label="선택 해제" onClick={() => toggleTestWord(word.id)} className="rounded p-0.5 text-gray-300 hover:bg-white hover:text-rose-500">
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+              ) : selectedWords.map((word, index) => (
+                <PreviewRow
+                  key={word.id}
+                  word={word}
+                  index={index}
+                  prompt={selectedPrompts[word.id]}
+                  testLocked={testLocked}
+                  onUpdatePrompt={handleUpdatePrompt}
+                  onMove={handleMoveWord}
+                  onToggle={handleToggleWord}
+                />
+              ))}
             </div>
           </aside>
         </div>

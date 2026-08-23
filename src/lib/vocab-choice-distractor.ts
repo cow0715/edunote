@@ -62,6 +62,13 @@ export function choiceDistractor(word: VocabEntry, fallbackWords: VocabEntry[] =
   const sentence = (word.example_sentence ?? '').toLocaleLowerCase('en-US')
   const pos = normalizePos(word.part_of_speech)
 
+  // 후보마다 fallbackWords.find 로 품사를 다시 찾으면 O(N²) — 단어장 전체에 대해 부르면 N³ 이 된다
+  const posByWord = new Map<string, string>()
+  for (const other of fallbackWords) {
+    const key = other.english_word.trim()
+    if (!posByWord.has(key)) posByWord.set(key, normalizePos(other.part_of_speech))
+  }
+
   const candidates = fallbackWords
     .map((other) => other.english_word.trim())
     .filter((w) => {
@@ -70,8 +77,7 @@ export function choiceDistractor(word: VocabEntry, fallbackWords: VocabEntry[] =
         && !sentence.includes(lower) // 예문 안에 이미 있는 단어면 답이 드러남
     })
     .map((w) => {
-      const other = fallbackWords.find((o) => o.english_word.trim() === w)
-      const otherPos = normalizePos(other?.part_of_speech)
+      const otherPos = posByWord.get(w) ?? ''
       let score = 0
       if (pos && otherPos) score += pos === otherPos ? 3 : -3
       if (w[0]?.toLowerCase() === self[0]) score += 1.5
