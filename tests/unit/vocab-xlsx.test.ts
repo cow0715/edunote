@@ -147,4 +147,12 @@ describe('buildRuleBasedVariants', () => {
     expect(variants.filter((v) => v.relation_type === 'derivative').map((v) => v.word)).toContain('convenient')
     expect(variants.filter((v) => v.relation_type === 'antonym').map((v) => v.word)).toContain('inconvenience')
   })
+
+  it('반의어 variant 도 출제 가능(exam_enabled) 상태로 만든다', () => {
+    // 과거엔 반의어만 false 로 저장해 반의어 문항이 한 번도 출제되지 않던 회귀 방지
+    const [entry] = parseVocabRows(BASE_ROWS.slice(0, 1).concat([BASE_ROWS[3]]))
+    const variants = buildRuleBasedVariants(entry)
+    expect(variants.length).toBeGreaterThan(0)
+    expect(variants.every((v) => v.exam_enabled === true)).toBe(true)
+  })
 })

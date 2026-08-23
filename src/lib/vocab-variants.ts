@@ -167,7 +167,7 @@ function parseItem(rawValue: string, relationType: VocabVariantRelationType, fal
     usage_note: note,
     excluded_meanings: extractExcludedMeanings(note),
     raw_text: rawText,
-    exam_enabled: relationType !== 'antonym',
+    exam_enabled: true,
     needs_review: relationType === 'synonym' ? (!explicitMeaning && !fallbackMeaning) : !explicitMeaning,
     confidence: explicitMeaning ? 0.9 : null,
     sort_order: 0,
@@ -257,7 +257,7 @@ Rules:
 - Fill meaning in concise Korean.
 - For derivatives, do not blindly copy source_meaning when the part of speech changes.
 - For synonyms, use the source meaning only when it is truly appropriate.
-- For antonyms, fill the Korean opposite meaning, but do not mark as exam-enabled here.
+- For antonyms, fill the Korean opposite meaning.
 - usage_note is not meaning. Keep useful warnings such as "not the quarrel meaning".
 - If a note excludes a Korean meaning, put it in excluded_meanings.
 - Set needs_review true only if the item is genuinely ambiguous.
@@ -337,7 +337,7 @@ Rules:
 - Do not copy the source meaning to derivatives when the meaning changes.
 - Text after ※ or phrases like "의미 아님" are usage notes, not meanings.
 - If a note says a meaning is not intended, put that Korean meaning in excluded_meanings.
-- relation_type antonym should usually exam_enabled false conceptually, but still fill its meaning.
+- For relation_type antonym, fill the opposite meaning of the source word.
 - Set needs_review true when the meaning or POS is uncertain.
 - confidence is 0 to 1.
 

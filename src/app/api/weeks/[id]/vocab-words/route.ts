@@ -79,7 +79,7 @@ function cleanVariants(word: VocabWordInput) {
       usage_note: variant.usage_note?.trim() || null,
       excluded_meanings: Array.isArray(variant.excluded_meanings) ? variant.excluded_meanings.filter(Boolean) : [],
       raw_text: variant.raw_text?.trim() || null,
-      exam_enabled: variant.exam_enabled ?? variant.relation_type !== 'antonym',
+      exam_enabled: variant.exam_enabled ?? true,
       needs_review: variant.needs_review ?? !variant.meaning,
       confidence: typeof variant.confidence === 'number' ? variant.confidence : null,
       sort_order: variant.sort_order ?? index + 1,
