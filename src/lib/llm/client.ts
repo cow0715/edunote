@@ -109,3 +109,9 @@ export function parseJsonArrayResponse<T>(raw: string, label = 'parseJsonArrayRe
 export function parseJsonObjectResponse<T>(raw: string, label = 'parseJsonObjectResponse'): T {
   return parseWithQuoteRecovery<T>(extractJsonObjectCandidate(raw), label)
 }
+
+/** Anthropic 콘텐츠 필터로 출력이 차단된 에러인지 (페이지 단위 재시도 분기용) */
+export function isContentFilterError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.includes('Output blocked') || message.includes('content filtering')
+}

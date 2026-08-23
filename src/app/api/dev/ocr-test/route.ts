@@ -1,9 +1,6 @@
 import { getAuth, err, ok } from '@/lib/api'
-import Anthropic from '@anthropic-ai/sdk'
-import { jsonrepair } from 'jsonrepair'
+import { callClaudeText, parseJsonArrayResponse, type ContentBlock } from '@/lib/llm/client'
 import { buildVocabOcrClovaPrompt, VOCAB_OCR_VISION_PROMPT } from '@/lib/prompts'
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export const maxDuration = 120
 
@@ -121,14 +118,8 @@ async function callClaude(
     ? [fileContent, { type: 'text', text: prompt }]
     : prompt
 
-  const res = await anthropic.messages.create({
-    model,
-    max_tokens: 4096,
-    messages: [{ role: 'user', content: content as Anthropic.MessageParam['content'] }],
-  })
-
-  const raw = res.content[0].type === 'text' ? res.content[0].text : ''
-  const items: OcrItem[] = JSON.parse(jsonrepair(raw.replace(/```json\n?|\n?```/g, '').trim()))
+  const raw = await callClaudeText({ model, maxTokens: 4096, content: content as string | ContentBlock[] })
+  const items = parseJsonArrayResponse<OcrItem>(raw, 'ocr-test')
 
   return { items, rawText: raw, ms: Date.now() - start }
 }

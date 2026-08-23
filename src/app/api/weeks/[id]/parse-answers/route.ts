@@ -1,10 +1,8 @@
 import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
-import { parseAnswerSheet } from '@/lib/anthropic'
 import {
   createTagMatcher,
   fetchTeacherTagContext,
-  applyUnderlineMarkupToQuestionText,
-  normalizeParsedAnswers,
+  parseAnswerSheetDocument,
   saveWeekAnswerSheetFile,
   syncWeekReadingQuestionsAndRegrade,
 } from '@/lib/week-reading-import'
@@ -39,10 +37,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     let parsedAnswers
     try {
-      parsedAnswers = normalizeParsedAnswers(await parseAnswerSheet(fileData, mimeType, tagCategories))
-        .map((answer) => answer.question_text
-          ? { ...answer, question_text: applyUnderlineMarkupToQuestionText(answer.question_text) }
-          : answer)
+      parsedAnswers = await parseAnswerSheetDocument([{ fileData, mimeType, fileName }], tagCategories)
     } catch (error) {
       const message = error instanceof Error ? error.message : '해설지 파싱에 실패했습니다.'
       return err(message || '해설 포함 PDF로 파싱하지 못했습니다.', 422)

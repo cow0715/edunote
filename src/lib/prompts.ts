@@ -63,6 +63,16 @@ export const QUESTION_MARKUP_RULES = `- Preserve simple visual emphasis in quest
 - In vocabulary/glossary note lines, keep the leading asterisks exactly as they appear in the PDF/OCR (for example "*word", "**word", "***word"). They are not bold markers.
 - For questions asking about "밑줄 친 부분/낱말", apply <u>...</u> to the numbered words inside the passage (for example "① <u>direct</u>"), not to the separate answer choices list.`
 
+// 도표·표·그림 문항의 원본 이미지 보존 필드 (needs_source_image / source_page / source_bbox).
+// 해설지형·문제지형 공용. 파싱 후 week-reading-import 가 bbox 검증·pageOffset 보정·크롭을 담당한다.
+export const SOURCE_IMAGE_FIELD_RULES = `- needs_source_image: boolean. Use true only when the question contains a table, chart, diagram, picture, schedule grid, map, or complex boxed/multi-column layout that cannot be represented reliably as plain text.
+- Do not set needs_source_image true for plain bold text or underlined text when the content can be represented with **text** or <u>text</u>.
+- Keep original circled choice markers in choices, such as "① a potential risk..." rather than "a potential risk..." or "1. a potential risk...".
+- source_image_reason: one of "table", "chart", "diagram", "layout", "image", or null.
+- source_page: page number in the attached file where this question appears. Use 1 for the first page of the attached file.
+- source_bbox: normalized bounding box for the full question area on source_page, as {"x":0-1,"y":0-1,"width":0-1,"height":0-1}. Include the question number, passage/table/diagram, and choices. Use null when needs_source_image is false or the area cannot be estimated.
+Return these fields in every JSON object.`
+
 // ── 해설지 파싱 ──────────────────────────────────────────────────────────
 
 export const PARSE_ANSWER_SHEET_RULES = `추출 규칙:

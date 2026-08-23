@@ -1,6 +1,8 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parseExamBankPage } from '@/lib/anthropic'
+import { runParsePipeline, type PipelineFile } from '@/lib/llm/pipeline'
+import { isContentFilterError } from '@/lib/llm/client'
 import { getMegastudyStats } from '@/lib/megastudy'
 import { NextResponse } from 'next/server'
 
@@ -41,12 +43,40 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(binary)
 }
 
-function isContentFilter(e: unknown): boolean {
-  const msg = e instanceof Error ? e.message : String(e)
-  return msg.includes('Output blocked') || msg.includes('content filtering')
+async function downloadTempFiles(serviceClient: ReturnType<typeof createServiceClient>, paths: string[], mimeType: string): Promise<PipelineFile[]> {
+  const files: PipelineFile[] = []
+  for (const path of paths) {
+    const { data, error } = await serviceClient.storage.from('exam-pdf-temp').download(path)
+    if (error || !data) throw new Error(`파일 다운로드 실패: ${error?.message}`)
+    files.push({ fileData: await blobToBase64(data), mimeType, fileName: path })
+  }
+  return files
+}
+
+async function fetchAndApplyStats(
+  supabase: Awaited<ReturnType<typeof getAuth>>['supabase'],
+  examId: string,
+  params: { grade: number; exam_year: number; exam_month: number; form_type?: string },
+): Promise<number> {
+  let statsFetched = 0
+  try {
+    const formTypeVal: '홀수형' | '짝수형' = params.form_type === '짝수형' ? '짝수형' : '홀수형'
+    const stats = await getMegastudyStats(params.grade, params.exam_year, params.exam_month, formTypeVal)
+    for (const row of stats ?? []) {
+      const { error: updateErr } = await supabase
+        .from('exam_bank_question')
+        .update({ answer: row.answer, difficulty: row.difficulty, points: row.points, correct_rate: row.correct_rate, choice_rates: row.choice_rates })
+        .eq('exam_bank_id', examId)
+        .eq('question_number', row.question_number)
+      if (!updateErr) statsFetched++
+    }
+  } catch { /* 통계 실패 무시 — 파싱 결과는 살린다 */ }
+  return statsFetched
 }
 
 // POST — 기출 시험 생성 + PDF 파싱
+// 기본: PDF 1개를 통째로 1회 파싱. 콘텐츠 필터로 전체가 막히면 422 {contentFilter:true} 를 돌려주고,
+// 클라이언트가 페이지별 PNG(storagePaths)로 재요청하면 페이지 단위로 파싱하되 막힌 페이지만 건너뛴다.
 export async function POST(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
@@ -68,104 +98,36 @@ export async function POST(request: Request) {
 
   const serviceClient = createServiceClient()
   const isPagesMode = !!storagePaths?.length
+  const paths = isPagesMode ? storagePaths! : [storagePath!]
 
-  // ── 페이지 이미지 모드 (fallback) ─────────────────────────────────────────
-  if (isPagesMode) {
-    void serviceClient.storage.from('exam-pdf-temp').remove(storagePaths!)
-
-    const { data: exam, error: examError } = await supabase
-      .from('exam_bank')
-      .insert({ teacher_id: teacherId, title, exam_year, exam_month, grade, source: source || '교육청', form_type: form_type || '홀수형' })
-      .select()
-      .single()
-
-    if (examError) return err(examError.message)
-
-    const questions: Awaited<ReturnType<typeof parseExamBankPage>> = []
-    const skippedPages: number[] = []
-
-    for (let i = 0; i < storagePaths!.length; i++) {
-      try {
-        const { data: fileBlob, error: downloadErr } = await serviceClient.storage
-          .from('exam-pdf-temp')
-          .download(storagePaths![i])
-        if (downloadErr || !fileBlob) throw new Error(`다운로드 실패: ${downloadErr?.message}`)
-        const fileData = await blobToBase64(fileBlob)
-        const qs = await parseExamBankPage(fileData, mimeType)
-        questions.push(...qs)
-      } catch (e) {
-        if (isContentFilter(e)) {
-          console.log(`[exam-bank] page${i + 1} 필터됨, 건너뜀`)
-          skippedPages.push(i + 1)
-        } else throw e
-      }
-    }
-
-    if (questions.length === 0) {
-      await supabase.from('exam_bank').delete().eq('id', exam.id)
-      return err('추출된 문항이 없습니다.', 422)
-    }
-
-    const rows = questions.map((q) => ({
-      exam_bank_id: exam.id,
-      question_number: q.question_number,
-      question_type: q.question_type,
-      passage: q.passage || '',
-      question_text: q.question_text,
-      choices: q.choices || [],
-      answer: q.answer || '',
-      raw_text: '',
-    }))
-
-    const { error: insertError } = await supabase.from('exam_bank_question').insert(rows)
-    if (insertError) {
-      await supabase.from('exam_bank').delete().eq('id', exam.id)
-      return err(`문항 저장 실패: ${insertError.message}`)
-    }
-
-    let statsFetched = 0
-    try {
-      const formTypeVal: '홀수형' | '짝수형' = form_type === '짝수형' ? '짝수형' : '홀수형'
-      const stats = await getMegastudyStats(grade, exam_year, exam_month, formTypeVal)
-      if (stats && stats.length > 0) {
-        for (const row of stats) {
-          const { error: updateErr } = await supabase
-            .from('exam_bank_question')
-            .update({ answer: row.answer, difficulty: row.difficulty, points: row.points, correct_rate: row.correct_rate, choice_rates: row.choice_rates })
-            .eq('exam_bank_id', exam.id)
-            .eq('question_number', row.question_number)
-          if (!updateErr) statsFetched++
-        }
-      }
-    } catch { /* 통계 실패 무시 */ }
-
-    return ok({ ok: true, exam_id: exam.id, question_count: questions.length, skipped_pages: skippedPages, stats_fetched: statsFetched })
+  let files: PipelineFile[]
+  try {
+    files = await downloadTempFiles(serviceClient, paths, mimeType)
+  } catch (e) {
+    return err(e instanceof Error ? e.message : '파일 다운로드 실패')
   }
-
-  // ── 단일 PDF 모드 (기본) ───────────────────────────────────────────────────
-  const { data: fileBlob, error: downloadErr } = await serviceClient.storage
-    .from('exam-pdf-temp')
-    .download(storagePath!)
-
-  if (downloadErr || !fileBlob) return err(`파일 다운로드 실패: ${downloadErr?.message}`)
-
-  const fileData = await blobToBase64(fileBlob)
-  void serviceClient.storage.from('exam-pdf-temp').remove([storagePath!])
+  void serviceClient.storage.from('exam-pdf-temp').remove(paths)
 
   const { data: exam, error: examError } = await supabase
     .from('exam_bank')
     .insert({ teacher_id: teacherId, title, exam_year, exam_month, grade, source: source || '교육청', form_type: form_type || '홀수형' })
     .select()
     .single()
-
   if (examError) return err(examError.message)
 
   try {
-    const questions = await parseExamBankPage(fileData, mimeType)
+    const { items: questions, skippedChunks } = await runParsePipeline({
+      label: 'exam-bank',
+      chunk: { kind: 'whole' },
+      // 페이지 모드에선 필터 걸린 페이지만 건너뛰고 계속, 단일 PDF 모드에선 전체 실패로 올려 클라가 페이지 모드로 재시도하게
+      onChunkError: isPagesMode ? { skipIf: isContentFilterError } : 'throw',
+      parseChunk: (file) => parseExamBankPage(file.fileData, file.mimeType),
+      finalize: (qs) => qs,
+    }, files)
 
     if (questions.length === 0) {
       await supabase.from('exam_bank').delete().eq('id', exam.id)
-      return err('문항을 추출할 수 없습니다. PDF를 확인해주세요.', 422)
+      return err(isPagesMode ? '추출된 문항이 없습니다.' : '문항을 추출할 수 없습니다. PDF를 확인해주세요.', 422)
     }
 
     const rows = questions.map((q) => ({
@@ -185,27 +147,19 @@ export async function POST(request: Request) {
       return err(`문항 저장 실패: ${insertError.message}`)
     }
 
-    let statsFetched = 0
-    try {
-      const formTypeVal: '홀수형' | '짝수형' = form_type === '짝수형' ? '짝수형' : '홀수형'
-      const stats = await getMegastudyStats(grade, exam_year, exam_month, formTypeVal)
-      if (stats && stats.length > 0) {
-        for (const row of stats) {
-          const { error: updateErr } = await supabase
-            .from('exam_bank_question')
-            .update({ answer: row.answer, difficulty: row.difficulty, points: row.points, correct_rate: row.correct_rate, choice_rates: row.choice_rates })
-            .eq('exam_bank_id', exam.id)
-            .eq('question_number', row.question_number)
-          if (!updateErr) statsFetched++
-        }
-      }
-    } catch { /* 통계 실패 무시 */ }
+    const statsFetched = await fetchAndApplyStats(supabase, exam.id, { grade, exam_year, exam_month, form_type })
 
-    return ok({ ok: true, exam_id: exam.id, question_count: questions.length, stats_fetched: statsFetched })
+    return ok({
+      ok: true,
+      exam_id: exam.id,
+      question_count: questions.length,
+      ...(isPagesMode ? { skipped_pages: skippedChunks } : {}),
+      stats_fetched: statsFetched,
+    })
   } catch (e) {
     await supabase.from('exam_bank').delete().eq('id', exam.id)
     console.error('[exam-bank] 파싱 실패', e)
-    if (isContentFilter(e)) {
+    if (isContentFilterError(e)) {
       return NextResponse.json({ error: '일부 페이지가 AI 필터에 걸렸습니다. 페이지별 재처리를 시도합니다.', contentFilter: true }, { status: 422 })
     }
     return err('PDF 파싱 실패. 파일을 확인해주세요.', 422)

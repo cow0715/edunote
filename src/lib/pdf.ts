@@ -67,6 +67,68 @@ export async function splitPdfIntoChunksBase64(fileData: string, pagesPerChunk: 
   return chunks
 }
 
+/** 페이지별 텍스트 (unpdf). 서식·레이아웃은 없고 청크 경계 판단 같은 보조 용도로만 쓴다. */
+export async function getPdfPageTexts(fileData: string): Promise<string[]> {
+  const { extractText, getDocumentProxy } = await import('unpdf')
+  const pdf = await getDocumentProxy(new Uint8Array(Buffer.from(fileData, 'base64')))
+  const { text } = await extractText(pdf, { mergePages: false })
+  return (Array.isArray(text) ? text : [String(text ?? '')]).map((t) => String(t ?? ''))
+}
+
+/** 페이지가 새 문항으로 시작하는지 — "1." / "1)" / "[6~7]" / "01." 등 */
+export function pageStartsWithQuestion(pageText: string): boolean {
+  const head = pageText.replace(/^\s+/, '').slice(0, 40)
+  return /^(?:\[\s*\d+\s*[~\-]\s*\d+\s*\]|\d{1,2}\s*[.)])/.test(head)
+}
+
+export type PageRange = { startPage: number; endPage: number }
+
+/**
+ * 청크 경계를 문항 경계에 맞춘 페이지 범위 계획 (순수 함수).
+ * 기본 pagesPerChunk 장씩 자르되, 자르려는 지점의 다음 페이지가 문항으로 시작하지 않으면
+ * (= 지문/문항이 페이지를 넘어가는 중이면) maxPagesPerChunk 까지 청크를 늘려 안전한 경계를 찾는다.
+ * 끝까지 안전한 경계가 없으면 maxPagesPerChunk 에서 강제로 자른다.
+ */
+export function planAlignedPageChunks(
+  startsWithQuestion: boolean[],
+  pagesPerChunk: number,
+  maxPagesPerChunk = pagesPerChunk + 2,
+): PageRange[] {
+  const pageCount = startsWithQuestion.length
+  if (pageCount <= pagesPerChunk) return [{ startPage: 0, endPage: pageCount }]
+
+  const ranges: PageRange[] = []
+  let start = 0
+  while (start < pageCount) {
+    let end = Math.min(start + pagesPerChunk, pageCount)
+    // 다음 페이지가 문항 시작이 아니면 경계를 뒤로 민다
+    while (end < pageCount && !startsWithQuestion[end] && end - start < maxPagesPerChunk) {
+      end += 1
+    }
+    ranges.push({ startPage: start, endPage: end })
+    start = end
+  }
+  return ranges
+}
+
+/** 주어진 페이지 범위들로 PDF 를 쪼갠다 */
+export async function splitPdfByRangesBase64(fileData: string, ranges: PageRange[]): Promise<PdfChunk[]> {
+  const srcDoc = await loadPdfFromBase64(fileData)
+  const pageCount = srcDoc.getPageCount()
+  if (ranges.length === 1 && ranges[0].startPage === 0 && ranges[0].endPage === pageCount) {
+    return [{ fileData, startPage: 0, endPage: pageCount }]
+  }
+  const chunks: PdfChunk[] = []
+  for (const range of ranges) {
+    chunks.push({
+      fileData: await copyPageRangeToBase64(srcDoc, range.startPage, range.endPage),
+      startPage: range.startPage,
+      endPage: range.endPage,
+    })
+  }
+  return chunks
+}
+
 /** 앞에서 maxPages 페이지만 잘라낸다 (비용 제한용 — dev 비교 도구 등) */
 export async function slicePdfFirstPagesBase64(
   fileData: string,

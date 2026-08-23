@@ -1,6 +1,5 @@
-import { jsonrepair } from 'jsonrepair'
 import type { SupabaseServerClient } from '@/lib/api'
-import { anthropic } from '@/lib/anthropic'
+import { callClaudeText, parseJsonArrayResponse } from '@/lib/llm/client'
 
 export type VocabEnrichmentCandidate = {
   normalized_word: string
@@ -58,8 +57,7 @@ function needsEnrichment(row: VocabDbRow) {
 }
 
 function parseEnrichmentResponse(raw: string, candidates: VocabEnrichmentCandidate[]) {
-  const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
-  const parsed = JSON.parse(jsonrepair(cleaned)) as unknown
+  const parsed: unknown = parseJsonArrayResponse<unknown>(raw, 'vocab-enrichment')
   if (!Array.isArray(parsed)) return []
 
   const candidateMap = new Map(candidates.map((candidate) => [candidate.normalized_word, candidate]))
@@ -118,12 +116,7 @@ ${JSON.stringify(candidates.map((candidate) => ({
   }
 ]`
 
-  const response = await anthropic.messages.create({
-    model: ENRICHMENT_MODEL,
-    max_tokens: 6000,
-    messages: [{ role: 'user', content: prompt }],
-  })
-  const raw = response.content[0]?.type === 'text' ? response.content[0].text : ''
+  const raw = await callClaudeText({ model: ENRICHMENT_MODEL, maxTokens: 6000, content: prompt })
   return parseEnrichmentResponse(raw, candidates)
 }
 

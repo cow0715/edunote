@@ -1,6 +1,6 @@
 // ── 진단평가(주차 시험): 해설지·문제지·정오표 파싱 + 서술형 채점 ─────────────
 
-import { GRADING_SYSTEM, GRADING_RULES, PARSE_ANSWER_SHEET_RULES, QUESTION_MARKUP_RULES } from '../prompts'
+import { GRADING_SYSTEM, GRADING_RULES, PARSE_ANSWER_SHEET_RULES, QUESTION_MARKUP_RULES, SOURCE_IMAGE_FIELD_RULES } from '../prompts'
 import {
   buildFileBlock, callClaudeText,
   extractJsonArrayCandidate, parseJsonArrayResponse,
@@ -119,7 +119,10 @@ ${tagListSection}
 ━━━ question_text 서식 보존 규칙 (반드시 준수) ━━━
 ${QUESTION_MARKUP_RULES}
 
-JSON 배열만 출력 (다른 텍스트 없이):
+━━━ 도표·그림 문항 원본 보존 필드 (모든 객체에 포함) ━━━
+${SOURCE_IMAGE_FIELD_RULES}
+
+JSON 배열만 출력 (다른 텍스트 없이, 각 객체에 needs_source_image/source_image_reason/source_page/source_bbox 포함):
 [{"question_number":1,"sub_label":null,"question_style":"objective","question_type":"가정법/조동사","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"...","question_text":"다음 글의 빈칸에 들어갈 말로 가장 적절한 것은?\\nThe researcher concluded that the results were inconclusive. ________ further investigation was needed before any definitive claims could be made about the phenomenon."},{"question_number":2,"sub_label":null,"question_style":"multi_select","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"1,3","grading_criteria":null,"explanation":"...","question_text":"윗글의 내용과 일치하는 것을 모두 고르시오.\\nJohn was born in London in 1990. He studied engineering at university and later moved to Seoul for work."},{"question_number":5,"sub_label":"a","question_style":"ox","question_type":"대명사","correct_answer":0,"correct_answer_text":"X (their)","grading_criteria":null,"explanation":"...","question_text":"다음 문장에서 어법상 틀린 것을 고르시오.\\nEach of the students raised their hand."},{"question_number":5,"sub_label":"b","question_style":"ox","question_type":"수의 일치","correct_answer":0,"correct_answer_text":"O","grading_criteria":null,"explanation":"...","question_text":"다음 문장의 어법이 올바른지 판단하시오.\\nThe committee has made its decision."}]`
 
   const raw = await callClaudeText({
@@ -228,13 +231,7 @@ ${buildQuestionTypeTagMappingRules(tagCategories)}
 
 Additional fields for each question:
 ${QUESTION_MARKUP_RULES}
-- needs_source_image: boolean. Use true only when the question contains a table, chart, diagram, picture, schedule grid, map, or complex boxed/multi-column layout that cannot be represented reliably as plain text.
-- Do not set needs_source_image true for plain bold text or underlined text when the content can be represented with **text** or <u>text</u>.
-- Keep original circled choice markers in choices, such as "① a potential risk..." rather than "a potential risk..." or "1. a potential risk...".
-- source_image_reason: one of "table", "chart", "diagram", "layout", "image", or null.
-- source_page: page number in the attached file where this question appears. Use 1 for the first page of the attached file.
-- source_bbox: normalized bounding box for the full question area on source_page, as {"x":0-1,"y":0-1,"width":0-1,"height":0-1}. Include the question number, passage/table/diagram, and choices. Use null when needs_source_image is false or the area cannot be estimated.
-Return these fields in every JSON object.`,
+${SOURCE_IMAGE_FIELD_RULES}`,
     }],
   })
   console.log('[parseWeekProblemSheetPage] raw response length:', raw.length)

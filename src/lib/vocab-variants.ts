@@ -1,5 +1,4 @@
-import { jsonrepair } from 'jsonrepair'
-import { anthropic } from '@/lib/anthropic'
+import { callClaudeText, parseJsonArrayResponse } from '@/lib/llm/client'
 import type { ParsedVocabEntry } from '@/lib/vocab-xlsx'
 
 export type VocabVariantRelationType = 'original' | 'synonym' | 'derivative' | 'antonym'
@@ -244,12 +243,10 @@ function mergeAiVariant(base: VocabVariantInput, ai?: AiVariant): VocabVariantIn
 export async function generateVariantMeanings(candidates: VocabVariantMeaningCandidate[]): Promise<VocabVariantMeaningResult[]> {
   if (candidates.length === 0 || !process.env.ANTHROPIC_API_KEY) return []
 
-  const res = await anthropic.messages.create({
+  const raw = await callClaudeText({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 2500,
-    messages: [{
-      role: 'user',
-      content: `You fill Korean meanings for English vocabulary variants used by Korean middle/high school students. Return JSON only.
+    maxTokens: 2500,
+    content: `You fill Korean meanings for English vocabulary variants used by Korean middle/high school students. Return JSON only.
 
 Rules:
 - Preserve id and word exactly.
@@ -279,11 +276,9 @@ Output:
     "confidence": 0.92
   }
 ]`,
-    }],
   })
 
-  const raw = res.content[0]?.type === 'text' ? res.content[0].text : ''
-  const parsed = JSON.parse(jsonrepair(raw.replace(/```json\n?|\n?```/g, '').trim())) as unknown
+  const parsed: unknown = parseJsonArrayResponse<unknown>(raw, 'vocab-variants:meanings')
   if (!Array.isArray(parsed)) return []
 
   const allowedIds = new Set(candidates.map((candidate) => candidate.id))
@@ -323,12 +318,10 @@ async function enrichVariantsWithAi(entries: VocabEntryWithVariants[]) {
     })),
   }))
 
-  const res = await anthropic.messages.create({
+  const raw = await callClaudeText({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 12000,
-    messages: [{
-      role: 'user',
-      content: `You normalize English vocabulary for Korean students. Return JSON only.
+    maxTokens: 12000,
+    content: `You normalize English vocabulary for Korean students. Return JSON only.
 
 Rules:
 - Preserve source_word and word exactly as provided unless there is obvious surrounding punctuation.
@@ -358,11 +351,9 @@ Output shape:
     "confidence": 0.92
   }
 ]`,
-    }],
   })
 
-  const raw = res.content[0]?.type === 'text' ? res.content[0].text : ''
-  const parsed = JSON.parse(jsonrepair(raw.replace(/```json\n?|\n?```/g, '').trim())) as AiVariant[]
+  const parsed = parseJsonArrayResponse<AiVariant>(raw, 'vocab-variants:normalize')
   const aiMap = new Map<string, AiVariant>()
   for (const item of parsed) {
     if (!item?.source_word || !item.word || !item.relation_type) continue

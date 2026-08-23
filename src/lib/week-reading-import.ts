@@ -2,6 +2,7 @@ import type { SupabaseServerClient } from '@/lib/api'
 import { buildQuestionTextFromParts, ensureChoiceMarker } from '@/lib/question-structure'
 import {
   gradeSubjectiveAnswers,
+  parseAnswerSheet,
   parseProblemSheetAnswerKeyFile,
   parseWeekProblemSheetPage,
 } from '@/lib/anthropic'
@@ -14,8 +15,10 @@ import type {
   WeekProblemSheetQuestion,
 } from '@/lib/anthropic'
 import { recalcReadingCorrect, gradeMultiSelect, gradeOX } from '@/lib/grade-utils'
-import { mapWithConcurrency } from '@/lib/concurrency'
-import { splitPdfIntoChunksBase64, getPdfPageCount } from '@/lib/pdf'
+
+import { getPdfPageCount } from '@/lib/pdf'
+import { runParsePipeline, type PipelineFile } from '@/lib/llm/pipeline'
+import { coerceQuestionNumber, renumberDuplicateQuestions, propagateSharedPassage } from '@/lib/llm/postprocess'
 
 export type MatchTagId = (questionType: string | null, questionStyle?: string | null) => string | null
 
@@ -40,66 +43,17 @@ export type ProblemSheetUploadInput = {
   pageOffset?: number
 }
 
-const PDF_PARSE_CHUNK_PAGES = 3
+/** 문제지형 청크 정책: 3페이지씩, 문항 경계에 맞춰 자름 (지문이 페이지를 넘어가면 최대 5페이지까지 늘림) */
+const PROBLEM_SHEET_CHUNK_POLICY = { kind: 'pages', pagesPerChunk: 3, alignToQuestionStart: true, maxPagesPerChunk: 5 } as const
+/** 청크 동시 처리 수 — Anthropic rate limit 예산과 맞바꾸는 값 */
 const PDF_PARSE_CONCURRENCY = 2
 
-async function splitPdfUploadInput(
-  file: ProblemSheetUploadInput,
-  pagesPerChunk = PDF_PARSE_CHUNK_PAGES,
-): Promise<ProblemSheetUploadInput[]> {
-  if (file.mimeType !== 'application/pdf' || !file.fileData) {
-    return [{ ...file, pageOffset: file.pageOffset ?? 0 }]
-  }
-
-  const pdfChunks = await splitPdfIntoChunksBase64(file.fileData, pagesPerChunk)
-  if (pdfChunks.length === 1) {
-    return [{ ...file, pageOffset: file.pageOffset ?? 0 }]
-  }
-
-  const chunks: ProblemSheetUploadInput[] = pdfChunks.map((chunk) => {
-    const pageLabel = `${chunk.startPage + 1}-${chunk.endPage}`
-    return {
-      fileData: chunk.fileData,
-      mimeType: 'application/pdf',
-      fileName: file.fileName ? `${file.fileName}#p${pageLabel}` : `chunk-p${pageLabel}.pdf`,
-      pageOffset: (file.pageOffset ?? 0) + chunk.startPage,
-    }
+/** 파일 데이터 없는 입력(storagePath 만 있는 것)은 파이프라인에 넣기 전에 resolve 돼 있어야 한다 */
+function toPipelineFiles(files: ProblemSheetUploadInput[]): PipelineFile[] {
+  return files.map((file) => {
+    if (!file.fileData) throw new Error('업로드 파일 데이터를 읽지 못했습니다.')
+    return { fileData: file.fileData, mimeType: file.mimeType, fileName: file.fileName, pageOffset: file.pageOffset }
   })
-
-  console.log(`[week-reading-import] split PDF into ${chunks.length} chunks`)
-  return chunks
-}
-
-async function splitProblemSheetUploadInputs(
-  files: ProblemSheetUploadInput[],
-): Promise<ProblemSheetUploadInput[]> {
-  const chunks: ProblemSheetUploadInput[] = []
-  for (const file of files) {
-    chunks.push(...await splitPdfUploadInput(file))
-  }
-  return chunks
-}
-
-async function splitPdfUploadInputByPageCount(
-  file: ProblemSheetUploadInput,
-  pagesPerChunk: number,
-): Promise<ProblemSheetUploadInput[]> {
-  return splitPdfUploadInput(file, pagesPerChunk)
-}
-
-function coerceQuestionNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.trunc(value)
-  }
-
-  if (typeof value === 'string') {
-    const match = value.match(/\d+/g)
-    if (!match?.length) return null
-    const parsed = Number.parseInt(match[match.length - 1], 10)
-    return Number.isFinite(parsed) ? parsed : null
-  }
-
-  return null
 }
 
 function coerceCorrectAnswer(value: unknown): number {
@@ -439,81 +393,73 @@ export async function extractPdfText(fileData: string): Promise<string> {
   return String(text || '')
 }
 
-function normalizeProblemSheetQuestions(questions: WeekProblemSheetQuestion[]): WeekProblemSheetQuestion[] {
-  const usedNumbers = new Set<number>()
-  let fallbackNumber = 1
-
-  return questions.map((question) => {
-    let questionNumber = coerceQuestionNumber(question.question_number)
-
-    if (!questionNumber || usedNumbers.has(questionNumber)) {
-      while (usedNumbers.has(fallbackNumber)) {
-        fallbackNumber += 1
-      }
-      questionNumber = fallbackNumber
-    }
-
-    usedNumbers.add(questionNumber)
-    if (questionNumber >= fallbackNumber) {
-      fallbackNumber = questionNumber + 1
-    }
-
-    return {
-      ...question,
+/**
+ * 청크 단위 보정: 번호 coerce, 스타일 정규화, source_page 를 원본 문서 기준으로 (pageOffset 반영), bbox 검증.
+ * 해설지형·문제지형 공용 — 청크가 1개(whole)면 pageOffset 0 이라 그대로 통과한다.
+ */
+function normalizeSourceFieldsForChunk<T extends {
+  question_number: unknown
+  source_page?: number | null
+  source_bbox?: SourceBBox | null
+}>(items: T[], file: PipelineFile): T[] {
+  const result: T[] = []
+  for (const item of items) {
+    const questionNumber = coerceQuestionNumber(item.question_number)
+    if (!questionNumber) continue
+    const localSourcePage = coerceQuestionNumber(item.source_page)
+    result.push({
+      ...item,
       question_number: questionNumber,
-    }
-  })
+      source_page: localSourcePage ? (file.pageOffset ?? 0) + localSourcePage : null,
+      source_bbox: normalizeSourceBBox(item.source_bbox),
+    })
+  }
+  return result
 }
 
 async function parseProblemSheetQuestionInputs(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
 ): Promise<WeekProblemSheetQuestion[]> {
-  const normalizeParsedForFile = (
-    parsed: WeekProblemSheetQuestion[],
-    file: ProblemSheetUploadInput,
-  ) => parsed
-    .map((question): WeekProblemSheetQuestion | null => {
-      const questionNumber = coerceQuestionNumber(question.question_number)
-      if (!questionNumber) return null
-      const localSourcePage = coerceQuestionNumber(question.source_page)
-      const sourceBBox = normalizeSourceBBox(question.source_bbox)
+  const { items } = await runParsePipeline<WeekProblemSheetQuestion, WeekProblemSheetQuestion>({
+    label: 'week-problem-sheet',
+    chunk: PROBLEM_SHEET_CHUNK_POLICY,
+    concurrency: PDF_PARSE_CONCURRENCY,
+    onChunkError: 'retry-per-page',
+    parseChunk: (file) => parseWeekProblemSheetPage(file.fileData, file.mimeType, tagCategories),
+    normalizeChunk: (parsed, file) => normalizeSourceFieldsForChunk(parsed, file)
+      .map((question) => ({ ...question, question_style: normalizeQuestionStyle(question.question_style) })),
+    postProcess: [renumberDuplicateQuestions, propagateSharedPassage],
+    finalize: (questions) => questions,
+  }, toPipelineFiles(files))
+  return items
+}
 
-      return {
-        ...question,
-        question_number: questionNumber,
-        question_style: normalizeQuestionStyle(question.question_style),
-        source_page: localSourcePage ? (file.pageOffset ?? 0) + localSourcePage : null,
-        source_bbox: sourceBBox,
-      }
-    })
-    .filter((question): question is WeekProblemSheetQuestion => question !== null)
-
-  const parseFiles = await splitProblemSheetUploadInputs(files)
-  const parsedGroups = await mapWithConcurrency(parseFiles, PDF_PARSE_CONCURRENCY, async (file) => {
-    if (!file.fileData) {
-      throw new Error('업로드 파일 데이터를 읽지 못했습니다.')
-    }
-
-    let parsed: WeekProblemSheetQuestion[]
-    try {
-      parsed = await parseWeekProblemSheetPage(file.fileData, file.mimeType, tagCategories)
-    } catch (error) {
-      const fallbackFiles = await splitPdfUploadInputByPageCount(file, 1)
-      if (fallbackFiles.length <= 1) throw error
-      console.warn('[week-reading-import] chunk parse failed; retrying page-by-page:', error)
-      const fallbackParsed: WeekProblemSheetQuestion[] = []
-      for (const fallbackFile of fallbackFiles) {
-        if (!fallbackFile.fileData) continue
-        const fallbackPage = await parseWeekProblemSheetPage(fallbackFile.fileData, fallbackFile.mimeType, tagCategories)
-        fallbackParsed.push(...normalizeParsedForFile(fallbackPage, fallbackFile))
-      }
-      return fallbackParsed
-    }
-    return normalizeParsedForFile(parsed, file)
-  })
-
-  return normalizeProblemSheetQuestions(parsedGroups.flat())
+/**
+ * 해설지형: 문서 통째 1회 파싱 (문항+정답+해설이 한 문서에 있음).
+ * 같은 엔진을 타므로 번호 재배정·bbox 보정·밑줄 안전망을 문제지형과 동일하게 받는다.
+ */
+export async function parseAnswerSheetDocument(
+  files: ProblemSheetUploadInput[],
+  tagCategories: TagCategory[] = [],
+): Promise<ParsedAnswer[]> {
+  const { items } = await runParsePipeline<ParsedAnswer, ParsedAnswer>({
+    label: 'week-answer-sheet',
+    chunk: { kind: 'whole' },
+    parseChunk: (file) => parseAnswerSheet(file.fileData, file.mimeType, tagCategories),
+    normalizeChunk: (parsed, file) => normalizeSourceFieldsForChunk(parsed, file)
+      .map((answer) => ({
+        ...answer,
+        needs_source_image: shouldStoreSourceImage(answer),
+        source_image_reason: answer.source_image_reason ?? null,
+      })),
+    // 소문항 라벨·요약문 오분할 복구는 해설지형 고유 규칙(normalizeParsedAnswers)에 있음
+    postProcess: [normalizeParsedAnswers],
+    finalize: (answers) => answers.map((answer) => answer.question_text
+      ? { ...answer, question_text: applyUnderlineMarkupToQuestionText(answer.question_text) }
+      : answer),
+  }, toPipelineFiles(files))
+  return items
 }
 
 function normalizeQuestionStyle(
@@ -631,22 +577,23 @@ export async function parseProblemSheetAnswerKeyOnly(params: {
     choices: extractChoicesFromStoredQuestionText(question.question_text),
   }))
 
+  // 정오표: 3페이지 청크, 순차. 같은 번호가 여러 청크에 나오면 뒤의 것이 이긴다 (최종 정답표 우선)
+  const { items: keyItems } = await runParsePipeline<ProblemSheetAnswerKeyItem, ProblemSheetAnswerKeyItem>({
+    label: 'week-answer-key',
+    chunk: { kind: 'pages', pagesPerChunk: 3 },
+    parseChunk: (file) => parseProblemSheetAnswerKeyFile(file.fileData, file.mimeType, questions),
+    finalize: (items) => items,
+  }, toPipelineFiles(files))
+
   const mergedItems = new Map<number, ProblemSheetAnswerKeyItem>()
-  const parseFiles = await splitProblemSheetUploadInputs(files)
-  for (const file of parseFiles) {
-    if (!file.fileData) {
-      throw new Error('업로드 파일 데이터를 읽지 못했습니다.')
-    }
-    const items = await parseProblemSheetAnswerKeyFile(file.fileData, file.mimeType, questions)
-    for (const item of items) {
-      const questionNumber = coerceQuestionNumber(item.question_number)
-      if (!questionNumber) continue
-      mergedItems.set(questionNumber, {
-        ...item,
-        question_number: questionNumber,
-        correct_answer: coerceCorrectAnswer(item.correct_answer),
-      })
-    }
+  for (const item of keyItems) {
+    const questionNumber = coerceQuestionNumber(item.question_number)
+    if (!questionNumber) continue
+    mergedItems.set(questionNumber, {
+      ...item,
+      question_number: questionNumber,
+      correct_answer: coerceCorrectAnswer(item.correct_answer),
+    })
   }
 
   const parsed: ParsedAnswer[] = [...mergedItems.values()]

@@ -27,25 +27,27 @@
 
 ```
 PDF 업로드 (Supabase Storage signed URL — Vercel 4.5MB body 한도 우회)
-  └─ 3페이지 청크 분할 · 동시 2개 처리 · 청크 실패 시 1페이지 단위 재시도   (week-reading-import.ts)
-       └─ Claude document 블록으로 LLM 파싱                                 (anthropic.ts, prompts.ts)
+  └─ 파이프라인 엔진 runParsePipeline (llm/pipeline.ts) — 청크 정책 · 동시성 · 실패 정책 · 후처리 체인을 스펙으로 선언
+       ├─ 문제지형: 3페이지 청크를 문항 경계에 맞춰 분할(지문이 페이지를 넘어가면 늘림) · 동시 2 · 실패 청크만 1페이지 재시도
+       ├─ 해설지형: 문서 통째 1회
+       └─ Claude document 블록으로 LLM 파싱                                 (llm/week.ts, prompts.ts)
             ├─ 해설지형: 문항+정답 한 번에          parseAnswerSheet
             ├─ 문제지형: 문항만 → 정오표 별도 업로드  parseWeekProblemSheetPage / 정답 수 ≠ 문항 수면 적용 거부
             └─ 강사의 개념 태그 목록을 프롬프트에 주입 → 목록 중에서만 유형 선택
                  └─ 구조화 · 후처리
                       ├─ question_stem / passage / choices 3분할 저장 + 레거시 단일 텍스트 동시 생성 (question-structure.ts)
-                      ├─ 번호 누락/중복 재배정, 소문항 라벨 정규화, 요약문 (A)(B) 오분할 복구
+                      ├─ 번호 누락/중복 재배정 · 청크 경계에 걸린 공유 지문 전파 · 소문항 라벨 정규화 · 요약문 (A)(B) 오분할 복구 (llm/postprocess.ts)
                       ├─ bold · 밑줄 마크업 보존, "밑줄 친 낱말" 문항은 지문에 ① <u>…</u> 자동 부착
                       └─ 도표/표 문항: LLM 이 반환한 bbox 로 pdfjs 렌더 → sharp 크롭 → 원본 이미지 저장
                            └─ exam_question upsert → 태그 연결 → 기존 학생 답안 자동 재채점 (객관식 코드 / 서술형 LLM)
 ```
 
-같은 기반 위에 목적이 다른 파이프라인 두 개가 더 있습니다.
+같은 엔진 위에 목적이 다른 파이프라인 두 개가 더 있습니다 — 차이는 스펙(청크 정책·프롬프트·후처리 조합)뿐입니다.
 
 | 파이프라인 | 입력 | 산출 | 특징 |
 |---|---|---|---|
-| **기출문제 은행** (`/api/exam-bank`) | 수능·모평·학평 PDF | `exam_bank_question` | 18~45번 추출, 유형 25종 enum 강제, 콘텐츠 필터 시 페이지 PNG 렌더로 재시도, 정답·배점·난이도·선지별 선택률 메타데이터 보강, 해설 PDF 는 정규식/Vision 3경로 파싱 |
-| **모의고사** (`/api/mock-exams/[id]/metadata`) | 문제지+정답표+해설지 다중 파일 | `mock_exam_question` | 본문 없이 메타데이터만(토큰 절약), 정답표 집중 2차 패스로 정답 신뢰도 보정, OMR 인식은 응답률 75% 미만 시 strict 재인식 + 성명 칸 별도 재시도, Levenshtein 기반 재원생 자동 매칭(임계 미달 시 `review_required`) |
+| **기출문제 은행** (`/api/exam-bank`) | 수능·모평·학평 PDF | `exam_bank_question` | 문서 통째 1회 · 18~45번 추출, 유형 25종 enum 강제, 콘텐츠 필터 시 페이지 PNG 로 재요청해 막힌 페이지만 건너뜀(`skipIf` 정책), 정답·배점·난이도·선지별 선택률 메타데이터 보강, 해설 PDF 는 정규식/Vision 3경로 파싱 |
+| **모의고사** (`/api/mock-exams/[id]/metadata`) | 문제지+정답표+해설지 다중 파일 | `mock_exam_question` | 본문 없이 메타데이터만(토큰 절약), 정답표 집중 2차 패스로 정답 신뢰도 보정, OMR 인식은 1페이지 단위(`single-page` 정책), 응답률 75% 미만 시 strict 재인식 + 성명 칸 별도 재시도, Levenshtein 기반 재원생 자동 매칭(임계 미달 시 `review_required`) |
 
 신뢰성 장치:
 - LLM JSON 응답 복구 2단: `jsonrepair` → 실패 시 지문 속 미이스케이프 따옴표 보정(`json-lenient.ts`) → 그래도 실패하면 문항 객체 단위 정규식 추출

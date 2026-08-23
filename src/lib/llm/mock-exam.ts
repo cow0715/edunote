@@ -2,7 +2,7 @@
 
 import type { TextBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
 import { buildExamOcrVisionPrompt, ExamOcrQuestion } from '../prompts'
-import { splitPdfToSinglePageBase64 } from '../pdf'
+import { runParsePipeline } from './pipeline'
 import {
   buildFileBlock, callClaudeText,
   parseJsonArrayResponse, parseJsonObjectResponse,
@@ -463,53 +463,31 @@ async function ocrExamOmrPage(
   return result
 }
 
+/** 답안지 OCR: 파일을 1페이지씩 쪼개 순차 인식, 문항 키 기준으로 정보량 많은 쪽을 채택해 병합 */
 export async function ocrExamAnswerBatch(
   files: ExamOcrBatchInput[],
   questions: ExamOcrQuestion[],
 ): Promise<{ results: ExamOcrResult[]; pagesProcessed: number }> {
-  const pageResults: ExamOcrResult[][] = []
-  let pagesProcessed = 0
-
-  for (const file of files) {
-    if (file.mimeType === 'application/pdf') {
-      const pages = await splitPdfToSinglePageBase64(file.fileData)
-      for (const page of pages) {
-        pageResults.push(await ocrExamAnswers(page, 'application/pdf', questions))
-        pagesProcessed += 1
-      }
-      continue
-    }
-
-    pageResults.push(await ocrExamAnswers(file.fileData, file.mimeType, questions))
-    pagesProcessed += 1
-  }
-
-  return {
-    results: mergeExamOcrResults(pageResults),
-    pagesProcessed,
-  }
+  const { items, chunkCount } = await runParsePipeline<ExamOcrResult, ExamOcrResult>({
+    label: 'mock-exam-answer-ocr',
+    chunk: { kind: 'single-page' },
+    parseChunk: (file) => ocrExamAnswers(file.fileData, file.mimeType, questions),
+    postProcess: [(all) => mergeExamOcrResults([all])],
+    finalize: (all) => all,
+  }, files)
+  return { results: items, pagesProcessed: chunkCount }
 }
 
+/** OMR 인식: 1페이지씩 순차. page_number 는 전체 처리 순서(1-base)로 부여 */
 export async function ocrExamOmrBatch(
   files: ExamOcrBatchInput[],
   questions: ExamOcrQuestion[],
 ): Promise<{ results: ExamOmrPageResult[]; pagesProcessed: number }> {
-  const results: ExamOmrPageResult[] = []
-  let pagesProcessed = 0
-
-  for (const file of files) {
-    if (file.mimeType === 'application/pdf') {
-      const pages = await splitPdfToSinglePageBase64(file.fileData)
-      for (const page of pages) {
-        pagesProcessed += 1
-        results.push(await ocrExamOmrPage(page, 'application/pdf', questions, pagesProcessed))
-      }
-      continue
-    }
-
-    pagesProcessed += 1
-    results.push(await ocrExamOmrPage(file.fileData, file.mimeType, questions, pagesProcessed))
-  }
-
-  return { results, pagesProcessed }
+  const { items, chunkCount } = await runParsePipeline<ExamOmrPageResult, ExamOmrPageResult>({
+    label: 'mock-exam-omr',
+    chunk: { kind: 'single-page' },
+    parseChunk: async (file) => [await ocrExamOmrPage(file.fileData, file.mimeType, questions, (file.pageOffset ?? 0) + 1)],
+    finalize: (pages) => pages.map((page, index) => ({ ...page, page_number: index + 1 })),
+  }, files)
+  return { results: items, pagesProcessed: chunkCount }
 }

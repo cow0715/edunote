@@ -1,6 +1,5 @@
 import { z } from 'zod'
-import { jsonrepair } from 'jsonrepair'
-import { anthropic } from '@/lib/anthropic'
+import { buildFileBlock, callClaudeText, parseJsonObjectResponse } from '@/lib/llm/client'
 import { err, getAuth, getTeacherId, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 
@@ -235,10 +234,9 @@ function sortNumbers(values: number[]) {
   return [...values].sort((a, b) => a - b)
 }
 
+// 응답은 객체(JSON object) — 2단 복구 후 zod 스키마로 검증
 function requestJsonPromptResult<T>(schema: z.ZodType<T>, rawText: string) {
-  const cleaned = rawText.replace(/```json\s*|\s*```/g, '').trim()
-  const repaired = jsonrepair(cleaned)
-  return schema.parse(JSON.parse(repaired))
+  return schema.parse(parseJsonObjectResponse<unknown>(rawText, 'text-compare'))
 }
 
 async function requestWithDocuments<T>(
@@ -247,32 +245,21 @@ async function requestWithDocuments<T>(
   examBase64: string,
   prompt: string,
 ) {
-  const response = await anthropic.messages.create({
+  const rawText = await callClaudeText({
     model: ANALYSIS_MODEL,
-    max_tokens: 6000,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: originalBase64 } },
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: examBase64 } },
-        { type: 'text', text: prompt },
-      ],
-    }],
+    maxTokens: 6000,
+    content: [
+      buildFileBlock(originalBase64, 'application/pdf'),
+      buildFileBlock(examBase64, 'application/pdf'),
+      { type: 'text', text: prompt },
+    ],
   })
-
-  const rawText = response.content.map((block) => (block.type === 'text' ? block.text : '')).join('\n').trim()
-  return requestJsonPromptResult(schema, rawText)
+  return requestJsonPromptResult(schema, rawText.trim())
 }
 
 async function requestTextOnly<T>(schema: z.ZodType<T>, prompt: string) {
-  const response = await anthropic.messages.create({
-    model: ANALYSIS_MODEL,
-    max_tokens: 4000,
-    messages: [{ role: 'user', content: prompt }],
-  })
-
-  const rawText = response.content.map((block) => (block.type === 'text' ? block.text : '')).join('\n').trim()
-  return requestJsonPromptResult(schema, rawText)
+  const rawText = await callClaudeText({ model: ANALYSIS_MODEL, maxTokens: 4000, content: prompt })
+  return requestJsonPromptResult(schema, rawText.trim())
 }
 
 function validateOutline(outline: OutlineResult) {

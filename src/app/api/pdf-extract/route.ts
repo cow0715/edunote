@@ -1,5 +1,6 @@
-import { anthropic } from '@/lib/anthropic'
 import { splitPdfToSinglePageBase64 } from '@/lib/pdf'
+import { buildFileBlock, callClaudeText, isContentFilterError } from '@/lib/llm/client'
+import { mapWithConcurrency } from '@/lib/concurrency'
 import { err, getAuth, getTeacherId } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 
@@ -99,26 +100,15 @@ const EXTRACT_PROMPT = `너는 시험지 PDF에서 문제와 해설을 추출하
 
 "PDF를 사람이 복사한 것처럼 최대한 유사한 텍스트"`
 
-function isContentFilter(e: unknown): boolean {
-  const msg = e instanceof Error ? e.message : String(e)
-  return msg.includes('Output blocked') || msg.includes('content filtering')
-}
-
 async function extractWithClaude(base64: string, maxTokens = 32000): Promise<string> {
-  const stream = anthropic.messages.stream({
+  const text = await callClaudeText({
     model: 'claude-sonnet-4-6',
-    max_tokens: maxTokens,
+    maxTokens,
     temperature: 0,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-        { type: 'text', text: EXTRACT_PROMPT },
-      ],
-    }],
+    stream: true,
+    content: [buildFileBlock(base64, 'application/pdf'), { type: 'text', text: EXTRACT_PROMPT }],
   })
-  const msg = await stream.finalMessage()
-  return msg.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n').trim()
+  return text.trim()
 }
 
 export async function POST(request: Request) {
@@ -144,7 +134,7 @@ export async function POST(request: Request) {
       await supabase.storage.from('pdf-temp').remove([path]).catch(() => {})
       return new Response(text, { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
     } catch (e) {
-      if (!isContentFilter(e)) throw e
+      if (!isContentFilterError(e)) throw e
       // 콘텐츠 필터 → 페이지별 재처리
     }
 
@@ -154,17 +144,16 @@ export async function POST(request: Request) {
 
     type PageResult = { pageNum: number; text: string; filtered: boolean }
 
-    const pageResults: PageResult[] = await Promise.all(
-      pages.map(async (pageBase64, i): Promise<PageResult> => {
-        try {
-          const text = await extractWithClaude(pageBase64, 8192)
-          return { pageNum: i + 1, text, filtered: false }
-        } catch (e) {
-          if (isContentFilter(e)) return { pageNum: i + 1, text: '', filtered: true }
-          throw e
-        }
-      })
-    )
+    // 동시 3 — 30페이지를 한꺼번에 쏘면 rate limit 에 걸린다
+    const pageResults: PageResult[] = await mapWithConcurrency(pages, 3, async (pageBase64, i): Promise<PageResult> => {
+      try {
+        const text = await extractWithClaude(pageBase64, 8192)
+        return { pageNum: i + 1, text, filtered: false }
+      } catch (e) {
+        if (isContentFilterError(e)) return { pageNum: i + 1, text: '', filtered: true }
+        throw e
+      }
+    })
 
     await supabase.storage.from('pdf-temp').remove([path]).catch(() => {})
 
