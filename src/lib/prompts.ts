@@ -214,8 +214,7 @@ question_style은 문항 유형 이름이 아니라 답안 형식만 보고 결�
 - find_error  : correct_answer = 0, correct_answer_text = "기호:수정어" (예: "c:asked")
 
 ━━━ 기타 ━━━
-- explanation: 오답 포인트/해설. 해설지에 해설이 없어도 null 로 두지 말고 아래 explanation 규칙대로 직접 작성
-- explanation_source: "sheet"(해설지 해설을 기반으로 작성) | "ai"(해설지에 해설이 없거나 "정답은 ③" 수준이라 직접 작성)
+- explanation: 오답 포인트/해설. 해설지 해설은 참고 재료일 뿐이며, 있든 없든 아래 explanation 규칙의 수준으로 항상 작성 (null 금지)
 - grading_criteria: 서술형 채점 기준 (없으면 null)
 - question_text: 실제 시험지처럼 문항 전체를 그대로 재현. 없으면 null.
   · 목표: 학생이 처음 문제를 풀 때 본 그 형식 그대로
@@ -251,7 +250,7 @@ explanation:
 - 해설지 오답 포인트를 기반으로, 왜 그 선택지가 오답인지 문법 원리(규칙명 포함)를 한국어로 보강
 - 예: "③은 that절 내 동사를 현재형으로 썼으나, 주절이 과거(suggested)이므로 시제 일치 원칙에 따라 should use 또는 used가 맞음"
 - 단순 "틀렸다" 수준의 설명에서 "왜 틀렸는가"까지 확장할 것
-- 해설지에 해설이 아예 없거나 정답 표기뿐이면: 정답 근거(지문의 단서 문장·문법 규칙) + 주요 오답 포인트를 2~4문장으로 직접 작성하고 explanation_source 를 "ai" 로. 해설지 해설을 기반으로 썼으면 "sheet"
+- 해설지 해설이 없거나 "정답은 ③" 수준으로 부실하면 원문에 얽매이지 말고 재작성: 정답 근거(지문의 단서 문장·문법 규칙) + 주요 오답 포인트를 2~4문장으로. 해설지 해설이 충실하면 그것을 기반으로 보강
 
 ※ 정답(correct_answer, correct_answer_text)은 절대 해설지 기준만 따름. AI 판단으로 변경 금지.`
 

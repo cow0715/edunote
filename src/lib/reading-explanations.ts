@@ -1,8 +1,8 @@
 /**
- * 진단평가 문항의 빈 해설을 AI 로 채운다 (원본 우선 — 이미 해설이 있는 문항은 절대 덮어쓰지 않음).
+ * 진단평가 문항의 빈 해설을 AI 로 채운다.
  *
- * 해설지형은 파싱 프롬프트가 해설을 같이 뽑아오므로 대부분 0건이고,
- * 문제지형은 정오표 반영 직후 이 함수가 전 문항을 채운다. 생성된 건 explanation_source='ai' 로 표시.
+ * 해설지형은 파싱 프롬프트가 해설을 같이(부실하면 재작성해서) 뽑아오므로 여기선 대부분 0건이고,
+ * 문제지형은 정오표 반영 직후 이 함수가 전 문항을 채운다.
  * 6문항씩 묶어 동시 2개 배치로 돌리고, 배치 하나가 실패해도 나머지는 저장한다.
  */
 
@@ -86,7 +86,7 @@ export async function generateMissingReadingExplanations(
       if (!explanation) continue
       const { error: updateErr } = await supabase
         .from('exam_question')
-        .update({ explanation, explanation_source: 'ai' })
+        .update({ explanation })
         .eq('id', item.id)
       if (!updateErr) generated += 1
     }

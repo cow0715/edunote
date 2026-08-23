@@ -103,12 +103,6 @@ function shouldStoreSourceImage(question: Pick<WeekProblemSheetQuestion, 'needs_
     ['table', 'chart', 'diagram', 'layout', 'image'].includes(reason)
 }
 
-/** 해설 출처: 해설이 있는데 출처가 안 왔으면 해설지 원본으로 간주 (문제지형은 파싱 시점에 해설이 없어 null) */
-function normalizeExplanationSource(answer: Pick<ParsedAnswer, 'explanation' | 'explanation_source'>): 'sheet' | 'ai' | null {
-  if (!answer.explanation?.trim()) return null
-  return answer.explanation_source === 'ai' ? 'ai' : 'sheet'
-}
-
 function stripGlossaryBoldMarkup(text: string): string {
   return text
     .split('\n')
@@ -964,7 +958,6 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
             correct_answer_text: answer.correct_answer_text,
             grading_criteria: answer.grading_criteria,
             explanation: answer.explanation ?? null,
-            explanation_source: normalizeExplanationSource(answer),
             question_text: answer.question_text ?? null,
             question_stem: answer.question_stem ?? null,
             passage: answer.passage ?? null,
@@ -1000,7 +993,6 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
           correct_answer_text: answer.correct_answer_text,
           grading_criteria: answer.grading_criteria,
           explanation: answer.explanation ?? null,
-          explanation_source: normalizeExplanationSource(answer),
           question_text: answer.question_text ?? null,
           question_stem: answer.question_stem ?? null,
           passage: answer.passage ?? null,
