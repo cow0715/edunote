@@ -542,6 +542,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         return
       }
       if (data.generated === 0) toast.success('비어 있는 예문이 없습니다')
+      else if (data.failedBatches > 0) toast.warning(`${data.saved ?? data.generated}개 예문 생성 완료 — 일부 배치가 실패했습니다. 다시 누르면 빈 단어만 이어서 채웁니다`)
       else toast.success(`${data.saved ?? data.generated}개 예문 생성 완료`)
       await loadSavedWords()
     } catch {
