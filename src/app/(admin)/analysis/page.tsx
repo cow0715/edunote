@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, KeyboardEvent } from 'react'
+import { useState, useRef, useMemo, useCallback, memo, KeyboardEvent, MouseEvent } from 'react'
 import { useClasses } from '@/hooks/use-classes'
 import { useClassOverview, useTeacherMemos, useCreateMemo, useDeleteMemo } from '@/hooks/use-overview'
 import { Student, Week } from '@/lib/types'
@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { Users, Copy, Check, Trash2, Link2, StickyNote, TrendingUp, BookOpen, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
-import { LineChart, Line, XAxis, ResponsiveContainer, Tooltip, Legend } from 'recharts'
+import { LineChart, Line, XAxis, ResponsiveContainer, Tooltip } from 'recharts'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
@@ -47,22 +47,65 @@ function CopyPhone({ phone }: { phone: string | null }) {
 }
 
 // ── 스파크라인 ─────────────────────────────────────────────
-function Sparkline({ data }: { data: (number | null)[] }) {
-  const points = data.map((v, i) => ({ i, v: v ?? null })).filter((p) => p.v !== null)
-  if (points.length < 2) return <span className="text-xs text-gray-300">-</span>
-  return (
-    <ResponsiveContainer width={80} height={28}>
-      <LineChart data={points}>
-        <Line type="monotone" dataKey="v" stroke="#6366f1" strokeWidth={1.5} dot={false} />
-        <Tooltip
-          contentStyle={{ fontSize: 11, padding: '2px 6px', borderRadius: 4 }}
-          formatter={(v) => [`${v}`, '점수']}
-          labelFormatter={() => ''}
-        />
-      </LineChart>
-    </ResponsiveContainer>
-  )
+// Recharts(ResponsiveContainer+LineChart) 대체: 순수 인라인 SVG.
+// 크기 80×28, 여백 5(Recharts LineChart 기본 margin), 선 #6366f1 / 1.5px, monotone 보간 유지.
+const SPARK_W = 80
+const SPARK_H = 28
+const SPARK_M = 5
+
+function sign(x: number) { return x < 0 ? -1 : 1 }
+function slope3(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number) {
+  const h0 = x1 - x0, h1 = x2 - x1
+  const s0 = (y1 - y0) / (h0 || (h1 < 0 ? -0 : 0))
+  const s1 = (y2 - y1) / (h1 || (h0 < 0 ? -0 : 0))
+  const p = (s0 * h1 + s1 * h0) / (h0 + h1)
+  return (sign(s0) + sign(s1)) * Math.min(Math.abs(s0), Math.abs(s1), 0.5 * Math.abs(p)) || 0
 }
+function slope2(x0: number, y0: number, x1: number, y1: number, t: number) {
+  const h = x1 - x0
+  return h ? (3 * (y1 - y0) / h - t) / 2 : t
+}
+// d3 curveMonotoneX 와 동일한 보간 (Recharts type="monotone" 이 사용하는 커브)
+function monotonePath(pts: { x: number; y: number }[]) {
+  if (pts.length < 2) return ''
+  let d = `M${pts[0].x},${pts[0].y}`
+  let t0 = 0
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i]
+    let t1: number
+    if (i === 1) {
+      t1 = pts.length > 2 ? slope3(a.x, a.y, b.x, b.y, pts[2].x, pts[2].y) : slope2(a.x, a.y, b.x, b.y, 0)
+      t0 = slope2(a.x, a.y, b.x, b.y, t1)
+    } else if (i < pts.length - 1) {
+      t1 = slope3(a.x, a.y, b.x, b.y, pts[i + 1].x, pts[i + 1].y)
+    } else {
+      t1 = slope2(a.x, a.y, b.x, b.y, t0)
+    }
+    const dx = (b.x - a.x) / 3
+    d += `C${(a.x + dx).toFixed(2)},${(a.y + dx * t0).toFixed(2)},${(b.x - dx).toFixed(2)},${(b.y - dx * t1).toFixed(2)},${b.x.toFixed(2)},${b.y.toFixed(2)}`
+    t0 = t1
+  }
+  return d
+}
+
+const Sparkline = memo(function Sparkline({ data }: { data: (number | null)[] }) {
+  const values = data.filter((v): v is number => v !== null)
+  if (values.length < 2) return <span className="text-xs text-gray-300">-</span>
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const innerW = SPARK_W - SPARK_M * 2
+  const innerH = SPARK_H - SPARK_M * 2
+  const pts = values.map((v, i) => ({
+    x: SPARK_M + (i * innerW) / (values.length - 1),
+    y: max === min ? SPARK_M + innerH / 2 : SPARK_M + ((max - v) / (max - min)) * innerH,
+  }))
+  return (
+    <svg width={SPARK_W} height={SPARK_H} viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} className="block">
+      <title>{`점수: ${values.join(', ')}`}</title>
+      <path d={monotonePath(pts)} fill="none" stroke="#6366f1" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  )
+})
 
 // ── 강사 메모 탭 ───────────────────────────────────────────
 function MemoTab({ studentId }: { studentId: string }) {
@@ -390,6 +433,80 @@ function SortHeader({
   )
 }
 
+// ── 학생 행 ──────────────────────────────────────────────
+type ScoreRow = { student_id: string; week_id: string; vocab_correct: number | null; reading_correct: number | null; homework_done: number | null }
+
+function PctCell({ value }: { value: number | null }) {
+  return (
+    <td className="px-3 py-3 text-center">
+      {value !== null
+        ? <span className={cn('text-xs font-semibold', value < 50 ? 'text-red-500' : value < 70 ? 'text-yellow-600' : 'text-emerald-600')}>
+            {value}%
+          </span>
+        : <span className="text-gray-300 text-xs">-</span>}
+    </td>
+  )
+}
+
+function stopPropagation(e: MouseEvent) { e.stopPropagation() }
+
+const StudentRow = memo(function StudentRow({
+  student,
+  idx,
+  vocab,
+  reading,
+  homework,
+  sparkData,
+  weekAttMap,
+  weeks,
+  selected,
+  onSelect,
+}: {
+  student: Student
+  idx: number
+  vocab: number | null
+  reading: number | null
+  homework: number | null
+  sparkData: (number | null)[]
+  weekAttMap: Map<string, string>
+  weeks: Week[]
+  selected: boolean
+  onSelect: (student: Student) => void
+}) {
+  return (
+    <tr
+      className={cn(
+        'border-t cursor-pointer transition-colors hover:bg-indigo-50/50',
+        selected && 'bg-indigo-50'
+      )}
+      onClick={() => onSelect(student)}
+    >
+      <td className="px-4 py-3 text-gray-400 text-xs">{idx + 1}</td>
+      <td className="px-4 py-3 font-medium text-gray-900">{student.name}</td>
+      <td className="px-4 py-3">
+        <Sparkline data={sparkData} />
+      </td>
+      <PctCell value={vocab} />
+      <PctCell value={reading} />
+      <PctCell value={homework} />
+      <td className="px-4 py-3" onClick={stopPropagation}>
+        <CopyPhone phone={student.father_phone} />
+      </td>
+      <td className="px-4 py-3" onClick={stopPropagation}>
+        <CopyPhone phone={student.mother_phone} />
+      </td>
+      <td className="px-4 py-3" onClick={stopPropagation}>
+        <CopyPhone phone={student.phone} />
+      </td>
+      {weeks.map((w) => (
+        <td key={w.id} className="px-2 py-3 text-center">
+          <AttendanceBadge status={weekAttMap.get(w.id)} />
+        </td>
+      ))}
+    </tr>
+  )
+})
+
 // ── 메인 페이지 ────────────────────────────────────────────
 export default function AnalysisPage() {
   const [selectedClassId, setSelectedClassId] = useState<string>('')
@@ -400,47 +517,81 @@ export default function AnalysisPage() {
   const { data: classes, isLoading: classesLoading } = useClasses()
   const { data: overview, isLoading: overviewLoading } = useClassOverview(selectedClassId)
 
-  const weeks = overview?.weeks ?? []
-  const scores = overview?.scores ?? []
-  const attendance = overview?.attendance ?? []
+  const weeks = useMemo(() => overview?.weeks ?? [], [overview])
+  const scores = useMemo(() => overview?.scores ?? [], [overview])
+  const attendance = useMemo(() => overview?.attendance ?? [], [overview])
 
   // 오늘 이하 start_date 중 가장 최근 주차
   const today = new Date().toISOString().slice(0, 10)
-  const latestWeek = weeks
-    .filter((w) => w.start_date && w.start_date <= today)
-    .at(-1) ?? null
+  const latestWeek = useMemo(
+    () => weeks.filter((w) => w.start_date && w.start_date <= today).at(-1) ?? null,
+    [weeks, today]
+  )
 
-  function handleSort(col: SortColumn) {
+  const handleSort = useCallback((col: SortColumn) => {
     if (sortCol === col) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     } else {
       setSortCol(col)
       setSortDir('asc')
     }
-  }
+  }, [sortCol])
 
-  const rawStudents = (overview?.students ?? []).map((cs) => cs.student)
+  // 학생별 점수/출결을 Map 으로 사전 그룹화 — O(S + A + W)
+  const studentsWithLatest = useMemo(() => {
+    const rawStudents = (overview?.students ?? []).map((cs) => cs.student)
 
-  // 정렬을 위해 최근 주차 데이터 미리 계산
-  const studentsWithLatest = rawStudents.map((student) => {
-    const studentScores = scores.filter((s) => s.student_id === student.id)
-    const weekScoreMap = new Map(studentScores.map((s) => [s.week_id, s]))
-    const latestSc = latestWeek ? weekScoreMap.get(latestWeek.id) : undefined
+    const scoreByStudent = new Map<string, Map<string, ScoreRow>>()
+    for (const s of scores) {
+      let m = scoreByStudent.get(s.student_id)
+      if (!m) { m = new Map(); scoreByStudent.set(s.student_id, m) }
+      m.set(s.week_id, s)
+    }
 
-    const vocab = latestSc && latestSc.vocab_correct !== null && latestWeek && latestWeek.vocab_total > 0
-      ? Math.round(latestSc.vocab_correct / latestWeek.vocab_total * 100)
-      : null
-    const reading = latestSc && latestSc.reading_correct !== null && latestWeek && latestWeek.reading_total > 0
-      ? Math.round(latestSc.reading_correct / latestWeek.reading_total * 100)
-      : null
-    const homework = latestSc && latestSc.homework_done !== null && latestWeek && latestWeek.homework_total > 0
-      ? Math.round(latestSc.homework_done / latestWeek.homework_total * 100)
-      : null
+    // 같은 날짜의 주차가 여러 개면 첫 번째(기존 weeks.find 와 동일)
+    const weekIdByDate = new Map<string, string>()
+    for (const w of weeks) {
+      if (w.start_date && !weekIdByDate.has(w.start_date)) weekIdByDate.set(w.start_date, w.id)
+    }
 
-    return { student, weekScoreMap, vocab, reading, homework }
-  })
+    const attByStudent = new Map<string, Map<string, string>>()
+    for (const a of attendance) {
+      const weekId = weekIdByDate.get(a.date)
+      if (!weekId) continue
+      let m = attByStudent.get(a.student_id)
+      if (!m) { m = new Map(); attByStudent.set(a.student_id, m) }
+      m.set(weekId, a.status)
+    }
 
-  const students = [...studentsWithLatest].sort((a, b) => {
+    const emptyScores = new Map<string, ScoreRow>()
+    const emptyAtt = new Map<string, string>()
+
+    return rawStudents.map((student) => {
+      const weekScoreMap = scoreByStudent.get(student.id) ?? emptyScores
+      const weekAttMap = attByStudent.get(student.id) ?? emptyAtt
+      const latestSc = latestWeek ? weekScoreMap.get(latestWeek.id) : undefined
+
+      const vocab = latestSc && latestSc.vocab_correct !== null && latestWeek && latestWeek.vocab_total > 0
+        ? Math.round(latestSc.vocab_correct / latestWeek.vocab_total * 100)
+        : null
+      const reading = latestSc && latestSc.reading_correct !== null && latestWeek && latestWeek.reading_total > 0
+        ? Math.round(latestSc.reading_correct / latestWeek.reading_total * 100)
+        : null
+      const homework = latestSc && latestSc.homework_done !== null && latestWeek && latestWeek.homework_total > 0
+        ? Math.round(latestSc.homework_done / latestWeek.homework_total * 100)
+        : null
+
+      const sparkData = weeks.map((w) => {
+        const sc = weekScoreMap.get(w.id)
+        if (!sc || sc.reading_correct === null || w.reading_total === 0) return null
+        return Math.round(sc.reading_correct / w.reading_total * 100)
+      })
+
+      return { student, vocab, reading, homework, sparkData, weekAttMap }
+    })
+  }, [overview, scores, attendance, weeks, latestWeek])
+
+  const students = useMemo(() => [...studentsWithLatest].sort((a, b) => {
     if (sortCol === 'name') {
       const cmp = a.student.name.localeCompare(b.student.name, 'ko')
       return sortDir === 'asc' ? cmp : -cmp
@@ -452,7 +603,10 @@ export default function AnalysisPage() {
     if (av === null) return 1
     if (bv === null) return -1
     return sortDir === 'asc' ? av - bv : bv - av
-  })
+  }), [studentsWithLatest, sortCol, sortDir])
+
+  const handleSelectStudent = useCallback((student: Student) => setSelectedStudent(student), [])
+  const handleCloseSheet = useCallback(() => setSelectedStudent(null), [])
 
   function handleClassSelect(classId: string) {
     setSelectedClassId(classId)
@@ -548,75 +702,21 @@ export default function AnalysisPage() {
               </tr>
             </thead>
             <tbody>
-              {students.map(({ student, weekScoreMap, vocab, reading, homework }, idx) => {
-                const sparkData = weeks.map((w) => {
-                  const sc = weekScoreMap.get(w.id)
-                  if (!sc || sc.reading_correct === null || w.reading_total === 0) return null
-                  return Math.round(sc.reading_correct / w.reading_total * 100)
-                })
-
-                const weekAttMap = new Map(
-                  attendance
-                    .filter((a) => a.student_id === student.id)
-                    .map((a) => {
-                      const week = weeks.find((w) => w.start_date === a.date)
-                      return week ? [week.id, a.status] : null
-                    })
-                    .filter(Boolean) as [string, string][]
-                )
-
-                return (
-                  <tr
-                    key={student.id}
-                    className={cn(
-                      'border-t cursor-pointer transition-colors hover:bg-indigo-50/50',
-                      selectedStudent?.id === student.id && 'bg-indigo-50'
-                    )}
-                    onClick={() => setSelectedStudent(student)}
-                  >
-                    <td className="px-4 py-3 text-gray-400 text-xs">{idx + 1}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{student.name}</td>
-                    <td className="px-4 py-3">
-                      <Sparkline data={sparkData} />
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      {vocab !== null
-                        ? <span className={cn('text-xs font-semibold', vocab < 50 ? 'text-red-500' : vocab < 70 ? 'text-yellow-600' : 'text-emerald-600')}>
-                            {vocab}%
-                          </span>
-                        : <span className="text-gray-300 text-xs">-</span>}
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      {reading !== null
-                        ? <span className={cn('text-xs font-semibold', reading < 50 ? 'text-red-500' : reading < 70 ? 'text-yellow-600' : 'text-emerald-600')}>
-                            {reading}%
-                          </span>
-                        : <span className="text-gray-300 text-xs">-</span>}
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      {homework !== null
-                        ? <span className={cn('text-xs font-semibold', homework < 50 ? 'text-red-500' : homework < 70 ? 'text-yellow-600' : 'text-emerald-600')}>
-                            {homework}%
-                          </span>
-                        : <span className="text-gray-300 text-xs">-</span>}
-                    </td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <CopyPhone phone={student.father_phone} />
-                    </td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <CopyPhone phone={student.mother_phone} />
-                    </td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <CopyPhone phone={student.phone} />
-                    </td>
-                    {weeks.map((w) => (
-                      <td key={w.id} className="px-2 py-3 text-center">
-                        <AttendanceBadge status={weekAttMap.get(w.id)} />
-                      </td>
-                    ))}
-                  </tr>
-                )
-              })}
+              {students.map(({ student, vocab, reading, homework, sparkData, weekAttMap }, idx) => (
+                <StudentRow
+                  key={student.id}
+                  student={student}
+                  idx={idx}
+                  vocab={vocab}
+                  reading={reading}
+                  homework={homework}
+                  sparkData={sparkData}
+                  weekAttMap={weekAttMap}
+                  weeks={weeks}
+                  selected={selectedStudent?.id === student.id}
+                  onSelect={handleSelectStudent}
+                />
+              ))}
             </tbody>
           </table>
         </div>
@@ -629,7 +729,7 @@ export default function AnalysisPage() {
         scores={scores}
         attendance={attendance}
         open={!!selectedStudent}
-        onClose={() => setSelectedStudent(null)}
+        onClose={handleCloseSheet}
       />
     </div>
   )

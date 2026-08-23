@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { memo, useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { useEditor, EditorContent } from '@tiptap/react'
@@ -223,17 +223,17 @@ function renderLine(line: string, lineKey: number) {
 }
 
 function MarkdownText({ text, className }: { text: string; className?: string }) {
-  const lines = text.split('\n')
-  return (
-    <span className={className}>
-      {lines.map((line, i) => (
-        <span key={i}>
-          {renderLine(line, i)}
-          {i < lines.length - 1 && <br />}
-        </span>
-      ))}
-    </span>
-  )
+  // 정규식 split 은 줄마다 비싸므로 text 가 바뀔 때만 다시 파싱한다.
+  const rendered = useMemo(() => {
+    const lines = text.split('\n')
+    return lines.map((line, i) => (
+      <span key={i}>
+        {renderLine(line, i)}
+        {i < lines.length - 1 && <br />}
+      </span>
+    ))
+  }, [text])
+  return <span className={className}>{rendered}</span>
 }
 
 function MarkdownField({
@@ -970,7 +970,18 @@ function ExamList() {
   const queryClient = useQueryClient()
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [explanationTarget, setExplanationTarget] = useState<string | null>(null)
-  const [generatingId, setGeneratingId] = useState<string | null>(null)
+  // useMutation: try/finally 로 로딩 state 를 관리하면 React Compiler 가 컴포넌트 전체를 건너뛴다(finally 미지원).
+  const generateExplanation = useMutation({
+    mutationFn: async (examId: string) => {
+      const res = await fetch(`/api/exam-bank/${examId}/generate-explanation`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'AI 해설 생성 실패')
+      return json as { updated: number; total: number }
+    },
+    onSuccess: (json) => toast.success(`AI 해설 생성 완료 (${json.updated}/${json.total}문항)`),
+    onError: (error) => toast.error(error instanceof Error && error.message ? error.message : 'AI 해설 생성 실패'),
+  })
+  const generatingId = generateExplanation.isPending ? generateExplanation.variables ?? null : null
 
   const { data: exams, isLoading } = useQuery<ExamBank[]>({
     queryKey: ['exam-bank'],
@@ -1033,19 +1044,9 @@ function ExamList() {
                 </button>
                 <button
                   disabled={generatingId === exam.id}
-                  onClick={async () => {
+                  onClick={() => {
                     if (!confirmAiWork()) return
-                    setGeneratingId(exam.id)
-                    try {
-                      const res = await fetch(`/api/exam-bank/${exam.id}/generate-explanation`, { method: 'POST' })
-                      const json = await res.json()
-                      if (!res.ok) toast.error(json.error ?? 'AI 해설 생성 실패')
-                      else toast.success(`AI 해설 생성 완료 (${json.updated}/${json.total}문항)`)
-                    } catch {
-                      toast.error('AI 해설 생성 실패')
-                    } finally {
-                      setGeneratingId(null)
-                    }
+                    generateExplanation.mutate(exam.id)
                   }}
                   className="p-1.5 rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   title="AI 해설/어휘 생성 (18~45번)"
@@ -1161,7 +1162,11 @@ const DIFFICULTY_CRITERIA_TEXT = `메가스터디 정답률 기준: ${DIFFICULTY
 
 // ── 문항 카드 ─────────────────────────────────────────────────────────────
 
-function QuestionCard({
+// memo: 검색 결과는 무한스크롤로 150개 이상 쌓이므로 체크박스 하나를 눌러도
+// props 가 바뀐 카드(선택 토글된 1개)만 리렌더되도록 한다.
+// 그러려면 부모가 내려주는 콜백은 안정적이어야 하고(useCallback), 선택 상태는
+// Set 이 아닌 boolean 으로 내려야 한다.
+const QuestionCard = memo(function QuestionCard({
   question: q,
   showExamInfo,
   onEdit,
@@ -1176,7 +1181,7 @@ function QuestionCard({
   onDelete?: () => void
   selectable?: boolean
   selected?: boolean
-  onToggleSelect?: () => void
+  onToggleSelect?: (id: string) => void
 }) {
   const [showExplanation, setShowExplanation] = useState(false)
   const [editingExplanation, setEditingExplanation] = useState(false)
@@ -1186,7 +1191,6 @@ function QuestionCard({
     solution: q.explanation_solution ?? '',
     vocabulary: q.explanation_vocabulary ?? '',
   })
-  const [expSaving, setExpSaving] = useState(false)
   const queryClient = useQueryClient()
   const hasExplanation = !!(q.explanation_intent || q.explanation_translation || q.explanation_solution || q.explanation_vocabulary)
 
@@ -1201,9 +1205,9 @@ function QuestionCard({
     setShowExplanation(true)
   }
 
-  const saveExplanation = async () => {
-    setExpSaving(true)
-    try {
+  // useMutation: try/finally 를 쓰면 React Compiler 가 이 memo 컴포넌트를 컴파일하지 않는다(finally 미지원).
+  const saveExplanationMutation = useMutation({
+    mutationFn: async () => {
       const res = await fetch(`/api/exam-bank/${q.exam_bank_id}/questions/${q.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1216,13 +1220,12 @@ function QuestionCard({
       })
       if (!res.ok) throw new Error('저장 실패')
       await queryClient.invalidateQueries({ queryKey: ['exam-bank-questions', q.exam_bank_id] })
-      setEditingExplanation(false)
-    } catch {
-      toast.error('해설 저장에 실패했습니다')
-    } finally {
-      setExpSaving(false)
-    }
-  }
+    },
+    onSuccess: () => setEditingExplanation(false),
+    onError: () => toast.error('해설 저장에 실패했습니다'),
+  })
+  const expSaving = saveExplanationMutation.isPending
+  const saveExplanation = () => saveExplanationMutation.mutate()
 
   // 시험 출처 레이블 (복사 헤더용)
   const examLabel = q.exam_bank
@@ -1310,7 +1313,7 @@ function QuestionCard({
           {selectable && (
             <Checkbox
               checked={!!selected}
-              onCheckedChange={() => onToggleSelect?.()}
+              onCheckedChange={() => onToggleSelect?.(q.id)}
               aria-label="선택"
               className="shrink-0"
             />
@@ -1509,7 +1512,7 @@ function QuestionCard({
       </div>
     </div>
   )
-}
+})
 
 // ── 문제 검색 ────────────────────────────────────────────────────────────
 
@@ -1767,13 +1770,14 @@ function QuestionSearch() {
     }
   }
 
-  const toggleSelect = (id: string) =>
+  const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
     })
+  }, [])
 
   const clearSelection = () => setSelectedIds(new Set())
 
@@ -2152,7 +2156,7 @@ function QuestionSearch() {
                     showExamInfo
                     selectable
                     selected={selectedIds.has(q.id)}
-                    onToggleSelect={() => toggleSelect(q.id)}
+                    onToggleSelect={toggleSelect}
                   />
                 ))}
               </div>
