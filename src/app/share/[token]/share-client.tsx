@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, use, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { classifyPatterns } from '@/hooks/weakness/useAnalysis'
-import { ShareData, StudentAnswer, VocabAnswer, VocabWord, TabId, CIRCLE_NUM } from './share-types'
+import { ShareData, StudentAnswer, VocabAnswer, VocabWord, Week, WeekScore, TabId, CIRCLE_NUM } from './share-types'
 import { Card, StatCard, AttendanceCalendar, ThemeToggle } from './share-components'
 import { PatternCard } from './share-pattern'
 import { FormattedQuestionText } from '@/components/grade/formatted-question-text'
@@ -107,13 +107,13 @@ function matchesVocabSearch(word: VocabWord, query: string) {
   ].some((value) => normalizeVocabText(value).includes(query))
 }
 
-function VocabStudyWordCard({ item, showWeekLabel }: { item: VocabStudyItem; showWeekLabel?: boolean }) {
+const VocabStudyWordCard = memo(function VocabStudyWordCard({ item, showWeekLabel }: { item: VocabStudyItem; showWeekLabel?: boolean }) {
   const { word, wrongAnswer, weekLabel } = item
   const isRetakeDone = wrongAnswer?.retake_is_correct === true
   const isRetakePending = !!wrongAnswer && !isRetakeDone
 
   return (
-    <div className={`px-5 py-4 ${isRetakeDone ? 'opacity-70' : ''}`}>
+    <div className={`px-5 py-4 [content-visibility:auto] [contain-intrinsic-size:auto_120px] ${isRetakeDone ? 'opacity-70' : ''}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -205,7 +205,7 @@ function VocabStudyWordCard({ item, showWeekLabel }: { item: VocabStudyItem; sho
       )}
     </div>
   )
-}
+})
 
 function SwipeChartCard({
   id,
@@ -250,6 +250,45 @@ function SwipeChartCard({
   )
 }
 
+// ── 렌더 밖 순수 헬퍼 ────────────────────────────────────────────────────────
+const EMPTY_LIST: never[] = []
+const EMPTY_AVERAGES: ShareData['classAverages'] = {}
+
+type ScoreField = 'reading' | 'vocab' | 'homework'
+
+const getWeekLabel = (w: { id: string; week_number: number; display_label?: string }) =>
+  w.display_label ?? `${w.week_number}주차`
+
+const fmtWeekLabel = (w: { start_date: string | null; week_number: number }) => {
+  if (!w.start_date) return `${w.week_number}주`
+  const [, m, d] = w.start_date.split('-')
+  return `${parseInt(m)}/${parseInt(d)}`
+}
+
+const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null
+
+const scoreColor = (correct: number, total: number) =>
+  total === 0 ? '' : correct / total >= 0.8
+    ? 'text-emerald-600 dark:text-emerald-400'
+    : correct / total >= 0.6
+      ? 'text-amber-500 dark:text-amber-400'
+      : 'text-rose-500 dark:text-rose-400'
+
+const ATT_STYLE: Record<string, string> = {
+  present: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/50 dark:text-green-400 dark:border-green-800/50',
+  late: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-400 dark:border-amber-800/50',
+  absent: 'bg-red-50 text-red-600 border-red-200 dark:bg-red-950/50 dark:text-red-400 dark:border-red-800/50',
+}
+const ATT_LABEL: Record<string, string> = { present: '출석', late: '지각', absent: '결석' }
+
+const TABS = [
+  { id: 'home' as TabId, label: '홈', Icon: Home },
+  { id: 'score' as TabId, label: '성적', Icon: BarChart2 },
+  { id: 'analysis' as TabId, label: '분석', Icon: PieChart },
+  { id: 'vocab' as TabId, label: '단어장', Icon: LibraryBig },
+  { id: 'wrongnote' as TabId, label: '오답', Icon: BookX },
+]
+
 // ── 메인 ──────────────────────────────────────────────────────────────────────
 export default function ShareClient({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
@@ -277,7 +316,10 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const [vocabExampleFilter, setVocabExampleFilter] = useState<VocabExampleFilter>('all')
   const [commentExpanded, setCommentExpanded] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
-  const scrollTo = (id: string, delay = 0) => {
+  // 검색어 입력은 즉시 반영하고, 1600개 단어 필터링만 지연시킨다
+  const deferredVocabSearch = useDeferredValue(vocabSearch)
+
+  const scrollTo = useCallback((id: string, delay = 0) => {
     const go = () => {
       const el = document.getElementById(id)
       if (!el) return
@@ -287,7 +329,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     }
     if (delay > 0) setTimeout(go, delay)
     else go()
-  }
+  }, [])
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -303,110 +345,120 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   }, [])
 
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setIsDark((prev) => {
       const next = !prev
       localStorage.setItem('share-theme', next ? 'dark' : 'light')
       return next
     })
-  }
+  }, [])
 
-  if (isLoading) return (
-    <div className={themeReady && isDark ? 'dark' : ''}>
-      <div className="flex min-h-screen items-center justify-center bg-[#F8F9FB] dark:bg-[#0F0F0F]">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2463EB] border-t-transparent" />
-      </div>
-    </div>
-  )
-  if (error || !data) return (
-    <div className={themeReady && isDark ? 'dark' : ''}>
-      <div className="flex min-h-screen items-center justify-center bg-[#F8F9FB] dark:bg-[#0F0F0F] text-sm text-[#8B95A1] dark:text-gray-500">
-        학생 정보를 찾을 수 없습니다
-      </div>
-    </div>
-  )
+  const openDrawerTag = useCallback((id: string, name: string) => {
+    setDrawerTag({ id, name, weekId: null })
+  }, [])
 
-  const {
-    student,
-    classes,
-    currentPeriod,
-    periodOptions = [],
-    weeks,
-    weekScores = [],
-    studentAnswers = [],
-    vocabAnswers = [],
-    vocabWords = [],
-    attendance = [],
-    clinicAttendance = [],
-    classAverages = {},
-  } = data
+  const resetVocabFilters = useCallback(() => {
+    setVocabStudyMode('all')
+    setVocabSearch('')
+    setVocabWeekFilter('all')
+    setVocabPassageFilter('all')
+    setVocabPosFilter('all')
+    setVocabWrongFilter('all')
+    setVocabExampleFilter('all')
+  }, [])
 
-  const scoreByWeek = new Map(weekScores.map((s) => [s.week_id, s]))
-  const answersByScore = new Map<string, StudentAnswer[]>()
-  studentAnswers.forEach((a) => {
-    const list = answersByScore.get(a.week_score_id) ?? []
-    list.push(a)
-    answersByScore.set(a.week_score_id, list)
-  })
-  const weekNumberByWeekId = new Map(weeks.map((w) => [w.id, w.week_number]))
-  const weekLabelByWeekId = new Map(weeks.map((w) => [w.id, w.display_label ?? `${w.week_number}주차`]))
-  const getWeekLabel = (w: { id: string; week_number: number; display_label?: string }) =>
-    w.display_label ?? `${w.week_number}주차`
+  // ── 파생 데이터 (모든 훅은 조기 return 보다 앞에) ──────────────────────────
+  // data 가 없을 때도 참조가 안정된 빈 값을 써서 useMemo 의존성이 흔들리지 않게 한다
+  const classes = data?.classes ?? EMPTY_LIST
+  const periodOptions = data?.periodOptions ?? EMPTY_LIST
+  const weeks = data?.weeks ?? EMPTY_LIST
+  const weekScores = data?.weekScores ?? EMPTY_LIST
+  const studentAnswers = data?.studentAnswers ?? EMPTY_LIST
+  const vocabAnswers = data?.vocabAnswers ?? EMPTY_LIST
+  const vocabWords = data?.vocabWords ?? EMPTY_LIST
+  const attendance = data?.attendance ?? EMPTY_LIST
+  const clinicAttendance = data?.clinicAttendance ?? EMPTY_LIST
+  const classAverages = data?.classAverages ?? EMPTY_AVERAGES
 
   const selectedPeriod = selectedPeriodId
     ? periodOptions.find((period) => period.id === selectedPeriodId)
     : null
-  const currentViewLabel = selectedPeriod
-    ? `${selectedPeriod.class_name} · ${selectedPeriod.label}`
-    : currentPeriod
-      ? currentPeriod.label
-      : '현재 기간'
-  const periodGroups = periodOptions.reduce((groups, period) => {
+  const periodGroups = useMemo(() => periodOptions.reduce((groups, period) => {
     const key = period.class_name || '지난 기록'
     const list = groups.get(key) ?? []
     list.push(period)
     groups.set(key, list)
     return groups
-  }, new Map<string, typeof periodOptions>())
+  }, new Map<string, typeof periodOptions>()), [periodOptions])
 
-  const scoredWeeks = weeks.filter((w) => scoreByWeek.has(w.id)).sort((a, b) => a.week_number - b.week_number)
-  const visibleWeeks = [...scoredWeeks].reverse()
+  // ── 점수 모델: 주차/점수 색인 + 정답률 계산기 ────────────────────────────
+  const scoreModel = useMemo(() => {
+    const scoreByWeek = new Map(weekScores.map((s) => [s.week_id, s]))
+    const answersByScore = new Map<string, StudentAnswer[]>()
+    studentAnswers.forEach((a) => {
+      const list = answersByScore.get(a.week_score_id) ?? []
+      list.push(a)
+      answersByScore.set(a.week_score_id, list)
+    })
+    const weekNumberByWeekId = new Map(weeks.map((w) => [w.id, w.week_number]))
+    const weekLabelByWeekId = new Map(weeks.map((w) => [w.id, w.display_label ?? `${w.week_number}주차`]))
 
-  // ── 스탯 계산 ────────────────────────────────────────────────────────────
-  const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null
+    const scoredWeeks = weeks.filter((w) => scoreByWeek.has(w.id)).sort((a, b) => a.week_number - b.week_number)
+    const visibleWeeks = [...scoredWeeks].reverse()
 
-  const hasReadingData = (weekId: string, scoreId: string) => {
-    const s = scoreByWeek.get(weekId)!
-    return (answersByScore.get(scoreId)?.some((a) => a.exam_question?.exam_type === 'reading') ?? false) || s.reading_correct > 0
-  }
+    const hasReadingData = (weekId: string, scoreId: string) => {
+      const s = scoreByWeek.get(weekId)!
+      return (answersByScore.get(scoreId)?.some((a) => a.exam_question?.exam_type === 'reading') ?? false) || s.reading_correct > 0
+    }
+    const weekRate = (score: WeekScore, week: Week, field: ScoreField): number | null => {
+      if (field === 'reading') return week.reading_total > 0 && score.reading_correct !== null && hasReadingData(week.id, score.id) ? Math.round(score.reading_correct / week.reading_total * 100) : null
+      if (field === 'vocab') return week.vocab_total > 0 && score.vocab_correct !== null ? Math.round(score.vocab_correct / week.vocab_total * 100) : null
+      if (field === 'homework') return week.homework_total > 0 && score.homework_done !== null ? Math.round(score.homework_done / week.homework_total * 100) : null
+      return null
+    }
 
-  function weekRate(score: (typeof weekScores)[number], week: (typeof weeks)[number], field: 'reading' | 'vocab' | 'homework'): number | null {
-    if (field === 'reading') return week.reading_total > 0 && score.reading_correct !== null && hasReadingData(week.id, score.id) ? Math.round(score.reading_correct / week.reading_total * 100) : null
-    if (field === 'vocab') return week.vocab_total > 0 && score.vocab_correct !== null ? Math.round(score.vocab_correct / week.vocab_total * 100) : null
-    if (field === 'homework') return week.homework_total > 0 && score.homework_done !== null ? Math.round(score.homework_done / week.homework_total * 100) : null
-    return null
-  }
+    const readingRates = scoredWeeks.map((w) => weekRate(scoreByWeek.get(w.id)!, w, 'reading')).filter((v): v is number => v !== null)
+    const vocabRates = scoredWeeks.map((w) => weekRate(scoreByWeek.get(w.id)!, w, 'vocab')).filter((v): v is number => v !== null)
+    const homeworkRates = scoredWeeks.map((w) => weekRate(scoreByWeek.get(w.id)!, w, 'homework')).filter((v): v is number => v !== null)
 
-  const readingRates = scoredWeeks.map((w) => weekRate(scoreByWeek.get(w.id)!, w, 'reading')).filter((v): v is number => v !== null)
-  const vocabRates = scoredWeeks.map((w) => weekRate(scoreByWeek.get(w.id)!, w, 'vocab')).filter((v): v is number => v !== null)
-  const homeworkRates = scoredWeeks.map((w) => weekRate(scoreByWeek.get(w.id)!, w, 'homework')).filter((v): v is number => v !== null)
+    const [latestW, prevW] = [visibleWeeks[0], visibleWeeks[1]]
+    const latestS = latestW ? scoreByWeek.get(latestW.id) : undefined
+    const prevS = prevW ? scoreByWeek.get(prevW.id) : undefined
+    const delta = (field: ScoreField) => {
+      const l = latestW && latestS ? weekRate(latestS, latestW, field) : null
+      const p = prevW && prevS ? weekRate(prevS, prevW, field) : null
+      return l !== null && p !== null ? l - p : null
+    }
+    const deltas = { reading: delta('reading'), vocab: delta('vocab'), homework: delta('homework') }
+    const latestRates = latestW && latestS
+      ? { reading: weekRate(latestS, latestW, 'reading'), vocab: weekRate(latestS, latestW, 'vocab'), homework: weekRate(latestS, latestW, 'homework') }
+      : { reading: null, vocab: null, homework: null }
 
-  const sorted2 = [...scoredWeeks].reverse()
-  const [latestW, prevW] = [sorted2[0], sorted2[1]]
-  const latestS = latestW ? scoreByWeek.get(latestW.id) : undefined
-  const prevS = prevW ? scoreByWeek.get(prevW.id) : undefined
-  const delta = (field: 'reading' | 'vocab' | 'homework') => {
-    const l = latestW && latestS ? weekRate(latestS, latestW, field) : null
-    const p = prevW && prevS ? weekRate(prevS, prevW, field) : null
-    return l !== null && p !== null ? l - p : null
-  }
+    return {
+      scoreByWeek, answersByScore, weekNumberByWeekId, weekLabelByWeekId,
+      scoredWeeks, visibleWeeks, weekRate,
+      readingRates, vocabRates, homeworkRates,
+      latestW, latestS, deltas, latestRates,
+    }
+  }, [weeks, weekScores, studentAnswers])
+  const {
+    scoreByWeek, answersByScore, weekNumberByWeekId, weekLabelByWeekId,
+    scoredWeeks, visibleWeeks, weekRate, readingRates, vocabRates, homeworkRates,
+    latestW, latestS, deltas, latestRates,
+  } = scoreModel
 
-  const totalAtt = attendance.length
-  const presentAtt = attendance.filter((a) => a.status !== 'absent').length
-  const attRate = totalAtt > 0 ? Math.round(presentAtt / totalAtt * 100) : null
-  const totalClinicAtt = clinicAttendance.length
-  const presentClinicAtt = clinicAttendance.filter((a) => a.status !== 'absent').length
-  const clinicAttRate = totalClinicAtt > 0 ? Math.round(presentClinicAtt / totalClinicAtt * 100) : null
+  // ── 출결 통계 ─────────────────────────────────────────────────────────────
+  const attendanceStats = useMemo(() => {
+    const totalAtt = attendance.length
+    const presentAtt = attendance.filter((a) => a.status !== 'absent').length
+    const attRate = totalAtt > 0 ? Math.round(presentAtt / totalAtt * 100) : null
+    const totalClinicAtt = clinicAttendance.length
+    const presentClinicAtt = clinicAttendance.filter((a) => a.status !== 'absent').length
+    const clinicAttRate = totalClinicAtt > 0 ? Math.round(presentClinicAtt / totalClinicAtt * 100) : null
+    const attByDate = new Map(attendance.map((a) => [a.date, a]))
+    return { totalAtt, presentAtt, attRate, totalClinicAtt, presentClinicAtt, clinicAttRate, attByDate }
+  }, [attendance, clinicAttendance])
+  const { totalAtt, presentAtt, attRate, totalClinicAtt, presentClinicAtt, clinicAttRate, attByDate } = attendanceStats
   const hasAttendanceData = attendance.length > 0 || clinicAttendance.length > 0
   const primaryAttRate = attRate ?? clinicAttRate
   const visibleAttendanceView = attendanceView === 'clinic'
@@ -414,58 +466,57 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     : (attendance.length > 0 ? 'regular' : 'clinic')
 
   // ── 차트 데이터 ────────────────────────────────────────────────────────────
-  const fmtWeekLabel = (w: { start_date: string | null; week_number: number }) => {
-    if (!w.start_date) return `${w.week_number}주`
-    const [, m, d] = w.start_date.split('-')
-    return `${parseInt(m)}/${parseInt(d)}`
-  }
+  const chartData = useMemo(() => {
+    const trendData: TrendItem[] = weeks
+      .slice().sort((a, b) => a.week_number - b.week_number)
+      .map((w) => {
+        const s = scoreByWeek.get(w.id)
+        const ca = classAverages[w.id]
+        return {
+          label: fmtWeekLabel(w),
+          readingRate: s ? weekRate(s, w, 'reading') : null,
+          vocabRate: s ? weekRate(s, w, 'vocab') : null,
+          classReadingRate: ca?.readingRate ?? null,
+          classVocabRate: ca?.vocabRate ?? null,
+        }
+      })
+      .filter((d) => d.readingRate !== null || d.vocabRate !== null || d.classReadingRate !== null || d.classVocabRate !== null)
 
-  const trendData: TrendItem[] = weeks
-    .slice().sort((a, b) => a.week_number - b.week_number)
-    .map((w) => {
-      const s = scoreByWeek.get(w.id)
-      const ca = classAverages[w.id]
-      return {
-        label: fmtWeekLabel(w),
-        readingRate: s ? weekRate(s, w, 'reading') : null,
-        vocabRate: s ? weekRate(s, w, 'vocab') : null,
-        classReadingRate: ca?.readingRate ?? null,
-        classVocabRate: ca?.vocabRate ?? null,
+    const homeworkData: HomeworkItem[] = scoredWeeks
+      .map((w) => {
+        const s = scoreByWeek.get(w.id)!
+        if (w.homework_total === 0 || s.homework_done === null) return null
+        return { label: fmtWeekLabel(w), rate: Math.round(s.homework_done / w.homework_total * 100), done: s.homework_done, total: w.homework_total }
+      })
+      .filter((d): d is HomeworkItem => d !== null)
+    const readingTrendData = trendData.filter((d) => d.readingRate !== null || d.classReadingRate !== null)
+    const vocabTrendData = trendData.filter((d) => d.vocabRate !== null || d.classVocabRate !== null)
+    return { homeworkData, readingTrendData, vocabTrendData }
+  }, [weeks, classAverages, scoreByWeek, scoredWeeks, weekRate])
+  const { homeworkData, readingTrendData, vocabTrendData } = chartData
+
+  // ── 분석: 오답 유형 / 레이더 / 반복 패턴 ──────────────────────────────────
+  const analysis = useMemo(() => {
+    const typeWrongMap = new Map<string, { id: string; name: string; wrong: number; total: number }>()
+    const readingAnswers = studentAnswers.filter((a) => a.exam_question?.exam_type === 'reading')
+    readingAnswers.forEach((a) => {
+      for (const t of a.exam_question?.exam_question_tag ?? []) {
+        const tag = t.concept_tag
+        if (!tag) continue
+        const entry = typeWrongMap.get(tag.id) ?? { id: tag.id, name: tag.name, wrong: 0, total: 0 }
+        entry.total++
+        if (!a.is_correct) entry.wrong++
+        typeWrongMap.set(tag.id, entry)
       }
     })
-    .filter((d) => d.readingRate !== null || d.vocabRate !== null || d.classReadingRate !== null || d.classVocabRate !== null)
+    const typeData = [...typeWrongMap.values()].filter((d) => d.wrong > 0).sort((a, b) => b.wrong - a.wrong)
 
-  const homeworkData: HomeworkItem[] = scoredWeeks
-    .map((w) => {
-      const s = scoreByWeek.get(w.id)!
-      if (w.homework_total === 0 || s.homework_done === null) return null
-      return { label: fmtWeekLabel(w), rate: Math.round(s.homework_done / w.homework_total * 100), done: s.homework_done, total: w.homework_total }
-    })
-    .filter((d): d is HomeworkItem => d !== null)
-  const readingTrendData = trendData.filter((d) => d.readingRate !== null || d.classReadingRate !== null)
-  const vocabTrendData = trendData.filter((d) => d.vocabRate !== null || d.classVocabRate !== null)
-
-  const typeWrongMap = new Map<string, { id: string; name: string; wrong: number; total: number }>()
-  studentAnswers.filter((a) => a.exam_question?.exam_type === 'reading').forEach((a) => {
-    for (const t of a.exam_question?.exam_question_tag ?? []) {
-      const tag = t.concept_tag
-      if (!tag) continue
-      const entry = typeWrongMap.get(tag.id) ?? { id: tag.id, name: tag.name, wrong: 0, total: 0 }
-      entry.total++
-      if (!a.is_correct) entry.wrong++
-      typeWrongMap.set(tag.id, entry)
-    }
-  })
-  const typeData = [...typeWrongMap.values()].filter((d) => d.wrong > 0).sort((a, b) => b.wrong - a.wrong)
-
-  // ── 카테고리별 정답률 (레이더 차트) ──────────────────────────────────────
-  // 서술형이 없는 학생(모의고사 형태로만 응시)은 카테고리가 독해/문법뿐이라 축이
-  // 빈약하다. 이 경우 태그를 수능 영역 단위로 펼친다.
-  const expandToDomains = shouldExpandToDomains(studentAnswers)
-  const categoryAccMap = new Map<string, { name: string; correct: number; total: number; tags: Map<string, number> }>()
-  studentAnswers
-    .filter((a) => a.exam_question?.exam_type === 'reading')
-    .forEach((a) => {
+    // 카테고리별 정답률 (레이더 차트)
+    // 서술형이 없는 학생(모의고사 형태로만 응시)은 카테고리가 독해/문법뿐이라 축이
+    // 빈약하다. 이 경우 태그를 수능 영역 단위로 펼친다.
+    const expandToDomains = shouldExpandToDomains(studentAnswers)
+    const categoryAccMap = new Map<string, { name: string; correct: number; total: number; tags: Map<string, number> }>()
+    readingAnswers.forEach((a) => {
       for (const t of a.exam_question?.exam_question_tag ?? []) {
         const tag = t.concept_tag
         const label = expandToDomains
@@ -480,44 +531,48 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
         categoryAccMap.set(key, entry)
       }
     })
-  const radarEntries = [...categoryAccMap.values()]
-    .filter((d) => d.total >= 1)
-    .sort((a, b) => (expandToDomains ? compareExamDomain(a.name, b.name) : a.name.localeCompare(b.name)))
-  const radarData: RadarItem[] = radarEntries.map((d) => ({
-    name: d.name, rate: Math.round(d.correct / d.total * 100), correct: d.correct, total: d.total,
-  }))
-  // 축 설명 패널용 — 축이 실제로 어떤 유형으로 채워졌는지 함께 보여준다
-  const radarLegend = radarEntries.map((d) => ({
-    name: d.name,
-    rate: Math.round(d.correct / d.total * 100),
-    desc: describeRadarAxis(d.name),
-    tags: [...d.tags.entries()].sort((x, y) => y[1] - x[1]).map(([tagName]) => tagName),
-  }))
+    const radarEntries = [...categoryAccMap.values()]
+      .filter((d) => d.total >= 1)
+      .sort((a, b) => (expandToDomains ? compareExamDomain(a.name, b.name) : a.name.localeCompare(b.name)))
+    const radarData: RadarItem[] = radarEntries.map((d) => ({
+      name: d.name, rate: Math.round(d.correct / d.total * 100), correct: d.correct, total: d.total,
+    }))
+    // 축 설명 패널용 — 축이 실제로 어떤 유형으로 채워졌는지 함께 보여준다
+    const radarLegend = radarEntries.map((d) => ({
+      name: d.name,
+      rate: Math.round(d.correct / d.total * 100),
+      desc: describeRadarAxis(d.name),
+      tags: [...d.tags.entries()].sort((x, y) => y[1] - x[1]).map(([tagName]) => tagName),
+    }))
 
-  // ── 반복 오답 패턴 (약점 분류) ──────────────────────────────────────────
-  const repeatPatterns = classifyPatterns(studentAnswers, weekNumberByWeekId)
+    // 반복 오답 패턴 (약점 분류)
+    const repeatPatterns = classifyPatterns(studentAnswers, weekNumberByWeekId)
+    return { typeData, expandToDomains, radarData, radarLegend, repeatPatterns }
+  }, [studentAnswers, weekNumberByWeekId])
+  const { typeData, expandToDomains, radarData, radarLegend, repeatPatterns } = analysis
 
   // ── 성장 하이라이트 ───────────────────────────────────────────────────────
-  const highlights: { emoji: string; label: string; color: string }[] = []
-  const dReading = delta('reading')
-  const dVocab = delta('vocab')
-  const dHw = delta('homework')
-  if (dReading !== null && dReading > 0)
-    highlights.push({ emoji: '📈', label: `시험 ${dReading}%↑`, color: 'bg-blue-50 dark:bg-blue-950/40 text-[#2463EB] dark:text-blue-300 border-blue-100 dark:border-blue-800/40' })
-  if (dVocab !== null && dVocab > 0)
-    highlights.push({ emoji: '✏️', label: `단어 ${dVocab}%↑`, color: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-100 dark:border-emerald-800/40' })
-  if (dHw !== null && dHw > 0)
-    highlights.push({ emoji: '📝', label: `과제 ${dHw}%↑`, color: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-100 dark:border-amber-800/40' })
-  if (latestW && latestS && weekRate(latestS, latestW, 'homework') === 100)
-    highlights.push({ emoji: '🎯', label: '과제 완벽 제출', color: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-100 dark:border-amber-800/40' })
-  if (attRate !== null && attRate >= 90)
-    highlights.push({ emoji: '🏃', label: `출석 ${attRate}%`, color: 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-100 dark:border-blue-800/40' })
-  const improvingTags = repeatPatterns.filter((p) => p.patternType === 'improving')
-  if (improvingTags.length > 0)
-    highlights.push({ emoji: '🌱', label: `${improvingTags[0].name} 개선 중`, color: 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border-teal-100 dark:border-teal-800/40' })
+  const highlights = useMemo(() => {
+    const list: { emoji: string; label: string; color: string }[] = []
+    const { reading: dReading, vocab: dVocab, homework: dHw } = deltas
+    if (dReading !== null && dReading > 0)
+      list.push({ emoji: '📈', label: `시험 ${dReading}%↑`, color: 'bg-blue-50 dark:bg-blue-950/40 text-[#2463EB] dark:text-blue-300 border-blue-100 dark:border-blue-800/40' })
+    if (dVocab !== null && dVocab > 0)
+      list.push({ emoji: '✏️', label: `단어 ${dVocab}%↑`, color: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-100 dark:border-emerald-800/40' })
+    if (dHw !== null && dHw > 0)
+      list.push({ emoji: '📝', label: `과제 ${dHw}%↑`, color: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-100 dark:border-amber-800/40' })
+    if (latestRates.homework === 100)
+      list.push({ emoji: '🎯', label: '과제 완벽 제출', color: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-100 dark:border-amber-800/40' })
+    if (attRate !== null && attRate >= 90)
+      list.push({ emoji: '🏃', label: `출석 ${attRate}%`, color: 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-100 dark:border-blue-800/40' })
+    const improvingTags = repeatPatterns.filter((p) => p.patternType === 'improving')
+    if (improvingTags.length > 0)
+      list.push({ emoji: '🌱', label: `${improvingTags[0].name} 개선 중`, color: 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border-teal-100 dark:border-teal-800/40' })
+    return list
+  }, [deltas, latestRates, attRate, repeatPatterns])
 
   // ── 오답노트 탭 데이터 ────────────────────────────────────────────────────
-  const wrongNoteGroups = visibleWeeks
+  const wrongNoteGroups = useMemo(() => visibleWeeks
     .map((w) => {
       const score = scoreByWeek.get(w.id)
       if (!score) return null
@@ -531,101 +586,135 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
       if (answers.length === 0) return null
       return { week: w, answers, className: classes.find((c) => c.id === w.class_id)?.name ?? '' }
     })
-    .filter((g): g is NonNullable<typeof g> => g !== null)
+    .filter((g): g is NonNullable<typeof g> => g !== null), [visibleWeeks, scoreByWeek, answersByScore, classes])
 
   // ── 단어 오답 그룹 ────────────────────────────────────────────────────────
-  const scoreIdToWeekId = new Map(weekScores.map((s) => [s.id, s.week_id]))
-  const vocabWrongMap = new Map<string, VocabAnswer[]>()
-  vocabAnswers.forEach((va) => {
-    const weekId = scoreIdToWeekId.get(va.week_score_id)
-    if (!weekId) return
-    const list = vocabWrongMap.get(weekId) ?? []
-    list.push(va)
-    vocabWrongMap.set(weekId, list)
-  })
-  const vocabWrongGroups: { week: (typeof weeks)[number]; answers: VocabAnswer[]; className: string }[] = []
-  for (const [weekId, answers] of vocabWrongMap.entries()) {
-    const week = weeks.find((w) => w.id === weekId)
-    if (!week) continue
-    const className = classes.find((c) => c.id === week.class_id)?.name ?? ''
-    vocabWrongGroups.push({ week, answers, className })
-  }
-  vocabWrongGroups.sort((a, b) => b.week.week_number - a.week.week_number)
-  const vocabAnswerByWordId = new Map<string, VocabAnswer>()
-  vocabAnswers.forEach((answer) => {
-    if (answer.vocab_word?.id) vocabAnswerByWordId.set(answer.vocab_word.id, answer)
-  })
+  const vocabWrong = useMemo(() => {
+    const scoreIdToWeekId = new Map(weekScores.map((s) => [s.id, s.week_id]))
+    const vocabWrongMap = new Map<string, VocabAnswer[]>()
+    vocabAnswers.forEach((va) => {
+      const weekId = scoreIdToWeekId.get(va.week_score_id)
+      if (!weekId) return
+      const list = vocabWrongMap.get(weekId) ?? []
+      list.push(va)
+      vocabWrongMap.set(weekId, list)
+    })
+    const vocabWrongGroups: { week: Week; answers: VocabAnswer[]; className: string }[] = []
+    for (const [weekId, answers] of vocabWrongMap.entries()) {
+      const week = weeks.find((w) => w.id === weekId)
+      if (!week) continue
+      const className = classes.find((c) => c.id === week.class_id)?.name ?? ''
+      // 렌더마다 다시 정렬하지 않도록 여기서 한 번만 정렬
+      const sortedAnswers = answers
+        .slice()
+        .sort((a, b) => (a.test_number ?? a.vocab_word?.number ?? 0) - (b.test_number ?? b.vocab_word?.number ?? 0))
+      vocabWrongGroups.push({ week, answers: sortedAnswers, className })
+    }
+    vocabWrongGroups.sort((a, b) => b.week.week_number - a.week.week_number)
+    const vocabAnswerByWordId = new Map<string, VocabAnswer>()
+    vocabAnswers.forEach((answer) => {
+      if (answer.vocab_word?.id) vocabAnswerByWordId.set(answer.vocab_word.id, answer)
+    })
+    return { vocabWrongGroups, vocabAnswerByWordId }
+  }, [weekScores, vocabAnswers, weeks, classes])
+  const { vocabWrongGroups, vocabAnswerByWordId } = vocabWrong
 
   // ── 사전학습 단어장 그룹 ────────────────────────────────────────────────
-  const vocabWordsByWeek = new Map<string, typeof vocabWords>()
-  vocabWords.forEach((word) => {
-    const list = vocabWordsByWeek.get(word.week_id) ?? []
-    list.push(word)
-    vocabWordsByWeek.set(word.week_id, list)
-  })
-  const vocabStudyGroups = weeks
-    .filter((week) => (vocabWordsByWeek.get(week.id)?.length ?? 0) > 0)
-    .map((week) => ({
-      week,
-      className: classes.find((c) => c.id === week.class_id)?.name ?? '',
-      words: (vocabWordsByWeek.get(week.id) ?? []).slice().sort((a, b) => a.number - b.number),
-    }))
-    .sort((a, b) => b.week.week_number - a.week.week_number)
-  const vocabStudyItems: VocabStudyItem[] = vocabStudyGroups
-    .flatMap(({ week, words, className }) => words.map((word) => ({
-      word,
-      week,
-      className,
-      weekLabel: getWeekLabel(week),
-      wrongAnswer: vocabAnswerByWordId.get(word.id) ?? null,
-    })))
-    .sort((a, b) =>
-      a.week.week_number - b.week.week_number ||
-      a.word.number - b.word.number
-    )
-  const vocabSearchQuery = normalizeVocabText(vocabSearch)
-  const vocabWeekOptions = vocabStudyGroups
-    .slice()
-    .sort((a, b) => a.week.week_number - b.week.week_number)
-    .map(({ week }) => ({ id: week.id, label: getWeekLabel(week) }))
-  const vocabPassageOptions = [...new Set(
-    vocabStudyItems
-      .map((item) => item.word.passage_label?.trim())
-      .filter((value): value is string => !!value)
-  )].sort((a, b) => a.localeCompare(b, 'ko-KR', { numeric: true }))
-  const vocabPosOptions = [...new Set(
-    vocabStudyItems
-      .map((item) => item.word.part_of_speech?.trim())
-      .filter((value): value is string => !!value)
-  )].sort((a, b) => a.localeCompare(b, 'ko-KR', { numeric: true }))
-  const filteredVocabItems = vocabStudyItems.filter((item) => {
-    const hasWrong = !!item.wrongAnswer
-    const hasExample = !!item.word.example_sentence
-    if (vocabStudyMode === 'wrong_only' && !hasWrong) return false
-    if (vocabStudyMode === 'retake_pending' && (!item.wrongAnswer || item.wrongAnswer.retake_is_correct === true)) return false
-    if (vocabWeekFilter !== 'all' && item.week.id !== vocabWeekFilter) return false
-    if (vocabPassageFilter !== 'all' && (item.word.passage_label ?? '') !== vocabPassageFilter) return false
-    if (vocabPosFilter !== 'all' && (item.word.part_of_speech ?? '') !== vocabPosFilter) return false
-    if (vocabWrongFilter === 'wrong' && !hasWrong) return false
-    if (vocabWrongFilter === 'not_wrong' && hasWrong) return false
-    if (vocabExampleFilter === 'with' && !hasExample) return false
-    if (vocabExampleFilter === 'without' && hasExample) return false
-    return matchesVocabSearch(item.word, vocabSearchQuery)
-  })
-  const filteredVocabByWeek = new Map<string, VocabStudyItem[]>()
-  filteredVocabItems.forEach((item) => {
-    const list = filteredVocabByWeek.get(item.week.id) ?? []
-    list.push(item)
-    filteredVocabByWeek.set(item.week.id, list)
-  })
-  const filteredAllVocabGroups = vocabStudyGroups
+  const vocabStudy = useMemo(() => {
+    const vocabWordsByWeek = new Map<string, VocabWord[]>()
+    vocabWords.forEach((word) => {
+      const list = vocabWordsByWeek.get(word.week_id) ?? []
+      list.push(word)
+      vocabWordsByWeek.set(word.week_id, list)
+    })
+    const vocabStudyGroups = weeks
+      .filter((week) => (vocabWordsByWeek.get(week.id)?.length ?? 0) > 0)
+      .map((week) => ({
+        week,
+        className: classes.find((c) => c.id === week.class_id)?.name ?? '',
+        words: (vocabWordsByWeek.get(week.id) ?? []).slice().sort((a, b) => a.number - b.number),
+      }))
+      .sort((a, b) => b.week.week_number - a.week.week_number)
+    const vocabStudyItems: VocabStudyItem[] = vocabStudyGroups
+      .flatMap(({ week, words, className }) => words.map((word) => ({
+        word,
+        week,
+        className,
+        weekLabel: getWeekLabel(week),
+        wrongAnswer: vocabAnswerByWordId.get(word.id) ?? null,
+      })))
+      .sort((a, b) =>
+        a.week.week_number - b.week.week_number ||
+        a.word.number - b.word.number
+      )
+    const vocabWeekOptions = vocabStudyGroups
+      .slice()
+      .sort((a, b) => a.week.week_number - b.week.week_number)
+      .map(({ week }) => ({ id: week.id, label: getWeekLabel(week) }))
+    const vocabPassageOptions = [...new Set(
+      vocabStudyItems
+        .map((item) => item.word.passage_label?.trim())
+        .filter((value): value is string => !!value)
+    )].sort((a, b) => a.localeCompare(b, 'ko-KR', { numeric: true }))
+    const vocabPosOptions = [...new Set(
+      vocabStudyItems
+        .map((item) => item.word.part_of_speech?.trim())
+        .filter((value): value is string => !!value)
+    )].sort((a, b) => a.localeCompare(b, 'ko-KR', { numeric: true }))
+    return { vocabStudyGroups, vocabStudyItems, vocabWeekOptions, vocabPassageOptions, vocabPosOptions }
+  }, [vocabWords, weeks, classes, vocabAnswerByWordId])
+  const { vocabStudyGroups, vocabStudyItems, vocabWeekOptions, vocabPassageOptions, vocabPosOptions } = vocabStudy
+
+  // ── 단어장 필터링 (검색어는 지연값 사용) ──────────────────────────────────
+  const filteredVocabItems = useMemo(() => {
+    const vocabSearchQuery = normalizeVocabText(deferredVocabSearch)
+    return vocabStudyItems.filter((item) => {
+      const hasWrong = !!item.wrongAnswer
+      const hasExample = !!item.word.example_sentence
+      if (vocabStudyMode === 'wrong_only' && !hasWrong) return false
+      if (vocabStudyMode === 'retake_pending' && (!item.wrongAnswer || item.wrongAnswer.retake_is_correct === true)) return false
+      if (vocabWeekFilter !== 'all' && item.week.id !== vocabWeekFilter) return false
+      if (vocabPassageFilter !== 'all' && (item.word.passage_label ?? '') !== vocabPassageFilter) return false
+      if (vocabPosFilter !== 'all' && (item.word.part_of_speech ?? '') !== vocabPosFilter) return false
+      if (vocabWrongFilter === 'wrong' && !hasWrong) return false
+      if (vocabWrongFilter === 'not_wrong' && hasWrong) return false
+      if (vocabExampleFilter === 'with' && !hasExample) return false
+      if (vocabExampleFilter === 'without' && hasExample) return false
+      return matchesVocabSearch(item.word, vocabSearchQuery)
+    })
+  }, [vocabStudyItems, deferredVocabSearch, vocabStudyMode, vocabWeekFilter, vocabPassageFilter, vocabPosFilter, vocabWrongFilter, vocabExampleFilter])
+  const filteredVocabByWeek = useMemo(() => {
+    const map = new Map<string, VocabStudyItem[]>()
+    filteredVocabItems.forEach((item) => {
+      const list = map.get(item.week.id) ?? []
+      list.push(item)
+      map.set(item.week.id, list)
+    })
+    return map
+  }, [filteredVocabItems])
+  const filteredAllVocabGroups = useMemo(() => vocabStudyGroups
     .map(({ week, words, className }) => ({
       week,
       className,
       totalCount: words.length,
       items: filteredVocabByWeek.get(week.id) ?? [],
     }))
-    .filter((group) => group.items.length > 0)
+    .filter((group) => group.items.length > 0), [vocabStudyGroups, filteredVocabByWeek])
+  // 주차별 보기: 주차 → 지문별 묶음
+  const filteredWeeklyVocabGroups = useMemo(() => vocabStudyGroups
+    .map(({ week, words, className }) => {
+      const items = filteredVocabByWeek.get(week.id) ?? []
+      if (items.length === 0) return null
+      const byPassage = new Map<string, VocabStudyItem[]>()
+      items.forEach((item) => {
+        const key = item.word.passage_label ?? ''
+        const list = byPassage.get(key) ?? []
+        list.push(item)
+        byPassage.set(key, list)
+      })
+      return { week, className, totalCount: words.length, itemCount: items.length, passages: [...byPassage.entries()] }
+    })
+    .filter((g): g is NonNullable<typeof g> => g !== null), [vocabStudyGroups, filteredVocabByWeek])
   const hasVocabFilters =
     vocabStudyMode !== 'all' ||
     vocabSearch.trim() ||
@@ -643,34 +732,18 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     vocabWrongFilter !== 'all',
     vocabExampleFilter !== 'all',
   ].filter(Boolean).length
-  const resetVocabFilters = () => {
-    setVocabStudyMode('all')
-    setVocabSearch('')
-    setVocabWeekFilter('all')
-    setVocabPassageFilter('all')
-    setVocabPosFilter('all')
-    setVocabWrongFilter('all')
-    setVocabExampleFilter('all')
-  }
 
   // ── 강사 코멘트 피드 ──────────────────────────────────────────────────────
-  const commentFeed = visibleWeeks
+  const commentFeed = useMemo(() => visibleWeeks
     .filter((w) => scoreByWeek.get(w.id)?.memo)
     .map((w) => ({
       week: w,
       memo: scoreByWeek.get(w.id)!.memo!,
       className: classes.find((c) => c.id === w.class_id)?.name ?? '',
-    }))
-
-  const scoreColor = (correct: number, total: number) =>
-    total === 0 ? '' : correct / total >= 0.8
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : correct / total >= 0.6
-        ? 'text-amber-500 dark:text-amber-400'
-        : 'text-rose-500 dark:text-rose-400'
+    })), [visibleWeeks, scoreByWeek, classes])
 
   // ── 오답노트 드로어 ──────────────────────────────────────────────────────
-  const drawerAnswers = drawerTag
+  const drawerAnswers = useMemo(() => drawerTag
     ? studentAnswers
       .filter((a) =>
         !a.is_correct &&
@@ -682,23 +755,29 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
         const wb = weekNumberByWeekId.get(b.exam_question?.week_id ?? '') ?? 0
         return wb - wa
       })
-    : []
+    : [], [drawerTag, studentAnswers, weekNumberByWeekId])
 
-  const attByDate = new Map(attendance.map((a) => [a.date, a]))
-  const ATT_STYLE: Record<string, string> = {
-    present: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/50 dark:text-green-400 dark:border-green-800/50',
-    late: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-400 dark:border-amber-800/50',
-    absent: 'bg-red-50 text-red-600 border-red-200 dark:bg-red-950/50 dark:text-red-400 dark:border-red-800/50',
-  }
-  const ATT_LABEL: Record<string, string> = { present: '출석', late: '지각', absent: '결석' }
+  if (isLoading) return (
+    <div className={themeReady && isDark ? 'dark' : ''}>
+      <div className="flex min-h-screen items-center justify-center bg-[#F8F9FB] dark:bg-[#0F0F0F]">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2463EB] border-t-transparent" />
+      </div>
+    </div>
+  )
+  if (error || !data) return (
+    <div className={themeReady && isDark ? 'dark' : ''}>
+      <div className="flex min-h-screen items-center justify-center bg-[#F8F9FB] dark:bg-[#0F0F0F] text-sm text-[#8B95A1] dark:text-gray-500">
+        학생 정보를 찾을 수 없습니다
+      </div>
+    </div>
+  )
 
-  const TABS = [
-    { id: 'home' as TabId, label: '홈', Icon: Home },
-    { id: 'score' as TabId, label: '성적', Icon: BarChart2 },
-    { id: 'analysis' as TabId, label: '분석', Icon: PieChart },
-    { id: 'vocab' as TabId, label: '단어장', Icon: LibraryBig },
-    { id: 'wrongnote' as TabId, label: '오답', Icon: BookX },
-  ]
+  const { student, currentPeriod } = data
+  const currentViewLabel = selectedPeriod
+    ? `${selectedPeriod.class_name} · ${selectedPeriod.label}`
+    : currentPeriod
+      ? currentPeriod.label
+      : '현재 기간'
 
   return (
     <div className={themeReady && isDark ? 'dark' : ''}>
@@ -784,9 +863,9 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                             <span className="text-lg font-bold text-[#2463EB]/60 dark:text-blue-400/60">%</span>
                           )}
                         </div>
-                        {delta('reading') !== null && (
-                          <p className={`mt-1 text-xs font-semibold ${delta('reading')! > 0 ? 'text-[#2463EB] dark:text-blue-400' : delta('reading')! < 0 ? 'text-rose-500' : 'text-[#8B95A1]'}`}>
-                            {delta('reading')! > 0 ? '+' : ''}{delta('reading')}%p
+                        {deltas.reading !== null && (
+                          <p className={`mt-1 text-xs font-semibold ${deltas.reading! > 0 ? 'text-[#2463EB] dark:text-blue-400' : deltas.reading! < 0 ? 'text-rose-500' : 'text-[#8B95A1]'}`}>
+                            {deltas.reading! > 0 ? '+' : ''}{deltas.reading}%p
                           </p>
                         )}
                       </div>
@@ -812,9 +891,9 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                             <span className="text-lg font-bold text-emerald-600/60 dark:text-emerald-400/60">%</span>
                           )}
                         </div>
-                        {delta('vocab') !== null && (
-                          <p className={`mt-1 text-xs font-semibold ${delta('vocab')! > 0 ? 'text-emerald-600 dark:text-emerald-400' : delta('vocab')! < 0 ? 'text-rose-500' : 'text-[#8B95A1]'}`}>
-                            {delta('vocab')! > 0 ? '+' : ''}{delta('vocab')}%p
+                        {deltas.vocab !== null && (
+                          <p className={`mt-1 text-xs font-semibold ${deltas.vocab! > 0 ? 'text-emerald-600 dark:text-emerald-400' : deltas.vocab! < 0 ? 'text-rose-500' : 'text-[#8B95A1]'}`}>
+                            {deltas.vocab! > 0 ? '+' : ''}{deltas.vocab}%p
                           </p>
                         )}
                       </div>
@@ -1189,7 +1268,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 <Card title="오답 유형 분포" subtitle="전체 누적 · 오답 횟수 기준">
                   <WrongTypePieChart
                     data={typeData}
-                    onTagClick={(id, name) => setDrawerTag({ id, name, weekId: null })}
+                    onTagClick={openDrawerTag}
                     isDark={isDark}
                   />
                 </Card>
@@ -1221,7 +1300,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                 >
                   <div className="space-y-2">
                     {repeatPatterns.map((p) => (
-                      <PatternCard key={p.id} pattern={p} onTagClick={(id, name) => setDrawerTag({ id, name, weekId: null })} />
+                      <PatternCard key={p.id} pattern={p} onTagClick={openDrawerTag} />
                     ))}
                   </div>
                 </Card>
@@ -1465,26 +1544,16 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                       </div>
                     </Card>
                   ) : (
-                    vocabStudyGroups.map(({ week, words, className }) => {
-                      const items = filteredVocabByWeek.get(week.id) ?? []
-                      if (items.length === 0) return null
-                      const byPassage = new Map<string, VocabStudyItem[]>()
-                      items.forEach((item) => {
-                        const key = item.word.passage_label ?? ''
-                        const list = byPassage.get(key) ?? []
-                        list.push(item)
-                        byPassage.set(key, list)
-                      })
-
+                    filteredWeeklyVocabGroups.map(({ week, className, totalCount, itemCount, passages }) => {
                       return (
                         <Card
                           key={week.id}
                           title={`${getWeekLabel(week)} 단어장`}
-                          subtitle={`${className ? `${className} · ` : ''}${items.length}/${words.length}개`}
+                          subtitle={`${className ? `${className} · ` : ''}${itemCount}/${totalCount}개`}
                           noPad
                         >
                           <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
-                            {[...byPassage.entries()].map(([passage, passageItems]) => (
+                            {passages.map(([passage, passageItems]) => (
                               <div key={passage || 'none'}>
                                 {passage && (
                                   <div className="bg-blue-50/70 px-5 py-2 text-[11px] font-bold text-[#2463EB] dark:bg-blue-950/30 dark:text-blue-300">
@@ -1724,8 +1793,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                                   {/* 단어 목록 */}
                                   <div className="divide-y divide-gray-100 dark:divide-white/[0.08]">
                                     {answers
-                                      .slice()
-                                      .sort((a, b) => (a.test_number ?? a.vocab_word?.number ?? 0) - (b.test_number ?? b.vocab_word?.number ?? 0))
                                       .map((va) => {
                                         const vw = va.vocab_word
                                         if (!vw) return null
