@@ -1,5 +1,6 @@
 import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
+import { generateMissingReadingExplanations } from '@/lib/reading-explanations'
 import {
   applyWeekReadingAnswerKeyAndRegrade,
   normalizeParsedAnswers,
@@ -150,11 +151,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         })
       : await applyAnswerKeyWithoutRegrade(supabase, weekId, parsedAnswers)
 
+    // 정답이 들어왔으니 빈 해설을 바로 채운다 (원본 우선 — 있는 해설은 안 건드림). 실패해도 정답 반영은 유지
+    const explanations = await generateMissingReadingExplanations(supabase, weekId)
+      .catch((e) => { console.error('[import-problem-answer-key] 해설 생성 실패:', e); return { generated: 0, targets: 0, failedBatches: 1 } })
+
     return ok({
       ok: true,
       ...result,
       parse_mode_used: 'problem_answer_key',
-      explanations_generated: false,
+      explanations_generated: explanations.generated,
+      explanations_failed: explanations.failedBatches > 0,
       answer_key_applied: true,
     })
   } catch (error) {

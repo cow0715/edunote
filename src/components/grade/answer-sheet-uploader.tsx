@@ -10,7 +10,6 @@ import {
   FileText,
   ListOrdered,
   Loader2,
-  Sparkles,
   Upload,
   X,
 } from 'lucide-react'
@@ -353,42 +352,6 @@ function StatusBanner({ status }: { status: AnswerSheetStatus | LocalStatus }) {
   )
 }
 
-function ExplanationLoadingCard({ status }: { status: LocalStatus }) {
-  if (status.type !== 'loading') return null
-
-  const total = status.totalCount ?? 0
-  const processed = Math.min(status.processedCount ?? 0, total)
-  const percent = total > 0 ? Math.round((processed / total) * 100) : null
-
-  return (
-    <div className="space-y-3 rounded-[18px] bg-white/85 p-4 shadow-[0_10px_30px_rgba(0,75,198,0.05)] dark:bg-slate-950/40">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
-          <Loader2 className="h-5 w-5 animate-spin" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI가 해설을 나눠서 생성하는 중입니다</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">{status.message}</p>
-        </div>
-        {percent !== null ? (
-          <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
-            {percent}%
-          </span>
-        ) : null}
-      </div>
-      <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-        <div
-          className="h-full rounded-full bg-blue-600 transition-all duration-500 dark:bg-blue-400"
-          style={{ width: percent !== null ? `${percent}%` : '28%' }}
-        />
-      </div>
-      <p className="text-[11px] leading-5 text-slate-500 dark:text-slate-400">
-        창을 닫지 말고 기다려 주세요. 많은 문항은 여러 번 나눠 호출해서 timeout을 피합니다.
-      </p>
-    </div>
-  )
-}
-
 export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }: Props) {
   const answerInputRef = useRef<HTMLInputElement>(null)
   const problemInputRef = useRef<HTMLInputElement>(null)
@@ -401,10 +364,8 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
   const [elapsed, setElapsed] = useState(0)
   const [problemStatus, setProblemStatus] = useState<LocalStatus>({ type: 'idle' })
   const [answerKeyStatus, setAnswerKeyStatus] = useState<LocalStatus>({ type: 'idle' })
-  const [explanationStatus, setExplanationStatus] = useState<LocalStatus>({ type: 'idle' })
   const [regradeAfterAnswerKey, setRegradeAfterAnswerKey] = useState(false)
   const [problemImported, setProblemImported] = useState(readingTotal > 0)
-  const [canGenerateExplanations, setCanGenerateExplanations] = useState(readingTotal > 0)
   const [warningOpen, setWarningOpen] = useState(false)
   const [pendingAction, setPendingAction] = useState<PendingUploadAction>(null)
   const [warningCount, setWarningCount] = useState(0)
@@ -413,11 +374,9 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
   const status = useUploadStore((state) => state.answerSheet[weekId]) ?? IDLE_STATUS
   const setStatus = useUploadStore((state) => state.setAnswerSheet)
   const answerStepReady = problemImported
-  const explanationStepReady = canGenerateExplanations || answerKeyStatus.type === 'done'
-  const activeWorkflowStep = explanationStepReady ? 3 : answerStepReady ? 2 : 1
+  const activeWorkflowStep = answerStepReady ? 2 : 1
 
   useEffect(() => {
-    setCanGenerateExplanations(readingTotal > 0)
     setProblemImported(readingTotal > 0)
   }, [readingTotal])
 
@@ -551,7 +510,6 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
       })
 
       resetQueries()
-      setCanGenerateExplanations(questionsParsed > 0 || readingTotal > 0)
       toast.success(`${questionsParsed}문항을 반영했습니다.`)
     } catch (error) {
       setStatus(weekId, { type: 'error', message: error instanceof Error ? error.message : '오류가 발생했습니다.' })
@@ -600,7 +558,6 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
         subjectiveGradingFailed: Boolean(data.subjective_grading_failed),
       })
       setProblemImported(true)
-      setCanGenerateExplanations(false)
       resetQueries()
       if (sourceImagesSaved > 0) toast.success(`원본 이미지 ${sourceImagesSaved}개를 저장했습니다.`)
       toast.success(`${questionsParsed}문항을 시험지 PDF에서 저장했습니다. 이제 정오표를 올려주세요.`)
@@ -647,7 +604,6 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
         studentsRegraded,
         subjectiveGradingFailed: Boolean(data.subjective_grading_failed),
       })
-      setCanGenerateExplanations(questionsParsed > 0 || readingTotal > 0)
       resetQueries()
       toast.success(`${questionsParsed}문항에 정오표 정답을 반영했습니다.`)
     } catch (error) {
@@ -655,66 +611,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     }
   }
 
-  async function handleGenerateExplanations() {
-    setExplanationStatus({ type: 'loading', message: '저장된 문항을 기준으로 AI 해설을 준비하고 있습니다.' })
 
-    try {
-      let remainingIds: string[] | null = null
-      let generatedCount = 0
-      let processedCount = 0
-      let totalTargetCount: number | null = null
-
-      while (true) {
-        const response = await fetch(`/api/weeks/${weekId}/generate-reading-explanations`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            force: false,
-            ...(remainingIds ? { questionIds: remainingIds } : {}),
-          }),
-        })
-
-        const raw = await response.text()
-        const data = parseJsonSafely(raw)
-
-        if (!response.ok) {
-          setExplanationStatus({ type: 'error', message: String(data.error ?? 'AI 해설 생성에 실패했습니다.') })
-          return
-        }
-
-        generatedCount += Number(data.generated_count ?? 0)
-        processedCount += Number(data.processed_count ?? 0)
-        remainingIds = Array.isArray(data.remaining_ids)
-          ? data.remaining_ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
-          : []
-        const batchTotal = Number(data.total_target_count ?? (processedCount + remainingIds.length))
-        if (totalTargetCount == null) {
-          totalTargetCount = batchTotal
-        }
-        const totalForDisplay = totalTargetCount ?? batchTotal
-        const nextProcessedCount = Math.min(processedCount, totalForDisplay)
-
-        if (data.done === true) break
-
-        setExplanationStatus({
-          type: 'loading',
-          message: `${nextProcessedCount} / ${totalForDisplay} 문항을 처리했습니다.`,
-          processedCount: nextProcessedCount,
-          totalCount: totalForDisplay,
-        })
-      }
-
-      setExplanationStatus({
-        type: 'done',
-        message: generatedCount > 0 ? 'AI 해설 생성을 마쳤습니다.' : '생성할 해설이 없어 건너뛰었습니다.',
-        generatedCount,
-      })
-      resetQueries()
-      toast.success(generatedCount > 0 ? `${generatedCount}문항 해설을 생성했습니다.` : '추가로 생성할 해설이 없습니다.')
-    } catch (error) {
-      setExplanationStatus({ type: 'error', message: error instanceof Error ? error.message : '오류가 발생했습니다.' })
-    }
-  }
 
   async function openSavedFile() {
     if (!savedFilePath) return
@@ -865,7 +762,6 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
               {[
                 { n: 1, title: '문항 저장', desc: '시험지 PDF에서 번호, 지문, 발문, 선택지를 저장' },
                 { n: 2, title: '정답 반영', desc: '정오표나 답안표에서 정답만 덮어쓰기' },
-                { n: 3, title: '해설 생성', desc: '정답 반영 후 비어 있는 해설만 생성' },
               ].map((step) => {
                 const done = step.n < activeWorkflowStep
                 const active = step.n === activeWorkflowStep
@@ -894,7 +790,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
               })}
             </div>
             <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-              기본 흐름은 시험지 PDF 업로드 → 정오표 업로드 → AI 해설 생성입니다. 각 단계가 끝나면 다음 단계가 열립니다.
+              기본 흐름은 시험지 PDF 업로드 → 정오표 업로드입니다. 정답이 반영되면 비어 있는 해설은 AI 가 자동으로 채웁니다.
             </p>
           </div>
 
@@ -1014,32 +910,6 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
               </Button>
             )}
           </div>
-
-          {explanationStepReady && (
-            <div className="space-y-3 rounded-[20px] bg-blue-50/70 p-4 dark:bg-slate-900/60">
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI 해설 후처리</p>
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  문항과 정답 저장이 끝난 뒤 비어 있는 해설만 채웁니다. 실패해도 문항과 정답 세팅은 유지됩니다.
-                </p>
-              </div>
-
-              <ExplanationLoadingCard status={explanationStatus} />
-              {explanationStatus.type !== 'loading' && <StatusBanner status={explanationStatus} />}
-
-              <Button
-                variant="outline"
-                className="w-full rounded-full border-0 bg-white text-blue-700 hover:bg-white/90 dark:bg-slate-800 dark:text-blue-300"
-                onClick={handleGenerateExplanations}
-                disabled={explanationStatus.type === 'loading'}
-              >
-                {explanationStatus.type === 'loading'
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : <Sparkles className="h-4 w-4" />}
-                {explanationStatus.type === 'loading' ? 'AI 해설 생성 중' : '저장 후 AI 해설 생성'}
-              </Button>
-            </div>
-          )}
         </CardContent>
       </Card>
       </div>

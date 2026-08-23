@@ -1,4 +1,5 @@
 import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
+import { generateMissingReadingExplanations } from '@/lib/reading-explanations'
 import {
   createTagMatcher,
   fetchTeacherTagContext,
@@ -55,10 +56,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       matchTagId,
     })
 
+    // 해설지 프롬프트가 해설을 같이 뽑아오므로 보통 0건 — 모델이 비워둔 문항만 채우는 안전망
+    const explanations = await generateMissingReadingExplanations(supabase, weekId)
+      .catch((e) => { console.error('[parse-answers] 해설 생성 실패:', e); return { generated: 0, targets: 0, failedBatches: 1 } })
+
     return ok({
       ok: true,
       ...result,
       parse_mode_used: 'answer_sheet',
+      explanations_generated: explanations.generated,
     })
   } catch (error) {
     console.error('[parse-answers] unhandled error:', error)
