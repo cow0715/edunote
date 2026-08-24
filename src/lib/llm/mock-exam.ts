@@ -463,7 +463,7 @@ async function ocrExamOmrPage(
   return result
 }
 
-/** 답안지 OCR: 파일을 1페이지씩 쪼개 순차 인식, 문항 키 기준으로 정보량 많은 쪽을 채택해 병합 */
+/** 답안지 OCR: 파일을 1페이지씩 쪼개 동시 3으로 인식, 문항 키 기준으로 정보량 많은 쪽을 채택해 병합 (결과는 입력 순서 유지) */
 export async function ocrExamAnswerBatch(
   files: ExamOcrBatchInput[],
   questions: ExamOcrQuestion[],
@@ -471,6 +471,7 @@ export async function ocrExamAnswerBatch(
   const { items, chunkCount } = await runParsePipeline<ExamOcrResult, ExamOcrResult>({
     label: 'mock-exam-answer-ocr',
     chunk: { kind: 'single-page' },
+    concurrency: 3,
     parseChunk: (file) => ocrExamAnswers(file.fileData, file.mimeType, questions),
     postProcess: [(all) => mergeExamOcrResults([all])],
     finalize: (all) => all,
@@ -478,7 +479,7 @@ export async function ocrExamAnswerBatch(
   return { results: items, pagesProcessed: chunkCount }
 }
 
-/** OMR 인식: 1페이지씩 순차. page_number 는 전체 처리 순서(1-base)로 부여 */
+/** OMR 인식: 1페이지씩 동시 3. page_number 는 입력 순서(1-base)로 부여 — 동시 처리해도 결과 배열은 입력 순서 유지 */
 export async function ocrExamOmrBatch(
   files: ExamOcrBatchInput[],
   questions: ExamOcrQuestion[],
@@ -486,6 +487,7 @@ export async function ocrExamOmrBatch(
   const { items, chunkCount } = await runParsePipeline<ExamOmrPageResult, ExamOmrPageResult>({
     label: 'mock-exam-omr',
     chunk: { kind: 'single-page' },
+    concurrency: 3,
     parseChunk: async (file) => [await ocrExamOmrPage(file.fileData, file.mimeType, questions, (file.pageOffset ?? 0) + 1)],
     finalize: (pages) => pages.map((page, index) => ({ ...page, page_number: index + 1 })),
   }, files)

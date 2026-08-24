@@ -45,7 +45,9 @@ export type ProblemSheetUploadInput = {
 
 /** 문제지형 청크 정책: 3페이지씩, 문항 경계에 맞춰 자름 (지문이 페이지를 넘어가면 최대 5페이지까지 늘림) */
 const PROBLEM_SHEET_CHUNK_POLICY = { kind: 'pages', pagesPerChunk: 3, alignToQuestionStart: true, maxPagesPerChunk: 5 } as const
-/** 청크 동시 처리 수 — Anthropic rate limit 예산과 맞바꾸는 값 */
+/** 청크 동시 처리 수 — Anthropic rate limit 예산과 맞바꾸는 값.
+ * 실측(44p 내신 PDF, 청크 11): 동시 2 = 641.8s, 동시 3 = 669.8s — TPM 한도에 묶여 동시성을 올려도
+ * 콜당 시간만 늘어나 벽시계 이득이 없다. 올리기 전에 실측으로 확인할 것. */
 const PDF_PARSE_CONCURRENCY = 2
 
 /** 파일 데이터 없는 입력(storagePath 만 있는 것)은 파이프라인에 넣기 전에 resolve 돼 있어야 한다 */
