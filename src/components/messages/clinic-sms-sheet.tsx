@@ -1,9 +1,12 @@
 'use client'
 
 import React, { useMemo, useState } from 'react'
+import { useNowTick } from '@/hooks/use-now-tick'
+import { isSchedulePast as isSchedulePastAt } from '@/lib/sms-schedule'
 import { CalendarCheck, Check, Copy, Loader2, RefreshCw, Send, X, XCircle } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { errorMessage, runOrReport, runWithLoading } from '@/lib/async-ui'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
@@ -93,8 +96,7 @@ export function ClinicSmsSheet({ children, date: targetDate }: { children?: Reac
   const hasSendableMessage = messages.some((m) => m.message.trim() && sendStatus[m.student_id] !== 'success')
 
   async function loadMessages() {
-    setLoading(true)
-    try {
+    await runWithLoading(setLoading, async () => {
       const res = await fetch(`/api/clinic/sms?date=${encodeURIComponent(date)}`)
       if (!res.ok) throw new Error((await res.json()).error ?? '클리닉 문자 대상을 불러오지 못했습니다')
       const data = await res.json() as ClinicSmsResponse
@@ -112,11 +114,7 @@ export function ClinicSmsSheet({ children, date: targetDate }: { children?: Reac
       setSelectedRecipients(defaults)
       setSendStatus({})
       setSendError({})
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '클리닉 문자 대상을 불러오지 못했습니다')
-    } finally {
-      setLoading(false)
-    }
+    }, (e) => toast.error(errorMessage(e, '클리닉 문자 대상을 불러오지 못했습니다')))
   }
 
   function handleOpen(nextOpen: boolean) {
@@ -137,10 +135,9 @@ export function ClinicSmsSheet({ children, date: targetDate }: { children?: Reac
     return `${scheduleDate}T${scheduleTime}:00+09:00`
   }
 
-  const isSchedulePast = useMemo(() => {
-    if (!scheduleEnabled || !scheduleDate || !scheduleTime) return false
-    return new Date(`${scheduleDate}T${scheduleTime}:00+09:00`).getTime() <= Date.now()
-  }, [scheduleEnabled, scheduleDate, scheduleTime])
+  // 화면 표시용 — 최대 10초 뒤처질 수 있다. 확정 판정은 아래 send 핸들러가 Date.now() 로 다시 한다
+  const nowTick = useNowTick()
+  const isSchedulePast = scheduleEnabled && isSchedulePastAt(scheduleDate, scheduleTime, nowTick)
 
   const typeStats = useMemo(() => {
     const stats: Record<RecipientKey, { total: number; selected: number }> = {
@@ -223,7 +220,8 @@ export function ClinicSmsSheet({ children, date: targetDate }: { children?: Reac
   }
 
   async function sendOne(m: ClinicSmsMessage) {
-    if (isSchedulePast) {
+    // 확정 판정 — 화면 값(nowTick)은 최대 10초 뒤처지므로 보낼 때 다시 잰다
+    if (scheduleEnabled && isSchedulePastAt(scheduleDate, scheduleTime, Date.now())) {
       toast.error('예약 시간은 현재 시간 이후로 설정해주세요')
       return
     }
@@ -259,7 +257,7 @@ export function ClinicSmsSheet({ children, date: targetDate }: { children?: Reac
       return next
     })
 
-    try {
+    await runOrReport(async () => {
       const res = await fetch('/api/sms/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -277,14 +275,15 @@ export function ClinicSmsSheet({ children, date: targetDate }: { children?: Reac
         setSendStatus((prev) => ({ ...prev, [m.student_id]: 'error' }))
         setSendError((prev) => ({ ...prev, [m.student_id]: failedResults[0]?.error ?? '발송 실패' }))
       }
-    } catch {
+    }, () => {
       setSendStatus((prev) => ({ ...prev, [m.student_id]: 'error' }))
       setSendError((prev) => ({ ...prev, [m.student_id]: '네트워크 오류' }))
-    }
+    })
   }
 
   async function sendAll() {
-    if (isSchedulePast) {
+    // 확정 판정 — 화면 값(nowTick)은 최대 10초 뒤처지므로 보낼 때 다시 잰다
+    if (scheduleEnabled && isSchedulePastAt(scheduleDate, scheduleTime, Date.now())) {
       toast.error('예약 시간은 현재 시간 이후로 설정해주세요')
       return
     }

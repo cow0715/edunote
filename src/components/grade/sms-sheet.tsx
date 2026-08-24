@@ -1,12 +1,15 @@
 'use client'
 
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo } from 'react'
+import { useNowTick } from '@/hooks/use-now-tick'
+import { isSchedulePast as isSchedulePastAt } from '@/lib/sms-schedule'
 import { MessageSquare, Copy, Check, Send, XCircle, Loader2, X, Sparkles, ChevronDown, ChevronUp, RotateCcw, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
+import { errorMessage, runOrReport, runWithLoading } from '@/lib/async-ui'
 import { usePrompt, useSavePrompt } from '@/hooks/use-prompts'
 import { SMS_RULES } from '@/lib/prompts'
 
@@ -143,17 +146,19 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   const sentCount = Object.values(sendStatus).filter((s) => s === 'success').length
   const hasSendableMessage = messages.some((m) => m.message.trim() && sendStatus[m.student_id] !== 'success')
 
-  useEffect(() => {
+  // 서버 프롬프트가 도착/갱신되면 편집창을 맞춘다 — 렌더 중 조정
+  const [syncedPrompt, setSyncedPrompt] = useState(savedPrompt)
+  if (syncedPrompt !== savedPrompt) {
+    setSyncedPrompt(savedPrompt)
     setPromptText(savedPrompt ?? SMS_RULES)
-  }, [savedPrompt])
+  }
 
   async function generate() {
     if (sentCount > 0) {
       const ok = window.confirm(`이미 ${sentCount}명에게 발송됐습니다.\n재생성하면 발송 상태가 초기화됩니다. 계속할까요?`)
       if (!ok) return
     }
-    setLoading(true)
-    try {
+    await runWithLoading(setLoading, async () => {
       const res = await fetch(`/api/weeks/${weekId}/sms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -174,11 +179,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
       setSelectedRecipients(defaults)
       setSendStatus({})
       setSendError({})
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'SMS 생성에 실패했습니다')
-    } finally {
-      setLoading(false)
-    }
+    }, (e) => toast.error(errorMessage(e, 'SMS 생성에 실패했습니다')))
   }
 
   async function generateWithAi() {
@@ -192,8 +193,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
       return
     }
 
-    setAiGenerating(true)
-    try {
+    await runWithLoading(setAiGenerating, async () => {
       const res = await fetch('/api/sms/refine-template', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -211,11 +211,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
       setSendStatus({})
       setSendError({})
       toast.success('AI로 다듬은 문구를 학생별 문자에 적용했습니다')
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'AI 문구 다듬기에 실패했습니다')
-    } finally {
-      setAiGenerating(false)
-    }
+    }, (e) => toast.error(errorMessage(e, 'AI 문구 다듬기에 실패했습니다')))
   }
 
   function handleOpen(v: boolean) {
@@ -229,10 +225,9 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
     return `${scheduleDate}T${scheduleTime}:00+09:00`
   }
 
-  const isSchedulePast = useMemo(() => {
-    if (!scheduleEnabled || !scheduleDate || !scheduleTime) return false
-    return new Date(`${scheduleDate}T${scheduleTime}:00+09:00`).getTime() <= Date.now()
-  }, [scheduleEnabled, scheduleDate, scheduleTime])
+  // 화면 표시용 — 최대 10초 뒤처질 수 있다. 확정 판정은 아래 send 핸들러가 Date.now() 로 다시 한다
+  const nowTick = useNowTick()
+  const isSchedulePast = scheduleEnabled && isSchedulePastAt(scheduleDate, scheduleTime, nowTick)
 
   function updateMessage(studentId: string, text: string) {
     setMessages((prev) => prev.map((m) => m.student_id === studentId ? { ...m, message: text } : m))
@@ -300,7 +295,8 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   }
 
   async function sendOne(m: SmsMessage) {
-    if (isSchedulePast) {
+    // 확정 판정 — 화면 값(nowTick)은 최대 10초 뒤처지므로 보낼 때 다시 잰다
+    if (scheduleEnabled && isSchedulePastAt(scheduleDate, scheduleTime, Date.now())) {
       toast.error('예약 시간은 현재 시간 이후로 설정해주세요')
       return
     }
@@ -324,7 +320,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
     setSendStatus((prev) => ({ ...prev, [m.student_id]: 'sending' }))
     setSendError((prev) => { const n = { ...prev }; delete n[m.student_id]; return n })
 
-    try {
+    await runOrReport(async () => {
       const res = await fetch('/api/sms/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -341,14 +337,15 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
         setSendStatus((prev) => ({ ...prev, [m.student_id]: 'error' }))
         setSendError((prev) => ({ ...prev, [m.student_id]: errorMsg }))
       }
-    } catch {
+    }, () => {
       setSendStatus((prev) => ({ ...prev, [m.student_id]: 'error' }))
       setSendError((prev) => ({ ...prev, [m.student_id]: '네트워크 오류' }))
-    }
+    })
   }
 
   async function sendAll() {
-    if (isSchedulePast) {
+    // 확정 판정 — 화면 값(nowTick)은 최대 10초 뒤처지므로 보낼 때 다시 잰다
+    if (scheduleEnabled && isSchedulePastAt(scheduleDate, scheduleTime, Date.now())) {
       toast.error('예약 시간은 현재 시간 이후로 설정해주세요')
       return
     }

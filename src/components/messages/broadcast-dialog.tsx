@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { useNowTick } from '@/hooks/use-now-tick'
+import { isSchedulePast as isSchedulePastAt } from '@/lib/sms-schedule'
 import { Megaphone, CheckCircle2, XCircle, Loader2, ChevronRight, ChevronLeft, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -11,6 +13,7 @@ import { useClasses } from '@/hooks/use-classes'
 import { useQueryClient } from '@tanstack/react-query'
 import { Student } from '@/lib/types'
 import { toast } from 'sonner'
+import { runWithLoading } from '@/lib/async-ui'
 
 type ClassWithStudents = { id: string; name: string; students: Student[] }
 type SendResult = { studentId: string; studentName: string; recipientLabel: string; phone: string; message: string; success: boolean; error?: string }
@@ -71,8 +74,7 @@ export function BroadcastDialog() {
   }
 
   async function loadStudents() {
-    setLoadingStudents(true)
-    try {
+    await runWithLoading(setLoadingStudents, async () => {
       const results = await Promise.all(
         classes.map(async (c) => {
           const res = await fetch(`/api/classes/${c.id}/students`)
@@ -82,9 +84,8 @@ export function BroadcastDialog() {
         })
       )
       setClassesWithStudents(results)
-    } finally {
-      setLoadingStudents(false)
-    }
+      // 기존엔 catch 가 없어 에러가 조용히 unhandled rejection 으로 흘렀다 — 이제 toast 로 알린다
+    }, () => toast.error('학생 목록을 불러오지 못했습니다'))
   }
 
   function reset() {
@@ -194,18 +195,17 @@ export function BroadcastDialog() {
     return `${scheduleDate}T${scheduleTime}:00+09:00`
   }
 
-  const isSchedulePast = useMemo(() => {
-    if (!scheduleEnabled || !scheduleDate || !scheduleTime) return false
-    return new Date(`${scheduleDate}T${scheduleTime}:00+09:00`).getTime() <= Date.now()
-  }, [scheduleEnabled, scheduleDate, scheduleTime])
+  // 화면 표시용 — 최대 10초 뒤처질 수 있다. 확정 판정은 아래 send 핸들러가 Date.now() 로 다시 한다
+  const nowTick = useNowTick()
+  const isSchedulePast = scheduleEnabled && isSchedulePastAt(scheduleDate, scheduleTime, nowTick)
 
   async function send() {
-    if (isSchedulePast) {
+    // 확정 판정 — 화면 값(nowTick)은 최대 10초 뒤처지므로 보낼 때 다시 잰다
+    if (scheduleEnabled && isSchedulePastAt(scheduleDate, scheduleTime, Date.now())) {
       toast.error('예약 시간은 현재 시간 이후로 설정해주세요')
       return
     }
-    setSending(true)
-    try {
+    await runWithLoading(setSending, async () => {
       const targets = selectedRecipients.map((r) => {
         const s = allStudents.find((s) => s.id === r.studentId)!
         return { studentId: r.studentId, studentName: s.name, recipientLabel: r.label, phone: r.phone, message }
@@ -220,11 +220,7 @@ export function BroadcastDialog() {
       setResults(data)
       setStep('result')
       qc.invalidateQueries({ queryKey: ['message-logs'] })
-    } catch {
-      toast.error('발송 중 오류가 발생했습니다')
-    } finally {
-      setSending(false)
-    }
+    }, () => toast.error('발송 중 오류가 발생했습니다'))
   }
 
   const successCount = results.filter((r) => r.success).length
