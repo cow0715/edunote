@@ -16,7 +16,7 @@ import type {
 } from '@/lib/anthropic'
 import { recalcReadingCorrect, gradeMultiSelect, gradeOX } from '@/lib/grade-utils'
 
-import { getPdfPageCount } from '@/lib/pdf'
+import { getPdfPageCount, getPdfPageTexts, pageStartsWithQuestion, planAlignedPageChunks, splitPdfByRangesBase64 } from '@/lib/pdf'
 import { runParsePipeline, type PipelineFile } from '@/lib/llm/pipeline'
 import { coerceQuestionNumber, renumberDuplicateQuestions, propagateSharedPassage } from '@/lib/llm/postprocess'
 
@@ -46,9 +46,11 @@ export type ProblemSheetUploadInput = {
 /** 문제지형 청크 정책: 3페이지씩, 문항 경계에 맞춰 자름 (지문이 페이지를 넘어가면 최대 5페이지까지 늘림) */
 const PROBLEM_SHEET_CHUNK_POLICY = { kind: 'pages', pagesPerChunk: 3, alignToQuestionStart: true, maxPagesPerChunk: 5 } as const
 /** 청크 동시 처리 수 — Anthropic rate limit 예산과 맞바꾸는 값.
- * 실측(44p 내신 PDF, 청크 11): 동시 2 = 641.8s, 동시 3 = 669.8s — TPM 한도에 묶여 동시성을 올려도
- * 콜당 시간만 늘어나 벽시계 이득이 없다. 올리기 전에 실측으로 확인할 것. */
-const PDF_PARSE_CONCURRENCY = 2
+ * 실측(44p 내신 PDF, 청크 11): 동시 2 = 641.8s, 동시 6 = 260.6s (2.5배). 계정 한도는
+ * sonnet ITPM 10M/분(Scale 티어)이라 이 규모에선 병목이 아니다. 단, 이 값만큼 요청이
+ * 길어지는 게 아니라 "한 함수 안에서" 도는 legacy 경로 총시간을 줄일 뿐이고,
+ * 큰 문서는 청크 분리 경로(import-plan/chunk/finalize)를 탄다. */
+const PDF_PARSE_CONCURRENCY = 4
 
 /** 파일 데이터 없는 입력(storagePath 만 있는 것)은 파이프라인에 넣기 전에 resolve 돼 있어야 한다 */
 function toPipelineFiles(files: ProblemSheetUploadInput[]): PipelineFile[] {
@@ -507,6 +509,28 @@ function extractChoicesFromStoredQuestionText(raw: string | null): string[] {
     .map((line) => line.replace(/^\d+\.\s+/, '').trim())
 }
 
+function toParsedAnswerFromProblemSheetQuestion(question: WeekProblemSheetQuestion): ParsedAnswer {
+  const parts = buildStructuredQuestionParts(question)
+  return {
+    question_number: question.question_number,
+    sub_label: null,
+    question_style: question.question_style,
+    question_type: question.question_type,
+    correct_answer: 0,
+    correct_answer_text: null,
+    grading_criteria: null,
+    explanation: null,
+    question_text: buildStoredQuestionText(question),
+    question_stem: parts.question_stem,
+    passage: parts.passage,
+    choices: parts.choices,
+    needs_source_image: shouldStoreSourceImage(question),
+    source_image_reason: question.source_image_reason ?? null,
+    source_page: question.source_page ?? null,
+    source_bbox: question.source_bbox ?? null,
+  }
+}
+
 export async function parseProblemSheetQuestionsOnly(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
@@ -521,27 +545,78 @@ export async function parseProblemSheetQuestionsOnly(
     throw new Error('시험지에서 문항 구조를 찾지 못했습니다.')
   }
 
-  return questions.map((question) => {
-    const parts = buildStructuredQuestionParts(question)
-    return {
-      question_number: question.question_number,
-      sub_label: null,
-      question_style: question.question_style,
-      question_type: question.question_type,
-      correct_answer: 0,
-      correct_answer_text: null,
-      grading_criteria: null,
-      explanation: null,
-      question_text: buildStoredQuestionText(question),
-      question_stem: parts.question_stem,
-      passage: parts.passage,
-      choices: parts.choices,
-      needs_source_image: shouldStoreSourceImage(question),
-      source_image_reason: question.source_image_reason ?? null,
-      source_page: question.source_page ?? null,
-      source_bbox: question.source_bbox ?? null,
-    }
-  })
+  return questions.map(toParsedAnswerFromProblemSheetQuestion)
+}
+
+// ── 문제지형 청크 분리 가져오기 (Vercel maxDuration 대응) ─────────────────
+// 계획(경계 계산) → 청크별 파싱(요청 분리, 결과는 스테이징) → finalize(전역 후처리 + 저장)
+// 를 별도 HTTP 요청으로 나누기 위한 단계별 함수. 후처리(번호 재배정·지문 전파)는
+// 전 청크가 모여야 하므로 반드시 finalize 에서만 실행한다.
+
+export type ProblemSheetChunkRange = { startPage: number; endPage: number }
+
+/** 청크 파싱 결과 스테이징 JSON 의 저장 경로 (exam-pdf-temp 버킷 내, 원본 옆) */
+export function problemSheetStagingPath(storagePath: string, chunkIndex: number) {
+  return `${storagePath}.chunks/${chunkIndex}.json`
+}
+
+/** 청크 경계 계산 (LLM 0콜). 텍스트 추출 실패 시 파일 전체 1청크. */
+export async function planProblemSheetChunks(fileData: string, mimeType: string): Promise<ProblemSheetChunkRange[]> {
+  if (mimeType !== 'application/pdf') return [{ startPage: 0, endPage: 1 }]
+  const pageTexts = await getPdfPageTexts(fileData).catch(() => null)
+  if (!pageTexts) {
+    const pageCount = await getPdfPageCount(fileData).catch(() => 1)
+    return [{ startPage: 0, endPage: pageCount }]
+  }
+  if (pageTexts.length <= PROBLEM_SHEET_CHUNK_POLICY.pagesPerChunk) {
+    return [{ startPage: 0, endPage: pageTexts.length }]
+  }
+  return planAlignedPageChunks(
+    pageTexts.map(pageStartsWithQuestion),
+    PROBLEM_SHEET_CHUNK_POLICY.pagesPerChunk,
+    PROBLEM_SHEET_CHUNK_POLICY.maxPagesPerChunk,
+  )
+}
+
+/**
+ * 청크 1개 파싱: 원본에서 페이지 범위를 잘라 LLM 파싱 후 청크 단위 보정까지 적용.
+ * 전역 후처리는 하지 않은 원시 문항을 돌려준다 (finalize 입력용).
+ * 실패 시 파이프라인의 retry-per-page 가 페이지 단위 재시도를 해준다.
+ */
+export async function parseProblemSheetChunkForStaging(params: {
+  fileData: string
+  mimeType: string
+  range: ProblemSheetChunkRange
+  tagCategories?: TagCategory[]
+}): Promise<WeekProblemSheetQuestion[]> {
+  const { fileData, mimeType, range, tagCategories = [] } = params
+  let chunkData = fileData
+  let pageOffset = 0
+  if (mimeType === 'application/pdf') {
+    const [cut] = await splitPdfByRangesBase64(fileData, [range])
+    chunkData = cut.fileData
+    pageOffset = range.startPage
+  }
+
+  const { items } = await runParsePipeline<WeekProblemSheetQuestion, WeekProblemSheetQuestion>({
+    label: 'week-problem-sheet-chunk',
+    chunk: { kind: 'whole' },
+    onChunkError: 'retry-per-page',
+    parseChunk: (file) => parseWeekProblemSheetPage(file.fileData, file.mimeType, tagCategories),
+    normalizeChunk: (parsed, file) => normalizeSourceFieldsForChunk(parsed, file)
+      .map((question) => ({ ...question, question_style: normalizeQuestionStyle(question.question_style) })),
+    finalize: (questions) => questions,
+  }, [{ fileData: chunkData, mimeType, pageOffset }])
+  return items
+}
+
+/** 스테이징된 청크들을 페이지 순서로 합쳐 전역 후처리 + ParsedAnswer 변환 (순수 함수) */
+export function finalizeProblemSheetQuestions(chunkItems: WeekProblemSheetQuestion[][]): ParsedAnswer[] {
+  const merged = propagateSharedPassage(renumberDuplicateQuestions(chunkItems.flat()))
+  if (!merged.length) {
+    throw new Error('시험지에서 문항 구조를 찾지 못했습니다.')
+  }
+  return merged.map(toParsedAnswerFromProblemSheetQuestion)
 }
 
 export async function parseProblemSheetAnswerKeyOnly(params: {

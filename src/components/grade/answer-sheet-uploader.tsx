@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ChangeEvent, type RefObject } from 'react'
 import { errorMessage, runOrReport } from '@/lib/async-ui'
+import { mapWithConcurrency } from '@/lib/concurrency'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -39,6 +40,10 @@ const ANSWER_STEPS = [
 ]
 
 type AnswerParseMode = 'auto' | 'answer_sheet'
+
+// 문제지형 청크 파싱 동시 요청 수 — 실측(44p, 청크 11): 동시 6 LLM 콜에서 스로틀 없이 2.5배 단축.
+// 서버 함수가 청크당 1개씩 뜨므로 Vercel 동시 실행 여유와 맞바꾸는 값.
+const CHUNK_REQUEST_CONCURRENCY = 4
 
 type LocalStatus =
   | { type: 'idle' }
@@ -196,10 +201,26 @@ function parseJsonSafely(raw: string): Record<string, unknown> {
   }
 }
 
-function AnswerParseProgress({ elapsed }: { elapsed: number }) {
+function AnswerParseProgress({ elapsed, processedCount, totalCount }: {
+  elapsed: number
+  processedCount?: number
+  totalCount?: number
+}) {
+  const chunkProgress = typeof processedCount === 'number' && typeof totalCount === 'number' && totalCount > 0
+    ? { processed: processedCount, total: totalCount }
+    : null
   const idx = elapsed < 10 ? 0 : elapsed < 30 ? 1 : 2
-  const current = ANSWER_STEPS[idx]
-  const progress = Math.min((elapsed / 90) * 100, 95)
+  const current = chunkProgress
+    ? {
+      label: chunkProgress.processed >= chunkProgress.total
+        ? '파싱 결과를 합쳐 저장하고 있습니다.'
+        : `문항 구조를 파싱하고 있습니다. (${chunkProgress.processed}/${chunkProgress.total} 구간)`,
+      sub: '시험지를 구간으로 나눠 병렬로 읽고 있습니다. 구간별로 완료되는 대로 진행률이 올라갑니다.',
+    }
+    : ANSWER_STEPS[idx]
+  const progress = chunkProgress
+    ? Math.min((chunkProgress.processed / chunkProgress.total) * 100, 95)
+    : Math.min((elapsed / 90) * 100, 95)
 
   return (
     <div className="space-y-3 rounded-[20px] bg-blue-50/90 p-4 text-blue-900 shadow-[0_10px_40px_rgba(0,75,198,0.06)] dark:bg-slate-900/80 dark:text-slate-100">
@@ -524,13 +545,66 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     setProblemStatus({ type: 'loading', message: '시험지 파일에서 문항 구조를 정리하고 있습니다.' })
 
     await runOrReport(async () => {
-      const files = await uploadFilesToTempStorage(problemFiles, weekId, 'problem-sheet')
-      const response = await fetch(`/api/weeks/${weekId}/import-problem-sheet`, {
+      const [file] = await uploadFilesToTempStorage(problemFiles, weekId, 'problem-sheet')
+
+      // 청크 분리 가져오기: 계획 → 청크별 파싱(요청 분리, Vercel 300초 제한 회피) → finalize
+      const planResponse = await fetch(`/api/weeks/${weekId}/import-plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storagePath: file.storagePath, mimeType: file.mimeType }),
+      })
+      const planData = parseJsonSafely(await planResponse.text())
+      if (!planResponse.ok) {
+        setProblemStatus({ type: 'error', message: String(planData.error ?? '청크 계획 수립에 실패했습니다.') })
+        return
+      }
+
+      const chunks = (planData.chunks ?? []) as { startPage: number; endPage: number }[]
+      if (!chunks.length) {
+        setProblemStatus({ type: 'error', message: '시험지 페이지를 읽지 못했습니다.' })
+        return
+      }
+
+      let processed = 0
+      setProblemStatus({ type: 'loading', message: '문항 구조를 파싱하고 있습니다.', processedCount: 0, totalCount: chunks.length })
+
+      const parseChunk = async (chunk: { startPage: number; endPage: number }, index: number) => {
+        const response = await fetch(`/api/weeks/${weekId}/import-chunk`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            storagePath: file.storagePath,
+            mimeType: file.mimeType,
+            chunkIndex: index,
+            startPage: chunk.startPage,
+            endPage: chunk.endPage,
+          }),
+        })
+        if (!response.ok) {
+          const data = parseJsonSafely(await response.text())
+          throw new Error(String(data.error ?? `청크 ${index + 1} 파싱에 실패했습니다.`))
+        }
+      }
+
+      await mapWithConcurrency(chunks, CHUNK_REQUEST_CONCURRENCY, async (chunk, index) => {
+        try {
+          await parseChunk(chunk, index)
+        } catch {
+          await parseChunk(chunk, index) // 네트워크 순단 대비 1회 자동 재시도 (멱등)
+        }
+        processed += 1
+        setProblemStatus({ type: 'loading', message: '문항 구조를 파싱하고 있습니다.', processedCount: processed, totalCount: chunks.length })
+      })
+
+      setProblemStatus({ type: 'loading', message: '파싱 결과를 합쳐 저장하고 있습니다.', processedCount: chunks.length, totalCount: chunks.length })
+      const response = await fetch(`/api/weeks/${weekId}/import-finalize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          files,
-          regradeExistingAnswers: regradeAfterAnswerKey,
+          storagePath: file.storagePath,
+          mimeType: file.mimeType,
+          fileName: file.fileName,
+          chunkCount: chunks.length,
         }),
       })
 
@@ -800,7 +874,11 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
             </div>
 
             {problemStatus.type === 'loading' ? (
-              <AnswerParseProgress elapsed={elapsed} />
+              <AnswerParseProgress
+                elapsed={elapsed}
+                processedCount={problemStatus.processedCount}
+                totalCount={problemStatus.totalCount}
+              />
             ) : (
               <FileDropzone
                 file={problemFiles[0]?.file ?? null}

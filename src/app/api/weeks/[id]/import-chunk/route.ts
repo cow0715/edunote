@@ -1,0 +1,57 @@
+import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
+import { createServiceClient } from '@/lib/supabase/server'
+import { fetchTeacherTagContext, parseProblemSheetChunkForStaging, problemSheetStagingPath } from '@/lib/week-reading-import'
+
+// 문제지형 청크 분리 가져오기 2단계: 청크 1개 파싱 → 스테이징 JSON 저장.
+// 전역 후처리(번호 재배정·지문 전파)는 하지 않는다 — finalize 몫.
+// 같은 청크 재요청은 스테이징을 덮어쓰므로 멱등하다.
+export const maxDuration = 300
+const TEMP_BUCKET = 'exam-pdf-temp'
+
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { supabase, user } = await getAuth()
+    const { id: weekId } = await params
+    if (!user) return err('인증이 필요합니다.', 401)
+
+    const teacherId = await getTeacherId(supabase, user.id)
+    if (!teacherId) return err('강사 정보를 찾지 못했습니다.', 404)
+    if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한이 없습니다.', 403)
+
+    const body = await request.json() as {
+      storagePath?: string
+      mimeType?: string
+      chunkIndex?: number
+      startPage?: number
+      endPage?: number
+    }
+    if (!body.storagePath || !body.mimeType) return err('storagePath와 mimeType이 필요합니다.')
+    if (typeof body.chunkIndex !== 'number' || typeof body.startPage !== 'number' || typeof body.endPage !== 'number') {
+      return err('chunkIndex/startPage/endPage가 필요합니다.')
+    }
+
+    const serviceClient = createServiceClient()
+    const { data, error } = await serviceClient.storage.from(TEMP_BUCKET).download(body.storagePath)
+    if (error || !data) return err(`파일 다운로드 실패: ${error?.message ?? body.storagePath}`)
+    const fileData = Buffer.from(await data.arrayBuffer()).toString('base64')
+
+    const { tagCategories } = await fetchTeacherTagContext(supabase, teacherId)
+    const items = await parseProblemSheetChunkForStaging({
+      fileData,
+      mimeType: body.mimeType,
+      range: { startPage: body.startPage, endPage: body.endPage },
+      tagCategories,
+    })
+
+    const stagingPath = problemSheetStagingPath(body.storagePath, body.chunkIndex)
+    const { error: uploadError } = await serviceClient.storage
+      .from(TEMP_BUCKET)
+      .upload(stagingPath, JSON.stringify(items), { contentType: 'application/json', upsert: true })
+    if (uploadError) return err(`청크 결과 저장 실패: ${uploadError.message}`, 500)
+
+    return ok({ question_count: items.length })
+  } catch (error) {
+    console.error('[import-chunk] unhandled error:', error)
+    return err(error instanceof Error ? error.message : '청크 파싱에 실패했습니다.', 422)
+  }
+}
