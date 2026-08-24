@@ -1,6 +1,7 @@
 'use client'
 
 import { use, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { runOrReport } from '@/lib/async-ui'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Sparkles, Timer, XCircle } from 'lucide-react'
 import { ExampleSentenceInline, ANSWER_RIGHT_CLASS, ANSWER_WRONG_CLASS, type ExampleSource } from '@/components/grade/vocab-example-inline'
@@ -129,7 +130,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
   async function loadData() {
     setPhase('loading')
-    try {
+    await runOrReport(async () => {
       const d: RetakeData | ErrorResponse = await fetch(`/api/share/${token}/retake/${weekId}`).then(r => r.json())
       if ('error' in d && d.error) { setError(d.error); setPhase('error'); return }
       if (!isRetakeData(d)) { setError('데이터를 불러올 수 없습니다'); setPhase('error'); return }
@@ -148,10 +149,10 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
       setRetakeScore(null)
       setRemaining(null)
       setPhase('playing')
-    } catch {
+    }, () => {
       setError('데이터를 불러올 수 없습니다')
       setPhase('error')
-    }
+    })
   }
 
   // ── Effects ──────────────────────────────────────────────────────────────────
@@ -185,7 +186,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
       retake_answer: answers[w.answer_id]?.trim() ?? '',
     }))
     setPhase('grading')
-    try {
+    await runOrReport(async () => {
       const res = await fetch(`/api/share/${token}/retake/${weekId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -198,10 +199,10 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
       setRemaining(result.remaining ?? null)
       setRevealCount(0)
       setPhase('revealing')
-    } catch {
+    }, () => {
       alert('제출 중 오류가 발생했습니다')
       setPhase('playing')
-    }
+    })
   }, [data, answers, token, weekId])
 
   // 의도적 예외: 시간이 다 되면 자동 제출. 플래그는 handleSubmit 첫 줄에서 내린다.

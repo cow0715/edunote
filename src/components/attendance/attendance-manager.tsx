@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { runOrReport } from '@/lib/async-ui'
 import { Save, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -36,6 +37,14 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10)
 }
 
+/** 목록에서 기준일과 가장 가까운 날짜 (순수 — 인자만 본다) */
+function closestDate(dates: string[], target: string) {
+  return dates.reduce((prev, cur) =>
+    Math.abs(new Date(cur).getTime() - new Date(target).getTime()) <
+    Math.abs(new Date(prev).getTime() - new Date(target).getTime()) ? cur : prev
+  )
+}
+
 function getDayLabel(dateStr: string) {
   // "YYYY-MM-DD" → 로컬 요일 (timezone 이슈 방지용 T00:00 추가)
   const d = new Date(dateStr + 'T00:00:00')
@@ -66,15 +75,18 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
     (cs) => cs.created_at.slice(0, 10) <= date
   )
 
-  useEffect(() => {
+  // 서버 출결이 도착/갱신되면 편집용 맵을 다시 만든다 — 렌더 중 조정.
+  // (effect + exhaustive-deps 억제 주석이면 React Compiler 가 이 컴포넌트를 건너뛴다)
+  const [syncedRecords, setSyncedRecords] = useState({ records, date })
+  if (syncedRecords.records !== records || syncedRecords.date !== date) {
+    setSyncedRecords({ records, date })
     if (records) {
       const map: Record<string, AttendanceStatus> = {}
       activeStudents.forEach((cs) => { map[cs.student_id] = 'present' })
       records.forEach((r) => { map[r.student_id] = r.status })
       setStatusMap(map)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [records, date])
+  }
 
   // 스케줄 기반 prev/next
   function prevDate() {
@@ -101,20 +113,17 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
     : date >= todayStr()
 
   // 스케줄 기반일 때 현재 날짜가 목록에 없으면 가장 가까운 날짜로 맞추기
-  useEffect(() => {
+  // 스케줄 목록이 바뀌었는데 현재 날짜가 목록에 없으면 기준일과 가장 가까운 날짜로 맞춘다 — 렌더 중 조정
+  const [syncedSchedule, setSyncedSchedule] = useState(scheduledDates)
+  if (syncedSchedule !== scheduledDates) {
+    setSyncedSchedule(scheduledDates)
     if (scheduledDates && scheduledDates.length > 0 && !scheduledDates.includes(date)) {
-      // defaultDate와 가장 가까운 scheduled date 찾기
-      const closest = scheduledDates.reduce((prev, cur) =>
-        Math.abs(new Date(cur).getTime() - new Date(initDate).getTime()) <
-        Math.abs(new Date(prev).getTime() - new Date(initDate).getTime()) ? cur : prev
-      )
-      setDate(closest)
+      setDate(closestDate(scheduledDates, initDate))
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scheduledDates])
+  }
 
   async function handleSave() {
-    try {
+    await runOrReport(async () => {
       await saveAttendance.mutateAsync({
         date,
         records: activeStudents.map((cs) => ({
@@ -123,9 +132,7 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
         })),
       })
       toast.success('출결이 저장되었습니다')
-    } catch {
-      toast.error('저장 실패')
-    }
+    }, () => toast.error('저장 실패'))
   }
 
   const counts = { present: 0, late: 0, absent: 0 }

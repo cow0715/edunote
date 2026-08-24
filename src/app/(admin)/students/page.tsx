@@ -57,6 +57,25 @@ function fmtDate(d: string | null): string {
   return d.slice(0, 10)
 }
 
+type StoredListState = {
+  searchName?: string
+  searchPhone?: string
+  searchGrade?: string
+  searchClass?: string
+  searchStatus?: 'all' | 'active' | 'withdrawn'
+  sortKey?: SortKey
+  sortDir?: SortDir
+}
+
+/** localStorage 값 파싱 — 깨졌으면 null. try/catch 를 컴포넌트 밖에 둬야 React Compiler 가 컴포넌트를 최적화한다. */
+function parseStoredListState(raw: string): StoredListState | null {
+  try {
+    return JSON.parse(raw) as StoredListState
+  } catch {
+    return null
+  }
+}
+
 export default function StudentsPage() {
   const { data: students, isLoading } = useStudents()
   const { data: classes = [] } = useClasses()
@@ -74,22 +93,19 @@ export default function StudentsPage() {
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [listStateRestored, setListStateRestored] = useState(false)
 
+  // localStorage 복원은 마운트 시 1회. 렌더 중에 읽으면 SSR 에 window 가 없어 hydration 이 어긋나므로
+  // effect 가 맞다 — 캐스케이드 렌더도 첫 마운트 한 번뿐이라 린트만 끈다.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const saved = window.localStorage.getItem(STUDENT_LIST_STATE_KEY)
     if (!saved) {
       setListStateRestored(true)
       return
     }
-    try {
-      const state = JSON.parse(saved) as {
-        searchName?: string
-        searchPhone?: string
-        searchGrade?: string
-        searchClass?: string
-        searchStatus?: 'all' | 'active' | 'withdrawn'
-        sortKey?: SortKey
-        sortDir?: SortDir
-      }
+    const state = parseStoredListState(saved)
+    if (!state) {
+      window.localStorage.removeItem(STUDENT_LIST_STATE_KEY)
+    } else {
       setSearchName(state.searchName ?? '')
       setSearchPhone(state.searchPhone ?? '')
       setSearchGrade(state.searchGrade ?? '')
@@ -97,12 +113,10 @@ export default function StudentsPage() {
       setSearchStatus(state.searchStatus ?? 'all')
       setSortKey(state.sortKey ?? 'name')
       setSortDir(state.sortDir ?? 'asc')
-    } catch {
-      window.localStorage.removeItem(STUDENT_LIST_STATE_KEY)
-    } finally {
-      setListStateRestored(true)
     }
+    setListStateRestored(true)
   }, [])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     if (!listStateRestored) return

@@ -1,6 +1,7 @@
 'use client'
 
 import { memo, useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { errorMessage, runOrReport, runWithLoading } from '@/lib/async-ui'
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { useEditor, EditorContent } from '@tiptap/react'
@@ -414,8 +415,7 @@ function FetchStatsButton({ examId, formType }: { examId: string; formType: stri
   const [loading, setLoading] = useState(false)
 
   const handleFetch = async () => {
-    setLoading(true)
-    try {
+    await runWithLoading(setLoading, async () => {
       const res = await fetch(`/api/exam-bank/${examId}/fetch-stats`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -425,11 +425,7 @@ function FetchStatsButton({ examId, formType }: { examId: string; formType: stri
       if (!res.ok) throw new Error(data.error)
       toast.success(`통계 저장 완료 (${data.updated}/${data.total}문항)`)
       queryClient.invalidateQueries({ queryKey: ['exam-bank-questions', examId] })
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '통계 가져오기 실패')
-    } finally {
-      setLoading(false)
-    }
+    }, (e) => toast.error(errorMessage(e, '통계 가져오기 실패')))
   }
 
   return (
@@ -1629,18 +1625,21 @@ function QuestionSearch() {
   // URL 동기화 (filters 확정 후)
   useEffect(() => {
     const newQuery = filterKey
-    const currentQuery = searchParams?.toString() ?? ''
+    // useSearchParams() 값을 쓰면 외부 URL 변경 때마다 이 effect 가 다시 돌아 라우팅이 충돌한다.
+    // 현재 쿼리는 effect 안에서 직접 읽어 의존성에서 뺀다 (exhaustive-deps 억제 주석을 없애야
+    // React Compiler 가 이 컴포넌트를 최적화한다).
+    const currentQuery = window.location.search.replace(/^\?/, '')
     if (newQuery !== currentQuery) {
       router.replace(newQuery ? `${pathname}?${newQuery}` : pathname, { scroll: false })
     }
-    // searchParams는 의존성에서 제외 (외부 변경 시 라우팅 충돌 방지)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterKey, pathname, router])
 
-  // 필터 변경 시 선택 초기화
-  useEffect(() => {
+  // 필터 변경 시 선택 초기화 — 렌더 중 조정 (effect 로 하면 이전 선택이 한 프레임 남는다)
+  const [syncedFilterKey, setSyncedFilterKey] = useState(filterKey)
+  if (syncedFilterKey !== filterKey) {
+    setSyncedFilterKey(filterKey)
     setSelectedIds(new Set())
-  }, [filterKey])
+  }
 
   const {
     data,
@@ -1753,8 +1752,7 @@ function QuestionSearch() {
     build: (list: ExamBankQuestion[]) => { plain: string; html: string },
   ) => {
     if (total === 0 || copyingAll) return
-    setCopyingAll(true)
-    try {
+    await runWithLoading(setCopyingAll, async () => {
       const all = await fetchAll()
       if (!all.length) {
         toast.error('복사할 문항이 없습니다')
@@ -1763,11 +1761,7 @@ function QuestionSearch() {
       const { plain, html } = build(all)
       await copyRich(plain, html)
       toast.success(`${label} ${all.length}개 복사됨`)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '복사 실패')
-    } finally {
-      setCopyingAll(false)
-    }
+    }, (e) => toast.error(errorMessage(e, '복사 실패')))
   }
 
   const toggleSelect = useCallback((id: string) => {
@@ -2355,6 +2349,28 @@ function QuestionEditDialog({
 
 // ── 업로드 다이얼로그 ─────────────────────────────────────────────────────
 
+/**
+ * PDF 를 페이지별 PNG Blob 으로 렌더한다 (콘텐츠 필터 fallback 용).
+ * 동적 `import()` 가 컴포넌트 본문에 있으면 React Compiler 가 그 컴포넌트를 최적화에서 제외하므로 모듈 함수로 뺀다.
+ */
+async function renderPdfPagesToPngBlobs(file: File): Promise<Blob[]> {
+  const pdfjsLib = await import('pdfjs-dist')
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
+  const arrayBuffer = await file.arrayBuffer()
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+  const blobs: Blob[] = new Array(pdf.numPages)
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i)
+    const viewport = page.getViewport({ scale: 2.0 })
+    const canvas = document.createElement('canvas')
+    canvas.width = viewport.width
+    canvas.height = viewport.height
+    await page.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise
+    blobs[i - 1] = await new Promise<Blob>(resolve => canvas.toBlob(b => resolve(b!), 'image/png'))
+  }
+  return blobs
+}
+
 function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const queryClient = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -2378,7 +2394,6 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
     const file = fileRef.current?.files?.[0]
     if (!file) return toast.error('PDF 파일을 선택해주세요')
 
-    setUploading(true)
     setUploadStep(1)
     setElapsed(0)
 
@@ -2387,7 +2402,17 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
     const step3 = setTimeout(() => setUploadStep(3), 30000)
     const step4 = setTimeout(() => setUploadStep(4), 120000)
 
-    try {
+    // 끝나면 타이머·단계 표시를 되돌린다 (기존 finally 와 동일)
+    await runWithLoading((loading) => {
+      setUploading(loading)
+      if (loading) return
+      clearInterval(timer)
+      clearTimeout(step2)
+      clearTimeout(step3)
+      clearTimeout(step4)
+      setUploadStep(0)
+      setElapsed(0)
+    }, async () => {
       // PDF를 Supabase Storage에 직접 업로드 (Vercel 4.5MB body 한도 우회)
       const supabase = createClient()
       const safeFileName = file.name.replace(/[^\w.\-]/g, '_')
@@ -2415,20 +2440,7 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
       if (!res.ok && data.contentFilter) {
         toast.info('일부 페이지 필터 감지, 페이지별 재처리 중...')
 
-        const pdfjsLib = await import('pdfjs-dist')
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
-        const arrayBuffer = await file.arrayBuffer()
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
-        const blobs: Blob[] = new Array(pdf.numPages)
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i)
-          const viewport = page.getViewport({ scale: 2.0 })
-          const canvas = document.createElement('canvas')
-          canvas.width = viewport.width
-          canvas.height = viewport.height
-          await page.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise
-          blobs[i - 1] = await new Promise<Blob>(resolve => canvas.toBlob(b => resolve(b!), 'image/png'))
-        }
+        const blobs = await renderPdfPagesToPngBlobs(file)
 
         const ts = Date.now()
         const safeFileName = file.name.replace(/[^\w.\-]/g, '_')
@@ -2460,17 +2472,7 @@ function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
       setForm({ exam_year: new Date().getFullYear(), exam_month: 4, grade: 3, source: '모의고사', form_type: '홀수형' })
       setFileName('')
       if (fileRef.current) fileRef.current.value = ''
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'PDF 파싱 실패')
-    } finally {
-      clearInterval(timer)
-      clearTimeout(step2)
-      clearTimeout(step3)
-      clearTimeout(step4)
-      setUploading(false)
-      setUploadStep(0)
-      setElapsed(0)
-    }
+    }, (e) => toast.error(errorMessage(e, 'PDF 파싱 실패')))
   }
 
   return (
@@ -2654,11 +2656,16 @@ function ExplanationUploadDialog({
     const file = fileRef.current?.files?.[0]
     if (!file || !examId) return toast.error('PDF 파일을 선택해주세요')
 
-    setUploading(true)
     setElapsed(0)
     const timer = setInterval(() => setElapsed((s) => s + 1), 1000)
 
-    try {
+    // 끝나면 타이머 정리 + 경과 초 리셋 (기존 finally 와 동일)
+    await runWithLoading((loading) => {
+      setUploading(loading)
+      if (loading) return
+      clearInterval(timer)
+      setElapsed(0)
+    }, async () => {
       const storagePath = await uploadToStorage(file)
       const { ok, data } = await safeJson(
         await fetch(`/api/exam-bank/${examId}/debug-explanation`, {
@@ -2669,24 +2676,23 @@ function ExplanationUploadDialog({
       )
       if (!ok) throw new Error((data.error as string) || '파싱 실패')
       setPreview(data as Parameters<typeof setPreview>[0])
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '파싱 미리보기 실패')
-    } finally {
-      clearInterval(timer)
-      setUploading(false)
-      setElapsed(0)
-    }
+    }, (e) => toast.error(errorMessage(e, '파싱 미리보기 실패')))
   }
 
   const handleUpload = async () => {
     const file = fileRef.current?.files?.[0]
     if (!file || !examId) return toast.error('PDF 파일을 선택해주세요')
 
-    setUploading(true)
     setElapsed(0)
     const timer = setInterval(() => setElapsed((s) => s + 1), 1000)
 
-    try {
+    // 끝나면 타이머 정리 + 경과 초 리셋 (기존 finally 와 동일)
+    await runWithLoading((loading) => {
+      setUploading(loading)
+      if (loading) return
+      clearInterval(timer)
+      setElapsed(0)
+    }, async () => {
       const storagePath = await uploadToStorage(file)
       const { ok: pdfOk, data } = await safeJson(
         await fetch(`/api/exam-bank/${examId}/upload-explanation`, {
@@ -2703,13 +2709,7 @@ function ExplanationUploadDialog({
       setFileName('')
       setPreview(null)
       if (fileRef.current) fileRef.current.value = ''
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '해설 PDF 파싱 실패')
-    } finally {
-      clearInterval(timer)
-      setUploading(false)
-      setElapsed(0)
-    }
+    }, (e) => toast.error(errorMessage(e, '해설 PDF 파싱 실패')))
   }
 
   return (
@@ -2885,14 +2885,16 @@ function BulkExplanationDialog({
 
     const pdfEndpoint = useVision ? 'upload-explanation-vision' : 'upload-explanation'
 
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i]
-      if (!it.exam) continue
+    // entries() 로 도는 이유: `i++` 로 증가하는 변수를 아래 setItems 람다들이 붙잡으면
+    // React Compiler 가 이 컴포넌트를 최적화에서 제외한다(UpdateExpression captured in lambda).
+    for (const [index, it] of items.entries()) {
+      const exam = it.exam
+      if (!exam) continue
 
-      setCurrent(i + 1)
-      setItems((prev) => prev.map((x, idx) => idx === i ? { ...x, status: 'processing' } : x))
+      setCurrent(index + 1)
+      setItems((prev) => prev.map((x, idx) => idx === index ? { ...x, status: 'processing' } : x))
 
-      try {
+      await runOrReport(async () => {
         const supabase = createClient()
         const safeFileName = it.file.name.replace(/[^\w.\-]/g, '_')
         const storagePath = `${Date.now()}_bulk_${safeFileName}`
@@ -2903,7 +2905,7 @@ function BulkExplanationDialog({
 
         // PDF 파싱
         const { ok: pdfOk, data } = await safeJson(
-          await fetch(`/api/exam-bank/${it.exam.id}/${pdfEndpoint}`, {
+          await fetch(`/api/exam-bank/${exam.id}/${pdfEndpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ storagePath }),
@@ -2914,11 +2916,11 @@ function BulkExplanationDialog({
         const label = useVision ? 'Vision' : 'PDF'
         const msg = `${label} ${data.updated}/${data.total}문항 완료`
 
-        setItems((prev) => prev.map((x, idx) => idx === i ? { ...x, status: 'done', message: msg } : x))
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : '오류'
-        setItems((prev) => prev.map((x, idx) => idx === i ? { ...x, status: 'error', message: msg } : x))
-      }
+        setItems((prev) => prev.map((x, idx) => idx === index ? { ...x, status: 'done', message: msg } : x))
+      }, (e) => {
+        const msg = errorMessage(e, '오류')
+        setItems((prev) => prev.map((x, idx) => idx === index ? { ...x, status: 'error', message: msg } : x))
+      })
     }
 
     setRunning(false)

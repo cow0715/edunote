@@ -115,13 +115,8 @@ function MemoTab({ studentId }: { studentId: string }) {
   const { mutate: deleteMemo } = useDeleteMemo(studentId)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault()
-      handleSave()
-    }
-  }
-
+  // handleSave 를 먼저 선언한다 — 아래에서 위 함수를 호이스팅으로 참조하면
+  // React Compiler 가 이 컴포넌트를 최적화에서 제외한다(PruneHoistedContexts).
   function handleSave() {
     if (!text.trim()) return
     createMemo(text.trim(), {
@@ -130,6 +125,13 @@ function MemoTab({ studentId }: { studentId: string }) {
         textareaRef.current?.focus()
       },
     })
+  }
+
+  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault()
+      handleSave()
+    }
   }
 
   return (

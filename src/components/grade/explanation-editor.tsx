@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -52,19 +52,23 @@ export function ExplanationEditor({ weekId }: Props) {
     .map((q) => `${q.id}:${q.explanation}:${q.correct_answer_text}:${q.grading_criteria}`)
     .join('|')
 
-  useEffect(() => {
-    if (!readingQuestions.length) return
-    const map: Record<string, EditRow> = {}
-    for (const q of readingQuestions) {
-      map[q.id] = {
-        explanation: q.explanation ?? '',
-        correct_answer_text: q.correct_answer_text ?? '',
-        grading_criteria: q.grading_criteria ?? '',
+  // 서버 문항이 바뀌면 편집용 맵을 다시 만든다 — 렌더 중 조정.
+  // (effect + exhaustive-deps 억제 주석이면 React Compiler 가 이 컴포넌트를 건너뛴다)
+  const [syncedSnapshot, setSyncedSnapshot] = useState(snapshot)
+  if (syncedSnapshot !== snapshot) {
+    setSyncedSnapshot(snapshot)
+    if (readingQuestions.length) {
+      const map: Record<string, EditRow> = {}
+      for (const q of readingQuestions) {
+        map[q.id] = {
+          explanation: q.explanation ?? '',
+          correct_answer_text: q.correct_answer_text ?? '',
+          grading_criteria: q.grading_criteria ?? '',
+        }
       }
+      setEditMap(map)
     }
-    setEditMap(map)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot])
+  }
 
   function setField(id: string, field: keyof EditRow, value: string) {
     setEditMap((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }))

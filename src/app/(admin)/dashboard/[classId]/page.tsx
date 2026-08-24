@@ -1,6 +1,7 @@
 'use client'
 
 import { use, useRef, useState } from 'react'
+import { errorMessage, runOrReport } from '@/lib/async-ui'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -446,16 +447,18 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
     weekDisplayMap.get(w.id)?.displayLabel ?? `${w.week_number}주차`,
   ]))
   const currentPeriod = periods.find((p) => p.is_current)
-  const orderedPeriods = [...periods].sort((a, b) =>
-    a.start_date.localeCompare(b.start_date) ||
-    a.sort_order - b.sort_order
-  )
+  const orderedPeriods = [...periods].sort((a, b) => {
+    const byDate = a.start_date.localeCompare(b.start_date)
+    return byDate !== 0 ? byDate : a.sort_order - b.sort_order
+  })
   const sortedClassWeeks = (weeks as Week[])
     .filter((week) => !!week.start_date)
-    .sort((a, b) =>
-      (a.start_date ?? '').localeCompare(b.start_date ?? '') ||
-      a.week_number - b.week_number
-    )
+    // `(a ?? '').localeCompare(...) || (숫자)` 처럼 ?? 를 품은 값을 || 의 좌변에 두면
+    // React Compiler 가 이 컴포넌트를 통째로 건너뛴다. 중간 변수로 풀어 쓴다.
+    .sort((a, b) => {
+      const byDate = (a.start_date ?? '').localeCompare(b.start_date ?? '')
+      return byDate !== 0 ? byDate : a.week_number - b.week_number
+    })
 
   function getPeriodImpact(startDate: string) {
     const selectedDayKey = dateKeyToScheduleDay(startDate)
@@ -590,18 +593,19 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
       .filter((word) => exportWeekIds.has(word.week_id))
       .map((word) => {
         const week = weekById.get(word.week_id)
-        const display = week ? weekDisplayMap.get(week.id)?.displayLabel ?? `${week.week_number}주차` : ''
+        const display = week ? (weekDisplayMap.get(week.id)?.displayLabel ?? `${week.week_number}주차`) : ''
         return { word, week, display }
       })
-      .sort((a, b) =>
-        (a.week?.start_date ?? '').localeCompare(b.week?.start_date ?? '') ||
-        (a.week?.week_number ?? 0) - (b.week?.week_number ?? 0) ||
-        a.word.number - b.word.number
-      )
+      .sort((a, b) => {
+        const byDate = (a.week?.start_date ?? '').localeCompare(b.week?.start_date ?? '')
+        if (byDate !== 0) return byDate
+        const byWeek = (a.week?.week_number ?? 0) - (b.week?.week_number ?? 0)
+        return byWeek !== 0 ? byWeek : a.word.number - b.word.number
+      })
   }
 
   async function downloadClassVocabCsv() {
-    try {
+    await runOrReport(async () => {
       const data = await loadClassVocabExport()
       const rows = getExportVocabRows(data)
       if (rows.length === 0) {
@@ -631,13 +635,11 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
       a.download = sanitizeFileName(`${className}_${currentPeriod?.label ?? '전체'}_단어장`) + '.csv'
       a.click()
       URL.revokeObjectURL(url)
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : '단어장 다운로드에 실패했습니다.')
-    }
+    }, (error) => window.alert(errorMessage(error, '단어장 다운로드에 실패했습니다.')))
   }
 
   async function printClassVocab() {
-    try {
+    await runOrReport(async () => {
       const data = await loadClassVocabExport()
       const rows = getExportVocabRows(data)
       if (rows.length === 0) {
@@ -698,9 +700,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
       printWindow.document.close()
       printWindow.focus()
       printWindow.print()
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : '단어장 인쇄에 실패했습니다.')
-    }
+    }, (error) => window.alert(errorMessage(error, '단어장 인쇄에 실패했습니다.')))
   }
 
   return (

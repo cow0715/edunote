@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { Camera, Loader2, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { compressImageForUpload } from '@/lib/image-compress'
+import { runWithLoading } from '@/lib/async-ui'
 
 export type VocabResult = { number: number; english_word: string; student_answer: string; is_correct: boolean }
 
@@ -30,9 +31,8 @@ export function VocabPhotoButton({ weekId, studentId, disabled, hasExistingData,
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
-    setLoading(true)
     setError(null)
-    try {
+    await runWithLoading(setLoading, async () => {
       // 업로드 전 압축 (긴 변 1600 · JPEG 80%). Storage 용량 + 전송/OCR 시간 절약
       const { base64: b64, mimeType } = await compressImageForUpload(file)
       const resp = await fetch(`/api/weeks/${weekId}/grade-vocab-photo`, {
@@ -46,11 +46,7 @@ export function VocabPhotoButton({ weekId, studentId, disabled, hasExistingData,
       } else {
         setError(data.error ?? '채점 실패')
       }
-    } catch {
-      setError('네트워크 오류')
-    } finally {
-      setLoading(false)
-    }
+    }, () => setError('네트워크 오류'))
   }
 
   return (

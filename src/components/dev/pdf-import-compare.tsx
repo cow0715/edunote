@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
+import { errorMessage, runWithLoading } from '@/lib/async-ui'
 import { AlertTriangle, FileText, Loader2, Play, RotateCcw, Upload } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -170,11 +171,10 @@ export default function PdfImportCompare() {
 
   async function run() {
     if (!file || loading) return
-    setLoading(true)
     setError(null)
     setResponse(null)
 
-    try {
+    await runWithLoading(setLoading, async () => {
       const fileData = await fileToBase64(file)
       const res = await fetch('/api/dev/pdf-import-compare', {
         method: 'POST',
@@ -190,11 +190,7 @@ export default function PdfImportCompare() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'PDF 테스트 요청 실패')
       setResponse(json)
-    } catch (runError) {
-      setError(runError instanceof Error ? runError.message : String(runError))
-    } finally {
-      setLoading(false)
-    }
+    }, (runError) => setError(errorMessage(runError, String(runError))))
   }
 
   return (

@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import { Camera, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { runWithLoading } from '@/lib/async-ui'
 
 export type ExamOcrResult = {
   question_number: number
@@ -25,9 +26,8 @@ export function ExamPhotoButton({ weekId, side, disabled, onResult }: {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
-    setLoading(true)
     setError(null)
-    try {
+    await runWithLoading(setLoading, async () => {
       const b64 = await new Promise<string>((resolve) => {
         const reader = new FileReader()
         reader.onload = () => resolve((reader.result as string).split(',')[1])
@@ -44,11 +44,7 @@ export function ExamPhotoButton({ weekId, side, disabled, onResult }: {
       } else {
         setError(data.error ?? 'OCR 실패')
       }
-    } catch {
-      setError('네트워크 오류')
-    } finally {
-      setLoading(false)
-    }
+    }, () => setError('네트워크 오류'))
   }
 
   return (

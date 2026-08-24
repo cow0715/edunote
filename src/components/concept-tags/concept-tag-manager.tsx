@@ -11,6 +11,7 @@ import {
 } from '@/hooks/use-concept-tags'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { runWithLoading } from '@/lib/async-ui'
 
 function TagRow({ tag, onEdit, onDelete, deleteDisabled }: { tag: ConceptTag; onEdit: (t: ConceptTag) => void; onDelete: (id: string) => void; deleteDisabled?: boolean }) {
   return (
@@ -40,18 +41,13 @@ export function ConceptTagManager() {
 
   async function handleSeedDefaults() {
     if (!confirm('기존 문제 유형을 모두 삭제하고 수능 기본 유형으로 교체합니다. 계속할까요?')) return
-    setSeeding(true)
-    try {
+    await runWithLoading(setSeeding, async () => {
       const res = await fetch('/api/concept-tags/seed-defaults', { method: 'POST' })
-      if (!res.ok) throw new Error()
+      if (!res.ok) throw new Error('교체 실패')
       await queryClient.invalidateQueries({ queryKey: ['concept-categories'] })
       await queryClient.invalidateQueries({ queryKey: ['concept-tags'] })
       toast.success('기본 유형으로 교체 완료')
-    } catch {
-      toast.error('교체 실패')
-    } finally {
-      setSeeding(false)
-    }
+    }, () => toast.error('교체 실패'))
   }
 
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set())

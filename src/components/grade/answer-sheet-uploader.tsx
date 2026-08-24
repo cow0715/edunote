@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, type ChangeEvent, type RefObject } from 'react'
+import { errorMessage, runOrReport } from '@/lib/async-ui'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -467,18 +468,15 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     return false
   }
 
-  async function handleStandardUpload() {
-    if (!await guardBeforeUpload('standard')) return
-    await handleStandardUploadConfirmed()
-  }
-
+  // ...Confirmed 를 먼저 선언한다 — 호출부가 아래 함수를 호이스팅으로 참조하면
+  // React Compiler 가 이 컴포넌트를 최적화에서 제외한다(PruneHoistedContexts).
   async function handleStandardUploadConfirmed() {
     if (!answerFile) return
 
     setElapsed(0)
     setStatus(weekId, { type: 'loading', step: '해설지를 읽는 중입니다.' })
 
-    try {
+    await runOrReport(async () => {
       const base64 = await readFileAsBase64(answerFile)
       const response = await fetch(`/api/weeks/${weekId}/parse-answers`, {
         method: 'POST',
@@ -511,14 +509,12 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
       resetQueries()
       toast.success(`${questionsParsed}문항을 반영했습니다.`)
-    } catch (error) {
-      setStatus(weekId, { type: 'error', message: error instanceof Error ? error.message : '오류가 발생했습니다.' })
-    }
+    }, (error) => setStatus(weekId, { type: 'error', message: errorMessage(error, '오류가 발생했습니다.') }))
   }
 
-  async function handleProblemImport() {
-    if (!await guardBeforeUpload('problem')) return
-    await handleProblemImportConfirmed()
+  async function handleStandardUpload() {
+    if (!await guardBeforeUpload('standard')) return
+    await handleStandardUploadConfirmed()
   }
 
   async function handleProblemImportConfirmed() {
@@ -527,7 +523,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     setElapsed(0)
     setProblemStatus({ type: 'loading', message: '시험지 파일에서 문항 구조를 정리하고 있습니다.' })
 
-    try {
+    await runOrReport(async () => {
       const files = await uploadFilesToTempStorage(problemFiles, weekId, 'problem-sheet')
       const response = await fetch(`/api/weeks/${weekId}/import-problem-sheet`, {
         method: 'POST',
@@ -561,9 +557,12 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
       resetQueries()
       if (sourceImagesSaved > 0) toast.success(`원본 이미지 ${sourceImagesSaved}개를 저장했습니다.`)
       toast.success(`${questionsParsed}문항을 시험지 PDF에서 저장했습니다. 이제 정오표를 올려주세요.`)
-    } catch (error) {
-      setProblemStatus({ type: 'error', message: error instanceof Error ? error.message : '오류가 발생했습니다.' })
-    }
+    }, (error) => setProblemStatus({ type: 'error', message: errorMessage(error, '오류가 발생했습니다.') }))
+  }
+
+  async function handleProblemImport() {
+    if (!await guardBeforeUpload('problem')) return
+    await handleProblemImportConfirmed()
   }
 
   async function handleAnswerKeyImport() {
@@ -576,7 +575,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     setElapsed(0)
     setAnswerKeyStatus({ type: 'loading', message: '정오표에서 문항별 정답을 읽어 기존 문항에 반영하고 있습니다.' })
 
-    try {
+    await runOrReport(async () => {
       const files = await uploadFilesToTempStorage(answerKeyFiles, weekId, 'answer-key')
       const response = await fetch(`/api/weeks/${weekId}/import-problem-answer-key`, {
         method: 'POST',
@@ -606,9 +605,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
       })
       resetQueries()
       toast.success(`${questionsParsed}문항에 정오표 정답을 반영했습니다.`)
-    } catch (error) {
-      setAnswerKeyStatus({ type: 'error', message: error instanceof Error ? error.message : '오류가 발생했습니다.' })
-    }
+    }, (error) => setAnswerKeyStatus({ type: 'error', message: errorMessage(error, '오류가 발생했습니다.') }))
   }
 
 

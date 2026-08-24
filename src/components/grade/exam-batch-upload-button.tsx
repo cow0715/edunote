@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import { Files, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { errorMessage, runWithLoading } from '@/lib/async-ui'
 import type { ExamOcrResult } from './exam-photo-button'
 
 function readFileAsBase64(file: File): Promise<string> {
@@ -28,10 +29,9 @@ export function ExamBatchUploadButton({ weekId, disabled, onResult }: {
     if (!selectedFiles.length) return
 
     event.target.value = ''
-    setLoading(true)
     setError(null)
 
-    try {
+    await runWithLoading(setLoading, async () => {
       const files = await Promise.all(selectedFiles.map(async (file) => ({
         fileData: await readFileAsBase64(file),
         mimeType: file.type,
@@ -49,11 +49,7 @@ export function ExamBatchUploadButton({ weekId, disabled, onResult }: {
       } else {
         setError(data.error ?? 'OCR 실패')
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '업로드 중 오류가 발생했습니다.')
-    } finally {
-      setLoading(false)
-    }
+    }, (e) => setError(errorMessage(e, '업로드 중 오류가 발생했습니다.')))
   }
 
   return (

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { errorMessage, runOrReport } from '@/lib/async-ui'
 import { Upload, Play, RotateCcw, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronUp, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -357,7 +358,7 @@ export default function ModelCompare() {
     const finalResults: Partial<Record<ModelId, RunResult>> = {}
 
     const promises = [...selectedModels].map(async (modelId) => {
-      try {
+      await runOrReport(async () => {
         const res = await fetch('/api/dev/compare', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -376,11 +377,11 @@ export default function ModelCompare() {
           : { status: 'done', result: data.result, inputTokens: data.inputTokens, outputTokens: data.outputTokens, cost: data.cost, durationMs: data.durationMs }
         finalResults[modelId] = r
         setResults((prev) => ({ ...prev, [modelId]: r }))
-      } catch (e: unknown) {
-        const r: RunResult = { status: 'error', error: e instanceof Error ? e.message : '요청 실패', inputTokens: 0, outputTokens: 0, cost: 0, durationMs: 0 }
+      }, (e) => {
+        const r: RunResult = { status: 'error', error: errorMessage(e, '요청 실패'), inputTokens: 0, outputTokens: 0, cost: 0, durationMs: 0 }
         finalResults[modelId] = r
         setResults((prev) => ({ ...prev, [modelId]: r }))
-      }
+      })
     })
 
     await Promise.all(promises)

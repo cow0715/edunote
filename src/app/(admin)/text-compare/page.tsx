@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { errorMessage, runWithLoading } from '@/lib/async-ui'
 import {
   AlertTriangle,
   ChevronDown,
@@ -572,10 +573,10 @@ export default function TextComparePage() {
       return
     }
 
-    setLoading(true)
     setResult(null)
 
-    try {
+    // 끝나면 로딩 해제 + 진행 문구 비우기 (기존 finally 와 동일)
+    await runWithLoading((loading) => { setLoading(loading); if (!loading) setStatus('') }, async () => {
       setStatus('PDF 업로드 중...')
       const [originalPath, examPath] = await Promise.all([
         uploadFile(originalFile),
@@ -594,13 +595,7 @@ export default function TextComparePage() {
 
       setResult(payload)
       toast.success('시험 변형 분석이 완료되었습니다.')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
-      toast.error(message)
-    } finally {
-      setLoading(false)
-      setStatus('')
-    }
+    }, (error) => toast.error(errorMessage(error, '알 수 없는 오류가 발생했습니다.')))
   }
 
   return (

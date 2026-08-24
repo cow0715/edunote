@@ -1,6 +1,7 @@
 'use client'
 
-import { use, useEffect, useState } from 'react'
+import { use, useState } from 'react'
+import { errorMessage, runWithLoading } from '@/lib/async-ui'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Printer, Save, CheckCircle2, Sparkles, Plus, X, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -44,20 +45,23 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
   // next_focus string derived from goalItems
   const nextFocus = goalItems.filter(Boolean).join('\n')
 
-  useEffect(() => {
-    if (!data) return
-    setGrade(data.card.overall_grade ?? '')
-    setComment(data.card.teacher_comment ?? '')
-    setSummary(data.card.summary_text ?? '')
-    const loaded = (data.card.next_focus ?? '').split('\n').map((s) => s.trim()).filter(Boolean)
-    setGoalItems(loaded.length > 0 ? [...loaded, ''] : [''])
-    const autoInsights = buildInsightLines(
-      data.metrics.avgReading, data.metrics.avgWriting, data.metrics.avgVocab, data.metrics.avgHomework,
-      data.metrics.overallAvg, data.previous, data.classContext, data.metrics.achievements,
-    )
-    setInsights(autoInsights)
-    setDirty(false)
-  }, [data])
+  // 서버 성적표가 도착/갱신되면 편집 state 를 맞춘다 — 렌더 중 조정(effect 로 하면 첫 렌더에 빈 폼이 한 번 그려진다)
+  const [syncedCard, setSyncedCard] = useState(data)
+  if (syncedCard !== data) {
+    setSyncedCard(data)
+    if (data) {
+      setGrade(data.card.overall_grade ?? '')
+      setComment(data.card.teacher_comment ?? '')
+      setSummary(data.card.summary_text ?? '')
+      const loaded = (data.card.next_focus ?? '').split('\n').map((s) => s.trim()).filter(Boolean)
+      setGoalItems(loaded.length > 0 ? [...loaded, ''] : [''])
+      setInsights(buildInsightLines(
+        data.metrics.avgReading, data.metrics.avgWriting, data.metrics.avgVocab, data.metrics.avgHomework,
+        data.metrics.overallAvg, data.previous, data.classContext, data.metrics.achievements,
+      ))
+      setDirty(false)
+    }
+  }
 
   if (isLoading) return <div className="p-6 text-sm text-gray-500">불러오는 중...</div>
   if (error || !data) return <div className="p-6 text-sm text-red-500">성적표를 불러올 수 없습니다</div>
@@ -142,8 +146,7 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
       await saveCurrentCard('published')
     }
 
-    setSending(true)
-    try {
+    await runWithLoading(setSending, async () => {
       toast.info('성적표 링크 전송 중...')
       const res = await fetch(`/api/report-cards/${reportId}/send`, {
         method: 'POST',
@@ -162,11 +165,7 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
         toast.success(`${phone}로 링크 전송 완료`)
         setSendDialogOpen(false)
       }
-    } catch (e) {
-      toast.error(`오류: ${e instanceof Error ? e.message : '알 수 없는 오류'}`)
-    } finally {
-      setSending(false)
-    }
+    }, (e) => toast.error(`오류: ${errorMessage(e, '알 수 없는 오류')}`))
   }
 
   return (

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { errorMessage, runWithLoading } from '@/lib/async-ui'
 import { useQuery } from '@tanstack/react-query'
 import { Check, ShieldAlert, UserX } from 'lucide-react'
 import { toast } from 'sonner'
@@ -46,8 +47,7 @@ export default function TeacherApprovalsPage() {
   })
 
   async function updateStatus(teacherId: string, status: ApprovalStatus) {
-    setUpdatingId(teacherId)
-    try {
+    await runWithLoading((loading) => setUpdatingId(loading ? teacherId : null), async () => {
       const res = await fetch('/api/admin/teachers', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -57,11 +57,7 @@ export default function TeacherApprovalsPage() {
       if (!res.ok) throw new Error(json.error || '상태 변경에 실패했습니다')
       toast.success('계정 상태를 변경했습니다')
       refetch()
-    } catch (e) {
-      toast.error((e as Error).message)
-    } finally {
-      setUpdatingId(null)
-    }
+    }, (e) => toast.error(errorMessage(e, '상태 변경에 실패했습니다')))
   }
 
   return (

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { errorMessage, runWithLoading } from '@/lib/async-ui'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,21 +40,24 @@ export default function SettingsPage() {
   })
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    if (!data) return
-    setForm({
-      name: data.name ?? '',
-      academy_name: data.academy_name ?? '',
-      academy_english_name: data.academy_english_name ?? '',
-      academy_address: data.academy_address ?? '',
-      academy_phone: data.academy_phone ?? '',
-      director_name: data.director_name ?? '',
-    })
-  }, [data])
+  // 서버 프로필이 도착/갱신되면 편집 폼을 맞춘다 — 렌더 중 조정(effect 로 하면 첫 렌더에 빈 폼이 한 번 그려진다)
+  const [syncedProfile, setSyncedProfile] = useState(data)
+  if (syncedProfile !== data) {
+    setSyncedProfile(data)
+    if (data) {
+      setForm({
+        name: data.name ?? '',
+        academy_name: data.academy_name ?? '',
+        academy_english_name: data.academy_english_name ?? '',
+        academy_address: data.academy_address ?? '',
+        academy_phone: data.academy_phone ?? '',
+        director_name: data.director_name ?? '',
+      })
+    }
+  }
 
   async function handleSave() {
-    setSaving(true)
-    try {
+    await runWithLoading(setSaving, async () => {
       const res = await fetch('/api/teacher/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -69,11 +73,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error((await res.json()).error ?? '저장 실패')
       toast.success('저장되었습니다')
       refetch()
-    } catch (e) {
-      toast.error((e as Error).message)
-    } finally {
-      setSaving(false)
-    }
+    }, (e) => toast.error(errorMessage(e, '저장 실패')))
   }
 
   if (isLoading) {

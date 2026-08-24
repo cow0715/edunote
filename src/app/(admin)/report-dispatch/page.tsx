@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, FileText, Loader2, MessageSquare, RefreshCw, Search, Send, Users } from 'lucide-react'
 import { toast } from 'sonner'
+import { errorMessage, runWithLoading } from '@/lib/async-ui'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -127,6 +128,9 @@ export default function ReportDispatchPage() {
   const { data: mockExams = [] } = useMockExams()
   const { data: classes = [] } = useClasses()
 
+  // URL 쿼리 복원은 마운트 시 1회. 렌더 중에 window 를 읽으면 SSR 에서 터지므로 effect 가 맞다 —
+  // 캐스케이드 렌더도 첫 마운트 한 번뿐이라 린트만 끈다.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('kind') === 'mock') {
@@ -135,6 +139,7 @@ export default function ReportDispatchPage() {
       setMockExamId(params.get('mockExamId') ?? '')
     }
   }, [])
+  /* eslint-enable react-hooks/set-state-in-effect */
   const selectedRecipients = useMemo(
     () => (Object.keys(recipients) as RecipientKey[]).filter((key) => recipients[key]),
     [recipients],
@@ -169,18 +174,23 @@ export default function ReportDispatchPage() {
   const missingReportCount = sendableSelectedItems.filter((item) => itemReportStatus(item) === 'missing').length
   const sentSelectedCount = selectedItems.filter((item) => itemSentCount(item) > 0).length
 
-  useEffect(() => {
-    if (!preview) return
-    setSelectedIds((prev) => {
-      const validIds = new Set(
-        preview.items
-          .filter((item) => canSendItem(item, selectedRecipients, includeResend))
-          .map((item) => itemId(kind, item)),
-      )
-      const next = new Set([...prev].filter((id) => validIds.has(id)))
-      return next.size === prev.size ? prev : next
-    })
-  }, [includeResend, kind, preview, selectedRecipients])
+  // 수신자·재발송·종류가 바뀌면 더 이상 보낼 수 없게 된 선택을 걷어낸다 — 렌더 중 조정
+  const pruneKey = `${kind}|${includeResend}|${selectedRecipients.join(',')}`
+  const [syncedPrune, setSyncedPrune] = useState({ preview, key: pruneKey })
+  if (syncedPrune.preview !== preview || syncedPrune.key !== pruneKey) {
+    setSyncedPrune({ preview, key: pruneKey })
+    if (preview) {
+      setSelectedIds((prev) => {
+        const validIds = new Set(
+          preview.items
+            .filter((item) => canSendItem(item, selectedRecipients, includeResend))
+            .map((item) => itemId(kind, item)),
+        )
+        const next = new Set([...prev].filter((id) => validIds.has(id)))
+        return next.size === prev.size ? prev : next
+      })
+    }
+  }
 
   function changeKind(nextKind: DispatchKind) {
     setKind(nextKind)
@@ -190,9 +200,8 @@ export default function ReportDispatchPage() {
   }
 
   async function loadPreview() {
-    setLoading(true)
     setSelectedIds(new Set())
-    try {
+    await runWithLoading(setLoading, async () => {
       const params = new URLSearchParams({ kind })
       if (kind === 'monthly') {
         params.set('year', year)
@@ -214,11 +223,7 @@ export default function ReportDispatchPage() {
         .filter((item) => canSendItem(item, selectedRecipients, includeResend))
         .map((item) => itemId(kind, item))
       setSelectedIds(new Set(selectable))
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '대상 조회 실패')
-    } finally {
-      setLoading(false)
-    }
+    }, (error) => toast.error(errorMessage(error, '대상 조회 실패')))
   }
 
   async function generateSelectedReports() {
@@ -227,8 +232,7 @@ export default function ReportDispatchPage() {
       toast.error('성적표를 생성할 학생을 선택해 주세요')
       return
     }
-    setGenerating(true)
-    try {
+    await runWithLoading(setGenerating, async () => {
       const body = kind === 'monthly'
         ? {
             kind,
@@ -255,11 +259,7 @@ export default function ReportDispatchPage() {
       if (!res.ok) throw new Error(data.error ?? '성적표 생성 실패')
       toast.success(`성적표 ${data.published_count ?? selectedItems.length}건 생성/확정 완료`)
       await loadPreview()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '성적표 생성 실패')
-    } finally {
-      setGenerating(false)
-    }
+    }, (error) => toast.error(errorMessage(error, '성적표 생성 실패')))
   }
 
   function toggleSelected(id: string) {
@@ -306,8 +306,7 @@ export default function ReportDispatchPage() {
   async function sendSelected() {
     if (!preview) return
     if (!validateSend()) return
-    setSending(true)
-    try {
+    await runWithLoading(setSending, async () => {
       const body = kind === 'monthly'
         ? {
             kind,
@@ -338,11 +337,7 @@ export default function ReportDispatchPage() {
       if (!res.ok) throw new Error(data.error ?? '성적표 전송 실패')
       toast.success(`전송 완료 ${data.sent_count}건 · 실패 ${data.failed_count}건 · 제외 ${data.skipped?.length ?? 0}건`)
       await loadPreview()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '성적표 전송 실패')
-    } finally {
-      setSending(false)
-    }
+    }, (error) => toast.error(errorMessage(error, '성적표 전송 실패')))
   }
 
   return (

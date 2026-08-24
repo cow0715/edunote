@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
+import { runWithLoading } from '@/lib/async-ui'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -16,9 +17,7 @@ export default function LoginPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setLoading(true)
-
-    try {
+    await runWithLoading(setLoading, async () => {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -33,9 +32,8 @@ export default function LoginPage() {
 
       router.push('/dashboard')
       router.refresh()
-    } finally {
-      setLoading(false)
-    }
+      // 기존엔 catch 가 없어 네트워크 오류가 조용히 unhandled rejection 으로 흘렀다 — 이제 toast 로 알린다
+    }, () => toast.error('로그인 중 오류가 발생했습니다'))
   }
 
   return (

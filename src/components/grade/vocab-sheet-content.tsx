@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Camera, X, Lock } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { runOrReport, runWithLoading } from '@/lib/async-ui'
 import { GradeRow } from '@/hooks/use-grade'
 import { cn } from '@/lib/utils'
 import { VocabPhotoButton } from './vocab-photo-button'
@@ -26,10 +27,23 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [photoOpen, setPhotoOpen] = useState(false)
 
-  useEffect(() => { setEditableVocab(vocabAnswers); setDirtyIds(new Set()) }, [vocabAnswers])
+  // 서버 답안이 갱신되면 편집본을 맞추고 dirty 표시를 지운다 — 렌더 중 조정
+  const [syncedVocabAnswers, setSyncedVocabAnswers] = useState(vocabAnswers)
+  if (syncedVocabAnswers !== vocabAnswers) {
+    setSyncedVocabAnswers(vocabAnswers)
+    setEditableVocab(vocabAnswers)
+    setDirtyIds(new Set())
+  }
 
+  // 사진 경로가 바뀌면 이전 서명 URL 을 즉시 지운다 — 렌더 중 조정 (다른 학생 사진이 잠깐 남는 것 방지)
+  const [syncedPhotoPath, setSyncedPhotoPath] = useState(vocabPhotoPath)
+  if (syncedPhotoPath !== vocabPhotoPath) {
+    setSyncedPhotoPath(vocabPhotoPath)
+    setPhotoUrl(null)
+  }
   useEffect(() => {
-    if (!vocabPhotoPath) { setPhotoUrl(null); return }
+    if (!vocabPhotoPath) return
+    // fetch 후(then 안) setState — 렌더 중 동기 호출이 아니라 규칙에 걸리지 않는다
     fetch(`/api/vocab-photo-url?path=${encodeURIComponent(vocabPhotoPath)}`)
       .then((r) => r.json())
       .then((d) => { if (d.url) setPhotoUrl(d.url) })
@@ -38,16 +52,14 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
 
   // 개별 답안 저장 (is_correct 수동 토글 또는 텍스트 blur)
   async function saveVocabAnswer(id: string, student_answer: string, is_correct: boolean, teacher_locked?: boolean) {
-    try {
+    await runOrReport(async () => {
       const res = await fetch('/api/vocab-answer', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, week_score_id: weekScoreId || undefined, student_answer, is_correct, teacher_locked }),
       })
       if (!res.ok) throw new Error('저장 실패')
-    } catch {
-      toast.error('답안 저장에 실패했습니다')
-    }
+    }, () => toast.error('답안 저장에 실패했습니다'))
   }
 
   // 텍스트 수정 후 blur → student_answer 즉시 저장 (is_correct 변경 없음, teacher_locked 해제)
@@ -58,8 +70,7 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
   }
 
   async function regrade() {
-    setRegrading(true)
-    try {
+    await runWithLoading(setRegrading, async () => {
       const itemsToRegrade = editableVocab.filter((a) => dirtyIds.has(a.id) && !a.teacher_locked)
       if (itemsToRegrade.length === 0) { setDirtyIds(new Set()); return }
 
@@ -78,11 +89,7 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
       } else {
         toast.error('재채점에 실패했습니다')
       }
-    } catch {
-      toast.error('재채점 중 오류가 발생했습니다')
-    } finally {
-      setRegrading(false)
-    }
+    }, () => toast.error('재채점 중 오류가 발생했습니다'))
   }
 
   return (

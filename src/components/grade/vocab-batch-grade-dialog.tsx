@@ -9,6 +9,7 @@
 // - 같은 학생에 사진 2장이 붙으면 경고 (뒤 사진이 앞 사진 결과를 덮어쓴다).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { runOrReport } from '@/lib/async-ui'
 import { AlertTriangle, CheckCircle2, ImagePlus, Loader2, RefreshCw, Trash2, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -106,7 +107,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
     // base64 인코딩 + 이름 판독 (동시 3)
     await runPool(fresh, CONCURRENCY, async (it) => {
       patch(it.id, { status: 'reading' })
-      try {
+      await runOrReport(async () => {
         // 압축본을 이름 판독·채점 양쪽에 재사용
         const { base64: b64, mimeType } = await compressImageForUpload(it.file)
         patch(it.id, { b64, mimeType })
@@ -124,9 +125,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
           rawName: data.rawName ?? null,
           status: 'ready',
         })
-      } catch {
-        patch(it.id, { status: 'ready', confidence: 'none' })
-      }
+      }, () => patch(it.id, { status: 'ready', confidence: 'none' }))
     })
     setPhase('review')
   }
@@ -159,7 +158,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
     setPhase('grading')
     await runPool(readyToGrade, CONCURRENCY, async (it) => {
       patch(it.id, { status: 'grading', error: undefined })
-      try {
+      await runOrReport(async () => {
         const resp = await fetch(`/api/weeks/${weekId}/grade-vocab-photo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -172,9 +171,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
         } else {
           patch(it.id, { status: 'error', error: data.error ?? '채점 실패' })
         }
-      } catch {
-        patch(it.id, { status: 'error', error: '네트워크 오류' })
-      }
+      }, () => patch(it.id, { status: 'error', error: '네트워크 오류' }))
     })
     setPhase('done')
   }
@@ -185,7 +182,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
     setPhase('grading')
     await runPool(failed, CONCURRENCY, async (it) => {
       patch(it.id, { status: 'grading', error: undefined })
-      try {
+      await runOrReport(async () => {
         const resp = await fetch(`/api/weeks/${weekId}/grade-vocab-photo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -196,9 +193,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
           patch(it.id, { status: 'done', result: { vocab_correct: data.vocab_correct, vocab_total: data.vocab_total } })
           onGraded(it.studentId!, data.vocab_correct, data.vocab_total, data.results)
         } else patch(it.id, { status: 'error', error: data.error ?? '채점 실패' })
-      } catch {
-        patch(it.id, { status: 'error', error: '네트워크 오류' })
-      }
+      }, () => patch(it.id, { status: 'error', error: '네트워크 오류' }))
     })
     setPhase('done')
   }

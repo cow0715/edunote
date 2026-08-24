@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Upload, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
 import type { OcrTestResult } from '@/app/api/dev/ocr-test/route'
+import { runWithLoading } from '@/lib/async-ui'
 
 // ── 테스트 목록 ─────────────────────────────────────────────────────────
 const TEST_OPTIONS = [
@@ -78,9 +79,8 @@ export default function OcrTest() {
 
   async function runTests() {
     if (!fileData || selectedTests.size === 0) return
-    setLoading(true)
     setResults(null)
-    try {
+    await runWithLoading(setLoading, async () => {
       const res = await fetch('/api/dev/ocr-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -88,11 +88,7 @@ export default function OcrTest() {
       })
       const json = await res.json()
       setResults(json.results)
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setLoading(false)
-    }
+    }, (e) => console.error(e))
   }
 
   function toggleRaw(id: string) {

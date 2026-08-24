@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { runWithLoading } from '@/lib/async-ui'
 import { AlertCircle, BarChart3, CalendarCheck, ChevronDown, ChevronLeft, ChevronRight, Clock, Loader2, Save, Search, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -219,32 +220,19 @@ export default function ClinicPage() {
     if (shouldEnroll && enrollment && !enrollment.end_date) return
     if (!shouldEnroll && !enrollment) return
 
-    if (shouldEnroll) {
-      setSavingStudentId(student.id)
-      try {
+    await runWithLoading(
+      (loading) => setSavingStudentId(loading ? student.id : null),
+      async () => {
         await saveEnrollment.mutateAsync({
           student_id: student.id,
           clinic_slot_id: clinicSlotId,
           start_date: todayStr(),
-          action: 'enroll',
+          action: shouldEnroll ? 'enroll' : 'unenroll',
         })
-      } finally {
-        setSavingStudentId(null)
-      }
-      return
-    }
-
-    setSavingStudentId(student.id)
-    try {
-      await saveEnrollment.mutateAsync({
-        student_id: student.id,
-        clinic_slot_id: clinicSlotId,
-        start_date: todayStr(),
-        action: 'unenroll',
-      })
-    } finally {
-      setSavingStudentId(null)
-    }
+      },
+      // 실패 메시지는 useSaveClinicEnrollment 의 onError 가 이미 toast 로 띄운다 (기존과 동일)
+      () => {},
+    )
   }
 
   async function handleSaveAttendance() {

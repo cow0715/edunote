@@ -24,6 +24,7 @@ import {
 import { VocabSourceRatioPanel } from '@/components/grade/vocab-source-ratio-panel'
 import { useUploadStore, VocabEntry } from '@/store/upload-store'
 import { choiceDistractor, normalizePromptCandidate } from '@/lib/vocab-choice-distractor'
+import { errorMessage, runOrReport, runWithLoading } from '@/lib/async-ui'
 
 const PROMPT_KEY = 'vocab_grading_rules'
 const EMPTY_VOCAB_ENTRIES: VocabEntry[] = []
@@ -369,48 +370,11 @@ function buildRandomVocabSelection(words: Array<VocabEntry & { id: string }>, co
   return { selected, prompts }
 }
 
-// ── 단어 목록 행 ───────────────────────────────────────────────────────────
-// memo: 단어장이 수십~수백 행이라 체크박스 하나를 눌러도 전체 행이 다시 그려지면 조작당 0.5초가 넘었다.
-// props 를 원시값(isSelected / selectedSource / orderNo)으로 내려 바뀐 행만 리렌더되게 한다.
-// 콜백(onToggle / onSelectPrompt)은 부모가 ref 패턴으로 참조를 고정해서 내려준다.
-/**
- * 로딩 플래그를 켜고 fn 을 실행한다. 실패하면 toast 를 띄우고 false 를 돌려준다.
- * 컴포넌트 안에 try/finally 를 두면 React Compiler 가 그 컴포넌트를 통째로 건너뛰므로(finally 미지원)
- * try/finally 는 여기 모듈 함수에만 둔다.
- */
-async function runWithLoading(
-  setLoading: (value: boolean) => void,
-  fn: () => Promise<void>,
-  errorMessage: string | ((error: unknown) => string),
-): Promise<boolean> {
-  setLoading(true)
-  try {
-    await fn()
-    return true
-  } catch (error) {
-    toast.error(typeof errorMessage === 'function' ? errorMessage(error) : errorMessage)
-    return false
-  } finally {
-    setLoading(false)
-  }
-}
-
-/** try/catch 도 같은 이유로 모듈 함수에 둔다 (try 안에 `?.`/`??` 가 있으면 컴파일러가 컴포넌트를 건너뛴다). */
-async function runOrReport(fn: () => Promise<void>, onError: () => void) {
-  try {
-    await fn()
-  } catch {
-    onError()
-  }
-}
-
 /** 클릭 핸들러에서만 쓰지만 컴포넌트 본문에 Date.now() 가 있으면 react-hooks/purity 린트가 렌더 중 호출로 오인한다. */
 function makeClinicPrintStamp(weekId: string) {
   const now = new Date()
   return { key: `clinic-vocab-test:${weekId}:${now.getTime()}`, createdAt: now.toISOString() }
 }
-
-const variantMeaningError = (error: unknown) => (error instanceof Error ? error.message : '단어 뜻 저장 중 오류가 발생했습니다')
 
 // ── 미리보기 행 ────────────────────────────────────────────────────────────
 // memo: 미리보기는 선택 단어 수(30~50)만큼 <select>(옵션 7개)를 그려 한 번 렌더에 120ms 를 먹었다.
@@ -473,6 +437,10 @@ const PreviewRow = memo(function PreviewRow({ word, index, prompt: selected, tes
   )
 })
 
+// ── 단어 목록 행 ───────────────────────────────────────────────────────────
+// memo: 단어장이 수십~수백 행이라 체크박스 하나를 눌러도 전체 행이 다시 그려지면 조작당 0.5초가 넘었다.
+// props 를 원시값(isSelected / selectedSource / orderNo)으로 내려 바뀐 행만 리렌더되게 한다.
+// 콜백(onToggle / onSelectPrompt)은 부모가 ref 패턴으로 참조를 고정해서 내려준다.
 type WordRowProps = {
   word: VocabEntry & { id: string }
   isSelected: boolean
@@ -840,7 +808,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       else if (data.failedBatches > 0) toast.warning(`${data.saved ?? data.generated}개 예문 생성 완료 — 일부 배치가 실패했습니다. 다시 누르면 빈 단어만 이어서 채웁니다`)
       else toast.success(`${data.saved ?? data.generated}개 예문 생성 완료`)
       await loadSavedWords()
-    }, '예문 생성 중 오류가 발생했습니다')
+    }, () => toast.error('예문 생성 중 오류가 발생했습니다'))
   }
 
   async function handleEnrichMeanings() {
@@ -854,7 +822,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       toast.success(`뜻 ${filled.size}개 보완 완료`)
       await loadSavedWords()
       await loadActiveTest()
-    }, variantMeaningError)
+    }, (error) => toast.error(errorMessage(error, '단어 뜻 저장 중 오류가 발생했습니다')))
   }
 
   async function persistVocabTest(wordIds: string[], prompts: Record<string, SelectedPrompt>, options: { showToast?: boolean } = {}) {
@@ -900,7 +868,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       qc.invalidateQueries({ queryKey: ['weeks'] })
       qc.invalidateQueries({ queryKey: ['grade', weekId] })
       await loadActiveTest()
-    }, '시험지 저장 중 오류가 발생했습니다')
+    }, () => toast.error('시험지 저장 중 오류가 발생했습니다'))
   }
 
   async function saveVocabTest() {
@@ -1026,7 +994,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       const ok = await runWithLoading(setMeaningLoading, async () => {
         await enrichSelectedVariantMeanings(variantIds)
         await loadSavedWords()
-      }, variantMeaningError)
+      }, (error) => toast.error(errorMessage(error, '단어 뜻 저장 중 오류가 발생했습니다')))
       if (!ok) return
     }
     await persistVocabTest(selected.map((word) => word.id), prompts, { showToast: false })
@@ -1060,7 +1028,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     if (selectedVariantIds.length > 0) {
       const ok = await runWithLoading(setMeaningLoading, async () => {
         enrichedMeanings = await enrichSelectedVariantMeanings(selectedVariantIds)
-      }, variantMeaningError)
+      }, (error) => toast.error(errorMessage(error, '단어 뜻 저장 중 오류가 발생했습니다')))
       if (!ok) return
     }
 

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
+import { errorMessage, runWithLoading } from '@/lib/async-ui'
 import { Upload, Copy, Loader2, FileText, X, Image } from 'lucide-react'
 
 const ACCEPTED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
@@ -89,10 +90,10 @@ export default function PdfExtractPage() {
 
   async function handleExtract() {
     if (files.length === 0) return
-    setLoading(true)
     setResult('')
 
-    try {
+    // 끝나면 로딩 해제 + 진행 문구 비우기 (기존 finally 와 동일)
+    await runWithLoading((loading) => { setLoading(loading); if (!loading) setStatus('') }, async () => {
       let uploadBlob: Blob
 
       if (files[0].type === 'application/pdf') {
@@ -130,13 +131,7 @@ export default function PdfExtractPage() {
       const text = await res.text()
       setResult(text)
       toast.success('추출 완료')
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      toast.error(msg)
-    } finally {
-      setLoading(false)
-      setStatus('')
-    }
+    }, (e) => toast.error(errorMessage(e, String(e))))
   }
 
   async function handleCopy() {
