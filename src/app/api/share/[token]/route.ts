@@ -119,10 +119,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     return NextResponse.json({ error: '공유가 종료되었습니다' }, { status: 403 })
   }
 
-  const { data: allClassRows } = await supabase
-    .from('class')
-    .select('id, name, start_date, end_date, academic_year, school_name, grade_level, class_type, archived_at')
-    .in('id', allClassIds)
+  // 반 정보와 기간은 서로 무관 — 같이 던진다
+  const [{ data: allClassRows }, { data: allPeriodsData }] = await Promise.all([
+    supabase
+      .from('class')
+      .select('id, name, start_date, end_date, academic_year, school_name, grade_level, class_type, archived_at')
+      .in('id', allClassIds),
+    supabase
+      .from('class_period')
+      .select('*')
+      .in('class_id', allClassIds)
+      .order('sort_order')
+      .order('start_date'),
+  ])
 
   const allClasses = (allClassRows ?? []) as ClassRow[]
   const classById = new Map(allClasses.map((c) => [c.id, c]))
@@ -133,13 +142,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   if (activeClassIds.length === 0) {
     return NextResponse.json({ error: '공유가 종료되었습니다' }, { status: 403 })
   }
-
-  const { data: allPeriodsData } = await supabase
-    .from('class_period')
-    .select('*')
-    .in('class_id', allClassIds)
-    .order('sort_order')
-    .order('start_date')
 
   const allPeriods = (allPeriodsData ?? []) as ClassPeriod[]
   const periodOptions = allPeriods.map((period) => ({
@@ -177,11 +179,26 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
 
   const classes = allClasses.filter((c) => selectedClassIds.includes(c.id))
 
-  const { data: rawWeeks } = await supabase
-    .from('week')
-    .select('*')
-    .in('class_id', selectedClassIds)
-    .order('week_number')
+  // 주차 목록과 출결 두 종류는 서로 무관 — 같이 던진다 (출결은 뒤쪽 응답 조립에서만 쓴다)
+  const [{ data: rawWeeks }, { data: attendanceRecords }, { data: clinicAttendanceRecords }] = await Promise.all([
+    supabase
+      .from('week')
+      .select('*')
+      .in('class_id', selectedClassIds)
+      .order('week_number'),
+    supabase
+      .from('attendance')
+      .select('id, class_id, date, status')
+      .in('class_id', selectedClassIds)
+      .eq('student_id', student.id)
+      .order('date', { ascending: false }),
+    supabase
+      .from('clinic_attendance')
+      .select('id, clinic_slot_id, date, status, clinic_slot(weekday, starts_at, ends_at)')
+      .eq('student_id', student.id)
+      .eq('teacher_id', student.teacher_id)
+      .order('date', { ascending: false }),
+  ])
 
   const allSelectedWeeks = (rawWeeks ?? []) as ShareWeekRow[]
 
@@ -209,22 +226,52 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   })
   const weekIds = weeks.map((w) => w.id)
 
-  const { data: allWeekScores } = weekIds.length > 0
-    ? await supabase.from('week_score').select('week_id, reading_correct, vocab_correct').in('week_id', weekIds)
-    : { data: [] }
-
-  const { data: weekScores } = weekIds.length > 0
-    ? await supabase
-        .from('week_score')
-        .select('*, vocab_retake_correct')
-        .in('week_id', weekIds)
-        .eq('student_id', student.id)
-    : { data: [] }
+  // weekIds 만 있으면 되는 것들 — 서로 무관하므로 한 번에 던진다
+  const emptyRows = <T,>() => Promise.resolve({ data: [] as T[] })
+  const [
+    { data: allWeekScores },
+    { data: weekScores },
+    { data: activeVocabTests },
+    { data: vocabWords },
+  ] = await Promise.all([
+    weekIds.length > 0
+      ? supabase.from('week_score').select('week_id, reading_correct, vocab_correct').in('week_id', weekIds)
+      : emptyRows<{ week_id: string; reading_correct: number | null; vocab_correct: number | null }>(),
+    weekIds.length > 0
+      ? supabase
+          .from('week_score')
+          .select('*, vocab_retake_correct')
+          .in('week_id', weekIds)
+          .eq('student_id', student.id)
+      : emptyRows<{ id: string }>(),
+    weekIds.length > 0
+      ? supabase
+          .from('vocab_test')
+          .select('id, week_id')
+          .in('week_id', weekIds)
+          .eq('is_active', true)
+      : emptyRows<{ id: string; week_id: string }>(),
+    weekIds.length > 0
+      ? supabase
+          .from('vocab_word')
+          .select('id, week_id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, example_sentence, example_translation')
+          .in('week_id', weekIds)
+          .order('week_id')
+          .order('number')
+      : emptyRows<never>(),
+  ])
 
   const scoreIds = (weekScores ?? []).map((s) => s.id)
+  const activeVocabTestIds = (activeVocabTests ?? []).map((test) => test.id)
 
-  const { data: rawAnswers, error: answersError } = scoreIds.length > 0
-    ? await supabase
+  // scoreIds·testIds 기반 — 역시 서로 무관
+  const [
+    { data: rawAnswers, error: answersError },
+    { data: vocabAnswers },
+    { data: activeVocabTestItems },
+  ] = await Promise.all([
+    scoreIds.length > 0
+      ? supabase
         .from('student_answer')
         .select(`
           id, week_score_id, is_correct,
@@ -238,19 +285,50 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
           )
         `)
         .in('week_score_id', scoreIds)
-    : { data: [] }
+      : { data: [], error: null },
+    scoreIds.length > 0
+      ? supabase
+          .from('student_vocab_answer')
+          .select('id, week_score_id, is_correct, test_number, test_word, test_source, student_answer, retake_answer, retake_is_correct, vocab_word(id, week_id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, example_sentence, example_translation), vocab_word_variant(word, meaning, relation_type)')
+          .in('week_score_id', scoreIds)
+          .eq('is_correct', false)
+      : emptyRows<never>(),
+    activeVocabTestIds.length > 0
+      ? supabase
+          .from('vocab_test_item')
+          .select('vocab_test_id, vocab_word_id, test_number, prompt_text, prompt_source')
+          .in('vocab_test_id', activeVocabTestIds)
+      : emptyRows<{ vocab_test_id: string; vocab_word_id: string; test_number: number | null; prompt_text: string | null; prompt_source: string | null }>(),
+  ])
 
   const examQuestionIds = [...new Set(
     ((rawAnswers ?? []) as RawStudentAnswerRow[])
       .map((answer) => one(answer.exam_question)?.id)
       .filter(Boolean) as string[]
   )]
-  const { data: questionTags } = examQuestionIds.length > 0
-    ? await supabase
-        .from('exam_question_tag')
-        .select('exam_question_id, concept_tag(id, name, concept_category_id, concept_category(id, name))')
-        .in('exam_question_id', examQuestionIds)
-    : { data: [] }
+  const activeVocabTestIdSet = new Set(activeVocabTestIds)
+  // 예문선택 오답 카드용: 두 후보(정답 + 오답)의 뜻. 오답 후보는 반의어 variant 또는 같은 주차 다른 단어라
+  // 주차 내 variant·단어를 모아 "영어 → 뜻" 맵을 만든다 (선택형 문항이 있을 때만 조회)
+  const choiceWordIds = (activeVocabTestItems ?? [])
+    .filter((item) => activeVocabTestIdSet.has(item.vocab_test_id) && item.prompt_source === 'example_choice')
+    .map((item) => item.vocab_word_id)
+  const needChoiceMeanings = choiceWordIds.length > 0 && weekIds.length > 0
+
+  // 문항 태그와 예문선택 뜻 조회는 서로 무관 — 마지막 배치로 한 번에
+  const [{ data: questionTags }, { data: weekWords }, { data: weekVariants }] = await Promise.all([
+    examQuestionIds.length > 0
+      ? supabase
+          .from('exam_question_tag')
+          .select('exam_question_id, concept_tag(id, name, concept_category_id, concept_category(id, name))')
+          .in('exam_question_id', examQuestionIds)
+      : emptyRows<never>(),
+    needChoiceMeanings
+      ? supabase.from('vocab_word').select('english_word, correct_answer').in('week_id', weekIds)
+      : emptyRows<{ english_word: string; correct_answer: string | null }>(),
+    needChoiceMeanings
+      ? supabase.from('vocab_word_variant').select('word, meaning, vocab_word!inner(week_id)').in('vocab_word.week_id', weekIds)
+      : emptyRows<{ word: string; meaning: string | null }>(),
+  ])
 
   const tagsByQuestionId = new Map<string, { concept_tag: { id: string; name: string; category_id: string | null; category_name: string | null } | null }[]>()
   for (const row of (questionTags ?? []) as QuestionTagRow[]) {
@@ -279,53 +357,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     }
   })
 
-  const { data: vocabAnswers } = scoreIds.length > 0
-    ? await supabase
-        .from('student_vocab_answer')
-        .select('id, week_score_id, is_correct, test_number, test_word, test_source, student_answer, retake_answer, retake_is_correct, vocab_word(id, week_id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, example_sentence, example_translation), vocab_word_variant(word, meaning, relation_type)')
-        .in('week_score_id', scoreIds)
-        .eq('is_correct', false)
-    : { data: [] }
-
-  const { data: activeVocabTests } = weekIds.length > 0
-    ? await supabase
-        .from('vocab_test')
-        .select('id, week_id')
-        .in('week_id', weekIds)
-        .eq('is_active', true)
-    : { data: [] }
-  const activeVocabTestIds = (activeVocabTests ?? []).map((test) => test.id)
-  const { data: activeVocabTestItems } = activeVocabTestIds.length > 0
-    ? await supabase
-        .from('vocab_test_item')
-        .select('vocab_test_id, vocab_word_id, test_number, prompt_text, prompt_source')
-        .in('vocab_test_id', activeVocabTestIds)
-    : { data: [] }
-  const activeVocabTestIdSet = new Set(activeVocabTestIds)
   const vocabTestItemByWordId = new Map(
     (activeVocabTestItems ?? [])
       .filter((item) => activeVocabTestIdSet.has(item.vocab_test_id))
       .map((item) => [item.vocab_word_id, item])
   )
 
-  // 예문선택 오답 카드용: 두 후보(정답 + 오답)의 뜻. 오답 후보는 반의어 variant 또는 같은 주차 다른 단어라
-  // 주차 내 variant·단어를 모아 "영어 → 뜻" 맵을 만든다 (선택형 문항이 있을 때만 조회)
-  const choiceWordIds = (activeVocabTestItems ?? [])
-    .filter((item) => activeVocabTestIdSet.has(item.vocab_test_id) && item.prompt_source === 'example_choice')
-    .map((item) => item.vocab_word_id)
   const wordMeaningByEnglish = new Map<string, string>()
-  if (choiceWordIds.length > 0 && weekIds.length > 0) {
-    const [{ data: weekWords }, { data: weekVariants }] = await Promise.all([
-      supabase.from('vocab_word').select('english_word, correct_answer').in('week_id', weekIds),
-      supabase.from('vocab_word_variant').select('word, meaning, vocab_word!inner(week_id)').in('vocab_word.week_id', weekIds),
-    ])
-    for (const w of (weekWords ?? []) as { english_word: string; correct_answer: string | null }[]) {
-      if (w.correct_answer) wordMeaningByEnglish.set(w.english_word.trim().toLowerCase(), w.correct_answer)
-    }
-    for (const v of (weekVariants ?? []) as { word: string; meaning: string | null }[]) {
-      // variant 뜻이 있으면 우선 (반의어는 vocab_word 에 없음)
-      if (v.meaning) wordMeaningByEnglish.set(v.word.trim().toLowerCase(), v.meaning)
-    }
+  for (const w of (weekWords ?? []) as { english_word: string; correct_answer: string | null }[]) {
+    if (w.correct_answer) wordMeaningByEnglish.set(w.english_word.trim().toLowerCase(), w.correct_answer)
+  }
+  for (const v of (weekVariants ?? []) as { word: string; meaning: string | null }[]) {
+    // variant 뜻이 있으면 우선 (반의어는 vocab_word 에 없음)
+    if (v.meaning) wordMeaningByEnglish.set(v.word.trim().toLowerCase(), v.meaning)
   }
   /** 굴절형 표면형(includes)으로도 뜻을 찾을 수 있게 원형 후보를 몇 개 시도 */
   const meaningOf = (english: string | null | undefined): string | null => {
@@ -391,31 +435,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
       choice_meanings: choiceMeanings,
     }
   })
-
-  const { data: vocabWords } = weekIds.length > 0
-    ? await supabase
-        .from('vocab_word')
-        .select('id, week_id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, example_sentence, example_translation')
-        .in('week_id', weekIds)
-        .order('week_id')
-        .order('number')
-    : { data: [] }
-
-  const { data: attendanceRecords } = selectedClassIds.length > 0
-    ? await supabase
-        .from('attendance')
-        .select('id, class_id, date, status')
-        .in('class_id', selectedClassIds)
-        .eq('student_id', student.id)
-        .order('date', { ascending: false })
-    : { data: [] }
-
-  const { data: clinicAttendanceRecords } = await supabase
-    .from('clinic_attendance')
-    .select('id, clinic_slot_id, date, status, clinic_slot(weekday, starts_at, ends_at)')
-    .eq('student_id', student.id)
-    .eq('teacher_id', student.teacher_id)
-    .order('date', { ascending: false })
 
   const weekById = new Map(weeks.map((w) => [w.id, w]))
   const classAverages: Record<string, { readingRate: number | null; vocabRate: number | null }> = {}
