@@ -29,8 +29,13 @@ create index if not exists idx_message_log_mock_exam_report
   on public.message_log (mock_exam_report_id);
 
 -- ── 4) 쓰기 비용만 내던 인덱스 제거 ───────────────────────────────────────────
--- 한 번도 사용되지 않았는데(idx_scan = 0) 월 9,365행 삽입되는 42,931행 테이블에 걸려 있다.
--- 인덱스 중 유일하게 쓰기 비용이 실재하던 곳.
+-- `where exam_enabled = true` 부분 인덱스(2026-05-09 생성). 258일치 누적 통계에서 idx_scan = 0.
+-- 최근 생성이라 0인 게 아니라, 애초에 쓰일 수 없다:
+--   1) 코드 어디에도 `.eq('exam_enabled', ...)` 가 없다. 컬럼으로 받아와 JS 에서 거른다
+--      (vocab-word-setup.tsx 의 `if (variant.exam_enabled === false) continue`).
+--   2) 20260823000001 반의어 backfill 이후 42,931행 전부가 exam_enabled = true 라
+--      부분 인덱스가 전체 행을 담게 됐다. 선택도 0% 라 planner 가 쓸 이유가 영영 없다.
+-- 반면 월 9,365행 삽입마다 갱신 비용(336KB)은 계속 낸다.
 drop index if exists public.idx_vocab_word_variant_exam_enabled;
 
 -- report_card.share_token 에 인덱스가 두 개다.
