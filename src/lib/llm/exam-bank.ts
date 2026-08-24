@@ -1,6 +1,7 @@
 // ── 기출문제 은행: 시험지 파싱 + 해설 생성/추출 ─────────────────────────────
 
 import { jsonrepair } from 'jsonrepair'
+import { mapWithConcurrency } from '../concurrency'
 import { EXAM_BANK_PARSE_RULES } from '../prompts'
 import type { ParsedExplanation } from '../explanation-parser'
 import { buildFileBlock, callClaudeText, extractJsonArrayCandidate, parseJsonArrayResponse } from './client'
@@ -54,11 +55,36 @@ export type QuestionForExplanation = {
   existing_vocabulary?: string
 }
 
+// 배치당 문항 수. 한 콜에 너무 많이 넣으면 출력이 maxTokens(16000)에 잘리고 벽시계도 그만큼 길어진다.
+const EXPLANATION_BATCH_SIZE = 7
+// 동시 콜 수 — Anthropic rate limit 예산과 맞바꾸는 값
+const EXPLANATION_CONCURRENCY = 4
+
+/**
+ * 해설 생성 — 내부에서 EXPLANATION_BATCH_SIZE 문항씩 나눠 동시 호출한다.
+ * 출력(해설 텍스트)이 병목이라 배치 병렬화로 벽시계가 줄고, 콜당 출력이 작아져 maxTokens 잘림도 사라진다.
+ * 배치 하나라도 실패하면 전체 throw (기존 단일 콜 실패 의미와 동일). 결과는 입력 순서 유지.
+ */
 export async function generateExplanations(
   questions: QuestionForExplanation[],
   mode: 'standard' | 'full' = 'standard',
+  opts: { batchSize?: number; concurrency?: number } = {},
 ): Promise<GeneratedExplanation[]> {
   if (questions.length === 0) return []
+  const batchSize = opts.batchSize ?? EXPLANATION_BATCH_SIZE
+  const concurrency = opts.concurrency ?? EXPLANATION_CONCURRENCY
+
+  const batches: QuestionForExplanation[][] = []
+  for (let i = 0; i < questions.length; i += batchSize) batches.push(questions.slice(i, i + batchSize))
+
+  const groups = await mapWithConcurrency(batches, concurrency, (batch) => generateExplanationsBatch(batch, mode))
+  return groups.flat()
+}
+
+async function generateExplanationsBatch(
+  questions: QuestionForExplanation[],
+  mode: 'standard' | 'full',
+): Promise<GeneratedExplanation[]> {
 
   const solutionGuide = mode === 'full'
     ? `- 정답 근거: 지문에서 정답의 단서가 되는 핵심 문장/표현을 한국어로 짚어줄 것
