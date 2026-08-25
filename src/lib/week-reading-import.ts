@@ -754,79 +754,53 @@ export type GenerateSourceImageQuestion = {
   source_bbox: SourceBBox | null
 }
 
-async function renderPdfPageToPng(
+/**
+ * unpdf 가 번들한 pdfjs 는 modern 빌드라 `ArrayBuffer.prototype.transferToFixedLength`(Node 21+)를
+ * 폰트 치환에서 그대로 쓴다. Node 20 에서는 이게 없어서 렌더가 조용히 실패하고 **백지 PNG** 가 나온다
+ * (throw 하지 않고 "ignoring errors during GetOperatorList" 경고만 남는다 — 2026-08-25 실측).
+ * 런타임 Node 가 20 일 수 있는 한 가드가 필요하다. 호출부가 항상 길이를 넘기므로 잘라 복사하면 충분하다.
+ */
+function ensureArrayBufferTransferPolyfill() {
+  const proto = ArrayBuffer.prototype as ArrayBuffer & {
+    transferToFixedLength?: (length?: number) => ArrayBuffer
+  }
+  if (typeof proto.transferToFixedLength === 'function') return
+  proto.transferToFixedLength = function (this: ArrayBuffer, length?: number) {
+    const size = length ?? this.byteLength
+    const out = new ArrayBuffer(size)
+    new Uint8Array(out).set(new Uint8Array(this, 0, Math.min(size, this.byteLength)))
+    return out
+  }
+}
+
+/**
+ * PDF 한 페이지를 PNG 으로 렌더한다.
+ * pdfjs-dist 를 직접 쓰면 Node 에서 fake worker 경로로 빠지면서 `pdf.worker.mjs` 를 런타임에 파일로
+ * import 하는데, (1) 그 경로가 문자열 조합이라 Vercel 파일 트레이싱이 못 보고, (2) 같은 프로세스에서
+ * unpdf 가 먼저 돌면 unpdf 가 심어둔 `globalThis.pdfjsWorker`(pdfjs 5.4)를 pdfjs-dist(5.6)가 집어가
+ * "API version does not match Worker version" 으로 죽는다. 이 파일은 위쪽에서 unpdf 로 텍스트를 뽑으므로
+ * 정확히 그 순서다. unpdf 로 통일하면 둘 다 사라진다.
+ */
+export async function renderPdfPageToPng(
   fileData: string,
   pageNumber: number,
 ): Promise<{ buffer: Buffer; width: number; height: number }> {
-  const canvasModule = await import('@napi-rs/canvas')
-  const { createCanvas, DOMMatrix, ImageData, Path2D } = canvasModule
-  const globalScope = globalThis as Record<string, unknown>
-  globalScope.DOMMatrix ??= DOMMatrix
-  globalScope.ImageData ??= ImageData
-  globalScope.Path2D ??= Path2D
+  ensureArrayBufferTransferPolyfill()
 
-  type PdfJsPage = {
-    getViewport(args: { scale: number }): { width: number; height: number }
-    render(args: { canvasContext: unknown; viewport: unknown }): { promise: Promise<void> }
-  }
-  type PdfJsDocument = {
-    getPage(pageNumber: number): Promise<PdfJsPage>
-  }
-  type PdfJsModule = {
-    GlobalWorkerOptions: { workerSrc: string }
-    getDocument(args: unknown): { promise: Promise<PdfJsDocument> }
-  }
+  const { renderPageAsImage } = await import('unpdf')
+  const rendered = await renderPageAsImage(
+    new Uint8Array(Buffer.from(fileData, 'base64')),
+    pageNumber,
+    { canvasImport: () => import('@napi-rs/canvas'), scale: 1.5 },
+  )
 
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs') as unknown as PdfJsModule
-  const [{ join }, { pathToFileURL }] = await Promise.all([
-    import('node:path'),
-    import('node:url'),
-  ])
-  pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(
-    join(process.cwd(), 'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'),
-  ).href
+  // 크롭 bbox 는 0~1 상대좌표라 픽셀 환산에 실제 렌더 크기가 필요하다. 페이지당 한 번만 읽어 재사용한다.
+  const buffer = Buffer.from(rendered)
+  const sharp = (await import('sharp')).default
+  const { width, height } = await sharp(buffer).metadata()
+  if (!width || !height) throw new Error('렌더된 페이지 크기를 읽지 못했습니다.')
 
-  const pdfData = new Uint8Array(Buffer.from(fileData, 'base64'))
-  class NapiCanvasFactory {
-    create(width: number, height: number) {
-      if (width <= 0 || height <= 0) throw new Error('Invalid canvas size')
-      const canvas = createCanvas(width, height)
-      return { canvas, context: canvas.getContext('2d') }
-    }
-
-    reset(canvasAndContext: { canvas: { width: number; height: number } | null }, width: number, height: number) {
-      if (!canvasAndContext.canvas) throw new Error('Canvas is not specified')
-      if (width <= 0 || height <= 0) throw new Error('Invalid canvas size')
-      canvasAndContext.canvas.width = width
-      canvasAndContext.canvas.height = height
-    }
-
-    destroy(canvasAndContext: { canvas: { width: number; height: number } | null; context: unknown }) {
-      if (!canvasAndContext.canvas) return
-      canvasAndContext.canvas.width = 0
-      canvasAndContext.canvas.height = 0
-      canvasAndContext.canvas = null
-      canvasAndContext.context = null
-    }
-  }
-
-  const pdf = await pdfjs.getDocument({
-    data: pdfData,
-    CanvasFactory: NapiCanvasFactory,
-    isEvalSupported: false,
-    useWorkerFetch: false,
-  }).promise
-  const page = await pdf.getPage(pageNumber)
-  const viewport = page.getViewport({ scale: 1.5 })
-  const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height))
-  const canvasContext = canvas.getContext('2d')
-
-  await page.render({ canvasContext, viewport }).promise
-  return {
-    buffer: canvas.toBuffer('image/png'),
-    width: canvas.width,
-    height: canvas.height,
-  }
+  return { buffer, width, height }
 }
 
 async function cropSourceImage(
