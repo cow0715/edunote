@@ -186,3 +186,88 @@ describe('runParsePipeline', () => {
     }, [img('f1')])).rejects.toThrow('boom')
   })
 })
+
+// ── 조합형 실패 정책 (retryPerPage + skipIf) ───────────────────────────────
+
+describe('runParsePipeline 조합형 정책', () => {
+  it('필터 에러(skipIf)는 retryPerPage 가 있어도 재시도 없이 즉시 skip — 재시도는 과금', async () => {
+    const calls: string[] = []
+    const result = await runParsePipeline({
+      label: 't',
+      chunk: { kind: 'pages', pagesPerChunk: 3 },
+      onChunkError: { retryPerPage: true, skipIf: (e) => e instanceof Error && e.message.includes('filtered') },
+      parseChunk: async (file) => {
+        calls.push(file.fileName ?? '?')
+        throw new Error('Output blocked: filtered')
+      },
+      finalize: (items) => items,
+    }, [{ fileData: await makePdfBase64(6), mimeType: 'application/pdf' }])
+
+    expect(calls.length).toBe(2) // 청크 2개, 페이지 단위 재시도 없이 각 1회로 끝
+    expect(result.items).toEqual([])
+    expect(result.skipped).toHaveLength(2)
+    expect(result.skipped[0]).toMatchObject({ chunkIndex: 1, startPage: 1, endPage: 3 })
+    expect(result.skipped[1]).toMatchObject({ chunkIndex: 2, startPage: 4, endPage: 6 })
+  })
+
+  it('재시도 중 필터 페이지만 skip 하고 나머지는 수집, skip 직후 항목은 resetIndices 로 표시', async () => {
+    let ctxSeen: { skipped: unknown[]; resetIndices: Set<number> } | null = null
+    const result = await runParsePipeline({
+      label: 't',
+      chunk: { kind: 'pages', pagesPerChunk: 3 },
+      onChunkError: { retryPerPage: true, skipIf: (e) => e instanceof Error && e.message.includes('filtered') },
+      parseChunk: async (file) => {
+        const pageCount = (await PDFDocument.load(Buffer.from(file.fileData, 'base64'))).getPageCount()
+        if (pageCount > 1) throw new Error('broken json') // 통째는 출력 문제로 실패 → 페이지 재시도
+        const page = (file.pageOffset ?? 0) + 1
+        if (page === 2) throw new Error('Output blocked: filtered')
+        return [{ page }]
+      },
+      postProcess: [(items, ctx) => { ctxSeen = ctx; return items }],
+      finalize: (items) => items,
+    }, [{ fileData: await makePdfBase64(3), mimeType: 'application/pdf' }])
+
+    expect(result.items).toEqual([{ page: 1 }, { page: 3 }])
+    expect(result.skipped).toEqual([{ chunkIndex: 1, startPage: 2, endPage: 2, reason: 'Output blocked: filtered' }])
+    // 3쪽 항목(병합 인덱스 1)은 2쪽 결손 직후 — 연속성 리셋 지점
+    expect(ctxSeen!.resetIndices.has(1)).toBe(true)
+  })
+
+  it('재시도 중 skipIf 에 안 걸리는 페이지 에러는 throw', async () => {
+    await expect(runParsePipeline({
+      label: 't',
+      chunk: { kind: 'pages', pagesPerChunk: 3 },
+      onChunkError: { retryPerPage: true, skipIf: (e) => e instanceof Error && e.message.includes('filtered') },
+      parseChunk: async (file) => {
+        const pageCount = (await PDFDocument.load(Buffer.from(file.fileData, 'base64'))).getPageCount()
+        throw new Error(pageCount > 1 ? 'broken json' : 'boom')
+      },
+      finalize: (items) => items,
+    }, [{ fileData: await makePdfBase64(3), mimeType: 'application/pdf' }])).rejects.toThrow('boom')
+  })
+})
+
+// ── skip 공백을 아는 후처리 ─────────────────────────────────────────────────
+
+describe('후처리 skip 가드', () => {
+  it('결손이 있으면 renumber 는 공백을 메꾸지 않고 전체 최대 번호 다음으로만 채운다', () => {
+    // 6~14번 청크가 skip 된 상황에서 결손 직후 문항의 번호 누락 — 6을 도용하면 안 된다
+    const items = [{ question_number: 5 }, { question_number: null }, { question_number: 15 }]
+    const ctx = { skipped: [{ chunkIndex: 2 }], resetIndices: new Set<number>() }
+    expect(renumberDuplicateQuestions(items, ctx).map((q) => q.question_number)).toEqual([5, 16, 15])
+    // 결손이 없으면 기존처럼 직전 배정 다음 번호로 (공백 메꿈 허용)
+    expect(renumberDuplicateQuestions(items).map((q) => q.question_number)).toEqual([5, 6, 15])
+  })
+
+  it('propagate 는 결손 경계 직후 문항에 직전 지문을 전파하지 않는다', () => {
+    const items = [
+      { question_number: 1, passage: '앞 지문', question_text: '다음 글의 제목은?' },
+      { question_number: 9, passage: '', question_text: '윗글의 내용과 일치하는 것은?' },
+    ]
+    const ctx = { skipped: [{ chunkIndex: 2 }], resetIndices: new Set([1]) }
+    // 1번과 9번 사이 청크가 통째로 빠짐 — 9번의 "윗글" 은 앞 지문이 아니라 빠진 지문을 가리킨다
+    expect(propagateSharedPassage(items, ctx)[1].passage).toBe('')
+    // 가드 없으면 잘못 전파됐을 상황임을 확인
+    expect(propagateSharedPassage(items)[1].passage).toBe('앞 지문')
+  })
+})

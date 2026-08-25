@@ -201,10 +201,11 @@ function parseJsonSafely(raw: string): Record<string, unknown> {
   }
 }
 
-function AnswerParseProgress({ elapsed, processedCount, totalCount }: {
+function AnswerParseProgress({ elapsed, processedCount, totalCount, message }: {
   elapsed: number
   processedCount?: number
   totalCount?: number
+  message?: string
 }) {
   const chunkProgress = typeof processedCount === 'number' && typeof totalCount === 'number' && totalCount > 0
     ? { processed: processedCount, total: totalCount }
@@ -213,11 +214,11 @@ function AnswerParseProgress({ elapsed, processedCount, totalCount }: {
   const current = chunkProgress
     ? {
       label: chunkProgress.processed >= chunkProgress.total
-        ? '파싱 결과를 합쳐 저장하고 있습니다.'
-        : `문항 구조를 파싱하고 있습니다. (${chunkProgress.processed}/${chunkProgress.total} 구간)`,
-      sub: '시험지를 구간으로 나눠 병렬로 읽고 있습니다. 구간별로 완료되는 대로 진행률이 올라갑니다.',
+        ? (message ?? '결과를 합쳐 저장하고 있습니다.')
+        : `${message ?? '파싱하고 있습니다.'} (${chunkProgress.processed}/${chunkProgress.total} 구간)`,
+      sub: '문서를 구간으로 나눠 병렬로 읽고 있습니다. 구간별로 완료되는 대로 진행률이 올라갑니다.',
     }
-    : ANSWER_STEPS[idx]
+    : (message ? { label: message, sub: ANSWER_STEPS[idx].sub } : ANSWER_STEPS[idx])
   const progress = chunkProgress
     ? Math.min((chunkProgress.processed / chunkProgress.total) * 100, 95)
     : Math.min((elapsed / 90) * 100, 95)
@@ -409,6 +410,15 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     return () => clearInterval(timer)
   }, [answerKeyStatus.type, problemStatus.type, status.type])
 
+  // 청크 분리 가져오기는 브라우저가 오케스트레이터라 탭이 닫히면 다음 요청이 안 나간다 — 닫기 전 경고
+  useEffect(() => {
+    const isLoading = status.type === 'loading' || problemStatus.type === 'loading' || answerKeyStatus.type === 'loading'
+    if (!isLoading) return
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault() }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [answerKeyStatus.type, problemStatus.type, status.type])
+
   function resetQueries() {
     qc.invalidateQueries({ queryKey: ['exam-questions', weekId] })
     qc.invalidateQueries({ queryKey: ['grade', weekId] })
@@ -538,8 +548,9 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     await handleStandardUploadConfirmed()
   }
 
-  async function handleProblemImportConfirmed() {
-    if (!problemFiles.length) return
+  async function handleProblemImportConfirmed(): Promise<boolean> {
+    if (!problemFiles.length) return false
+    let succeeded = false
 
     setElapsed(0)
     setProblemStatus({ type: 'loading', message: '시험지 파일에서 문항 구조를 정리하고 있습니다.' })
@@ -586,15 +597,26 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
         }
       }
 
+      // 재시도까지 실패한 청크는 모아서 계속 진행 — 성공한 청크까지 버리지 않는다 (부분 저장 + 결손 보고)
+      const failedChunks: { index: number; startPage: number; endPage: number }[] = []
       await mapWithConcurrency(chunks, CHUNK_REQUEST_CONCURRENCY, async (chunk, index) => {
         try {
           await parseChunk(chunk, index)
         } catch {
-          await parseChunk(chunk, index) // 네트워크 순단 대비 1회 자동 재시도 (멱등)
+          try {
+            await parseChunk(chunk, index) // 네트워크 순단 대비 1회 자동 재시도 (멱등)
+          } catch {
+            failedChunks.push({ index, startPage: chunk.startPage + 1, endPage: chunk.endPage })
+          }
         }
         processed += 1
         setProblemStatus({ type: 'loading', message: '문항 구조를 파싱하고 있습니다.', processedCount: processed, totalCount: chunks.length })
       })
+
+      if (failedChunks.length === chunks.length) {
+        setProblemStatus({ type: 'error', message: '모든 구간 파싱에 실패했습니다. 잠시 후 다시 시도해주세요.' })
+        return
+      }
 
       setProblemStatus({ type: 'loading', message: '파싱 결과를 합쳐 저장하고 있습니다.', processedCount: chunks.length, totalCount: chunks.length })
       const response = await fetch(`/api/weeks/${weekId}/import-finalize`, {
@@ -605,6 +627,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
           mimeType: file.mimeType,
           fileName: file.fileName,
           chunkCount: chunks.length,
+          failedChunkIndexes: failedChunks.map((chunk) => chunk.index),
         }),
       })
 
@@ -620,18 +643,30 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
       const studentsRegraded = Number(data.students_regraded ?? 0)
       const sourceImagesSaved = Number(data.source_images_saved ?? 0)
 
+      // 결손 보고: 서버가 집계한 skip 페이지 + 재시도까지 실패한 청크의 페이지 범위
+      const skippedPages = (Array.isArray(data.skipped_pages) ? data.skipped_pages as number[] : [])
+      const failedRanges = failedChunks.map((chunk) => chunk.startPage === chunk.endPage
+        ? `${chunk.startPage}쪽`
+        : `${chunk.startPage}~${chunk.endPage}쪽`)
+      const gapNotice = [...skippedPages.map((page) => `${page}쪽`), ...failedRanges].join(', ')
+
       setProblemStatus({
         type: 'done',
-        message: '시험지 문항 저장이 완료되었습니다. 다음 단계에서 정오표를 올려 정답만 반영하세요.',
+        message: gapNotice
+          ? `시험지 문항 저장이 완료되었습니다. 단, ${gapNotice}은 인식하지 못했습니다 — 해당 부분만 다시 올리거나 문항을 직접 추가해주세요.`
+          : '시험지 문항 저장이 완료되었습니다. 다음 단계에서 정오표를 올려 정답만 반영하세요.',
         questionsParsed,
         studentsRegraded,
         subjectiveGradingFailed: Boolean(data.subjective_grading_failed),
       })
       setProblemImported(true)
+      succeeded = true
       resetQueries()
       if (sourceImagesSaved > 0) toast.success(`원본 이미지 ${sourceImagesSaved}개를 저장했습니다.`)
-      toast.success(`${questionsParsed}문항을 시험지 PDF에서 저장했습니다. 이제 정오표를 올려주세요.`)
+      if (gapNotice) toast.warning(`${gapNotice}은 건너뛰었습니다. 나머지 ${questionsParsed}문항만 저장됨`)
+      else toast.success(`${questionsParsed}문항을 시험지 PDF에서 저장했습니다. 이제 정오표를 올려주세요.`)
     }, (error) => setProblemStatus({ type: 'error', message: errorMessage(error, '오류가 발생했습니다.') }))
+    return succeeded
   }
 
   async function handleProblemImport() {
@@ -645,17 +680,82 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
       setAnswerKeyStatus({ type: 'error', message: '먼저 시험지 문항 저장을 완료해주세요.' })
       return
     }
+    await handleAnswerKeyImportConfirmed()
+  }
+
+  async function handleOneClickImport() {
+    if (!problemFiles.length || !answerKeyFiles.length) return
+    if (!await guardBeforeUpload('problem')) return
+    const problemOk = await handleProblemImportConfirmed()
+    if (!problemOk) return
+    await handleAnswerKeyImportConfirmed()
+  }
+
+  async function handleAnswerKeyImportConfirmed() {
+    if (!answerKeyFiles.length) return
 
     setElapsed(0)
     setAnswerKeyStatus({ type: 'loading', message: '정오표에서 문항별 정답을 읽어 기존 문항에 반영하고 있습니다.' })
 
     await runOrReport(async () => {
-      const files = await uploadFilesToTempStorage(answerKeyFiles, weekId, 'answer-key')
-      const response = await fetch(`/api/weeks/${weekId}/import-problem-answer-key`, {
+      const [file] = await uploadFilesToTempStorage(answerKeyFiles, weekId, 'answer-key')
+
+      // 청크 분리: 계획 → 청크별 파싱 → finalize(정답 반영+선택 재채점) → 해설 드레인
+      const planResponse = await fetch(`/api/weeks/${weekId}/import-plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storagePath: file.storagePath, mimeType: file.mimeType, mode: 'answer_key' }),
+      })
+      const planData = parseJsonSafely(await planResponse.text())
+      if (!planResponse.ok) {
+        setAnswerKeyStatus({ type: 'error', message: String(planData.error ?? '정오표 청크 계획 수립에 실패했습니다.') })
+        return
+      }
+      const chunks = (planData.chunks ?? []) as { startPage: number; endPage: number }[]
+      if (!chunks.length) {
+        setAnswerKeyStatus({ type: 'error', message: '정오표 페이지를 읽지 못했습니다.' })
+        return
+      }
+
+      let processed = 0
+      setAnswerKeyStatus({ type: 'loading', message: '정오표를 읽고 있습니다.', processedCount: 0, totalCount: chunks.length })
+
+      const parseChunk = async (chunk: { startPage: number; endPage: number }, index: number) => {
+        const response = await fetch(`/api/weeks/${weekId}/answer-key-chunk`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            storagePath: file.storagePath,
+            mimeType: file.mimeType,
+            chunkIndex: index,
+            startPage: chunk.startPage,
+            endPage: chunk.endPage,
+          }),
+        })
+        if (!response.ok) {
+          const data = parseJsonSafely(await response.text())
+          throw new Error(String(data.error ?? `정오표 청크 ${index + 1} 파싱에 실패했습니다.`))
+        }
+      }
+
+      await mapWithConcurrency(chunks, CHUNK_REQUEST_CONCURRENCY, async (chunk, index) => {
+        try {
+          await parseChunk(chunk, index)
+        } catch {
+          await parseChunk(chunk, index) // 네트워크 순단 대비 1회 자동 재시도 (멱등)
+        }
+        processed += 1
+        setAnswerKeyStatus({ type: 'loading', message: '정오표를 읽고 있습니다.', processedCount: processed, totalCount: chunks.length })
+      })
+
+      setAnswerKeyStatus({ type: 'loading', message: '정답을 반영하고 있습니다.', processedCount: chunks.length, totalCount: chunks.length })
+      const response = await fetch(`/api/weeks/${weekId}/answer-key-finalize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          files,
+          storagePath: file.storagePath,
+          chunkCount: chunks.length,
+          regradeExistingAnswers: regradeAfterAnswerKey,
         }),
       })
 
@@ -669,16 +769,42 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
       const questionsParsed = Number(data.questions_parsed ?? 0)
       const studentsRegraded = Number(data.students_regraded ?? 0)
+      resetQueries()
+      toast.success(`${questionsParsed}문항에 정오표 정답을 반영했습니다.`)
+
+      // 해설 드레인: 요청당 일부 배치만 생성 → remaining 0 까지 반복 (실패는 삼키고 종료)
+      let generatedTotal = 0
+      let drainFailed = false
+      try {
+        for (let guard = 0; guard < 20; guard += 1) {
+          setAnswerKeyStatus({
+            type: 'loading',
+            message: generatedTotal > 0
+              ? `AI 해설을 생성하고 있습니다. (${generatedTotal}문항 완료)`
+              : 'AI 해설을 생성하고 있습니다.',
+          })
+          const drainResponse = await fetch(`/api/weeks/${weekId}/explanations-drain`, { method: 'POST' })
+          if (!drainResponse.ok) { drainFailed = true; break }
+          const drain = parseJsonSafely(await drainResponse.text())
+          generatedTotal += Number(drain.generated ?? 0)
+          if (Number(drain.failed_batches ?? 0) > 0) drainFailed = true
+          if (Number(drain.remaining ?? 0) <= 0) break
+        }
+      } catch {
+        drainFailed = true // 해설은 부가 정보 — 정답 반영 결과를 막지 않는다
+      }
 
       setAnswerKeyStatus({
         type: 'done',
-        message: '정오표 정답 반영이 완료되었습니다.',
+        message: drainFailed
+          ? '정오표 정답 반영이 완료되었습니다. (일부 해설 생성 실패 — 정오표를 다시 올리면 남은 해설만 이어서 생성됩니다)'
+          : '정오표 정답 반영과 해설 생성이 완료되었습니다.',
         questionsParsed,
         studentsRegraded,
+        generatedCount: generatedTotal,
         subjectiveGradingFailed: Boolean(data.subjective_grading_failed),
       })
       resetQueries()
-      toast.success(`${questionsParsed}문항에 정오표 정답을 반영했습니다.`)
     }, (error) => setAnswerKeyStatus({ type: 'error', message: errorMessage(error, '오류가 발생했습니다.') }))
   }
 
@@ -878,6 +1004,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
                 elapsed={elapsed}
                 processedCount={problemStatus.processedCount}
                 totalCount={problemStatus.totalCount}
+                message={problemStatus.message}
               />
             ) : (
               <FileDropzone
@@ -901,10 +1028,17 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
             <StatusBanner status={problemStatus} />
 
             {problemFiles.length > 0 && problemStatus.type !== 'loading' && problemStatus.type !== 'done' && (
-              <Button className="w-full rounded-full bg-slate-900 text-white hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-700" onClick={handleProblemImport}>
-                <Upload className="h-4 w-4" />
-                시험지에서 문항 저장
-              </Button>
+              answerKeyFiles.length > 0 && answerKeyStatus.type !== 'loading' ? (
+                <Button className="w-full rounded-full bg-slate-900 text-white hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-700" onClick={handleOneClickImport}>
+                  <Upload className="h-4 w-4" />
+                  문항 저장 + 정답 반영 + 해설 생성 한 번에
+                </Button>
+              ) : (
+                <Button className="w-full rounded-full bg-slate-900 text-white hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-700" onClick={handleProblemImport}>
+                  <Upload className="h-4 w-4" />
+                  시험지에서 문항 저장
+                </Button>
+              )
             )}
 
             {problemStatus.type === 'done' && (
@@ -924,16 +1058,17 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
               <p className="text-xs text-slate-600 dark:text-slate-400">
                 {problemImported
                   ? '시험지 저장 후 정오표 이미지를 올리면 기존 문항에 정답만 덮어쓰고 학생 점수도 다시 계산합니다.'
-                  : '시험지 문항 저장이 끝나면 정오표 업로드가 열립니다.'}
+                  : '정오표를 미리 올려두면 1단계 버튼이 "한 번에 가져오기"로 바뀝니다. 시험지 저장 후 따로 반영할 수도 있습니다.'}
               </p>
             </div>
 
-            {!problemImported ? (
-              <div className="rounded-[18px] bg-white/80 px-4 py-4 text-xs text-slate-500 dark:bg-slate-900/60 dark:text-slate-400">
-                1단계 시험지 저장을 먼저 완료해주세요.
-              </div>
-            ) : answerKeyStatus.type === 'loading' ? (
-              <AnswerParseProgress elapsed={elapsed} />
+            {answerKeyStatus.type === 'loading' ? (
+              <AnswerParseProgress
+                elapsed={elapsed}
+                processedCount={answerKeyStatus.processedCount}
+                totalCount={answerKeyStatus.totalCount}
+                message={answerKeyStatus.message}
+              />
             ) : (
               <FileDropzone
                 file={answerKeyFiles[0]?.file ?? null}
@@ -945,7 +1080,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
               />
             )}
 
-            {problemImported && answerKeyFiles.length > 0 && (
+            {answerKeyFiles.length > 0 && (
               <OrderedFileList
                 files={answerKeyFiles}
                 onMove={moveAnswerKeyFile}
@@ -955,7 +1090,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
             {problemImported && <StatusBanner status={answerKeyStatus} />}
 
-            {problemImported && answerKeyFiles.length > 0 && answerKeyStatus.type !== 'loading' && answerKeyStatus.type !== 'done' && (
+            {answerKeyFiles.length > 0 && answerKeyStatus.type !== 'loading' && answerKeyStatus.type !== 'done' && (
               <label className="flex items-start gap-3 rounded-[18px] bg-slate-50/90 px-4 py-3 text-xs leading-5 text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
                 <Checkbox
                   checked={regradeAfterAnswerKey}

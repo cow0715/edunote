@@ -1,9 +1,13 @@
 import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
-import { fetchTeacherTagContext, parseProblemSheetChunkForStaging, problemSheetStagingPath } from '@/lib/week-reading-import'
+import {
+  fetchAnswerKeyQuestionContext,
+  parseAnswerKeyChunkForStaging,
+  problemSheetStagingPath,
+} from '@/lib/week-reading-import'
 
-// 문제지형 청크 분리 가져오기 2단계: 청크 1개 파싱 → 스테이징 JSON 저장.
-// 전역 후처리(번호 재배정·지문 전파)는 하지 않는다 — finalize 몫.
+// 정오표 청크 분리 가져오기 2단계: 청크 1개 파싱 → 스테이징 JSON 저장.
+// 병합("같은 번호는 뒤가 이긴다")과 문항 수 검증은 answer-key-finalize 몫.
 // 같은 청크 재요청은 스테이징을 덮어쓰므로 멱등하다.
 export const maxDuration = 300
 const TEMP_BUCKET = 'exam-pdf-temp'
@@ -35,27 +39,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (error || !data) return err(`파일 다운로드 실패: ${error?.message ?? body.storagePath}`)
     const fileData = Buffer.from(await data.arrayBuffer()).toString('base64')
 
-    const { tagCategories } = await fetchTeacherTagContext(supabase, teacherId)
-    const { items, skipped } = await parseProblemSheetChunkForStaging({
+    const { questions } = await fetchAnswerKeyQuestionContext(supabase, weekId)
+    const items = await parseAnswerKeyChunkForStaging({
       fileData,
       mimeType: body.mimeType,
       range: { startPage: body.startPage, endPage: body.endPage },
-      tagCategories,
+      questions,
     })
 
-    // skip 정보도 스테이징에 남긴다 — finalize 가 결손 경계를 알고 후처리를 가드하기 위함
     const stagingPath = problemSheetStagingPath(body.storagePath, body.chunkIndex)
     const { error: uploadError } = await serviceClient.storage
       .from(TEMP_BUCKET)
-      .upload(stagingPath, JSON.stringify({ items, skipped }), { contentType: 'application/json', upsert: true })
+      .upload(stagingPath, JSON.stringify(items), { contentType: 'application/json', upsert: true })
     if (uploadError) return err(`청크 결과 저장 실패: ${uploadError.message}`, 500)
 
-    return ok({
-      question_count: items.length,
-      skipped_pages: [...new Set(skipped.map((entry) => entry.startPage))].sort((a, b) => a - b),
-    })
+    return ok({ answer_count: items.length })
   } catch (error) {
-    console.error('[import-chunk] unhandled error:', error)
-    return err(error instanceof Error ? error.message : '청크 파싱에 실패했습니다.', 422)
+    console.error('[answer-key-chunk] unhandled error:', error)
+    return err(error instanceof Error ? error.message : '정오표 청크 파싱에 실패했습니다.', 422)
   }
 }

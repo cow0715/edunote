@@ -37,8 +37,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     let parsedAnswers
+    let skippedPages: number[] = []
     try {
-      parsedAnswers = await parseAnswerSheetDocument([{ fileData, mimeType, fileName }], tagCategories)
+      const parsed = await parseAnswerSheetDocument([{ fileData, mimeType, fileName }], tagCategories)
+      parsedAnswers = parsed.answers
+      skippedPages = parsed.skipped.map((entry) => entry.startPage)
     } catch (error) {
       const message = error instanceof Error ? error.message : '해설지 파싱에 실패했습니다.'
       return err(message || '해설 포함 PDF로 파싱하지 못했습니다.', 422)
@@ -65,6 +68,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       ...result,
       parse_mode_used: 'answer_sheet',
       explanations_generated: explanations.generated,
+      skipped_pages: skippedPages,
     })
   } catch (error) {
     console.error('[parse-answers] unhandled error:', error)

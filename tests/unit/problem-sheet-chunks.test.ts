@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { finalizeProblemSheetQuestions } from '@/lib/week-reading-import'
-import type { WeekProblemSheetQuestion } from '@/lib/llm/week'
+import { finalizeAnswerKeyItems, finalizeProblemSheetQuestions } from '@/lib/week-reading-import'
+import type { ProblemSheetAnswerKeyItem, WeekProblemSheetQuestion } from '@/lib/llm/week'
 
 // 문제지형 청크 분리 가져오기의 finalize (순수 함수):
 // 청크들을 페이지 순서로 합쳐 번호 재배정·지문 전파를 "전역으로" 적용하는지 검증.
@@ -55,5 +55,52 @@ describe('finalizeProblemSheetQuestions', () => {
 
   it('전 청크가 비면 throw', () => {
     expect(() => finalizeProblemSheetQuestions([[], []])).toThrow()
+  })
+})
+
+// 정오표 청크 finalize (순수 함수): 청크 순서 병합("뒤가 이긴다") + 기존 문항 매칭 + 수 검증
+describe('finalizeAnswerKeyItems', () => {
+  const existing = (numbers: number[]) => numbers.map((n) => ({
+    id: `id-${n}`,
+    question_number: n,
+    sub_label: null,
+    question_style: 'objective',
+    question_text: `${n}번 발문`,
+  }))
+  const key = (n: number, answer: number): ProblemSheetAnswerKeyItem => ({
+    question_number: n,
+    question_style: 'objective',
+    correct_answer: answer,
+    correct_answer_text: null,
+  })
+
+  it('같은 번호가 여러 청크에 나오면 뒤의 것이 이긴다', () => {
+    const result = finalizeAnswerKeyItems(
+      [key(1, 2), key(2, 3), key(1, 5)],
+      { existingQuestions: existing([1, 2]), answerableQuestionCount: 2 },
+    )
+    expect(result.find((a) => a.question_number === 1)?.correct_answer).toBe(5)
+  })
+
+  it('기존 문항에 없는 번호는 버린다', () => {
+    const result = finalizeAnswerKeyItems(
+      [key(1, 2), key(99, 3), key(2, 4)],
+      { existingQuestions: existing([1, 2]), answerableQuestionCount: 2 },
+    )
+    expect(result.map((a) => a.question_number).sort()).toEqual([1, 2])
+  })
+
+  it('읽힌 정답 수가 문항 수와 다르면 throw', () => {
+    expect(() => finalizeAnswerKeyItems(
+      [key(1, 2)],
+      { existingQuestions: existing([1, 2, 3]), answerableQuestionCount: 3 },
+    )).toThrow(/1\/3문항/)
+  })
+
+  it('적용할 정답이 하나도 없으면 throw', () => {
+    expect(() => finalizeAnswerKeyItems(
+      [key(99, 1)],
+      { existingQuestions: existing([1]), answerableQuestionCount: 1 },
+    )).toThrow()
   })
 })

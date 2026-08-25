@@ -91,10 +91,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const shouldSaveSourceImages = body.saveSourceImages === true
     if (!files.length) return err('파일이 없습니다.')
 
-    const parsedAnswers = normalizeParsedAnswers(await parseProblemSheetQuestionsOnly(files, tagCategories))
+    const { answers, skipped } = await parseProblemSheetQuestionsOnly(files, tagCategories)
+    const parsedAnswers = normalizeParsedAnswers(answers)
     if (!parsedAnswers.length) {
       return err('시험지 PDF에서 문항 구조 추출에 실패했습니다.', 422)
     }
+    const skippedPages = [...new Set(skipped.map((entry) => entry.startPage))].sort((a, b) => a - b)
 
     if (files.length === 1) {
       const [first] = files
@@ -122,6 +124,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       answer_key_applied: false,
       source_images_saved: sourceImages.saved,
       source_images_failed: sourceImages.failed,
+      skipped_pages: skippedPages,
     })
   } catch (error) {
     console.error('[import-problem-sheet] unhandled error:', error)

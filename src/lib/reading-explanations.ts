@@ -35,10 +35,17 @@ function buildAnswerLabel(question: QuestionRow, choices: string[]): string {
   return question.correct_answer_text ?? ''
 }
 
+/**
+ * 해설 없는 문항만 골라 배치 생성. opts.maxBatches 를 주면 그만큼만 처리하고
+ * remaining(이번에 시도하지 않은 문항 수)을 돌려준다 — 클라이언트 드레인 루프용.
+ * remaining 은 "미시도"만 센다: 실패 배치 문항은 remaining 에 안 들어가므로
+ * 영구 실패가 있어도 루프는 종료된다 (failedBatches 로 노출).
+ */
 export async function generateMissingReadingExplanations(
   supabase: SupabaseServerClient,
   weekId: string,
-): Promise<{ generated: number; targets: number; failedBatches: number }> {
+  opts: { maxBatches?: number } = {},
+): Promise<{ generated: number; targets: number; failedBatches: number; remaining: number }> {
   const { data, error } = await supabase
     .from('exam_question')
     .select('id, question_number, question_style, correct_answer, correct_answer_text, question_text, question_stem, passage, choices, explanation')
@@ -49,10 +56,12 @@ export async function generateMissingReadingExplanations(
   if (error) throw new Error(error.message)
 
   const targets = ((data ?? []) as QuestionRow[]).filter((q) => !q.explanation?.trim())
-  if (targets.length === 0) return { generated: 0, targets: 0, failedBatches: 0 }
+  if (targets.length === 0) return { generated: 0, targets: 0, failedBatches: 0, remaining: 0 }
 
-  const batches: QuestionRow[][] = []
-  for (let i = 0; i < targets.length; i += BATCH_SIZE) batches.push(targets.slice(i, i + BATCH_SIZE))
+  const allBatches: QuestionRow[][] = []
+  for (let i = 0; i < targets.length; i += BATCH_SIZE) allBatches.push(targets.slice(i, i + BATCH_SIZE))
+  const batches = opts.maxBatches ? allBatches.slice(0, opts.maxBatches) : allBatches
+  const remaining = allBatches.slice(batches.length).reduce((sum, batch) => sum + batch.length, 0)
 
   let generated = 0
   let failedBatches = 0
@@ -92,6 +101,6 @@ export async function generateMissingReadingExplanations(
     }
   })
 
-  console.log(`[reading-explanations] week ${weekId}: 대상 ${targets.length} → 생성 ${generated} (실패 배치 ${failedBatches})`)
-  return { generated, targets: targets.length, failedBatches }
+  console.log(`[reading-explanations] week ${weekId}: 대상 ${targets.length} → 생성 ${generated} (실패 배치 ${failedBatches}, 잔여 ${remaining})`)
+  return { generated, targets: targets.length, failedBatches, remaining }
 }

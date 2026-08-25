@@ -115,10 +115,12 @@ export async function POST(request: Request) {
     .single()
   if (examError) return err(examError.message)
 
-  // 정책만 갈아끼워 같은 파이프라인을 두 번 쓴다
+  // 정책만 갈아끼워 같은 파이프라인을 두 번 쓴다.
+  // 동시 4: 페이지 모드가 순차면 44p급에서 300초를 넘는다 (실측: 청크 11 동시 2 = 641.8s — week-reading-import.ts 참고)
   const parse = (chunk: ChunkPolicy, onChunkError: ChunkErrorPolicy) => runParsePipeline({
     label: 'exam-bank',
     chunk,
+    concurrency: 4,
     onChunkError,
     parseChunk: (file: PipelineFile) => parseExamBankPage(file.fileData, file.mimeType),
     finalize: (qs) => qs,

@@ -17,7 +17,8 @@ import type {
 import { recalcReadingCorrect, gradeMultiSelect, gradeOX } from '@/lib/grade-utils'
 
 import { getPdfPageCount, getPdfPageTexts, pageStartsWithQuestion, planAlignedPageChunks, splitPdfByRangesBase64 } from '@/lib/pdf'
-import { runParsePipeline, type PipelineFile } from '@/lib/llm/pipeline'
+import { runParsePipeline, type PipelineFile, type SkippedRange } from '@/lib/llm/pipeline'
+import { isContentFilterError } from '@/lib/llm/client'
 import { coerceQuestionNumber, renumberDuplicateQuestions, propagateSharedPassage } from '@/lib/llm/postprocess'
 
 export type MatchTagId = (questionType: string | null, questionStyle?: string | null) => string | null
@@ -421,22 +422,25 @@ function normalizeSourceFieldsForChunk<T extends {
   return result
 }
 
+/** 공통 실패 정책: 콘텐츠 필터(결정적)는 즉시 skip, 출력 문제는 페이지 단위 재시도 후 skip 판별 */
+const PARSE_FAILURE_POLICY = { retryPerPage: true, skipIf: isContentFilterError } as const
+
 async function parseProblemSheetQuestionInputs(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
-): Promise<WeekProblemSheetQuestion[]> {
-  const { items } = await runParsePipeline<WeekProblemSheetQuestion, WeekProblemSheetQuestion>({
+): Promise<{ questions: WeekProblemSheetQuestion[]; skipped: SkippedRange[] }> {
+  const { items, skipped } = await runParsePipeline<WeekProblemSheetQuestion, WeekProblemSheetQuestion>({
     label: 'week-problem-sheet',
     chunk: PROBLEM_SHEET_CHUNK_POLICY,
     concurrency: PDF_PARSE_CONCURRENCY,
-    onChunkError: 'retry-per-page',
+    onChunkError: PARSE_FAILURE_POLICY,
     parseChunk: (file) => parseWeekProblemSheetPage(file.fileData, file.mimeType, tagCategories),
     normalizeChunk: (parsed, file) => normalizeSourceFieldsForChunk(parsed, file)
       .map((question) => ({ ...question, question_style: normalizeQuestionStyle(question.question_style) })),
     postProcess: [renumberDuplicateQuestions, propagateSharedPassage],
     finalize: (questions) => questions,
   }, toPipelineFiles(files))
-  return items
+  return { questions: items, skipped }
 }
 
 /**
@@ -446,10 +450,12 @@ async function parseProblemSheetQuestionInputs(
 export async function parseAnswerSheetDocument(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
-): Promise<ParsedAnswer[]> {
-  const { items } = await runParsePipeline<ParsedAnswer, ParsedAnswer>({
+): Promise<{ answers: ParsedAnswer[]; skipped: SkippedRange[] }> {
+  const { items, skipped } = await runParsePipeline<ParsedAnswer, ParsedAnswer>({
     label: 'week-answer-sheet',
     chunk: { kind: 'whole' },
+    // whole 1청크라 재시도 단위가 없음 — 필터로 통째 막히면 skip 되어 빈 결과 → 라우트가 422 처리
+    onChunkError: { skipIf: isContentFilterError },
     parseChunk: (file) => parseAnswerSheet(file.fileData, file.mimeType, tagCategories),
     normalizeChunk: (parsed, file) => normalizeSourceFieldsForChunk(parsed, file)
       .map((answer) => ({
@@ -463,7 +469,7 @@ export async function parseAnswerSheetDocument(
       ? { ...answer, question_text: applyUnderlineMarkupToQuestionText(answer.question_text) }
       : answer),
   }, toPipelineFiles(files))
-  return items
+  return { answers: items, skipped }
 }
 
 function normalizeQuestionStyle(
@@ -534,18 +540,18 @@ function toParsedAnswerFromProblemSheetQuestion(question: WeekProblemSheetQuesti
 export async function parseProblemSheetQuestionsOnly(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
-): Promise<ParsedAnswer[]> {
+): Promise<{ answers: ParsedAnswer[]; skipped: SkippedRange[] }> {
   if (!files.length) {
     throw new Error('시험지 파일이 없습니다.')
   }
 
-  const questions = await parseProblemSheetQuestionInputs(files, tagCategories)
+  const { questions, skipped } = await parseProblemSheetQuestionInputs(files, tagCategories)
 
   if (!questions.length) {
     throw new Error('시험지에서 문항 구조를 찾지 못했습니다.')
   }
 
-  return questions.map(toParsedAnswerFromProblemSheetQuestion)
+  return { answers: questions.map(toParsedAnswerFromProblemSheetQuestion), skipped }
 }
 
 // ── 문제지형 청크 분리 가져오기 (Vercel maxDuration 대응) ─────────────────
@@ -588,7 +594,7 @@ export async function parseProblemSheetChunkForStaging(params: {
   mimeType: string
   range: ProblemSheetChunkRange
   tagCategories?: TagCategory[]
-}): Promise<WeekProblemSheetQuestion[]> {
+}): Promise<{ items: WeekProblemSheetQuestion[]; skipped: SkippedRange[] }> {
   const { fileData, mimeType, range, tagCategories = [] } = params
   let chunkData = fileData
   let pageOffset = 0
@@ -598,37 +604,63 @@ export async function parseProblemSheetChunkForStaging(params: {
     pageOffset = range.startPage
   }
 
-  const { items } = await runParsePipeline<WeekProblemSheetQuestion, WeekProblemSheetQuestion>({
+  const { items, skipped } = await runParsePipeline<WeekProblemSheetQuestion, WeekProblemSheetQuestion>({
     label: 'week-problem-sheet-chunk',
     chunk: { kind: 'whole' },
-    onChunkError: 'retry-per-page',
+    onChunkError: PARSE_FAILURE_POLICY,
     parseChunk: (file) => parseWeekProblemSheetPage(file.fileData, file.mimeType, tagCategories),
     normalizeChunk: (parsed, file) => normalizeSourceFieldsForChunk(parsed, file)
       .map((question) => ({ ...question, question_style: normalizeQuestionStyle(question.question_style) })),
     finalize: (questions) => questions,
   }, [{ fileData: chunkData, mimeType, pageOffset }])
-  return items
+  return { items, skipped }
 }
 
-/** 스테이징된 청크들을 페이지 순서로 합쳐 전역 후처리 + ParsedAnswer 변환 (순수 함수) */
-export function finalizeProblemSheetQuestions(chunkItems: WeekProblemSheetQuestion[][]): ParsedAnswer[] {
-  const merged = propagateSharedPassage(renumberDuplicateQuestions(chunkItems.flat()))
+/**
+ * 스테이징된 청크들을 페이지 순서로 합쳐 전역 후처리 + ParsedAnswer 변환 (순수 함수).
+ * chunkHasGap[i] 가 true 면 i번째 청크에 결손(파싱 실패·페이지 skip)이 있다는 뜻 —
+ * 그 경계 너머로는 지문을 전파하지 않고, 번호 재배정도 공백을 메꾸지 않는다.
+ */
+export function finalizeProblemSheetQuestions(
+  chunkItems: WeekProblemSheetQuestion[][],
+  opts: { chunkHasGap?: boolean[] } = {},
+): ParsedAnswer[] {
+  const chunkHasGap = opts.chunkHasGap ?? []
+  const hasGaps = chunkHasGap.some(Boolean)
+
+  // 결손 청크 "다음"에 오는 첫 항목의 병합 인덱스 — 연속성 가정을 끊을 지점
+  const resetIndices = new Set<number>()
+  let offset = 0
+  let pendingReset = false
+  chunkItems.forEach((group, index) => {
+    if (pendingReset && group.length > 0) {
+      resetIndices.add(offset)
+      pendingReset = false
+    }
+    offset += group.length
+    if (chunkHasGap[index]) pendingReset = true
+  })
+
+  const ctx = { skipped: hasGaps ? [{ chunkIndex: -1 }] : [], resetIndices }
+  const merged = propagateSharedPassage(renumberDuplicateQuestions(chunkItems.flat(), ctx), ctx)
   if (!merged.length) {
     throw new Error('시험지에서 문항 구조를 찾지 못했습니다.')
   }
   return merged.map(toParsedAnswerFromProblemSheetQuestion)
 }
 
-export async function parseProblemSheetAnswerKeyOnly(params: {
-  supabase: SupabaseServerClient
-  weekId: string
-  files: ProblemSheetUploadInput[]
-}): Promise<ParsedAnswer[]> {
-  const { supabase, weekId, files } = params
-  if (!files.length) {
-    throw new Error('정오표 파일이 없습니다.')
-  }
+/** 정오표 파싱에 필요한 기존 문항 문맥 (읽기 힌트 목록 + 검증용 원본) */
+export type AnswerKeyQuestionContext = {
+  existingQuestions: { id: string; question_number: number; sub_label: string | null; question_style: string | null; question_text: string | null }[]
+  /** LLM 프롬프트에 주입하는 문항 힌트 목록 */
+  questions: WeekProblemSheetQuestion[]
+  answerableQuestionCount: number
+}
 
+export async function fetchAnswerKeyQuestionContext(
+  supabase: SupabaseServerClient,
+  weekId: string,
+): Promise<AnswerKeyQuestionContext> {
   const { data: existingQuestions } = await supabase
     .from('exam_question')
     .select('id, question_number, sub_label, question_style, question_text')
@@ -654,13 +686,45 @@ export async function parseProblemSheetAnswerKeyOnly(params: {
     choices: extractChoicesFromStoredQuestionText(question.question_text),
   }))
 
-  // 정오표: 3페이지 청크, 순차. 같은 번호가 여러 청크에 나오면 뒤의 것이 이긴다 (최종 정답표 우선)
-  const { items: keyItems } = await runParsePipeline<ProblemSheetAnswerKeyItem, ProblemSheetAnswerKeyItem>({
-    label: 'week-answer-key',
-    chunk: { kind: 'pages', pagesPerChunk: 3 },
-    parseChunk: (file) => parseProblemSheetAnswerKeyFile(file.fileData, file.mimeType, questions),
-    finalize: (items) => items,
-  }, toPipelineFiles(files))
+  return { existingQuestions, questions, answerableQuestionCount }
+}
+
+/** 정오표 청크 경계 (3페이지 단순 분할 — 정렬 불필요, 표라서) */
+export async function planAnswerKeyChunks(fileData: string, mimeType: string): Promise<ProblemSheetChunkRange[]> {
+  if (mimeType !== 'application/pdf') return [{ startPage: 0, endPage: 1 }]
+  const pageCount = await getPdfPageCount(fileData).catch(() => 1)
+  const ranges: ProblemSheetChunkRange[] = []
+  for (let start = 0; start < pageCount; start += 3) {
+    ranges.push({ startPage: start, endPage: Math.min(start + 3, pageCount) })
+  }
+  return ranges.length ? ranges : [{ startPage: 0, endPage: 1 }]
+}
+
+/** 정오표 청크 1개 파싱 (스테이징용 원시 결과 — 병합·검증은 finalize 몫) */
+export async function parseAnswerKeyChunkForStaging(params: {
+  fileData: string
+  mimeType: string
+  range: ProblemSheetChunkRange
+  questions: WeekProblemSheetQuestion[]
+}): Promise<ProblemSheetAnswerKeyItem[]> {
+  const { fileData, mimeType, range, questions } = params
+  let chunkData = fileData
+  if (mimeType === 'application/pdf') {
+    const [cut] = await splitPdfByRangesBase64(fileData, [range])
+    chunkData = cut.fileData
+  }
+  return parseProblemSheetAnswerKeyFile(chunkData, mimeType, questions)
+}
+
+/**
+ * 청크 순서대로 병합해 ParsedAnswer 로 변환 + 문항 수 검증 (순수 함수).
+ * 같은 번호가 여러 청크에 나오면 뒤의 것이 이긴다 (최종 정답표 우선) — 입력 배열 순서가 청크 순서여야 한다.
+ */
+export function finalizeAnswerKeyItems(
+  keyItems: ProblemSheetAnswerKeyItem[],
+  context: Pick<AnswerKeyQuestionContext, 'existingQuestions' | 'answerableQuestionCount'>,
+): ParsedAnswer[] {
+  const { existingQuestions, answerableQuestionCount } = context
 
   const mergedItems = new Map<number, ProblemSheetAnswerKeyItem>()
   for (const item of keyItems) {
@@ -709,6 +773,32 @@ export async function parseProblemSheetAnswerKeyOnly(params: {
   }
 
   return parsed
+}
+
+export async function parseProblemSheetAnswerKeyOnly(params: {
+  supabase: SupabaseServerClient
+  weekId: string
+  files: ProblemSheetUploadInput[]
+}): Promise<ParsedAnswer[]> {
+  const { supabase, weekId, files } = params
+  if (!files.length) {
+    throw new Error('정오표 파일이 없습니다.')
+  }
+
+  const context = await fetchAnswerKeyQuestionContext(supabase, weekId)
+  const { questions } = context
+
+  // 정오표: 3페이지 청크, 순차. 같은 번호가 여러 청크에 나오면 뒤의 것이 이긴다 (최종 정답표 우선)
+  // 필터로 청크가 skip 되면 정답 수가 모자라져 finalizeAnswerKeyItems 의 수 검증이 막는다 (부분 정답 반영 방지)
+  const { items: keyItems } = await runParsePipeline<ProblemSheetAnswerKeyItem, ProblemSheetAnswerKeyItem>({
+    label: 'week-answer-key',
+    chunk: { kind: 'pages', pagesPerChunk: 3 },
+    onChunkError: { skipIf: isContentFilterError },
+    parseChunk: (file) => parseProblemSheetAnswerKeyFile(file.fileData, file.mimeType, questions),
+    finalize: (items) => items,
+  }, toPipelineFiles(files))
+
+  return finalizeAnswerKeyItems(keyItems, context)
 }
 
 export async function saveWeekAnswerSheetFile(
@@ -1255,6 +1345,54 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
     questions_parsed: questions.length,
     students_regraded: weekScores.length,
   }
+}
+
+/** 정오표 정답만 기존 문항에 반영 (재채점 없음). 매칭 실패 문항은 건너뛰고 0건이면 throw */
+export async function applyAnswerKeyWithoutRegrade(
+  supabase: SupabaseServerClient,
+  weekId: string,
+  parsedAnswers: ParsedAnswer[],
+): Promise<ReadingImportOutcome> {
+  const { data: existingQuestions } = await supabase
+    .from('exam_question')
+    .select('id, question_number, sub_label')
+    .eq('week_id', weekId)
+    .eq('exam_type', 'reading')
+
+  const existingMap = new Map(
+    (existingQuestions ?? []).map((question) => [`${question.question_number}|${question.sub_label ?? ''}`, question.id]),
+  )
+
+  let updatedCount = 0
+  for (const answer of parsedAnswers) {
+    const id = existingMap.get(`${answer.question_number}|${answer.sub_label ?? ''}`)
+    if (!id) continue
+
+    const { error } = await supabase
+      .from('exam_question')
+      .update({
+        question_style: answer.question_style,
+        correct_answer: answer.correct_answer,
+        correct_answer_text: answer.correct_answer_text,
+      })
+      .eq('id', id)
+
+    if (error) throw new Error(`Q${answer.question_number}${answer.sub_label ?? ''}: ${error.message}`)
+    updatedCount += 1
+  }
+
+  if (updatedCount === 0) {
+    throw new Error('기존 문항과 매칭되는 정답이 없습니다.')
+  }
+
+  const { count } = await supabase
+    .from('exam_question')
+    .select('id', { count: 'exact', head: true })
+    .eq('week_id', weekId)
+    .eq('exam_type', 'reading')
+  await supabase.from('week').update({ reading_total: count ?? updatedCount }).eq('id', weekId)
+
+  return { questions_parsed: updatedCount, students_regraded: 0 }
 }
 
 export async function applyWeekReadingAnswerKeyAndRegrade(params: {
