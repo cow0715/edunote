@@ -1,7 +1,7 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parseExamBankPage } from '@/lib/anthropic'
-import { runParsePipeline, type PipelineFile } from '@/lib/llm/pipeline'
+import { runParsePipeline, type PipelineFile, type ChunkPolicy, type ChunkErrorPolicy } from '@/lib/llm/pipeline'
 import { isContentFilterError } from '@/lib/llm/client'
 import { getMegastudyStats } from '@/lib/megastudy'
 import { NextResponse } from 'next/server'
@@ -75,8 +75,11 @@ async function fetchAndApplyStats(
 }
 
 // POST — 기출 시험 생성 + PDF 파싱
-// 기본: PDF 1개를 통째로 1회 파싱. 콘텐츠 필터로 전체가 막히면 422 {contentFilter:true} 를 돌려주고,
-// 클라이언트가 페이지별 PNG(storagePaths)로 재요청하면 페이지 단위로 파싱하되 막힌 페이지만 건너뛴다.
+// 기본은 PDF 를 통째로 1회 파싱. 콘텐츠 필터에 걸리면 같은 파일을 페이지 단위로 다시 돌려
+// 걸린 페이지만 건너뛰고 나머지 문항을 건진다.
+// (예전엔 클라이언트가 페이지별 PNG 로 렌더해 Storage 에 올리고 재요청했다. 이미지로 바꾼다고
+//  필터를 통과하는 게 아니라 '걸린 페이지만 버리는' 게 목적이었으므로 서버 재분할로 충분하다 —
+//  LLM 호출 횟수는 같고 브라우저 래스터화와 왕복만 없어진다.)
 export async function POST(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
@@ -87,26 +90,23 @@ export async function POST(request: Request) {
   const body = await request.json()
   const { title, exam_year, exam_month, grade, source, form_type, mimeType } = body
   const storagePath: string | undefined = body.storagePath
-  const storagePaths: string[] | undefined = body.storagePaths
 
   if (!title || !exam_year || !exam_month || !grade) {
     return err('필수 정보 누락 (title, exam_year, exam_month, grade)')
   }
-  if ((!storagePath && !storagePaths?.length) || !mimeType) {
+  if (!storagePath || !mimeType) {
     return err('파일 필요')
   }
 
   const serviceClient = createServiceClient()
-  const isPagesMode = !!storagePaths?.length
-  const paths = isPagesMode ? storagePaths! : [storagePath!]
 
   let files: PipelineFile[]
   try {
-    files = await downloadTempFiles(serviceClient, paths, mimeType)
+    files = await downloadTempFiles(serviceClient, [storagePath], mimeType)
   } catch (e) {
     return err(e instanceof Error ? e.message : '파일 다운로드 실패')
   }
-  void serviceClient.storage.from('exam-pdf-temp').remove(paths)
+  void serviceClient.storage.from('exam-pdf-temp').remove([storagePath])
 
   const { data: exam, error: examError } = await supabase
     .from('exam_bank')
@@ -115,19 +115,33 @@ export async function POST(request: Request) {
     .single()
   if (examError) return err(examError.message)
 
+  // 정책만 갈아끼워 같은 파이프라인을 두 번 쓴다
+  const parse = (chunk: ChunkPolicy, onChunkError: ChunkErrorPolicy) => runParsePipeline({
+    label: 'exam-bank',
+    chunk,
+    onChunkError,
+    parseChunk: (file: PipelineFile) => parseExamBankPage(file.fileData, file.mimeType),
+    finalize: (qs) => qs,
+  }, files)
+
   try {
-    const { items: questions, skippedChunks } = await runParsePipeline({
-      label: 'exam-bank',
-      chunk: { kind: 'whole' },
-      // 페이지 모드에선 필터 걸린 페이지만 건너뛰고 계속, 단일 PDF 모드에선 전체 실패로 올려 클라가 페이지 모드로 재시도하게
-      onChunkError: isPagesMode ? { skipIf: isContentFilterError } : 'throw',
-      parseChunk: (file) => parseExamBankPage(file.fileData, file.mimeType),
-      finalize: (qs) => qs,
-    }, files)
+    let questions: Awaited<ReturnType<typeof parseExamBankPage>>
+    let skippedPages: number[] = []
+    try {
+      questions = (await parse({ kind: 'whole' }, 'throw')).items
+    } catch (parseError) {
+      // 이미지 업로드는 쪼갤 게 없어서 재시도해도 같은 결과 — 그대로 올린다
+      if (!isContentFilterError(parseError) || mimeType !== 'application/pdf') throw parseError
+      console.warn('[exam-bank] 콘텐츠 필터 → 페이지 단위 재파싱')
+      const perPage = await parse({ kind: 'single-page' }, { skipIf: isContentFilterError })
+      questions = perPage.items
+      // single-page 정책에선 청크 순번 = 페이지 번호
+      skippedPages = perPage.skippedChunks
+    }
 
     if (questions.length === 0) {
       await supabase.from('exam_bank').delete().eq('id', exam.id)
-      return err(isPagesMode ? '추출된 문항이 없습니다.' : '문항을 추출할 수 없습니다. PDF를 확인해주세요.', 422)
+      return err('문항을 추출할 수 없습니다. PDF를 확인해주세요.', 422)
     }
 
     const rows = questions.map((q) => ({
@@ -153,15 +167,12 @@ export async function POST(request: Request) {
       ok: true,
       exam_id: exam.id,
       question_count: questions.length,
-      ...(isPagesMode ? { skipped_pages: skippedChunks } : {}),
+      skipped_pages: skippedPages,
       stats_fetched: statsFetched,
     })
   } catch (e) {
     await supabase.from('exam_bank').delete().eq('id', exam.id)
     console.error('[exam-bank] 파싱 실패', e)
-    if (isContentFilterError(e)) {
-      return NextResponse.json({ error: '일부 페이지가 AI 필터에 걸렸습니다. 페이지별 재처리를 시도합니다.', contentFilter: true }, { status: 422 })
-    }
     return err('PDF 파싱 실패. 파일을 확인해주세요.', 422)
   }
 }

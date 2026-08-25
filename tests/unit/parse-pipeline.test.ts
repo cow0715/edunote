@@ -157,6 +157,25 @@ describe('runParsePipeline', () => {
     expect(result.skippedChunks).toEqual([2])
   })
 
+  // 기출은행이 콘텐츠 필터에 걸렸을 때 타는 경로 — 사용자에게 "3쪽 건너뜀" 으로 보여주므로
+  // single-page 정책에서 skippedChunks 가 실제 페이지 번호와 같아야 한다.
+  it('single-page + skipIf: 필터에 걸린 페이지만 버리고 그 페이지 번호를 보고한다', async () => {
+    const result = await runParsePipeline({
+      label: 't',
+      chunk: { kind: 'single-page' },
+      onChunkError: { skipIf: (e) => e instanceof Error && e.message.includes('filtered') },
+      parseChunk: async (file) => {
+        const page = (file.pageOffset ?? 0) + 1
+        if (page === 3) throw new Error('Output blocked: filtered')
+        return [{ page }]
+      },
+      finalize: (items) => items,
+    }, [{ fileData: await makePdfBase64(5), mimeType: 'application/pdf' }])
+
+    expect(result.items.map((q) => q.page)).toEqual([1, 2, 4, 5])
+    expect(result.skippedChunks).toEqual([3])
+  })
+
   it('skipIf 에 안 걸리는 에러는 그대로 던진다', async () => {
     await expect(runParsePipeline({
       label: 't',
