@@ -53,6 +53,8 @@ export type QuestionForExplanation = {
   choices: string[]
   answer: string
   existing_vocabulary?: string
+  /** 원본 해설 (있으면 부정하지 않고 통합·확장) */
+  existing_explanation?: string
 }
 
 // 배치당 문항 수. 한 콜에 너무 많이 넣으면 출력이 maxTokens(16000)에 잘리고 벽시계도 그만큼 길어진다.

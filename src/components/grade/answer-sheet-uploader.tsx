@@ -541,6 +541,39 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
   // ...Confirmed 를 먼저 선언한다 — 호출부가 아래 함수를 호이스팅으로 참조하면
   // React Compiler 가 이 컴포넌트를 최적화에서 제외한다(PruneHoistedContexts).
+  /**
+   * AI 해설 드레인 — 요청당 일부 배치씩, remaining 0 까지. 실패는 삼키고 보고만 (해설은 부가 정보).
+   * includeExisting: 업로드 직후 1회는 원본 해설이 있어도 전 문항을 통합·확장 재작성한다
+   * (문제은행발 한 줄짜리 해설 보강). 이 모드는 offset 커서로 진행한다.
+   */
+  async function drainExplanations(
+    opts: { includeExisting: boolean },
+    onProgress: (generatedSoFar: number) => void,
+  ): Promise<{ generated: number; failed: boolean }> {
+    let generatedTotal = 0
+    let offset = 0
+    let failed = false
+    try {
+      for (let guard = 0; guard < 20; guard += 1) {
+        onProgress(generatedTotal)
+        const response = await fetch(`/api/weeks/${weekId}/explanations-drain`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ includeExisting: opts.includeExisting, offset }),
+        })
+        if (!response.ok) { failed = true; break }
+        const drain = parseJsonSafely(await response.text())
+        generatedTotal += Number(drain.generated ?? 0)
+        offset += Number(drain.attempted ?? 0)
+        if (Number(drain.failed_batches ?? 0) > 0) failed = true
+        if (Number(drain.remaining ?? 0) <= 0) break
+      }
+    } catch {
+      failed = true
+    }
+    return { generated: generatedTotal, failed }
+  }
+
   async function handleStandardUploadConfirmed(assets: UploadAsset[]) {
     if (!assets.length) return
 
@@ -575,6 +608,15 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
       const questionsParsed = Number(data.questions_parsed ?? 0)
       const studentsRegraded = Number(data.students_regraded ?? 0)
+      resetQueries()
+      toast.success(`${questionsParsed}문항을 반영했습니다.`)
+
+      // 업로드 직후엔 원본 해설이 있어도 전 문항을 AI 로 보완한다 (같은 클릭 안에서 자동 — 별도 버튼 없음)
+      const drain = await drainExplanations({ includeExisting: true }, (generated) => {
+        setStatus(weekId, { type: 'loading', step: generated > 0 ? `AI 보완 해설을 만들고 있습니다. (${generated}문항 완료)` : 'AI 보완 해설을 만들고 있습니다.' })
+      })
+      if (drain.generated > 0) toast.success(`AI 해설 ${drain.generated}문항을 보완했습니다.`)
+      if (drain.failed) toast.warning('일부 해설 생성에 실패했습니다. 같은 파일을 다시 올리면 남은 해설만 이어서 생성됩니다.')
 
       setStatus(weekId, {
         type: 'done',
@@ -582,9 +624,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
         students_regraded: studentsRegraded,
         subjective_grading_failed: Boolean(data.subjective_grading_failed),
       })
-
       resetQueries()
-      toast.success(`${questionsParsed}문항을 반영했습니다.`)
     }, (error) => setStatus(weekId, { type: 'error', message: errorMessage(error, '오류가 발생했습니다.') }))
   }
 
@@ -820,27 +860,15 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
       resetQueries()
       toast.success(`${questionsParsed}문항에 정오표 정답을 반영했습니다.`)
 
-      // 해설 드레인: 요청당 일부 배치만 생성 → remaining 0 까지 반복 (실패는 삼키고 종료)
-      let generatedTotal = 0
-      let drainFailed = false
-      try {
-        for (let guard = 0; guard < 20; guard += 1) {
-          setAnswerKeyStatus({
-            type: 'loading',
-            message: generatedTotal > 0
-              ? `AI 해설을 생성하고 있습니다. (${generatedTotal}문항 완료)`
-              : 'AI 해설을 생성하고 있습니다.',
-          })
-          const drainResponse = await fetch(`/api/weeks/${weekId}/explanations-drain`, { method: 'POST' })
-          if (!drainResponse.ok) { drainFailed = true; break }
-          const drain = parseJsonSafely(await drainResponse.text())
-          generatedTotal += Number(drain.generated ?? 0)
-          if (Number(drain.failed_batches ?? 0) > 0) drainFailed = true
-          if (Number(drain.remaining ?? 0) <= 0) break
-        }
-      } catch {
-        drainFailed = true // 해설은 부가 정보 — 정답 반영 결과를 막지 않는다
-      }
+      // 정답 반영 직후엔 전 문항 AI 보완 해설 생성 (원본이 한 줄이어도 확장)
+      const { generated: generatedTotal, failed: drainFailed } = await drainExplanations({ includeExisting: true }, (generated) => {
+        setAnswerKeyStatus({
+          type: 'loading',
+          message: generated > 0
+            ? `AI 보완 해설을 만들고 있습니다. (${generated}문항 완료)`
+            : 'AI 보완 해설을 만들고 있습니다.',
+        })
+      })
 
       setAnswerKeyStatus({
         type: 'done',

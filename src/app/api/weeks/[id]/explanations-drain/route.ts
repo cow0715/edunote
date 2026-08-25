@@ -9,7 +9,7 @@ export const maxDuration = 300
 // 6문항 배치 × 동시 2 → 요청당 4배치(24문항) ≈ 2웨이브, 넉넉히 300초 안
 const MAX_BATCHES_PER_REQUEST = 4
 
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { supabase, user } = await getAuth()
     const { id: weekId } = await params
@@ -19,14 +19,18 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     if (!teacherId) return err('강사 정보를 찾지 못했습니다.', 404)
     if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한이 없습니다.', 403)
 
+    const body = await request.json().catch(() => ({})) as { includeExisting?: boolean; offset?: number }
     const result = await generateMissingReadingExplanations(supabase, weekId, {
       maxBatches: MAX_BATCHES_PER_REQUEST,
+      includeExisting: body.includeExisting === true,
+      offset: typeof body.offset === 'number' ? body.offset : 0,
     })
 
     return ok({
       generated: result.generated,
       targets: result.targets,
       remaining: result.remaining,
+      attempted: result.attempted,
       failed_batches: result.failedBatches,
     })
   } catch (error) {

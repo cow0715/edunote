@@ -589,7 +589,7 @@ export function detectExplanationSection(pageTexts: string[] | null): { hasExpla
   }
 }
 
-/** 청크 경계 계산 (LLM 0콜). 텍스트 추출 실패 시 파일 전체 1청크. */
+/** 청크 경계 계산 (LLM 0콜). 텍스트 추출 실패 시 파일 전체 1청크. range 로 문항부만 계획 가능 */
 export async function planProblemSheetChunks(fileData: string, mimeType: string): Promise<ProblemSheetChunkRange[]> {
   if (mimeType !== 'application/pdf') return [{ startPage: 0, endPage: 1 }]
   const pageTexts = await getPdfPageTexts(fileData).catch(() => null)
@@ -607,6 +607,39 @@ export async function planProblemSheetChunks(fileData: string, mimeType: string)
   )
 }
 
+/** 페이지들을 PNG 로 렌더해 이미지 PDF 로 재조립 (pdf-lib 슬라이스 백지 대응 폴백) */
+async function buildImagePdfFromPages(fileData: string, range: ProblemSheetChunkRange): Promise<string> {
+  const { PDFDocument } = await import('pdf-lib')
+  const doc = await PDFDocument.create()
+  for (let page = range.startPage + 1; page <= range.endPage; page += 1) {
+    const rendered = await renderPdfPageToPng(fileData, page)
+    const image = await doc.embedPng(rendered.buffer)
+    const pdfPage = doc.addPage([image.width, image.height])
+    pdfPage.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height })
+  }
+  return Buffer.from(await doc.save()).toString('base64')
+}
+
+function pageTextsHaveContent(texts: string[] | null | undefined): boolean {
+  return (texts ?? []).some((text) => text.replace(/\s+/g, '').length >= 20)
+}
+
+/**
+ * 페이지 범위 슬라이스 — 일부 PDF(폰트 구조 특이)는 pdf-lib copyPages 가 백지를 만든다
+ * (실측: 숭문 진단평가 — 원본은 텍스트 추출이 되는데 슬라이스는 전 페이지 0자 → LLM 이 빈 배열 반환).
+ * 원본 범위엔 텍스트가 있는데 슬라이스에서 사라졌으면 페이지 렌더(PNG) 재조립으로 폴백한다.
+ */
+export async function slicePdfRangeSafe(fileData: string, range: ProblemSheetChunkRange): Promise<string> {
+  const [cut] = await splitPdfByRangesBase64(fileData, [range])
+  const originalTexts = await getPdfPageTexts(fileData).catch(() => null)
+  const originalHasText = pageTextsHaveContent(originalTexts?.slice(range.startPage, range.endPage))
+  if (!originalHasText) return cut.fileData // 스캔형 등 원본부터 텍스트 없음 — 슬라이스 신뢰
+  const cutTexts = await getPdfPageTexts(cut.fileData).catch(() => null)
+  if (pageTextsHaveContent(cutTexts)) return cut.fileData
+  console.warn(`[slicePdfRangeSafe] 슬라이스 텍스트 유실 → 페이지 렌더 재조립 (p${range.startPage + 1}~${range.endPage})`)
+  return buildImagePdfFromPages(fileData, range)
+}
+
 /**
  * 청크 1개 파싱: 원본에서 페이지 범위를 잘라 LLM 파싱 후 청크 단위 보정까지 적용.
  * 전역 후처리는 하지 않은 원시 문항을 돌려준다 (finalize 입력용).
@@ -622,8 +655,7 @@ export async function parseProblemSheetChunkForStaging(params: {
   let chunkData = fileData
   let pageOffset = 0
   if (mimeType === 'application/pdf') {
-    const [cut] = await splitPdfByRangesBase64(fileData, [range])
-    chunkData = cut.fileData
+    chunkData = await slicePdfRangeSafe(fileData, range)
     pageOffset = range.startPage
   }
 
@@ -733,8 +765,7 @@ export async function parseAnswerKeyChunkForStaging(params: {
   const { fileData, mimeType, range, questions } = params
   let chunkData = fileData
   if (mimeType === 'application/pdf') {
-    const [cut] = await splitPdfByRangesBase64(fileData, [range])
-    chunkData = cut.fileData
+    chunkData = await slicePdfRangeSafe(fileData, range)
   }
   return parseProblemSheetAnswerKeyFile(chunkData, mimeType, questions)
 }

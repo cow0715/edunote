@@ -36,16 +36,19 @@ function buildAnswerLabel(question: QuestionRow, choices: string[]): string {
 }
 
 /**
- * 해설 없는 문항만 골라 배치 생성. opts.maxBatches 를 주면 그만큼만 처리하고
- * remaining(이번에 시도하지 않은 문항 수)을 돌려준다 — 클라이언트 드레인 루프용.
- * remaining 은 "미시도"만 센다: 실패 배치 문항은 remaining 에 안 들어가므로
- * 영구 실패가 있어도 루프는 종료된다 (failedBatches 로 노출).
+ * 해설 배치 생성. opts.maxBatches 를 주면 그만큼만 처리하고 remaining(이번에 시도하지
+ * 않은 문항 수)을 돌려준다 — 클라이언트 드레인 루프용.
+ * - 기본: 해설 없는 문항만 (복구 칩·안전망용). remaining 은 "미시도"만 세므로
+ *   영구 실패가 있어도 루프는 종료된다 (failedBatches 로 노출).
+ * - includeExisting: 해설이 있어도 전 문항을 AI 보완으로 다시 쓴다 (업로드 직후 1회 —
+ *   원본 해설이 한 줄짜리인 경우가 많아서). 기존 해설은 프롬프트에 넣어 통합·확장한다.
+ *   이 모드는 "빈 해설" 기준으로 진행을 알 수 없으므로 offset 커서로 페이지네이션한다.
  */
 export async function generateMissingReadingExplanations(
   supabase: SupabaseServerClient,
   weekId: string,
-  opts: { maxBatches?: number } = {},
-): Promise<{ generated: number; targets: number; failedBatches: number; remaining: number }> {
+  opts: { maxBatches?: number; includeExisting?: boolean; offset?: number } = {},
+): Promise<{ generated: number; targets: number; failedBatches: number; remaining: number; attempted: number }> {
   const { data, error } = await supabase
     .from('exam_question')
     .select('id, question_number, question_style, correct_answer, correct_answer_text, question_text, question_stem, passage, choices, explanation')
@@ -55,12 +58,16 @@ export async function generateMissingReadingExplanations(
     .order('sub_label', { nullsFirst: true })
   if (error) throw new Error(error.message)
 
-  const targets = ((data ?? []) as QuestionRow[]).filter((q) => !q.explanation?.trim())
-  if (targets.length === 0) return { generated: 0, targets: 0, failedBatches: 0, remaining: 0 }
+  const allRows = (data ?? []) as QuestionRow[]
+  const targets = opts.includeExisting ? allRows : allRows.filter((q) => !q.explanation?.trim())
+  if (targets.length === 0) return { generated: 0, targets: 0, failedBatches: 0, remaining: 0, attempted: 0 }
 
+  const offset = opts.includeExisting ? Math.min(Math.max(0, opts.offset ?? 0), targets.length) : 0
+  const pending = targets.slice(offset)
   const allBatches: QuestionRow[][] = []
-  for (let i = 0; i < targets.length; i += BATCH_SIZE) allBatches.push(targets.slice(i, i + BATCH_SIZE))
+  for (let i = 0; i < pending.length; i += BATCH_SIZE) allBatches.push(pending.slice(i, i + BATCH_SIZE))
   const batches = opts.maxBatches ? allBatches.slice(0, opts.maxBatches) : allBatches
+  const attempted = batches.reduce((sum, batch) => sum + batch.length, 0)
   const remaining = allBatches.slice(batches.length).reduce((sum, batch) => sum + batch.length, 0)
 
   let generated = 0
@@ -76,6 +83,7 @@ export async function generateMissingReadingExplanations(
         question_text: structured.questionStem,
         choices: structured.choices,
         answer: buildAnswerLabel(question, structured.choices),
+        existing_explanation: question.explanation?.trim() || undefined,
       }
     })
 
@@ -102,5 +110,5 @@ export async function generateMissingReadingExplanations(
   })
 
   console.log(`[reading-explanations] week ${weekId}: 대상 ${targets.length} → 생성 ${generated} (실패 배치 ${failedBatches}, 잔여 ${remaining})`)
-  return { generated, targets: targets.length, failedBatches, remaining }
+  return { generated, targets: targets.length, failedBatches, remaining, attempted }
 }

@@ -1,6 +1,5 @@
 import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
-import { generateMissingReadingExplanations } from '@/lib/reading-explanations'
 import {
   createTagMatcher,
   fetchTeacherTagContext,
@@ -71,15 +70,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       matchTagId,
     })
 
-    // 해설지 프롬프트가 해설을 같이 뽑아오므로 보통 0건 — 모델이 비워둔 문항만 채우는 안전망
-    const explanations = await generateMissingReadingExplanations(supabase, weekId)
-      .catch((e) => { console.error('[parse-answers] 해설 생성 실패:', e); return { generated: 0, targets: 0, failedBatches: 1 } })
-
+    // 해설 안전망(빈 해설 채우기)은 여기서 돌리지 않는다 — 파싱 209초 + 해설 생성이 한 함수에
+    // 합산되면 300초를 넘을 수 있어, 클라이언트가 explanations-drain 을 이어서 호출한다.
     return ok({
       ok: true,
       ...result,
       parse_mode_used: 'answer_sheet',
-      explanations_generated: explanations.generated,
       skipped_pages: skippedPages,
     })
   } catch (error) {
