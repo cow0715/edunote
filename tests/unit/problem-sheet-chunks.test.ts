@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { finalizeAnswerKeyItems, finalizeProblemSheetQuestions } from '@/lib/week-reading-import'
+import { detectExplanationSection, finalizeAnswerKeyItems, finalizeProblemSheetQuestions } from '@/lib/week-reading-import'
 import type { ProblemSheetAnswerKeyItem, WeekProblemSheetQuestion } from '@/lib/llm/week'
 
 // 문제지형 청크 분리 가져오기의 finalize (순수 함수):
@@ -102,5 +102,37 @@ describe('finalizeAnswerKeyItems', () => {
       [key(99, 1)],
       { existingQuestions: existing([1]), answerableQuestionCount: 1 },
     )).toThrow()
+  })
+})
+
+// 해설 섹션 감지 — 단일 파일 업로드 토글의 기본값 (실물 PDF 텍스트 축약본 기반)
+describe('detectExplanationSection', () => {
+  it('"정답 및 해설" 헤더 (숭문형 내신)', () => {
+    const pages = [
+      '1. (A), (B), (C) 각 괄호 안에서 어법에 맞는 표현으로 가장 적절한 것을 고르시오. The group made of...',
+      '정답 및 해설 1. (A) made (B) come (C) have [해설] 그룹이 구성된 것이므로 수동 관계를 나타내는 과거분사',
+    ]
+    expect(detectExplanationSection(pages)).toEqual({ hasExplanation: true, confident: true })
+  })
+
+  it('"{해석}{풀이}{어휘}" 마커 (예열TEST형 — 헤더 없는 통합 해설)', () => {
+    const pages = [
+      '미래탐구 영어 1 다음 글의 제목으로 가장 적절한 것은? Music in the fourteenth century...',
+      '미래탐구 영어 Wise English Warm UP TEST (4) 1. 제목 ⑤ {해석} 음악에 대한 14세기 접근법은 그 다음에 이어지는',
+    ]
+    expect(detectExplanationSection(pages)).toEqual({ hasExplanation: true, confident: true })
+  })
+
+  it('문제만 있는 시험지는 해설 없음', () => {
+    const pages = [
+      '1. 다음 글의 제목으로 가장 적절한 것은? The approach to music... ① Music ② History ③ Change ④ Sound ⑤ Time',
+      '5. 다음 글의 내용과 일치하지 않는 것은? Dr. Smith argued that the program was created to help students learn.',
+    ]
+    expect(detectExplanationSection(pages)).toEqual({ hasExplanation: false, confident: true })
+  })
+
+  it('텍스트를 못 읽는 스캔 문서는 confident=false, 기본값 해설 포함', () => {
+    expect(detectExplanationSection(null)).toEqual({ hasExplanation: true, confident: false })
+    expect(detectExplanationSection(['---- ----', ''])).toEqual({ hasExplanation: true, confident: false })
   })
 })

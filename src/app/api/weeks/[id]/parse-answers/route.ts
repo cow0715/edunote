@@ -1,4 +1,5 @@
 import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
+import { createServiceClient } from '@/lib/supabase/server'
 import { generateMissingReadingExplanations } from '@/lib/reading-explanations'
 import {
   createTagMatcher,
@@ -26,10 +27,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const matchTagId = createTagMatcher(tagList)
 
     const body = await request.json()
-    const { fileData, mimeType, fileName } = body
+    const { mimeType, fileName } = body
+    let fileData = body.fileData as string | undefined
     const requestedMode = (body.parseMode === 'answer_sheet' || body.parseMode === 'problem_sheet' || body.parseMode === 'auto'
       ? body.parseMode
       : 'auto') as ParseMode
+
+    // 큰 파일은 body(4.5MB 제한) 대신 임시 스토리지 경유 — 감지 단계에서 올린 파일 재사용
+    const storagePath = typeof body.storagePath === 'string' ? body.storagePath : null
+    if (!fileData && storagePath) {
+      const serviceClient = createServiceClient()
+      const { data, error } = await serviceClient.storage.from('exam-pdf-temp').download(storagePath)
+      if (error || !data) return err(`파일 다운로드 실패: ${error?.message ?? storagePath}`)
+      fileData = Buffer.from(await data.arrayBuffer()).toString('base64')
+      void serviceClient.storage.from('exam-pdf-temp').remove([storagePath]).catch(() => {})
+    }
 
     if (!fileData || !mimeType) return err('파일이 없습니다.')
     if (requestedMode === 'problem_sheet') {

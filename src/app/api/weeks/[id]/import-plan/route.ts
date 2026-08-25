@@ -1,10 +1,12 @@
 import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
-import { planAnswerKeyChunks, planProblemSheetChunks } from '@/lib/week-reading-import'
+import { getPdfPageTexts } from '@/lib/pdf'
+import { detectExplanationSection, planAnswerKeyChunks, planProblemSheetChunks } from '@/lib/week-reading-import'
 
 // 청크 분리 가져오기 1단계: 청크 경계 계산 (LLM 0콜).
 // mode 'problem_sheet'(기본): 문항 경계 정렬 3~5p → import-chunk / import-finalize
 // mode 'answer_key': 3p 단순 분할 → answer-key-chunk / answer-key-finalize
+// mode 'detect': 해설 섹션 유무만 감지 — 단일 파일 업로드 토글의 기본값용
 export const maxDuration = 60
 const TEMP_BUCKET = 'exam-pdf-temp'
 
@@ -26,6 +28,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (error || !data) return err(`파일 다운로드 실패: ${error?.message ?? body.storagePath}`)
 
     const fileData = Buffer.from(await data.arrayBuffer()).toString('base64')
+
+    if (body.mode === 'detect') {
+      const pageTexts = body.mimeType === 'application/pdf'
+        ? await getPdfPageTexts(fileData).catch(() => null)
+        : null
+      const detection = detectExplanationSection(pageTexts)
+      return ok({ has_explanation: detection.hasExplanation, confident: detection.confident })
+    }
+
     const chunks = body.mode === 'answer_key'
       ? await planAnswerKeyChunks(fileData, body.mimeType)
       : await planProblemSheetChunks(fileData, body.mimeType)

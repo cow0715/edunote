@@ -566,6 +566,29 @@ export function problemSheetStagingPath(storagePath: string, chunkIndex: number)
   return `${storagePath}.chunks/${chunkIndex}.json`
 }
 
+const EXPLANATION_SECTION_MARKERS = new RegExp([
+  /정\s*답\s*(및|과)\s*해\s*설/.source,          // "정답 및 해설" 헤더 (숭문형)
+  /[[{【]\s*(해설|해석|풀이|어휘)\s*[\]}】]/.source, // "{해석}" "{풀이}" "[해설]" 류 섹션 마커 (예열TEST형)
+  /^\s*해설\s*[:：]/.source,
+  /오답\s*(분석|풀이)/.source,
+  /정답\s*해설/.source,
+  /\d+\s*\.\s*[가-힣]{0,6}\s*[①②③④⑤]/.source,  // "1. 제목 ⑤" — 번호+유형+정답 기호 라인
+].join('|'), 'm')
+
+/**
+ * 문서에 해설 섹션이 있는지 텍스트로 감지 (LLM 0콜) — 단일 파일 업로드 시 토글 기본값용.
+ * confident=false 는 텍스트 추출 실패(스캔형)로 판단 근거가 없다는 뜻 — 기본값은 해설 포함
+ * (해설지형 통짜 파서가 문항 구조도 같이 뽑으므로 안전한 쪽).
+ */
+export function detectExplanationSection(pageTexts: string[] | null): { hasExplanation: boolean; confident: boolean } {
+  const usable = (pageTexts ?? []).filter((text) => text.replace(/[^\p{L}\p{N}]/gu, '').length >= 20)
+  if (!usable.length) return { hasExplanation: true, confident: false }
+  return {
+    hasExplanation: usable.some((text) => EXPLANATION_SECTION_MARKERS.test(text)),
+    confident: true,
+  }
+}
+
 /** 청크 경계 계산 (LLM 0콜). 텍스트 추출 실패 시 파일 전체 1청크. */
 export async function planProblemSheetChunks(fileData: string, mimeType: string): Promise<ProblemSheetChunkRange[]> {
   if (mimeType !== 'application/pdf') return [{ startPage: 0, endPage: 1 }]

@@ -10,8 +10,6 @@ import {
   ChevronUp,
   FileCheck,
   FileText,
-  ListOrdered,
-  Loader2,
   Upload,
   X,
 } from 'lucide-react'
@@ -28,7 +26,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useUploadStore, type AnswerSheetStatus } from '@/store/upload-store'
 
 const IDLE_STATUS: AnswerSheetStatus = { type: 'idle' }
@@ -39,11 +36,21 @@ const ANSWER_STEPS = [
   { label: '기존 채점 결과를 갱신하고 있습니다.', sub: '저장된 학생 답안을 새 정답 기준으로 다시 계산하고 있습니다.' },
 ]
 
-type AnswerParseMode = 'auto' | 'answer_sheet'
-
 // 문제지형 청크 파싱 동시 요청 수 — 실측(44p, 청크 11): 동시 6 LLM 콜에서 스로틀 없이 2.5배 단축.
 // 서버 함수가 청크당 1개씩 뜨므로 Vercel 동시 실행 여유와 맞바꾸는 값.
 const CHUNK_REQUEST_CONCURRENCY = 4
+
+/** 단일 문서 업로드일 때의 처리 방식 */
+type SingleDocRole = 'with_explanation' | 'questions_only' | 'answer_key_only'
+
+type DetectionInfo = {
+  fileId: string
+  storagePath: string
+  mimeType: string
+  fileName: string
+  hasExplanation: boolean
+  confident: boolean
+}
 
 type LocalStatus =
   | { type: 'idle' }
@@ -51,7 +58,7 @@ type LocalStatus =
   | { type: 'done'; message: string; questionsParsed?: number; studentsRegraded?: number; generatedCount?: number; subjectiveGradingFailed?: boolean }
   | { type: 'error'; message: string }
 
-type PendingUploadAction = 'standard' | 'problem' | null
+type PendingUploadAction = 'start' | null
 type UploadAsset = { id: string; file: File }
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
@@ -61,12 +68,12 @@ interface Props {
   readingTotal?: number
 }
 
-function readFileAsBase64(file: File): Promise<string> {
+function readBlobAsBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve((reader.result as string).split(',')[1])
     reader.onerror = reject
-    reader.readAsDataURL(file)
+    reader.readAsDataURL(blob)
   })
 }
 
@@ -283,8 +290,10 @@ function OrderedFileList(props: {
   files: UploadAsset[]
   onMove: (index: number, direction: -1 | 1) => void
   onRemove: (index: number) => void
+  /** 파일 순서별 역할 라벨 (2개 모드: 시험지/정오표). 순서를 바꾸면 역할도 바뀐다 */
+  roleLabels?: string[]
 }) {
-  const { files, onMove, onRemove } = props
+  const { files, onMove, onRemove, roleLabels } = props
 
   return (
     <div className="space-y-2">
@@ -298,7 +307,14 @@ function OrderedFileList(props: {
           </div>
           <FileText className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
           <div className="min-w-0 flex-1">
-            <p className="truncate font-medium">{asset.file.name}</p>
+            <div className="flex items-center gap-2">
+              <p className="truncate font-medium">{asset.file.name}</p>
+              {roleLabels?.[index] && (
+                <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
+                  {roleLabels[index]}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {asset.file.type.startsWith('image/') ? '이미지' : 'PDF'} · 페이지 순서 {index + 1}
             </p>
@@ -376,14 +392,12 @@ function StatusBanner({ status }: { status: AnswerSheetStatus | LocalStatus }) {
 }
 
 export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }: Props) {
-  const answerInputRef = useRef<HTMLInputElement>(null)
-  const problemInputRef = useRef<HTMLInputElement>(null)
-  const answerKeyInputRef = useRef<HTMLInputElement>(null)
-  const [answerFile, setAnswerFile] = useState<File | null>(null)
-  const [problemFiles, setProblemFiles] = useState<UploadAsset[]>([])
-  const [answerKeyFiles, setAnswerKeyFiles] = useState<UploadAsset[]>([])
-  const [parseMode, setParseMode] = useState<AnswerParseMode>('auto')
-  const [showLegacyAnswerUpload, setShowLegacyAnswerUpload] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [files, setFiles] = useState<UploadAsset[]>([])
+  /** 단일 문서일 때의 처리 방식 — 기본값은 서버 텍스트 감지가 채운다 */
+  const [docRole, setDocRole] = useState<SingleDocRole>('with_explanation')
+  /** 단일 PDF 선택 직후 백그라운드 업로드+감지 결과. storagePath 는 시작 시 재사용 */
+  const [detection, setDetection] = useState<DetectionInfo | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const [problemStatus, setProblemStatus] = useState<LocalStatus>({ type: 'idle' })
   const [answerKeyStatus, setAnswerKeyStatus] = useState<LocalStatus>({ type: 'idle' })
@@ -396,8 +410,6 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
   const status = useUploadStore((state) => state.answerSheet[weekId]) ?? IDLE_STATUS
   const setStatus = useUploadStore((state) => state.setAnswerSheet)
-  const answerStepReady = problemImported
-  const activeWorkflowStep = answerStepReady ? 2 : 1
 
   useEffect(() => {
     setProblemImported(readingTotal > 0)
@@ -425,53 +437,81 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     qc.invalidateQueries({ queryKey: ['week', weekId] })
   }
 
-  function handleAnswerFile(event: ChangeEvent<HTMLInputElement>) {
-    const nextFile = event.target.files?.[0]
-    if (!nextFile) return
-    setAnswerFile(nextFile)
+  // 파일 조합 판별 (선택 UI 의 분기 기준)
+  const pdfCount = files.filter((asset) => asset.file.type === 'application/pdf').length
+  const imagesOnly = files.length > 0 && files.every((asset) => IMAGE_TYPES.includes(asset.file.type))
+  const isTwoDocMode = pdfCount === 2 && files.length === 2
+  const isSingleDocMode = (pdfCount === 1 && files.length === 1) || imagesOnly
+  const selectionError = files.length > 0 && !isTwoDocMode && !isSingleDocMode
+    ? 'PDF 1개(또는 이미지 여러 장), 아니면 시험지·정오표 PDF 2개까지만 올릴 수 있습니다.'
+    : null
+
+  const anyLoading = status.type === 'loading' || problemStatus.type === 'loading' || answerKeyStatus.type === 'loading'
+  const anyDone = status.type === 'done' || problemStatus.type === 'done' || answerKeyStatus.type === 'done'
+  // 진행률 표시용: 청크 카운트가 있는 로컬 상태 우선, 없으면 해설지형(스토어) 상태의 시간 기반 표시
+  const activeLoading = problemStatus.type === 'loading'
+    ? problemStatus
+    : answerKeyStatus.type === 'loading'
+      ? answerKeyStatus
+      : null
+
+  /** 단일 PDF 선택 직후: 백그라운드 업로드 + 해설 섹션 감지 → 처리 방식 기본값 설정 */
+  async function detectSingleDoc(asset: UploadAsset) {
+    try {
+      const [uploaded] = await uploadFilesToTempStorage([asset], weekId, 'detect')
+      const response = await fetch(`/api/weeks/${weekId}/import-plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storagePath: uploaded.storagePath, mimeType: uploaded.mimeType, mode: 'detect' }),
+      })
+      if (!response.ok) return
+      const data = parseJsonSafely(await response.text())
+      setDetection({
+        fileId: asset.id,
+        storagePath: uploaded.storagePath!,
+        mimeType: uploaded.mimeType,
+        fileName: uploaded.fileName ?? asset.file.name,
+        hasExplanation: data.has_explanation === true,
+        confident: data.confident === true,
+      })
+      setDocRole(data.has_explanation === true ? 'with_explanation' : 'questions_only')
+    } catch {
+      // 감지는 기본값 편의일 뿐 — 실패해도 사용자가 방식을 고르면 된다
+    }
+  }
+
+  function handleFileSelect(event: ChangeEvent<HTMLInputElement>) {
+    const picked = buildUploadAssets(event.target.files)
+    if (!picked.length) return
+    // 누적 선택: 시험지를 고른 뒤 정오표를 나중에 추가로 골라도 된다 (같은 파일은 중복 제외)
+    const merged = [...files, ...picked.filter((asset) => !files.some((existing) => existing.id === asset.id))]
+    setFiles(merged)
+    setDetection(null)
     setStatus(weekId, { type: 'idle' })
-  }
-
-  function handleProblemFile(event: ChangeEvent<HTMLInputElement>) {
-    const nextFiles = buildUploadAssets(event.target.files)
-    if (!nextFiles.length) return
-    setProblemFiles(nextFiles)
     setProblemStatus({ type: 'idle' })
-  }
-
-  function handleAnswerKeyFile(event: ChangeEvent<HTMLInputElement>) {
-    const nextFiles = buildUploadAssets(event.target.files)
-    if (!nextFiles.length) return
-    setAnswerKeyFiles(nextFiles)
     setAnswerKeyStatus({ type: 'idle' })
+    if (merged.length === 1 && merged[0].file.type === 'application/pdf') {
+      void detectSingleDoc(merged[0])
+    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  function moveProblemFile(index: number, direction: -1 | 1) {
-    setProblemFiles((prev) => moveUploadAsset(prev, index, direction))
+  function moveFile(index: number, direction: -1 | 1) {
+    setFiles((prev) => moveUploadAsset(prev, index, direction))
   }
 
-  function moveAnswerKeyFile(index: number, direction: -1 | 1) {
-    setAnswerKeyFiles((prev) => moveUploadAsset(prev, index, direction))
+  function removeFile(index: number) {
+    setFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))
+    setDetection(null)
   }
 
-  function removeProblemFile(index: number) {
-    setProblemFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))
-  }
-
-  function removeAnswerKeyFile(index: number) {
-    setAnswerKeyFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))
-  }
-
-  function resetProblemImportSelection() {
-    setProblemFiles([])
+  function resetSelection() {
+    setFiles([])
+    setDetection(null)
+    setStatus(weekId, { type: 'idle' })
     setProblemStatus({ type: 'idle' })
-    if (problemInputRef.current) problemInputRef.current.value = ''
-  }
-
-  function resetAnswerKeySelection() {
-    setAnswerKeyFiles([])
     setAnswerKeyStatus({ type: 'idle' })
-    if (answerKeyInputRef.current) answerKeyInputRef.current.value = ''
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   async function hasExistingStudentAnswers() {
@@ -501,24 +541,29 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
 
   // ...Confirmed 를 먼저 선언한다 — 호출부가 아래 함수를 호이스팅으로 참조하면
   // React Compiler 가 이 컴포넌트를 최적화에서 제외한다(PruneHoistedContexts).
-  async function handleStandardUploadConfirmed() {
-    if (!answerFile) return
+  async function handleStandardUploadConfirmed(assets: UploadAsset[]) {
+    if (!assets.length) return
 
     setElapsed(0)
     setStatus(weekId, { type: 'loading', step: '해설지를 읽는 중입니다.' })
 
     await runOrReport(async () => {
-      const base64 = await readFileAsBase64(answerFile)
+      // 감지 단계에서 이미 올린 파일이면 스토리지 경로 재사용 (재업로드·4.5MB body 회피)
+      const reusable = assets.length === 1 && detection?.fileId === assets[0].id ? detection : null
+      const payload = reusable
+        ? { storagePath: reusable.storagePath, mimeType: reusable.mimeType, fileName: reusable.fileName }
+        : await (async () => {
+          const prepared = await prepareUploadBlob(assets, 'answer-sheet')
+          const base64 = await readBlobAsBase64(prepared.blob)
+          return { fileData: base64, mimeType: prepared.mimeType, fileName: prepared.fileName }
+        })()
+
       const response = await fetch(`/api/weeks/${weekId}/parse-answers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileData: base64,
-          mimeType: answerFile.type,
-          fileName: answerFile.name,
-          parseMode,
-        }),
+        body: JSON.stringify({ ...payload, parseMode: 'answer_sheet' }),
       })
+      setDetection(null) // 스토리지 경로는 서버가 소비 — 재시도는 base64 로 폴백
 
       const raw = await response.text()
       const data = parseJsonSafely(raw)
@@ -543,20 +588,15 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     }, (error) => setStatus(weekId, { type: 'error', message: errorMessage(error, '오류가 발생했습니다.') }))
   }
 
-  async function handleStandardUpload() {
-    if (!await guardBeforeUpload('standard')) return
-    await handleStandardUploadConfirmed()
-  }
-
-  async function handleProblemImportConfirmed(): Promise<boolean> {
-    if (!problemFiles.length) return false
+  async function handleProblemImportConfirmed(assets: UploadAsset[]): Promise<boolean> {
+    if (!assets.length) return false
     let succeeded = false
 
     setElapsed(0)
     setProblemStatus({ type: 'loading', message: '시험지 파일에서 문항 구조를 정리하고 있습니다.' })
 
     await runOrReport(async () => {
-      const [file] = await uploadFilesToTempStorage(problemFiles, weekId, 'problem-sheet')
+      const [file] = await uploadFilesToTempStorage(assets, weekId, 'problem-sheet')
 
       // 청크 분리 가져오기: 계획 → 청크별 파싱(요청 분리, Vercel 300초 제한 회피) → finalize
       const planResponse = await fetch(`/api/weeks/${weekId}/import-plan`, {
@@ -669,36 +709,44 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     return succeeded
   }
 
-  async function handleProblemImport() {
-    if (!await guardBeforeUpload('problem')) return
-    await handleProblemImportConfirmed()
-  }
-
-  async function handleAnswerKeyImport() {
-    if (!answerKeyFiles.length) return
-    if (!problemImported) {
-      setAnswerKeyStatus({ type: 'error', message: '먼저 시험지 문항 저장을 완료해주세요.' })
+  /** 파일 조합 + 처리 방식에 따라 실행 시퀀스를 결정하는 단일 진입점 */
+  async function startImportConfirmed() {
+    if (isTwoDocMode) {
+      const problemOk = await handleProblemImportConfirmed([files[0]])
+      if (!problemOk) return
+      await handleAnswerKeyImportConfirmed([files[1]])
       return
     }
-    await handleAnswerKeyImportConfirmed()
+    if (!isSingleDocMode) return
+    if (docRole === 'with_explanation') {
+      await handleStandardUploadConfirmed(files)
+      return
+    }
+    if (docRole === 'questions_only') {
+      await handleProblemImportConfirmed(files)
+      return
+    }
+    if (!problemImported) {
+      setAnswerKeyStatus({ type: 'error', message: '정오표만 반영하려면 먼저 시험지 문항이 저장돼 있어야 합니다.' })
+      return
+    }
+    await handleAnswerKeyImportConfirmed(files)
   }
 
-  async function handleOneClickImport() {
-    if (!problemFiles.length || !answerKeyFiles.length) return
-    if (!await guardBeforeUpload('problem')) return
-    const problemOk = await handleProblemImportConfirmed()
-    if (!problemOk) return
-    await handleAnswerKeyImportConfirmed()
+  async function handleStart() {
+    if (!files.length || selectionError) return
+    if (!await guardBeforeUpload('start')) return
+    await startImportConfirmed()
   }
 
-  async function handleAnswerKeyImportConfirmed() {
-    if (!answerKeyFiles.length) return
+  async function handleAnswerKeyImportConfirmed(assets: UploadAsset[]) {
+    if (!assets.length) return
 
     setElapsed(0)
     setAnswerKeyStatus({ type: 'loading', message: '정오표에서 문항별 정답을 읽어 기존 문항에 반영하고 있습니다.' })
 
     await runOrReport(async () => {
-      const [file] = await uploadFilesToTempStorage(answerKeyFiles, weekId, 'answer-key')
+      const [file] = await uploadFilesToTempStorage(assets, weekId, 'answer-key')
 
       // 청크 분리: 계획 → 청크별 파싱 → finalize(정답 반영+선택 재채점) → 해설 드레인
       const planResponse = await fetch(`/api/weeks/${weekId}/import-plan`, {
@@ -825,24 +873,14 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
     setWarningOpen(false)
     const action = pendingAction
     setPendingAction(null)
-
-    if (action === 'standard') {
-      await handleStandardUploadConfirmed()
-      return
-    }
-
-    if (action === 'problem') {
-      await handleProblemImportConfirmed()
+    if (action === 'start') {
+      await startImportConfirmed()
     }
   }
 
   return (
     <>
       <div className="space-y-4">
-      <p className="text-sm leading-6 text-slate-500 dark:text-slate-400">
-        문항이 많은 PDF는 시험지 가져오기에서 문항, 정답, 해설을 필요한 단계만 나눠 처리하는 흐름이 더 안정적입니다.
-      </p>
-
       {savedFilePath && status.type !== 'done' && (
         <button
           type="button"
@@ -857,269 +895,121 @@ export function AnswerSheetUploader({ weekId, savedFilePath, readingTotal = 0 }:
         </button>
       )}
 
-      {showLegacyAnswerUpload ? (
-      <Card className="rounded-[24px] border-0 bg-white/95 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/90">
-        <CardHeader className="gap-1">
-          <div className="flex items-start justify-between gap-3">
-            <CardTitle className="text-base text-slate-900 dark:text-slate-50">일반 해설지 업로드</CardTitle>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-full"
-              onClick={() => setShowLegacyAnswerUpload(false)}
-              aria-label="일반 해설지 업로드 닫기"
-            >
-              <ChevronUp className="h-4 w-4" />
-            </Button>
-          </div>
-          <CardDescription className="text-slate-500 dark:text-slate-400">
-            해설이 포함된 PDF나 정리된 정답지를 빠르게 반영합니다. 기존 정상 파일은 이 흐름을 그대로 사용하면 됩니다.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">해설지 형식</p>
-            <Select value={parseMode} onValueChange={(value) => setParseMode(value as AnswerParseMode)}>
-              <SelectTrigger className="h-10 rounded-xl border-0 bg-slate-50 dark:bg-slate-900/70">
-                <SelectValue placeholder="형식을 선택하세요." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">자동 판별</SelectItem>
-                <SelectItem value="answer_sheet">해설 포함</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-[11px] text-slate-400 dark:text-slate-500">
-              자동 판별이 기본값입니다. 문제지형 PDF는 아래 전용 가져오기로 분리하는 편이 더 안정적입니다.
-            </p>
-          </div>
-
-          {status.type === 'loading' ? (
-            <AnswerParseProgress elapsed={elapsed} />
-          ) : (
-            <FileDropzone
-              file={answerFile}
-              inputRef={answerInputRef}
-              onChange={handleAnswerFile}
-              accept="application/pdf,image/*"
-              idleLabel="클릭해서 해설지 파일을 선택하세요. (PDF / 이미지)"
-            />
-          )}
-
-          <StatusBanner status={status} />
-
-          {answerFile && status.type !== 'done' && status.type !== 'loading' && (
-            <Button className="w-full rounded-full bg-blue-600 text-white hover:bg-blue-700" onClick={handleStandardUpload}>
-              <Upload className="h-4 w-4" />
-              {savedFilePath ? '해설지 다시 등록' : '해설지 등록'}
-            </Button>
-          )}
-
-          {status.type === 'done' && (
-            <Button
-              variant="outline"
-              className="w-full rounded-full"
-              onClick={() => {
-                setAnswerFile(null)
-                setParseMode('auto')
-                setStatus(weekId, { type: 'idle' })
-                if (answerInputRef.current) answerInputRef.current.value = ''
-              }}
-            >
-              다른 해설지 업로드
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowLegacyAnswerUpload(true)}
-          className="flex w-full items-center justify-between rounded-[20px] bg-white/80 px-4 py-3 text-left text-xs text-slate-500 shadow-[0_10px_30px_rgba(0,75,198,0.03)] transition hover:bg-white dark:bg-slate-900/70 dark:text-slate-300"
-        >
-          <span>일반 해설지 업로드 열기</span>
-          <ChevronDown className="h-4 w-4" />
-        </button>
-      )}
-
       <Card className="rounded-[24px] border-0 bg-white/95 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/90">
         <CardHeader className="gap-1">
           <CardTitle className="text-base text-slate-900 dark:text-slate-50">시험지 가져오기</CardTitle>
           <CardDescription className="text-slate-500 dark:text-slate-400">
-            문제, 정답, 해설을 한 번에 처리하지 않고 단계별로 나눠 안정적으로 반영합니다.
+            파일을 올리면 문항·정답·해설을 자동으로 반영합니다.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="rounded-[20px] bg-blue-50/80 p-4 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-              <ListOrdered className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-              <span>진행 순서</span>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-3">
-              {[
-                { n: 1, title: '문항 저장', desc: '시험지 PDF에서 번호, 지문, 발문, 선택지를 저장' },
-                { n: 2, title: '정답 반영', desc: '정오표나 답안표에서 정답만 덮어쓰기' },
-              ].map((step) => {
-                const done = step.n < activeWorkflowStep
-                const active = step.n === activeWorkflowStep
-                return (
-                  <div
-                    key={step.n}
-                    className={`rounded-[16px] px-3 py-3 text-xs leading-5 ${
-                      active
-                        ? 'bg-white text-slate-800 shadow-[0_10px_30px_rgba(0,75,198,0.05)] dark:bg-slate-950/50 dark:text-slate-100'
-                        : done
-                          ? 'bg-white/70 text-slate-500 dark:bg-slate-950/30 dark:text-slate-400'
-                          : 'bg-blue-100/50 text-slate-400 dark:bg-slate-950/20 dark:text-slate-500'
-                    }`}
-                  >
-                    <div className="mb-1 flex items-center gap-2 font-semibold">
-                      <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${
-                        done ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300'
-                      }`}>
-                        {done ? '완' : step.n}
-                      </span>
-                      <span>{step.title}</span>
-                    </div>
-                    <p>{step.desc}</p>
-                  </div>
-                )
-              })}
-            </div>
-            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-              기본 흐름은 시험지 PDF 업로드 → 정오표 업로드입니다. 정답이 반영되면 비어 있는 해설은 AI 가 자동으로 채웁니다.
+          {anyLoading ? (
+            <AnswerParseProgress
+              elapsed={elapsed}
+              processedCount={activeLoading?.processedCount}
+              totalCount={activeLoading?.totalCount}
+              message={activeLoading?.message}
+            />
+          ) : (
+            <FileDropzone
+              file={files[0]?.file ?? null}
+              inputRef={fileInputRef}
+              onChange={handleFileSelect}
+              accept="application/pdf,image/*"
+              idleLabel="클릭해서 파일 선택 — 시험지 PDF 1개 · 시험지+정오표 PDF 2개 · 이미지 여러 장"
+              multiple
+            />
+          )}
+
+          {selectionError && (
+            <p className="rounded-[16px] bg-red-50 px-4 py-3 text-xs text-red-600 dark:bg-red-500/10 dark:text-red-300">{selectionError}</p>
+          )}
+
+          {files.length > 0 && (
+            <OrderedFileList
+              files={files}
+              onMove={moveFile}
+              onRemove={removeFile}
+              roleLabels={isTwoDocMode ? ['시험지', '정오표·해설'] : undefined}
+            />
+          )}
+
+          {isTwoDocMode && (
+            <p className="text-[11px] text-slate-400 dark:text-slate-500">
+              첫 번째 파일을 시험지로, 두 번째를 정오표·해설로 처리합니다. 순서가 다르면 화살표로 바꿔주세요.
             </p>
-          </div>
+          )}
 
-          <div className="space-y-3 rounded-[20px] bg-white/80 p-4 shadow-[0_10px_30px_rgba(0,75,198,0.04)] dark:bg-slate-950/40">
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">1. 시험지 PDF 업로드</p>
-              <p className="text-xs text-slate-600 dark:text-slate-400">
-                문제 본문이 들어 있는 시험지 PDF를 읽어 문항 구조와 문제 텍스트를 먼저 저장합니다.
+          {isSingleDocMode && !anyLoading && (
+            <div className="space-y-2 rounded-[18px] bg-slate-50/90 px-4 py-3 dark:bg-slate-900/60">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                이 문서를 어떻게 처리할까요?
+                {detection && files[0] && detection.fileId === files[0].id && (
+                  <span className="ml-2 font-normal text-blue-600 dark:text-blue-400">
+                    {detection.confident
+                      ? (detection.hasExplanation ? '감지: 해설이 포함된 문서로 보입니다' : '감지: 문제만 있는 문서로 보입니다')
+                      : '텍스트를 읽을 수 없는 스캔 문서 — 방식을 직접 확인해주세요'}
+                  </span>
+                )}
               </p>
+              <div className="space-y-1.5 text-sm text-slate-700 dark:text-slate-200">
+                {([
+                  { value: 'with_explanation', label: '시험+해설 일체형', desc: '문항·정답·해설을 이 파일 하나에서 모두 읽습니다' },
+                  { value: 'questions_only', label: '문제만', desc: '문항 구조만 저장 — 정오표는 나중에 올리면 정답이 반영됩니다' },
+                  { value: 'answer_key_only', label: '정오표·해설만', desc: problemImported ? '저장된 문항에 정답만 덮어씁니다' : '먼저 시험지 문항이 저장돼 있어야 합니다' },
+                ] as { value: SingleDocRole; label: string; desc: string }[]).map((option) => (
+                  <label key={option.value} className={`flex cursor-pointer items-start gap-2 rounded-[12px] px-2 py-1.5 transition hover:bg-white/70 dark:hover:bg-slate-950/40 ${option.value === 'answer_key_only' && !problemImported ? 'opacity-50' : ''}`}>
+                    <input
+                      type="radio"
+                      name="doc-role"
+                      className="mt-1"
+                      checked={docRole === option.value}
+                      disabled={option.value === 'answer_key_only' && !problemImported}
+                      onChange={() => setDocRole(option.value)}
+                    />
+                    <span>
+                      <span className="font-medium">{option.label}</span>
+                      <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">{option.desc}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
+          )}
 
-            {problemStatus.type === 'loading' ? (
-              <AnswerParseProgress
-                elapsed={elapsed}
-                processedCount={problemStatus.processedCount}
-                totalCount={problemStatus.totalCount}
-                message={problemStatus.message}
+          {(isTwoDocMode || (isSingleDocMode && docRole === 'answer_key_only')) && !anyLoading && (
+            <label className="flex items-start gap-3 rounded-[18px] bg-slate-50/90 px-4 py-3 text-xs leading-5 text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+              <Checkbox
+                checked={regradeAfterAnswerKey}
+                onCheckedChange={(checked) => setRegradeAfterAnswerKey(checked === true)}
+                className="mt-0.5"
               />
-            ) : (
-              <FileDropzone
-                file={problemFiles[0]?.file ?? null}
-                inputRef={problemInputRef}
-                onChange={handleProblemFile}
-                accept="application/pdf,image/*"
-                idleLabel="클릭해서 시험지 PDF 1개 또는 페이지 순서대로 이미지 여러 장을 선택하세요."
-                multiple
-              />
-            )}
+              <span>정답 반영 후 기존 학생 답안을 바로 재채점합니다. 문항이나 학생 답안이 많으면 시간이 오래 걸릴 수 있습니다.</span>
+            </label>
+          )}
 
-            {problemFiles.length > 0 && (
-              <OrderedFileList
-                files={problemFiles}
-                onMove={moveProblemFile}
-                onRemove={removeProblemFile}
-              />
-            )}
+          <StatusBanner status={status} />
+          <StatusBanner status={problemStatus} />
+          <StatusBanner status={answerKeyStatus} />
 
-            <StatusBanner status={problemStatus} />
+          {files.length > 0 && !selectionError && !anyLoading && !anyDone && (
+            <Button className="w-full rounded-full bg-slate-900 text-white hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-700" onClick={handleStart}>
+              <Upload className="h-4 w-4" />
+              {isTwoDocMode
+                ? '문항 저장 + 정답 반영 + 해설 생성 한 번에'
+                : docRole === 'with_explanation'
+                  ? '해설지에서 문항·정답·해설 등록'
+                  : docRole === 'questions_only'
+                    ? '시험지에서 문항 저장'
+                    : '정오표 정답 반영'}
+            </Button>
+          )}
 
-            {problemFiles.length > 0 && problemStatus.type !== 'loading' && problemStatus.type !== 'done' && (
-              answerKeyFiles.length > 0 && answerKeyStatus.type !== 'loading' ? (
-                <Button className="w-full rounded-full bg-slate-900 text-white hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-700" onClick={handleOneClickImport}>
-                  <Upload className="h-4 w-4" />
-                  문항 저장 + 정답 반영 + 해설 생성 한 번에
-                </Button>
-              ) : (
-                <Button className="w-full rounded-full bg-slate-900 text-white hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-700" onClick={handleProblemImport}>
-                  <Upload className="h-4 w-4" />
-                  시험지에서 문항 저장
-                </Button>
-              )
-            )}
-
-            {problemStatus.type === 'done' && (
-              <Button variant="outline" className="w-full rounded-full" onClick={resetProblemImportSelection}>
-                다른 시험지 선택
-              </Button>
-            )}
-          </div>
-
-          <div className={`space-y-3 rounded-[20px] p-4 shadow-[0_10px_30px_rgba(0,75,198,0.04)] ${
-            problemImported
-              ? 'bg-white/80 dark:bg-slate-950/40'
-              : 'bg-slate-50/80 opacity-70 dark:bg-slate-950/30'
-          }`}>
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">2. 정오표 업로드</p>
-              <p className="text-xs text-slate-600 dark:text-slate-400">
-                {problemImported
-                  ? '시험지 저장 후 정오표 이미지를 올리면 기존 문항에 정답만 덮어쓰고 학생 점수도 다시 계산합니다.'
-                  : '정오표를 미리 올려두면 1단계 버튼이 "한 번에 가져오기"로 바뀝니다. 시험지 저장 후 따로 반영할 수도 있습니다.'}
-              </p>
-            </div>
-
-            {answerKeyStatus.type === 'loading' ? (
-              <AnswerParseProgress
-                elapsed={elapsed}
-                processedCount={answerKeyStatus.processedCount}
-                totalCount={answerKeyStatus.totalCount}
-                message={answerKeyStatus.message}
-              />
-            ) : (
-              <FileDropzone
-                file={answerKeyFiles[0]?.file ?? null}
-                inputRef={answerKeyInputRef}
-                onChange={handleAnswerKeyFile}
-                accept="application/pdf,image/*"
-                idleLabel="클릭해서 정오표 PDF 1개 또는 페이지 순서대로 이미지 여러 장을 선택하세요."
-                multiple
-              />
-            )}
-
-            {answerKeyFiles.length > 0 && (
-              <OrderedFileList
-                files={answerKeyFiles}
-                onMove={moveAnswerKeyFile}
-                onRemove={removeAnswerKeyFile}
-              />
-            )}
-
-            {problemImported && <StatusBanner status={answerKeyStatus} />}
-
-            {answerKeyFiles.length > 0 && answerKeyStatus.type !== 'loading' && answerKeyStatus.type !== 'done' && (
-              <label className="flex items-start gap-3 rounded-[18px] bg-slate-50/90 px-4 py-3 text-xs leading-5 text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-                <Checkbox
-                  checked={regradeAfterAnswerKey}
-                  onCheckedChange={(checked) => setRegradeAfterAnswerKey(checked === true)}
-                  className="mt-0.5"
-                />
-                <span>
-                  정답 반영 후 기존 학생 답안을 바로 재채점합니다. 문항이나 학생 답안이 많으면 시간이 오래 걸릴 수 있습니다.
-                </span>
-              </label>
-            )}
-
-            {problemImported && answerKeyFiles.length > 0 && answerKeyStatus.type !== 'loading' && answerKeyStatus.type !== 'done' && (
-              <Button
-                variant="outline"
-                className="w-full rounded-full border-0 bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
-                onClick={handleAnswerKeyImport}
-              >
-                <Upload className="h-4 w-4" />
-                정오표 정답 반영
-              </Button>
-            )}
-
-            {answerKeyStatus.type === 'done' && (
-              <Button variant="outline" className="w-full rounded-full" onClick={resetAnswerKeySelection}>
-                다른 정오표 선택
-              </Button>
-            )}
-          </div>
+          {anyDone && !anyLoading && (
+            <Button variant="outline" className="w-full rounded-full" onClick={resetSelection}>
+              다른 파일 선택
+            </Button>
+          )}
         </CardContent>
       </Card>
       </div>
