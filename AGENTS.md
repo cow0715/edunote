@@ -11,10 +11,14 @@ Claude 전용 사항(자동 검증 훅)만 CLAUDE.md 에 따로 둔다. 규칙�
 - **린트 에러는 0이 기준이다.** warning 은 남아있어도 되지만 새로 늘리지 않는다.
 - `react-hooks/set-state-in-effect` 는 대부분 **렌더 중 조정**으로 풀린다:
   ```ts
-  const [synced, setSynced] = useState(key)
+  const [synced, setSynced] = useState<Key | null>(null) // sentinel — useState(key) 금지
   if (synced !== key) { setSynced(key); setDerived(...) }
   ```
   effect 안에서 setState 하기 전에 이 형태를 먼저 검토한다.
+  **초기값은 반드시 sentinel(null/undefined)로 둔다.** `useState(key)` 로 라이브 값을 넣으면
+  캐시(Zustand/react-query)가 이미 차 있는 채 재마운트될 때 "변경 없음"으로 판정돼
+  파생 state 가 빈 채로 남는다 (react-query 는 refetch 해도 데이터가 같으면 참조를 유지한다).
+  예외: 파생 state 의 초기값 자체를 같은 라이브 값으로 시드하는 경우는 `useState(key)` 여도 안전하다.
   정말 못 피하면 `eslint-disable` 하되 **왜 그런지 반드시 주석으로 남긴다.**
 - `src/lib/` 의 순수 로직을 수정하면 `tests/unit/` 에 케이스를 추가하거나 갱신한다.
 - 유닛테스트는 `tests/unit/**/*.test.ts` 만 실행된다 (vitest, `vitest.config.ts` 참고).
