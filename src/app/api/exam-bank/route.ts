@@ -1,7 +1,8 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parseExamBankPage } from '@/lib/anthropic'
-import { runParsePipeline, type PipelineFile, type ChunkPolicy, type ChunkErrorPolicy } from '@/lib/llm/pipeline'
+import { runParsePipeline, type PipelineFile } from '@/lib/llm/pipeline'
+import { propagateSharedPassage } from '@/lib/llm/postprocess'
 import { isContentFilterError } from '@/lib/llm/client'
 import { getMegastudyStats } from '@/lib/megastudy'
 import { NextResponse } from 'next/server'
@@ -75,11 +76,10 @@ async function fetchAndApplyStats(
 }
 
 // POST — 기출 시험 생성 + PDF 파싱
-// 기본은 PDF 를 통째로 1회 파싱. 콘텐츠 필터에 걸리면 같은 파일을 페이지 단위로 다시 돌려
-// 걸린 페이지만 건너뛰고 나머지 문항을 건진다.
-// (예전엔 클라이언트가 페이지별 PNG 로 렌더해 Storage 에 올리고 재요청했다. 이미지로 바꾼다고
-//  필터를 통과하는 게 아니라 '걸린 페이지만 버리는' 게 목적이었으므로 서버 재분할로 충분하다 —
-//  LLM 호출 횟수는 같고 브라우저 래스터화와 왕복만 없어진다.)
+// 경계 정렬 청킹 + 동시 4: 기출(수능/학평)은 문항이 페이지 중간에서 끊기지 않는 고정 포맷이라
+// 청킹이 안전하고, 45문항을 응답 1개에 받던 잘림 위험도 없앤다. 41~45 장문 세트가 청크 경계에
+// 걸리는 경우만 지문 전파(propagateSharedPassage)로 복구한다.
+// 실패 정책은 전 파이프라인 공통: 콘텐츠 필터(결정적)는 즉시 skip, 출력 문제만 페이지 재시도.
 export async function POST(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
@@ -115,31 +115,26 @@ export async function POST(request: Request) {
     .single()
   if (examError) return err(examError.message)
 
-  // 정책만 갈아끼워 같은 파이프라인을 두 번 쓴다.
-  // 동시 4: 페이지 모드가 순차면 44p급에서 300초를 넘는다 (실측: 청크 11 동시 2 = 641.8s — week-reading-import.ts 참고)
-  const parse = (chunk: ChunkPolicy, onChunkError: ChunkErrorPolicy) => runParsePipeline({
-    label: 'exam-bank',
-    chunk,
-    concurrency: 4,
-    onChunkError,
-    parseChunk: (file: PipelineFile) => parseExamBankPage(file.fileData, file.mimeType),
-    finalize: (qs) => qs,
-  }, files)
-
   try {
-    let questions: Awaited<ReturnType<typeof parseExamBankPage>>
-    let skippedPages: number[] = []
-    try {
-      questions = (await parse({ kind: 'whole' }, 'throw')).items
-    } catch (parseError) {
-      // 이미지 업로드는 쪼갤 게 없어서 재시도해도 같은 결과 — 그대로 올린다
-      if (!isContentFilterError(parseError) || mimeType !== 'application/pdf') throw parseError
-      console.warn('[exam-bank] 콘텐츠 필터 → 페이지 단위 재파싱')
-      const perPage = await parse({ kind: 'single-page' }, { skipIf: isContentFilterError })
-      questions = perPage.items
-      // single-page 정책에선 청크 순번 = 페이지 번호
-      skippedPages = perPage.skippedChunks
-    }
+    const result = await runParsePipeline({
+      label: 'exam-bank',
+      chunk: { kind: 'pages', pagesPerChunk: 3, alignToQuestionStart: true, maxPagesPerChunk: 5 },
+      concurrency: 4,
+      onChunkError: { retryPerPage: true, skipIf: isContentFilterError },
+      parseChunk: (file: PipelineFile) => parseExamBankPage(file.fileData, file.mimeType),
+      postProcess: [propagateSharedPassage],
+      finalize: (qs) => qs,
+    }, files)
+    const questions = result.items
+    const skippedPages = [...new Set(result.skipped.flatMap((range) => {
+      const end = range.endPage ?? range.startPage
+      return Array.from({ length: end - range.startPage + 1 }, (_, i) => range.startPage + i)
+    }))].sort((a, b) => a - b)
+
+    // 기출 번호(1~45)는 통계 매칭·해설 생성의 키라 재배정하지 않는다 — 중복은 로그로만 남긴다
+    const numbers = questions.map((q) => q.question_number)
+    const duplicates = [...new Set(numbers.filter((n, i) => numbers.indexOf(n) !== i))]
+    if (duplicates.length) console.warn('[exam-bank] 병합 후 문항 번호 중복:', duplicates.join(', '))
 
     if (questions.length === 0) {
       await supabase.from('exam_bank').delete().eq('id', exam.id)
