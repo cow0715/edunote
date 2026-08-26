@@ -555,7 +555,8 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const isDirty = JSON.stringify(editWords) !== JSON.stringify(savedWords)
 
   // 서버 프롬프트가 바뀌면 편집창 내용을 맞춘다 — 렌더 중 조정 (effect 에서 setState 하면 한 프레임 늦게 반영)
-  const [syncedPrompt, setSyncedPrompt] = useState(savedPrompt)
+  // 초기값은 sentinel(null): 쿼리 캐시가 따뜻한 채 재마운트하면 useState(savedPrompt) 는 동기화를 건너뛴다
+  const [syncedPrompt, setSyncedPrompt] = useState<string | null | undefined>(null)
   if (syncedPrompt !== savedPrompt) {
     setSyncedPrompt(savedPrompt)
     if (savedPrompt) setPromptText(savedPrompt)
@@ -600,8 +601,10 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     })))
   }, [weekId])
 
-  // 스토어의 저장본이 바뀌면 편집본을 거기에 맞춘다 — 렌더 중 조정
-  const [syncedSavedWords, setSyncedSavedWords] = useState(savedWords)
+  // 스토어의 저장본이 바뀌면 편집본을 거기에 맞춘다 — 렌더 중 조정.
+  // 초기값은 반드시 빈 배열: useState(savedWords) 로 두면 스토어에 저장본이 남은 채
+  // 재마운트(설정 닫았다 다시 열기)했을 때 "변경 없음"으로 판정돼 editWords 가 영영 빈다.
+  const [syncedSavedWords, setSyncedSavedWords] = useState(EMPTY_VOCAB_ENTRIES)
   if (syncedSavedWords !== savedWords) {
     setSyncedSavedWords(savedWords)
     if (savedWords.length > 0) setEditWords(savedWords)

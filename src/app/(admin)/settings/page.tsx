@@ -41,7 +41,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
 
   // 서버 프로필이 도착/갱신되면 편집 폼을 맞춘다 — 렌더 중 조정(effect 로 하면 첫 렌더에 빈 폼이 한 번 그려진다)
-  const [syncedProfile, setSyncedProfile] = useState(data)
+  // 초기값은 sentinel(undefined): 쿼리 캐시가 따뜻한 채 재마운트하면 useState(data) 는 동기화를 건너뛴다
+  const [syncedProfile, setSyncedProfile] = useState<typeof data>(undefined)
   if (syncedProfile !== data) {
     setSyncedProfile(data)
     if (data) {

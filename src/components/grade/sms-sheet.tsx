@@ -147,7 +147,8 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   const hasSendableMessage = messages.some((m) => m.message.trim() && sendStatus[m.student_id] !== 'success')
 
   // 서버 프롬프트가 도착/갱신되면 편집창을 맞춘다 — 렌더 중 조정
-  const [syncedPrompt, setSyncedPrompt] = useState(savedPrompt)
+  // 초기값은 sentinel(null): 쿼리 캐시가 따뜻한 채 재마운트하면 useState(savedPrompt) 는 동기화를 건너뛴다
+  const [syncedPrompt, setSyncedPrompt] = useState<string | null | undefined>(null)
   if (syncedPrompt !== savedPrompt) {
     setSyncedPrompt(savedPrompt)
     setPromptText(savedPrompt ?? SMS_RULES)

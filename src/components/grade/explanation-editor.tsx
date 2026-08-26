@@ -54,7 +54,8 @@ export function ExplanationEditor({ weekId }: Props) {
 
   // 서버 문항이 바뀌면 편집용 맵을 다시 만든다 — 렌더 중 조정.
   // (effect + exhaustive-deps 억제 주석이면 React Compiler 가 이 컴포넌트를 건너뛴다)
-  const [syncedSnapshot, setSyncedSnapshot] = useState(snapshot)
+  // 초기값은 sentinel(null): 쿼리 캐시가 따뜻한 채 재마운트하면 useState(snapshot) 은 동기화를 건너뛴다
+  const [syncedSnapshot, setSyncedSnapshot] = useState<string | null>(null)
   if (syncedSnapshot !== snapshot) {
     setSyncedSnapshot(snapshot)
     if (readingQuestions.length) {

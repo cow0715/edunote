@@ -77,7 +77,9 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
 
   // 서버 출결이 도착/갱신되면 편집용 맵을 다시 만든다 — 렌더 중 조정.
   // (effect + exhaustive-deps 억제 주석이면 React Compiler 가 이 컴포넌트를 건너뛴다)
-  const [syncedRecords, setSyncedRecords] = useState({ records, date })
+  // records 초기값은 sentinel(undefined): 쿼리 캐시가 따뜻한 채 재마운트(설정 닫았다 열기)하면
+  // useState({ records, date }) 는 동기화를 건너뛰어 statusMap 이 빈 채로 남는다
+  const [syncedRecords, setSyncedRecords] = useState<{ records: typeof records; date: string }>({ records: undefined, date })
   if (syncedRecords.records !== records || syncedRecords.date !== date) {
     setSyncedRecords({ records, date })
     if (records) {
@@ -114,7 +116,8 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
 
   // 스케줄 기반일 때 현재 날짜가 목록에 없으면 가장 가까운 날짜로 맞추기
   // 스케줄 목록이 바뀌었는데 현재 날짜가 목록에 없으면 기준일과 가장 가까운 날짜로 맞춘다 — 렌더 중 조정
-  const [syncedSchedule, setSyncedSchedule] = useState(scheduledDates)
+  // 초기값은 sentinel(undefined): 재마운트 때도 마운트 직후 한 번 검사해 목록 밖 날짜를 보정한다
+  const [syncedSchedule, setSyncedSchedule] = useState<typeof scheduledDates>(undefined)
   if (syncedSchedule !== scheduledDates) {
     setSyncedSchedule(scheduledDates)
     if (scheduledDates && scheduledDates.length > 0 && !scheduledDates.includes(date)) {

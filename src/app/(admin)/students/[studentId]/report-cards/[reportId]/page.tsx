@@ -46,7 +46,8 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
   const nextFocus = goalItems.filter(Boolean).join('\n')
 
   // 서버 성적표가 도착/갱신되면 편집 state 를 맞춘다 — 렌더 중 조정(effect 로 하면 첫 렌더에 빈 폼이 한 번 그려진다)
-  const [syncedCard, setSyncedCard] = useState(data)
+  // 초기값은 sentinel(undefined): 쿼리 캐시가 따뜻한 채 재마운트하면 useState(data) 는 동기화를 건너뛴다
+  const [syncedCard, setSyncedCard] = useState<typeof data>(undefined)
   if (syncedCard !== data) {
     setSyncedCard(data)
     if (data) {
