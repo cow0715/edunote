@@ -139,14 +139,12 @@ export async function gradeVocabPhoto(
 type VocabItem = { number: number; english_word: string; student_answer: string | null; correct_answer?: string | null }
 
 /**
- * 단어 뜻 채점 모델. 기본 Haiku (2026-08-18 전환).
+ * 단어 뜻 채점은 light(Haiku) 를 쓴다 (2026-08-18 전환).
  * 42개 경계 사례(다의어·유사어·품사·오타·-ing/-ed) 3회 비교: Sonnet 40/42 · Haiku 39/42, 시간 11.3s → 4.9s.
- * 유일한 차이는 오타 관용(가셜→가설)이 Haiku 가 약간 박한 것. 문제 생기면 환경변수로 즉시 상위 모델 전환:
- *   VOCAB_GRADING_MODEL=claude-sonnet-5
+ * 유일한 차이는 오타 관용(가셜→가설)이 Haiku 가 약간 박한 것. 채점이 짜다는 불만이 생기면
+ * 이 model 기본값만 MODELS.parse 로 바꾼다.
  */
-export const VOCAB_GRADING_MODEL = process.env.VOCAB_GRADING_MODEL || MODELS.light
-
-export async function gradeVocabItems(items: VocabItem[], customRules?: string, model: string = VOCAB_GRADING_MODEL): Promise<{ number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]> {
+export async function gradeVocabItems(items: VocabItem[], customRules?: string, model: string = MODELS.light): Promise<{ number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]> {
   const raw = await callClaudeText({
     model,
     maxTokens: 4096,
