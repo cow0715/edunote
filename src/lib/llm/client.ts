@@ -52,8 +52,23 @@ export type CallClaudeOptions = {
   stream?: boolean
 }
 
-/** Claude 호출 후 텍스트 블록을 모두 이어붙여 반환 */
-export async function callClaudeText(options: CallClaudeOptions): Promise<string> {
+export type CallClaudeUsage = {
+  inputTokens: number
+  outputTokens: number
+  /** 프롬프트 캐시에서 읽은 토큰 (0.1배 과금). 0이면 캐시 미적중 */
+  cacheReadTokens: number
+  /** 프롬프트 캐시에 새로 쓴 토큰 (1.25배 과금) */
+  cacheWriteTokens: number
+}
+
+export type CallClaudeDetailedResult = {
+  text: string
+  usage: CallClaudeUsage
+  stopReason: string | null
+}
+
+/** Claude 호출 후 텍스트와 usage·stop_reason 까지 반환 (비용 검증·잘림 감지용) */
+export async function callClaudeTextDetailed(options: CallClaudeOptions): Promise<CallClaudeDetailedResult> {
   const params = {
     model: options.model,
     max_tokens: options.maxTokens,
@@ -65,10 +80,27 @@ export async function callClaudeText(options: CallClaudeOptions): Promise<string
     ? await (await anthropic.messages.stream(params)).finalMessage()
     : await anthropic.messages.create(params)
 
-  return res.content
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text)
-    .join('\n')
+  const usage: CallClaudeUsage = {
+    inputTokens: res.usage.input_tokens,
+    outputTokens: res.usage.output_tokens,
+    cacheReadTokens: res.usage.cache_read_input_tokens ?? 0,
+    cacheWriteTokens: res.usage.cache_creation_input_tokens ?? 0,
+  }
+  console.log(`[llm] ${options.model} in=${usage.inputTokens} out=${usage.outputTokens} cache_read=${usage.cacheReadTokens} cache_write=${usage.cacheWriteTokens} stop=${res.stop_reason}`)
+
+  return {
+    text: res.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n'),
+    usage,
+    stopReason: res.stop_reason,
+  }
+}
+
+/** Claude 호출 후 텍스트 블록을 모두 이어붙여 반환 */
+export async function callClaudeText(options: CallClaudeOptions): Promise<string> {
+  return (await callClaudeTextDetailed(options)).text
 }
 
 export function extractJsonArrayCandidate(raw: string): string {

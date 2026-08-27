@@ -1,6 +1,6 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
-import { parsePdfExplanationsWithClaude } from '@/lib/anthropic'
+import { parsePdfExplanationsWithClaudeRanged } from '@/lib/anthropic'
 import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
 
 export const maxDuration = 300
@@ -47,9 +47,11 @@ export async function POST(
 
   const buffer = await fileBlob.arrayBuffer()
 
+  // 출력 범위 분할(3콜 + 프롬프트 캐싱): 통짜 1콜은 31p급 모평 해설지에서 maxTokens 잘림으로
+  // 전체 실패가 실측됨(2026-08-26 비교 실험). 범위 분할은 28/28 완주.
   let explanations
   try {
-    explanations = await parsePdfExplanationsWithClaude(buffer)
+    explanations = (await parsePdfExplanationsWithClaudeRanged(buffer)).items
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return err(`Claude Vision 파싱 실패: ${msg}`, 500)

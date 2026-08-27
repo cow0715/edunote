@@ -1,9 +1,7 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
-import { parseExamBankPage } from '@/lib/anthropic'
-import { runParsePipeline, type PipelineFile } from '@/lib/llm/pipeline'
-import { propagateSharedPassage } from '@/lib/llm/postprocess'
-import { isContentFilterError } from '@/lib/llm/client'
+import { parseExamBankPageRanged } from '@/lib/anthropic'
+import type { PipelineFile } from '@/lib/llm/pipeline'
 import { getMegastudyStats } from '@/lib/megastudy'
 import { NextResponse } from 'next/server'
 
@@ -76,10 +74,9 @@ async function fetchAndApplyStats(
 }
 
 // POST — 기출 시험 생성 + PDF 파싱
-// 경계 정렬 청킹 + 동시 4: 기출(수능/학평)은 문항이 페이지 중간에서 끊기지 않는 고정 포맷이라
-// 청킹이 안전하고, 45문항을 응답 1개에 받던 잘림 위험도 없앤다. 41~45 장문 세트가 청크 경계에
-// 걸리는 경우만 지문 전파(propagateSharedPassage)로 복구한다.
-// 실패 정책은 전 파이프라인 공통: 콘텐츠 필터(결정적)는 즉시 skip, 출력 문제만 페이지 재시도.
+// 출력 범위 분할(캐시 예열 → 5범위 병렬): 기출은 번호가 18~45 고정이라 출력을 선험 분할할 수 있고,
+// 매 콜 문서 전체를 보므로 지문 분리 문제가 없다. 실측(8p 모평, 2026-08-26): whole 256s →
+// 입력 청킹 133s → 범위 분할이 추가 단축. 필터는 걸린 범위만 skip 하고 결손 번호를 보고한다.
 export async function POST(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
@@ -116,25 +113,12 @@ export async function POST(request: Request) {
   if (examError) return err(examError.message)
 
   try {
-    const result = await runParsePipeline({
-      label: 'exam-bank',
-      chunk: { kind: 'pages', pagesPerChunk: 3, alignToQuestionStart: true, maxPagesPerChunk: 5 },
-      concurrency: 4,
-      onChunkError: { retryPerPage: true, skipIf: isContentFilterError },
-      parseChunk: (file: PipelineFile) => parseExamBankPage(file.fileData, file.mimeType),
-      postProcess: [propagateSharedPassage],
-      finalize: (qs) => qs,
-    }, files)
+    const [file] = files
+    const result = await parseExamBankPageRanged(file.fileData, file.mimeType)
     const questions = result.items
-    const skippedPages = [...new Set(result.skipped.flatMap((range) => {
-      const end = range.endPage ?? range.startPage
-      return Array.from({ length: end - range.startPage + 1 }, (_, i) => range.startPage + i)
-    }))].sort((a, b) => a - b)
-
-    // 기출 번호(1~45)는 통계 매칭·해설 생성의 키라 재배정하지 않는다 — 중복은 로그로만 남긴다
-    const numbers = questions.map((q) => q.question_number)
-    const duplicates = [...new Set(numbers.filter((n, i) => numbers.indexOf(n) !== i))]
-    if (duplicates.length) console.warn('[exam-bank] 병합 후 문항 번호 중복:', duplicates.join(', '))
+    // 필터로 skip 된 범위의 번호들 — 페이지 개념이 없어졌으므로 문항 번호로 결손을 보고한다
+    const skippedQuestions = result.skippedRanges.flatMap(([start, end]) =>
+      Array.from({ length: end - start + 1 }, (_, i) => start + i))
 
     if (questions.length === 0) {
       await supabase.from('exam_bank').delete().eq('id', exam.id)
@@ -164,7 +148,8 @@ export async function POST(request: Request) {
       ok: true,
       exam_id: exam.id,
       question_count: questions.length,
-      skipped_pages: skippedPages,
+      // 하위호환 필드명 유지 — 값은 결손 문항 번호 (범위 분할엔 페이지 개념이 없음)
+      skipped_pages: skippedQuestions,
       stats_fetched: statsFetched,
     })
   } catch (e) {
