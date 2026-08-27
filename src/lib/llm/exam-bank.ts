@@ -4,7 +4,8 @@ import { jsonrepair } from 'jsonrepair'
 import { mapWithConcurrency } from '../concurrency'
 import { EXAM_BANK_PARSE_RULES } from '../prompts'
 import type { ParsedExplanation } from '../explanation-parser'
-import { buildFileBlock, callClaudeText, callClaudeTextDetailed, extractJsonArrayCandidate, isContentFilterError, parseJsonArrayResponse, type CallClaudeUsage, type ContentBlock } from './client'
+import { buildFileBlock, callClaudeText, extractJsonArrayCandidate, isContentFilterError, parseJsonArrayResponse } from './client'
+import { prewarmPdfCache, rangedParseCall, type RangedCallStats } from './ranged'
 
 export type ExamBankParsedQuestion = {
   question_number: number
@@ -62,14 +63,15 @@ export async function parseExamBankPageRanged(
   mimeType: string,
 ): Promise<ExamBankRangedResult> {
   const model = 'claude-sonnet-4-6'
-  const warmStats = await prewarmPdfCache({ base64: fileData, mimeType, model, prompt: EXAM_BANK_PARSE_RULES })
+  const files = [{ fileData, mimeType }]
+  const warmStats = await prewarmPdfCache({ files, model, prompt: EXAM_BANK_PARSE_RULES })
 
   const skippedRanges: [number, number][] = []
   const parts = await Promise.all(EXAM_BANK_QUESTION_RANGES.map(async (range) => {
     try {
       return await rangedParseCall<ExamBankParsedQuestion>({
-        base64: fileData, mimeType, model, maxTokens: 8192,
-        prompt: EXAM_BANK_PARSE_RULES, range, label: 'parseExamBankPageRanged',
+        files, model, maxTokens: 8192,
+        prompt: EXAM_BANK_PARSE_RULES, scope: { range }, label: 'parseExamBankPageRanged',
       })
     } catch (error) {
       // 필터(결정적)는 그 범위만 결손 처리 — 재시도해도 같은 출력 요구라 결과가 안 바뀐다
@@ -248,68 +250,17 @@ JSON 배열만 출력 (다른 텍스트 없이):
 /** 출력 범위 4분할 (18~45 독해 영역). 캐시 예열 후 전 범위 병렬이므로 분할 수 = 병렬 폭 */
 const EXPLANATION_RANGES: [number, number][] = [[18, 24], [25, 31], [32, 38], [39, 45]]
 
-export type ExplanationCallStats = CallClaudeUsage & {
-  stopReason: string | null
-  ms: number
-  range: [number, number] | null
-}
+/** @deprecated 이름 유지용 별칭 — 코어의 RangedCallStats 를 그대로 쓴다 */
+export type ExplanationCallStats = RangedCallStats
 
 export type ExplanationParseDetail = {
   items: ParsedExplanation[]
   calls: ExplanationCallStats[]
 }
 
-function rangeInstruction([start, end]: [number, number]): string {
-  return `[범위 지시] 이번 호출에서는 ${start}번부터 ${end}번까지의 문항만 추출해 출력하세요. 다른 번호의 문항은 절대 출력하지 마세요.`
-}
-
-/**
- * 범위 파싱 1콜 (범용). 프롬프트 블록을 캐시 경계로 삼아(파일+프롬프트 캐시)
- * 범위 지시만 뒤에 붙인다 — 콜 간 접두부가 동일해야 캐시가 적중한다.
- * range 가 null 이면 통짜 1콜 (캐시 미사용).
- */
-async function rangedParseCall<T extends { question_number: number }>(opts: {
-  base64: string
-  mimeType?: string
-  model: string
-  maxTokens: number
-  prompt: string
-  range: [number, number] | null
-  label: string
-}): Promise<{ items: T[]; stats: ExplanationCallStats }> {
-  const fileBlock = buildFileBlock(opts.base64, opts.mimeType ?? 'application/pdf')
-  const content: ContentBlock[] = opts.range
-    ? [fileBlock, { type: 'text', text: opts.prompt, cache_control: { type: 'ephemeral' } }, { type: 'text', text: rangeInstruction(opts.range) }]
-    : [fileBlock, { type: 'text', text: opts.prompt }]
-
-  const started = Date.now()
-  const { text, usage, stopReason } = await callClaudeTextDetailed({
-    model: opts.model,
-    maxTokens: opts.maxTokens,
-    content,
-  })
-  const parsed = parseJsonArrayResponse<T>(text, opts.label)
-    .filter((e) => e.question_number >= (opts.range?.[0] ?? 18) && e.question_number <= (opts.range?.[1] ?? 45))
-  return { items: parsed, stats: { ...usage, stopReason, ms: Date.now() - started, range: opts.range } }
-}
-
-/** 캐시 예열: max_tokens 0 — 파일+프롬프트를 읽어 캐시에 올리기만 하고 출력은 없다 (실측 31p 7.6s) */
-async function prewarmPdfCache(opts: {
-  base64: string
-  mimeType?: string
-  model: string
-  prompt: string
-}): Promise<ExplanationCallStats> {
-  const started = Date.now()
-  const warm = await callClaudeTextDetailed({
-    model: opts.model,
-    maxTokens: 0,
-    content: [
-      buildFileBlock(opts.base64, opts.mimeType ?? 'application/pdf'),
-      { type: 'text', text: opts.prompt, cache_control: { type: 'ephemeral' } },
-    ],
-  })
-  return { ...warm.usage, stopReason: warm.stopReason, ms: Date.now() - started, range: null }
+/** 통짜(스코프 없는) 콜은 코어가 번호 필터를 안 하므로 독해 영역(18~45)만 남긴다 */
+function filterReadingRange(items: ParsedExplanation[]): ParsedExplanation[] {
+  return items.filter((e) => e.question_number >= 18 && e.question_number <= 45)
 }
 
 /**
@@ -322,10 +273,11 @@ async function parseExplanationsRanged(
   prompt: string,
   label: string,
 ): Promise<ExplanationParseDetail> {
-  const warmStats = await prewarmPdfCache({ base64, model: 'claude-opus-4-7', prompt })
+  const files = [{ fileData: base64, mimeType: 'application/pdf' }]
+  const warmStats = await prewarmPdfCache({ files, model: 'claude-opus-4-7', prompt })
 
   const parts = await Promise.all(EXPLANATION_RANGES.map((range) =>
-    rangedParseCall<ParsedExplanation>({ base64, model: 'claude-opus-4-7', maxTokens: 16000, prompt, range, label })))
+    rangedParseCall<ParsedExplanation>({ files, model: 'claude-opus-4-7', maxTokens: 16000, prompt, scope: { range }, label })))
 
   const byNumber = new Map<number, ParsedExplanation>()
   for (const part of parts) {
@@ -367,27 +319,10 @@ JSON 배열만 출력 (다른 텍스트 없이):
   ...
 ]`
 
-/**
- * 평가원형(수능/모평) 해설 PDF 통짜 1콜 파싱.
- * unpdf가 한국어 폰트 인코딩을 읽지 못하는 EBS PDF 등에서 fallback으로 사용.
- */
-export async function parsePdfExplanationsWithClaude(
-  buffer: ArrayBuffer,
-): Promise<ParsedExplanation[]> {
-  const base64 = Buffer.from(buffer).toString('base64')
-  try {
-    const { items } = await rangedParseCall<ParsedExplanation>({
-      base64, model: 'claude-opus-4-7', maxTokens: 16000,
-      prompt: SUNEUNG_EXPLANATION_PROMPT, range: null, label: 'parsePdfExplanationsWithClaude',
-    })
-    return items
-  } catch (e) {
-    console.error('[parsePdfExplanationsWithClaude] 실패:', e)
-    throw new Error(`Claude Vision PDF 파싱 실패: ${e instanceof Error ? e.message : e}`)
-  }
-}
+// 평가원형 통짜 1콜 파서는 삭제됨 — 31p 모평에서 maxTokens 잘림으로 전체 실패가 실측돼
+// (2026-08-26) 범위 분할이 전면 대체했다. 학평형 통짜는 라우트가 아직 써서 유지.
 
-/** 평가원형 해설 PDF 출력 범위 분할 파싱 (통째 입력 + 캐싱 + 3콜) */
+/** 평가원형 해설 PDF 출력 범위 분할 파싱 (통째 입력 + 캐싱 + 범위 병렬) */
 export async function parsePdfExplanationsWithClaudeRanged(
   buffer: ArrayBuffer,
 ): Promise<ExplanationParseDetail> {
@@ -427,10 +362,10 @@ export async function parsePdfExplanationsHakpyung(
   const base64 = Buffer.from(buffer).toString('base64')
   try {
     const { items } = await rangedParseCall<ParsedExplanation>({
-      base64, model: 'claude-opus-4-7', maxTokens: 16000,
-      prompt: HAKPYUNG_EXPLANATION_PROMPT, range: null, label: 'parsePdfExplanationsHakpyung',
+      files: [{ fileData: base64, mimeType: 'application/pdf' }], model: 'claude-opus-4-7', maxTokens: 16000,
+      prompt: HAKPYUNG_EXPLANATION_PROMPT, scope: null, label: 'parsePdfExplanationsHakpyung',
     })
-    return items
+    return filterReadingRange(items)
   } catch (e) {
     console.error('[parsePdfExplanationsHakpyung] 실패:', e)
     throw new Error(`학평 Vision PDF 파싱 실패: ${e instanceof Error ? e.message : e}`)

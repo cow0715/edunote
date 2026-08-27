@@ -3,12 +3,10 @@ import { buildQuestionTextFromParts, ensureChoiceMarker } from '@/lib/question-s
 import {
   gradeSubjectiveAnswers,
   parseAnswerSheet,
-  parseProblemSheetAnswerKeyFile,
-  parseWeekProblemSheetPage,
+  parseAnswerSheetRanged,
 } from '@/lib/anthropic'
 import type {
   ParsedAnswer,
-  ProblemSheetAnswerKeyItem,
   SourceBBox,
   SubjectiveStudentAnswer,
   TagCategory,
@@ -16,10 +14,10 @@ import type {
 } from '@/lib/anthropic'
 import { recalcReadingCorrect, gradeMultiSelect, gradeOX } from '@/lib/grade-utils'
 
-import { getPdfPageCount, getPdfPageTexts, pageStartsWithQuestion, planAlignedPageChunks, splitPdfByRangesBase64 } from '@/lib/pdf'
+import { getPdfPageCount } from '@/lib/pdf'
 import { runParsePipeline, type PipelineFile, type SkippedRange } from '@/lib/llm/pipeline'
 import { isContentFilterError } from '@/lib/llm/client'
-import { coerceQuestionNumber, renumberDuplicateQuestions, propagateSharedPassage } from '@/lib/llm/postprocess'
+import { coerceQuestionNumber } from '@/lib/llm/postprocess'
 
 export type MatchTagId = (questionType: string | null, questionStyle?: string | null) => string | null
 
@@ -43,15 +41,6 @@ export type ProblemSheetUploadInput = {
   fileName?: string
   pageOffset?: number
 }
-
-/** 문제지형 청크 정책: 3페이지씩, 문항 경계에 맞춰 자름 (지문이 페이지를 넘어가면 최대 5페이지까지 늘림) */
-const PROBLEM_SHEET_CHUNK_POLICY = { kind: 'pages', pagesPerChunk: 3, alignToQuestionStart: true, maxPagesPerChunk: 5 } as const
-/** 청크 동시 처리 수 — Anthropic rate limit 예산과 맞바꾸는 값.
- * 실측(44p 내신 PDF, 청크 11): 동시 2 = 641.8s, 동시 6 = 260.6s (2.5배). 계정 한도는
- * sonnet ITPM 10M/분(Scale 티어)이라 이 규모에선 병목이 아니다. 단, 이 값만큼 요청이
- * 길어지는 게 아니라 "한 함수 안에서" 도는 legacy 경로 총시간을 줄일 뿐이고,
- * 큰 문서는 청크 분리 경로(import-plan/chunk/finalize)를 탄다. */
-const PDF_PARSE_CONCURRENCY = 4
 
 /** 파일 데이터 없는 입력(storagePath 만 있는 것)은 파이프라인에 넣기 전에 resolve 돼 있어야 한다 */
 function toPipelineFiles(files: ProblemSheetUploadInput[]): PipelineFile[] {
@@ -422,30 +411,9 @@ function normalizeSourceFieldsForChunk<T extends {
   return result
 }
 
-/** 공통 실패 정책: 콘텐츠 필터(결정적)는 즉시 skip, 출력 문제는 페이지 단위 재시도 후 skip 판별 */
-const PARSE_FAILURE_POLICY = { retryPerPage: true, skipIf: isContentFilterError } as const
-
-async function parseProblemSheetQuestionInputs(
-  files: ProblemSheetUploadInput[],
-  tagCategories: TagCategory[] = [],
-): Promise<{ questions: WeekProblemSheetQuestion[]; skipped: SkippedRange[] }> {
-  const { items, skipped } = await runParsePipeline<WeekProblemSheetQuestion, WeekProblemSheetQuestion>({
-    label: 'week-problem-sheet',
-    chunk: PROBLEM_SHEET_CHUNK_POLICY,
-    concurrency: PDF_PARSE_CONCURRENCY,
-    onChunkError: PARSE_FAILURE_POLICY,
-    parseChunk: (file) => parseWeekProblemSheetPage(file.fileData, file.mimeType, tagCategories),
-    normalizeChunk: (parsed, file) => normalizeSourceFieldsForChunk(parsed, file)
-      .map((question) => ({ ...question, question_style: normalizeQuestionStyle(question.question_style) })),
-    postProcess: [renumberDuplicateQuestions, propagateSharedPassage],
-    finalize: (questions) => questions,
-  }, toPipelineFiles(files))
-  return { questions: items, skipped }
-}
-
 /**
  * 해설지형 통짜 파싱 (문항+정답+해설을 한 콜에).
- * 해설 섹션 경계를 못 찾는 문서(마커 없음·스캔형·이미지·복수 파일)의 폴백 경로.
+ * 범위 분할(기본 경로)이 실패한 문서의 폴백 경로.
  */
 async function parseAnswerSheetWhole(
   files: ProblemSheetUploadInput[],
@@ -472,490 +440,60 @@ async function parseAnswerSheetWhole(
   return { answers: items, skipped }
 }
 
-// ── 해설지통합형 분할 파싱 ─────────────────────────────────────────────────
-// 통합형은 "문항부 전체 → 해설부(끝 1~2페이지)" 배치가 고정이다. 해설 섹션 헤더를 찾으면
-// 문항부는 문제지형 청킹 파이프라인(병렬), 해설부는 통짜 1콜로 나눠 파싱하고 번호로 병합한다.
-// → 통짜 1콜의 순차 병목·거대 응답(문항+정답+해설 전부) 잘림 위험·필터 전체 실패를 해소.
-
-/** "정답 및 해설" 류 섹션 헤더. 문항 안 문구 오탐을 피해 페이지 첫머리 부근에서만 찾는다 */
-const EXPLANATION_SECTION_HEADER = /정\s*답\s*(?:및|과)?\s*해\s*설/
-
 /**
- * 해설 섹션이 시작되는 페이지 인덱스(0-base). 못 찾거나 첫 페이지면 null (분할 불가 → 통짜 폴백).
- * detectExplanationSection(있/없 판정)과 달리 헤더급 마커만 쓴다 — "[해설]" 류 문항 내 마커로
- * 잘못 자르면 문항부가 해설부로 넘어가 구조 추출이 통째로 빠지기 때문.
+ * 해설지통합형 출력 범위 분할: 번호 발견 콜(캐시 예열 겸) → 번호 그룹 병렬 파싱 → 병합.
+ * 문서를 자르지 않으므로 경계 탐지·백지 슬라이스 폴백이 불필요하고, 매 콜 문서 전체를 보므로
+ * 문항부-해설부 짝맞추기가 자동이다. whole 경로와 동일한 정규화 체인을 병합 결과에 적용한다.
+ * (단일 파일 전용)
  */
-export function findExplanationSectionStartPage(pageTexts: string[]): number | null {
-  for (let index = 1; index < pageTexts.length; index += 1) {
-    const head = pageTexts[index].replace(/^\s+/, '').slice(0, 160)
-    if (EXPLANATION_SECTION_HEADER.test(head)) return index
+export async function parseAnswerSheetDocumentRanged(
+  files: ProblemSheetUploadInput[],
+  tagCategories: TagCategory[] = [],
+): Promise<{ answers: ParsedAnswer[]; discoveredNumbers: number[]; skippedNumbers: number[] }> {
+  if (!files.length || files.some((file) => !file.fileData)) {
+    throw new Error('업로드 파일 데이터를 읽지 못했습니다.')
   }
-  return null
+  // 파일 1~N개 (통합형 1개 / 시험지+해설지 세트 / 낱장 사진 묶음) — 순서대로 전부 첨부
+  const result = await parseAnswerSheetRanged(
+    files.map((file) => ({ fileData: file.fileData!, mimeType: file.mimeType })), tagCategories)
+
+  const [pipelineFile] = toPipelineFiles(files)
+  let answers: ParsedAnswer[] = normalizeSourceFieldsForChunk(result.items, pipelineFile)
+    .map((answer) => ({
+      ...answer,
+      needs_source_image: shouldStoreSourceImage(answer),
+      source_image_reason: answer.source_image_reason ?? null,
+    }))
+  answers = normalizeParsedAnswers(answers)
+    .map((answer) => answer.question_text
+      ? { ...answer, question_text: applyUnderlineMarkupToQuestionText(answer.question_text) }
+      : answer)
+  return { answers, discoveredNumbers: result.discoveredNumbers, skippedNumbers: result.skippedNumbers }
 }
 
 /**
- * 분할 파싱 병합 (순수 함수): 구조(발문·지문·선지·원본이미지)는 문항부에서,
- * 정답·해설·유형(답안 형식 기반)·소문항 분리는 해설부에서 가져온다.
- * - 해설부에만 있는 번호는 해설부 항목 그대로 (문항부 결손 대비)
- * - 문항부에만 있는 번호는 정답 없는 문항으로 유지 (해설부 결손 대비)
- */
-export function mergeProblemStructureWithAnswerItems(
-  questions: WeekProblemSheetQuestion[],
-  answerItems: ParsedAnswer[],
-): ParsedAnswer[] {
-  const structureByNumber = new Map<number, ParsedAnswer>()
-  for (const question of questions) {
-    if (!structureByNumber.has(question.question_number)) {
-      structureByNumber.set(question.question_number, toParsedAnswerFromProblemSheetQuestion(question))
-    }
-  }
-
-  const merged: ParsedAnswer[] = []
-  const answeredNumbers = new Set<number>()
-  for (const item of answerItems) {
-    answeredNumbers.add(item.question_number)
-    const base = structureByNumber.get(item.question_number)
-    if (!base) {
-      merged.push(item)
-      continue
-    }
-    merged.push({
-      ...item,
-      question_text: base.question_text,
-      question_stem: base.question_stem,
-      passage: base.passage,
-      choices: base.choices,
-      question_type: base.question_type ?? item.question_type,
-      needs_source_image: base.needs_source_image,
-      source_image_reason: base.source_image_reason,
-      source_page: base.source_page,
-      source_bbox: base.source_bbox,
-    })
-  }
-
-  for (const [number, base] of structureByNumber) {
-    if (!answeredNumbers.has(number)) merged.push(base)
-  }
-
-  return merged.sort((a, b) =>
-    a.question_number - b.question_number || (a.sub_label ?? '').localeCompare(b.sub_label ?? ''))
-}
-
-/**
- * 해설지형 진입점: 해설 섹션 경계를 찾으면 문항부(청킹 병렬)/해설부(통짜) 분할 파싱,
- * 못 찾으면 기존 통짜 1콜. 시그니처·반환은 기존과 동일해 라우트 무변경.
+ * 해설지형 진입점 — 2단 폴백:
+ * ① 출력 범위 분할 (번호 발견 → 그룹 병렬, 문서 안 자름 — 기본 경로, 실측: 숭문 7p 84s)
+ *    파일 1~N개 지원: 통합형 1개 / 시험지+해설지 세트 / 낱장 사진 묶음
+ * ② 통짜 1콜 (①이 실패한 문서)
  */
 export async function parseAnswerSheetDocument(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
-): Promise<{ answers: ParsedAnswer[]; skipped: SkippedRange[] }> {
-  const single = files.length === 1 ? files[0] : null
-  if (single?.fileData && single.mimeType === 'application/pdf') {
-    const pageTexts = await getPdfPageTexts(single.fileData).catch(() => null)
-    const boundary = pageTexts ? findExplanationSectionStartPage(pageTexts) : null
-    if (boundary !== null && pageTexts) {
-      console.log(`[week-answer-sheet] 해설 섹션 감지 p${boundary + 1} — 문항부/해설부 분할 파싱`)
-      // slicePdfRangeSafe: 일부 PDF 는 슬라이스가 백지가 된다 (실측: 숭문 진단평가) — 렌더 재조립 폴백 포함
-      const [problemData, answerData] = await Promise.all([
-        slicePdfRangeSafe(single.fileData, { startPage: 0, endPage: boundary }),
-        slicePdfRangeSafe(single.fileData, { startPage: boundary, endPage: pageTexts.length }),
-      ])
-      const [problemPart, answerPart] = await Promise.all([
-        parseProblemSheetQuestionInputs(
-          [{ fileData: problemData, mimeType: single.mimeType, fileName: single.fileName }], tagCategories),
-        parseAnswerSheetWhole(
-          [{ fileData: answerData, mimeType: single.mimeType, fileName: single.fileName, pageOffset: boundary }], tagCategories),
-      ])
-      return {
-        answers: mergeProblemStructureWithAnswerItems(problemPart.questions, answerPart.answers),
-        skipped: [...problemPart.skipped, ...answerPart.skipped],
+): Promise<{ answers: ParsedAnswer[]; skipped: SkippedRange[]; skippedQuestionNumbers?: number[] }> {
+  if (files.length && files.every((file) => file.fileData)) {
+    try {
+      const ranged = await parseAnswerSheetDocumentRanged(files, tagCategories)
+      if (ranged.answers.length) {
+        return { answers: ranged.answers, skipped: [], skippedQuestionNumbers: ranged.skippedNumbers }
       }
+      console.warn('[week-answer-sheet] 범위 분할 결과 0건 — 통짜 폴백')
+    } catch (error) {
+      console.warn('[week-answer-sheet] 범위 분할 실패 — 통짜 폴백:',
+        error instanceof Error ? error.message : error)
     }
   }
   return parseAnswerSheetWhole(files, tagCategories)
-}
-
-function normalizeQuestionStyle(
-  style: string | null | undefined,
-): 'objective' | 'subjective' | 'ox' | 'multi_select' {
-  if (style === 'subjective' || style === 'ox' || style === 'multi_select') return style
-  return 'objective'
-}
-
-function buildStoredQuestionText(question: {
-  question_text: string
-  passage: string
-  choices: string[]
-}): string | null {
-  const parts = buildStructuredQuestionParts(question)
-  return buildQuestionTextFromParts({
-    questionStem: parts.question_stem,
-    passage: parts.passage,
-    choices: parts.choices,
-  })
-}
-
-function buildStructuredQuestionParts(question: {
-  question_text: string
-  passage: string
-  choices: string[]
-}) {
-  const normalized = normalizeQuestionVisualMarkup(question)
-  return {
-    question_stem: normalizeQuestionTextSpacing(normalized.question_text) || null,
-    passage: normalizeQuestionTextSpacing(normalized.passage) || null,
-    choices: normalized.choices
-      .map((choice, index) => ensureChoiceMarker(normalizeQuestionTextSpacing(choice), index))
-      .filter(Boolean),
-  }
-}
-
-function extractChoicesFromStoredQuestionText(raw: string | null): string[] {
-  return (raw ?? '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => /^\d+\.\s+/.test(line))
-    .map((line) => line.replace(/^\d+\.\s+/, '').trim())
-}
-
-function toParsedAnswerFromProblemSheetQuestion(question: WeekProblemSheetQuestion): ParsedAnswer {
-  const parts = buildStructuredQuestionParts(question)
-  return {
-    question_number: question.question_number,
-    sub_label: null,
-    question_style: question.question_style,
-    question_type: question.question_type,
-    correct_answer: 0,
-    correct_answer_text: null,
-    grading_criteria: null,
-    explanation: null,
-    question_text: buildStoredQuestionText(question),
-    question_stem: parts.question_stem,
-    passage: parts.passage,
-    choices: parts.choices,
-    needs_source_image: shouldStoreSourceImage(question),
-    source_image_reason: question.source_image_reason ?? null,
-    source_page: question.source_page ?? null,
-    source_bbox: question.source_bbox ?? null,
-  }
-}
-
-export async function parseProblemSheetQuestionsOnly(
-  files: ProblemSheetUploadInput[],
-  tagCategories: TagCategory[] = [],
-): Promise<{ answers: ParsedAnswer[]; skipped: SkippedRange[] }> {
-  if (!files.length) {
-    throw new Error('시험지 파일이 없습니다.')
-  }
-
-  const { questions, skipped } = await parseProblemSheetQuestionInputs(files, tagCategories)
-
-  if (!questions.length) {
-    throw new Error('시험지에서 문항 구조를 찾지 못했습니다.')
-  }
-
-  return { answers: questions.map(toParsedAnswerFromProblemSheetQuestion), skipped }
-}
-
-// ── 문제지형 청크 분리 가져오기 (Vercel maxDuration 대응) ─────────────────
-// 계획(경계 계산) → 청크별 파싱(요청 분리, 결과는 스테이징) → finalize(전역 후처리 + 저장)
-// 를 별도 HTTP 요청으로 나누기 위한 단계별 함수. 후처리(번호 재배정·지문 전파)는
-// 전 청크가 모여야 하므로 반드시 finalize 에서만 실행한다.
-
-export type ProblemSheetChunkRange = { startPage: number; endPage: number }
-
-/** 청크 파싱 결과 스테이징 JSON 의 저장 경로 (exam-pdf-temp 버킷 내, 원본 옆) */
-export function problemSheetStagingPath(storagePath: string, chunkIndex: number) {
-  return `${storagePath}.chunks/${chunkIndex}.json`
-}
-
-const EXPLANATION_SECTION_MARKERS = new RegExp([
-  /정\s*답\s*(및|과)\s*해\s*설/.source,          // "정답 및 해설" 헤더 (숭문형)
-  /[[{【]\s*(해설|해석|풀이|어휘)\s*[\]}】]/.source, // "{해석}" "{풀이}" "[해설]" 류 섹션 마커 (예열TEST형)
-  /^\s*해설\s*[:：]/.source,
-  /오답\s*(분석|풀이)/.source,
-  /정답\s*해설/.source,
-  /\d+\s*\.\s*[가-힣]{0,6}\s*[①②③④⑤]/.source,  // "1. 제목 ⑤" — 번호+유형+정답 기호 라인
-].join('|'), 'm')
-
-/**
- * 문서에 해설 섹션이 있는지 텍스트로 감지 (LLM 0콜) — 단일 파일 업로드 시 토글 기본값용.
- * confident=false 는 텍스트 추출 실패(스캔형)로 판단 근거가 없다는 뜻 — 기본값은 해설 포함
- * (해설지형 통짜 파서가 문항 구조도 같이 뽑으므로 안전한 쪽).
- */
-export function detectExplanationSection(pageTexts: string[] | null): { hasExplanation: boolean; confident: boolean } {
-  const usable = (pageTexts ?? []).filter((text) => text.replace(/[^\p{L}\p{N}]/gu, '').length >= 20)
-  if (!usable.length) return { hasExplanation: true, confident: false }
-  return {
-    hasExplanation: usable.some((text) => EXPLANATION_SECTION_MARKERS.test(text)),
-    confident: true,
-  }
-}
-
-/** 청크 경계 계산 (LLM 0콜). 텍스트 추출 실패 시 파일 전체 1청크. range 로 문항부만 계획 가능 */
-export async function planProblemSheetChunks(fileData: string, mimeType: string): Promise<ProblemSheetChunkRange[]> {
-  if (mimeType !== 'application/pdf') return [{ startPage: 0, endPage: 1 }]
-  const pageTexts = await getPdfPageTexts(fileData).catch(() => null)
-  if (!pageTexts) {
-    const pageCount = await getPdfPageCount(fileData).catch(() => 1)
-    return [{ startPage: 0, endPage: pageCount }]
-  }
-  if (pageTexts.length <= PROBLEM_SHEET_CHUNK_POLICY.pagesPerChunk) {
-    return [{ startPage: 0, endPage: pageTexts.length }]
-  }
-  return planAlignedPageChunks(
-    pageTexts.map(pageStartsWithQuestion),
-    PROBLEM_SHEET_CHUNK_POLICY.pagesPerChunk,
-    PROBLEM_SHEET_CHUNK_POLICY.maxPagesPerChunk,
-  )
-}
-
-/** 페이지들을 PNG 로 렌더해 이미지 PDF 로 재조립 (pdf-lib 슬라이스 백지 대응 폴백) */
-async function buildImagePdfFromPages(fileData: string, range: ProblemSheetChunkRange): Promise<string> {
-  const { PDFDocument } = await import('pdf-lib')
-  const doc = await PDFDocument.create()
-  for (let page = range.startPage + 1; page <= range.endPage; page += 1) {
-    const rendered = await renderPdfPageToPng(fileData, page)
-    const image = await doc.embedPng(rendered.buffer)
-    const pdfPage = doc.addPage([image.width, image.height])
-    pdfPage.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height })
-  }
-  return Buffer.from(await doc.save()).toString('base64')
-}
-
-function pageTextsHaveContent(texts: string[] | null | undefined): boolean {
-  return (texts ?? []).some((text) => text.replace(/\s+/g, '').length >= 20)
-}
-
-/**
- * 페이지 범위 슬라이스 — 일부 PDF(폰트 구조 특이)는 pdf-lib copyPages 가 백지를 만든다
- * (실측: 숭문 진단평가 — 원본은 텍스트 추출이 되는데 슬라이스는 전 페이지 0자 → LLM 이 빈 배열 반환).
- * 원본 범위엔 텍스트가 있는데 슬라이스에서 사라졌으면 페이지 렌더(PNG) 재조립으로 폴백한다.
- */
-export async function slicePdfRangeSafe(fileData: string, range: ProblemSheetChunkRange): Promise<string> {
-  const [cut] = await splitPdfByRangesBase64(fileData, [range])
-  const originalTexts = await getPdfPageTexts(fileData).catch(() => null)
-  const originalHasText = pageTextsHaveContent(originalTexts?.slice(range.startPage, range.endPage))
-  if (!originalHasText) return cut.fileData // 스캔형 등 원본부터 텍스트 없음 — 슬라이스 신뢰
-  const cutTexts = await getPdfPageTexts(cut.fileData).catch(() => null)
-  if (pageTextsHaveContent(cutTexts)) return cut.fileData
-  console.warn(`[slicePdfRangeSafe] 슬라이스 텍스트 유실 → 페이지 렌더 재조립 (p${range.startPage + 1}~${range.endPage})`)
-  return buildImagePdfFromPages(fileData, range)
-}
-
-/**
- * 청크 1개 파싱: 원본에서 페이지 범위를 잘라 LLM 파싱 후 청크 단위 보정까지 적용.
- * 전역 후처리는 하지 않은 원시 문항을 돌려준다 (finalize 입력용).
- * 실패 시 파이프라인의 retry-per-page 가 페이지 단위 재시도를 해준다.
- */
-export async function parseProblemSheetChunkForStaging(params: {
-  fileData: string
-  mimeType: string
-  range: ProblemSheetChunkRange
-  tagCategories?: TagCategory[]
-}): Promise<{ items: WeekProblemSheetQuestion[]; skipped: SkippedRange[] }> {
-  const { fileData, mimeType, range, tagCategories = [] } = params
-  let chunkData = fileData
-  let pageOffset = 0
-  if (mimeType === 'application/pdf') {
-    chunkData = await slicePdfRangeSafe(fileData, range)
-    pageOffset = range.startPage
-  }
-
-  const { items, skipped } = await runParsePipeline<WeekProblemSheetQuestion, WeekProblemSheetQuestion>({
-    label: 'week-problem-sheet-chunk',
-    chunk: { kind: 'whole' },
-    onChunkError: PARSE_FAILURE_POLICY,
-    parseChunk: (file) => parseWeekProblemSheetPage(file.fileData, file.mimeType, tagCategories),
-    normalizeChunk: (parsed, file) => normalizeSourceFieldsForChunk(parsed, file)
-      .map((question) => ({ ...question, question_style: normalizeQuestionStyle(question.question_style) })),
-    finalize: (questions) => questions,
-  }, [{ fileData: chunkData, mimeType, pageOffset }])
-  return { items, skipped }
-}
-
-/**
- * 스테이징된 청크들을 페이지 순서로 합쳐 전역 후처리 + ParsedAnswer 변환 (순수 함수).
- * chunkHasGap[i] 가 true 면 i번째 청크에 결손(파싱 실패·페이지 skip)이 있다는 뜻 —
- * 그 경계 너머로는 지문을 전파하지 않고, 번호 재배정도 공백을 메꾸지 않는다.
- */
-export function finalizeProblemSheetQuestions(
-  chunkItems: WeekProblemSheetQuestion[][],
-  opts: { chunkHasGap?: boolean[] } = {},
-): ParsedAnswer[] {
-  const chunkHasGap = opts.chunkHasGap ?? []
-  const hasGaps = chunkHasGap.some(Boolean)
-
-  // 결손 청크 "다음"에 오는 첫 항목의 병합 인덱스 — 연속성 가정을 끊을 지점
-  const resetIndices = new Set<number>()
-  let offset = 0
-  let pendingReset = false
-  chunkItems.forEach((group, index) => {
-    if (pendingReset && group.length > 0) {
-      resetIndices.add(offset)
-      pendingReset = false
-    }
-    offset += group.length
-    if (chunkHasGap[index]) pendingReset = true
-  })
-
-  const ctx = { skipped: hasGaps ? [{ chunkIndex: -1 }] : [], resetIndices }
-  const merged = propagateSharedPassage(renumberDuplicateQuestions(chunkItems.flat(), ctx), ctx)
-  if (!merged.length) {
-    throw new Error('시험지에서 문항 구조를 찾지 못했습니다.')
-  }
-  return merged.map(toParsedAnswerFromProblemSheetQuestion)
-}
-
-/** 정오표 파싱에 필요한 기존 문항 문맥 (읽기 힌트 목록 + 검증용 원본) */
-export type AnswerKeyQuestionContext = {
-  existingQuestions: { id: string; question_number: number; sub_label: string | null; question_style: string | null; question_text: string | null }[]
-  /** LLM 프롬프트에 주입하는 문항 힌트 목록 */
-  questions: WeekProblemSheetQuestion[]
-  answerableQuestionCount: number
-}
-
-export async function fetchAnswerKeyQuestionContext(
-  supabase: SupabaseServerClient,
-  weekId: string,
-): Promise<AnswerKeyQuestionContext> {
-  const { data: existingQuestions } = await supabase
-    .from('exam_question')
-    .select('id, question_number, sub_label, question_style, question_text')
-    .eq('week_id', weekId)
-    .eq('exam_type', 'reading')
-    .order('question_number')
-    .order('sub_label', { nullsFirst: true })
-
-  if (!existingQuestions?.length) {
-    throw new Error('먼저 시험지 PDF를 업로드해 문항을 저장해주세요.')
-  }
-
-  const answerableQuestionCount = existingQuestions.filter(
-    (question) => (question.sub_label ?? null) === null,
-  ).length
-
-  const questions: WeekProblemSheetQuestion[] = existingQuestions.map((question) => ({
-    question_number: question.question_number,
-    question_type: null,
-    question_style: normalizeQuestionStyle(question.question_style),
-    passage: '',
-    question_text: question.question_text ?? '',
-    choices: extractChoicesFromStoredQuestionText(question.question_text),
-  }))
-
-  return { existingQuestions, questions, answerableQuestionCount }
-}
-
-/** 정오표 청크 경계 (3페이지 단순 분할 — 정렬 불필요, 표라서) */
-export async function planAnswerKeyChunks(fileData: string, mimeType: string): Promise<ProblemSheetChunkRange[]> {
-  if (mimeType !== 'application/pdf') return [{ startPage: 0, endPage: 1 }]
-  const pageCount = await getPdfPageCount(fileData).catch(() => 1)
-  const ranges: ProblemSheetChunkRange[] = []
-  for (let start = 0; start < pageCount; start += 3) {
-    ranges.push({ startPage: start, endPage: Math.min(start + 3, pageCount) })
-  }
-  return ranges.length ? ranges : [{ startPage: 0, endPage: 1 }]
-}
-
-/** 정오표 청크 1개 파싱 (스테이징용 원시 결과 — 병합·검증은 finalize 몫) */
-export async function parseAnswerKeyChunkForStaging(params: {
-  fileData: string
-  mimeType: string
-  range: ProblemSheetChunkRange
-  questions: WeekProblemSheetQuestion[]
-}): Promise<ProblemSheetAnswerKeyItem[]> {
-  const { fileData, mimeType, range, questions } = params
-  let chunkData = fileData
-  if (mimeType === 'application/pdf') {
-    chunkData = await slicePdfRangeSafe(fileData, range)
-  }
-  return parseProblemSheetAnswerKeyFile(chunkData, mimeType, questions)
-}
-
-/**
- * 청크 순서대로 병합해 ParsedAnswer 로 변환 + 문항 수 검증 (순수 함수).
- * 같은 번호가 여러 청크에 나오면 뒤의 것이 이긴다 (최종 정답표 우선) — 입력 배열 순서가 청크 순서여야 한다.
- */
-export function finalizeAnswerKeyItems(
-  keyItems: ProblemSheetAnswerKeyItem[],
-  context: Pick<AnswerKeyQuestionContext, 'existingQuestions' | 'answerableQuestionCount'>,
-): ParsedAnswer[] {
-  const { existingQuestions, answerableQuestionCount } = context
-
-  const mergedItems = new Map<number, ProblemSheetAnswerKeyItem>()
-  for (const item of keyItems) {
-    const questionNumber = coerceQuestionNumber(item.question_number)
-    if (!questionNumber) continue
-    mergedItems.set(questionNumber, {
-      ...item,
-      question_number: questionNumber,
-      correct_answer: coerceCorrectAnswer(item.correct_answer),
-    })
-  }
-
-  const parsed: ParsedAnswer[] = [...mergedItems.values()]
-    .map((item): ParsedAnswer | null => {
-      const questionNumber = coerceQuestionNumber(item.question_number)
-      if (!questionNumber) return null
-
-      const existing = existingQuestions.find(
-        (question) => question.question_number === questionNumber && (question.sub_label ?? null) === null,
-      )
-      if (!existing) return null
-
-      return {
-        question_number: questionNumber,
-        sub_label: null,
-        question_style: normalizeQuestionStyle(item.question_style ?? existing.question_style),
-        question_type: null,
-        correct_answer: coerceCorrectAnswer(item.correct_answer),
-        correct_answer_text: item.correct_answer_text ?? null,
-        grading_criteria: null,
-        explanation: null,
-        question_text: existing.question_text ?? null,
-      }
-    })
-    .filter((item): item is ParsedAnswer => item !== null)
-
-  if (!parsed.length) {
-    throw new Error('정오표에서 적용할 정답을 찾지 못했습니다.')
-  }
-
-  if (answerableQuestionCount > 0 && parsed.length !== answerableQuestionCount) {
-    throw new Error(
-      `정오표에서 ${parsed.length}/${answerableQuestionCount}문항만 읽혔습니다. ` +
-      '현재 저장된 시험지 문항 수와 정오표 정답 수가 같아야 적용할 수 있습니다.',
-    )
-  }
-
-  return parsed
-}
-
-export async function parseProblemSheetAnswerKeyOnly(params: {
-  supabase: SupabaseServerClient
-  weekId: string
-  files: ProblemSheetUploadInput[]
-}): Promise<ParsedAnswer[]> {
-  const { supabase, weekId, files } = params
-  if (!files.length) {
-    throw new Error('정오표 파일이 없습니다.')
-  }
-
-  const context = await fetchAnswerKeyQuestionContext(supabase, weekId)
-  const { questions } = context
-
-  // 정오표: 3페이지 청크, 순차. 같은 번호가 여러 청크에 나오면 뒤의 것이 이긴다 (최종 정답표 우선)
-  // 필터로 청크가 skip 되면 정답 수가 모자라져 finalizeAnswerKeyItems 의 수 검증이 막는다 (부분 정답 반영 방지)
-  const { items: keyItems } = await runParsePipeline<ProblemSheetAnswerKeyItem, ProblemSheetAnswerKeyItem>({
-    label: 'week-answer-key',
-    chunk: { kind: 'pages', pagesPerChunk: 3 },
-    onChunkError: { skipIf: isContentFilterError },
-    parseChunk: (file) => parseProblemSheetAnswerKeyFile(file.fileData, file.mimeType, questions),
-    finalize: (items) => items,
-  }, toPipelineFiles(files))
-
-  return finalizeAnswerKeyItems(keyItems, context)
 }
 
 export async function saveWeekAnswerSheetFile(

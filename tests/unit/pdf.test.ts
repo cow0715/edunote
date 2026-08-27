@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { PDFDocument } from 'pdf-lib'
 import {
   getPdfPageCount,
+  pageStartsWithQuestion,
   splitPdfToSinglePageBase64,
   splitPdfIntoChunksBase64,
   slicePdfFirstPagesBase64,
@@ -58,5 +59,21 @@ describe('slicePdfFirstPagesBase64', () => {
     const sliced = await slicePdfFirstPagesBase64(original, 10)
     expect(sliced.fileData).toBe(original)
     expect(sliced.testedPageCount).toBe(2)
+  })
+})
+
+describe('pageStartsWithQuestion — 머리글 스킵', () => {
+  it('"n / m 문서코드" 머리글 뒤의 문항 번호를 인식한다 (숭문형)', () => {
+    expect(pageStartsWithQuestion('2 / 7 I110:A+REG-0000459717 5. 다음 글의 내용과 일치하지 않는 것은?')).toBe(true)
+  })
+
+  it('머리글 없는 기존 형식은 그대로 인식한다', () => {
+    expect(pageStartsWithQuestion('18. 다음 글의 목적으로?')).toBe(true)
+    expect(pageStartsWithQuestion('[41~45] 다음 글을 읽고')).toBe(true)
+  })
+
+  it('문항으로 시작하지 않는 페이지는 여전히 false', () => {
+    expect(pageStartsWithQuestion('숭문 Week4 진단평가 추지혜T 선생님 1 / 7')).toBe(false)
+    expect(pageStartsWithQuestion('이어지는 지문 본문 the rest of the passage')).toBe(false)
   })
 })

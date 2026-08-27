@@ -42,6 +42,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       void serviceClient.storage.from('exam-pdf-temp').remove([storagePath]).catch(() => {})
     }
 
+    // 업로드는 통합 PDF 1개로 고정 — 문항/해설(또는 정오표)이 따로면 사용자가 합쳐서 올린다
     if (!fileData || !mimeType) return err('파일이 없습니다.')
     if (requestedMode === 'problem_sheet') {
       return err('문제지형 PDF는 시험지 가져오기를 사용해 주세요.', 422)
@@ -49,10 +50,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     let parsedAnswers
     let skippedPages: number[] = []
+    let skippedQuestions: number[] = []
     try {
       const parsed = await parseAnswerSheetDocument([{ fileData, mimeType, fileName }], tagCategories)
       parsedAnswers = parsed.answers
       skippedPages = parsed.skipped.map((entry) => entry.startPage)
+      skippedQuestions = parsed.skippedQuestionNumbers ?? []
     } catch (error) {
       const message = error instanceof Error ? error.message : '해설지 파싱에 실패했습니다.'
       return err(message || '해설 포함 PDF로 파싱하지 못했습니다.', 422)
@@ -77,6 +80,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       ...result,
       parse_mode_used: 'answer_sheet',
       skipped_pages: skippedPages,
+      // 범위 분할 경로에서 콘텐츠 필터로 그룹째 결손된 문항 번호 (평시 빈 배열)
+      skipped_questions: skippedQuestions,
     })
   } catch (error) {
     console.error('[parse-answers] unhandled error:', error)

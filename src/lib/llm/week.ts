@@ -3,8 +3,9 @@
 import { GRADING_SYSTEM, GRADING_RULES, PARSE_ANSWER_SHEET_RULES, QUESTION_MARKUP_RULES, SOURCE_IMAGE_FIELD_RULES } from '../prompts'
 import {
   buildFileBlock, callClaudeText,
-  extractJsonArrayCandidate, parseJsonArrayResponse,
+  extractJsonArrayCandidate, isContentFilterError, parseJsonArrayResponse,
 } from './client'
+import { discoverQuestionNumbers, rangedParseCall, sliceNumbers, type RangedCallStats, type RangedFile } from './ranged'
 
 export type SubjectiveQuestion = {
   question_number: number
@@ -81,13 +82,8 @@ ${tagCategories.map((c) => `[${c.categoryName}]: ${c.tags.join(', ')}`).join('\n
 `
 }
 
-export async function parseAnswerSheet(
-  fileData: string,  // base64
-  mimeType: string,  // image/jpeg, image/png, application/pdf 등
-  tagCategories: TagCategory[] = [],
-): Promise<ParsedAnswer[]> {
-  const fileContent = buildFileBlock(fileData, mimeType)
-
+/** 해설지(통합형) 파싱 프롬프트 — 통짜·범위 분할이 공유한다 (범위 콜 간 바이트 동일해야 캐시 적중) */
+function buildAnswerSheetPrompt(tagCategories: TagCategory[]): string {
   const tagListSection = tagCategories.length > 0
     ? `
 ━━━ question_type 매핑 규칙 (반드시 준수) ━━━
@@ -112,7 +108,14 @@ ${tagCategories.map((c) => `[${c.categoryName}]: ${c.tags.join(', ')}`).join('\n
 `
     : '\n- question_type: 해설지에 명시된 문제 유형명 한국어 추출. 없으면 null.\n'
 
-  const prompt = `이 답안해설지에서 각 문항의 정답과 해설을 추출하세요.
+  return `첨부된 시험 문서에서 각 문항의 구조·정답·해설을 추출하세요.
+
+━━━ 문서 구성 규칙 ━━━
+- 문서는 문항·정답·해설이 섞인 통합형이거나, 앞쪽 시험지 + 뒤쪽 해설지(정오표)가 합쳐진 형태다.
+- 시험지부와 해설부가 나뉘어 있으면: 문항 구조(발문·지문·선지)는 시험지부에서, 정답·해설은
+  해설부에서 찾아 같은 번호로 조합하라. 문항은 번호로 식별하고,
+  한 문항이 여러 페이지에 걸쳐 있으면 내용을 이어붙여라.
+- source_page 는 그 문항(발문·지문)이 실린 시험지부 기준 페이지 번호다. 해설부에서만 확인된 문항은 null.
 
 ${PARSE_ANSWER_SHEET_RULES}
 ${tagListSection}
@@ -124,17 +127,84 @@ ${SOURCE_IMAGE_FIELD_RULES}
 
 JSON 배열만 출력 (다른 텍스트 없이, 각 객체에 needs_source_image/source_image_reason/source_page/source_bbox 포함):
 [{"question_number":1,"sub_label":null,"question_style":"objective","question_type":"가정법/조동사","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"...","question_text":"다음 글의 빈칸에 들어갈 말로 가장 적절한 것은?\\nThe researcher concluded that the results were inconclusive. ________ further investigation was needed before any definitive claims could be made about the phenomenon."},{"question_number":2,"sub_label":null,"question_style":"multi_select","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"1,3","grading_criteria":null,"explanation":"...","question_text":"윗글의 내용과 일치하는 것을 모두 고르시오.\\nJohn was born in London in 1990. He studied engineering at university and later moved to Seoul for work."},{"question_number":5,"sub_label":"a","question_style":"ox","question_type":"대명사","correct_answer":0,"correct_answer_text":"X (their)","grading_criteria":null,"explanation":"...","question_text":"다음 문장에서 어법상 틀린 것을 고르시오.\\nEach of the students raised their hand."},{"question_number":5,"sub_label":"b","question_style":"ox","question_type":"수의 일치","correct_answer":0,"correct_answer_text":"O","grading_criteria":null,"explanation":"...","question_text":"다음 문장의 어법이 올바른지 판단하시오.\\nThe committee has made its decision."}]`
+}
 
+export async function parseAnswerSheet(
+  fileData: string,  // base64
+  mimeType: string,  // image/jpeg, image/png, application/pdf 등
+  tagCategories: TagCategory[] = [],
+): Promise<ParsedAnswer[]> {
   const raw = await callClaudeText({
     model: 'claude-sonnet-4-6',
     maxTokens: 16384,
-    content: [fileContent, { type: 'text', text: prompt }],
+    content: [buildFileBlock(fileData, mimeType), { type: 'text', text: buildAnswerSheetPrompt(tagCategories) }],
   })
   console.log('[parseAnswerSheet] raw response:', raw)
 
   const parsed = parseJsonArrayResponse<ParsedAnswer>(raw, 'parseAnswerSheet')
   console.log('[parseAnswerSheet] parsed count:', parsed.length, '| question_numbers:', parsed.map(p => `${p.question_number}${p.sub_label ? p.sub_label : ''}`).join(', '))
   return parsed
+}
+
+// ── 해설지(통합형) 출력 범위 분할 파싱 ──────────────────────────────────
+// 진단평가는 문항 번호를 미리 모른다 — 번호 발견 콜(캐시 예열 겸)이 주 번호 목록을 받아오면
+// 그 목록을 슬라이스해 범위 콜을 전부 병렬로 돌린다. 매 콜 문서 전체를 보므로
+// 문서 앞의 문항과 뒤의 해설 섹션을 짝짓는 일이 자동이다 (경계 탐지·분할 불필요).
+
+export type AnswerSheetRangedResult = {
+  items: ParsedAnswer[]
+  calls: RangedCallStats[]
+  /** 번호 발견 콜이 찾은 주 문항 번호 (오름차순) */
+  discoveredNumbers: number[]
+  /** 콘텐츠 필터로 그룹째 skip 된 번호들 — 해당 문항은 결손 */
+  skippedNumbers: number[]
+}
+
+/** 범위 콜당 목표 문항 수 — 그룹 수(=병렬 폭)와 콜당 출력 크기의 균형점 */
+const ANSWER_SHEET_NUMBERS_PER_CALL = 6
+
+export async function parseAnswerSheetRanged(
+  files: RangedFile[],
+  tagCategories: TagCategory[] = [],
+): Promise<AnswerSheetRangedResult> {
+  const model = 'claude-sonnet-4-6'
+  const prompt = buildAnswerSheetPrompt(tagCategories)
+
+  const discovery = await discoverQuestionNumbers({
+    files, model, prompt, label: 'parseAnswerSheetRanged.discover',
+  })
+  if (!discovery.numbers.length) {
+    throw new Error('문항 번호를 발견하지 못했습니다. 파일을 확인해주세요.')
+  }
+  console.log('[parseAnswerSheetRanged] 발견 번호:', discovery.numbers.join(', '))
+
+  const skippedNumbers: number[] = []
+  const groups = sliceNumbers(discovery.numbers, ANSWER_SHEET_NUMBERS_PER_CALL)
+  const parts = await Promise.all(groups.map(async (numbers) => {
+    try {
+      return await rangedParseCall<ParsedAnswer>({
+        files, model, maxTokens: 8192,
+        prompt, scope: { numbers }, label: 'parseAnswerSheetRanged',
+      })
+    } catch (error) {
+      // 필터(결정적)는 그 그룹만 결손 처리 — 재시도해도 같은 출력 요구라 결과가 안 바뀐다
+      if (!isContentFilterError(error)) throw error
+      console.warn(`[parseAnswerSheetRanged] ${numbers.join(',')}번 그룹 필터 skip:`, error instanceof Error ? error.message : error)
+      skippedNumbers.push(...numbers)
+      return null
+    }
+  }))
+
+  const items = parts
+    .flatMap((part) => part?.items ?? [])
+    .sort((a, b) => a.question_number - b.question_number
+      || (a.sub_label ?? '').localeCompare(b.sub_label ?? ''))
+  return {
+    items,
+    calls: [discovery.stats, ...parts.filter((p): p is NonNullable<typeof p> => p !== null).map((p) => p.stats)],
+    discoveredNumbers: discovery.numbers,
+    skippedNumbers,
+  }
 }
 
 // ── 문제지형 (중간·기말 전용 가져오기) ────────────────────────────────────
@@ -150,13 +220,6 @@ export type WeekProblemSheetQuestion = {
   source_image_reason?: string | null
   source_page?: number | null
   source_bbox?: SourceBBox | null
-}
-
-export type ProblemSheetAnswerKeyItem = {
-  question_number: number
-  question_style: 'objective' | 'subjective' | 'ox' | 'multi_select'
-  correct_answer: number
-  correct_answer_text: string | null
 }
 
 const WEEK_PROBLEM_SHEET_PARSE_RULES = `이 PDF는 주차별 설정의 '중간·기말 전용 가져오기'에 업로드하는 영어 시험지입니다.
@@ -183,35 +246,6 @@ const WEEK_PROBLEM_SHEET_PARSE_RULES = `이 PDF는 주차별 설정의 '중간·
 - 정답은 생성하지 마세요
 - 문항을 건너뛰지 마세요
 - JSON 배열만 출력하세요`
-
-function buildWeekProblemSheetAnswerVisionPrompt(
-  questions: WeekProblemSheetQuestion[],
-): string {
-  return `이 파일은 영어 시험지의 정오표 또는 정답표입니다.
-표, 리스트, 캡처 이미지처럼 생겼더라도 문항 번호별 최종 정답만 읽어 구조화하세요.
-
-문항 목록:
-${questions.map((q) => `- ${q.question_number}번 (${q.question_style})${q.choices.length ? ` 보기 ${q.choices.length}개` : ''}`).join('\n')}
-
-출력 필드:
-- question_number: 문항 번호
-- question_style: objective | subjective | ox | multi_select
-- correct_answer: objective면 1~5, 아니면 0
-- correct_answer_text:
-  * objective면 null
-  * ox면 "O" 또는 "X (...)" 형식
-  * multi_select면 "1,3" 같은 형식
-  * subjective면 정답 텍스트
-
-중요 규칙:
-- 첨부한 파일 안에서 보이는 최종 정답만 사용하세요
-- 위 문항 목록에 있는 번호만 출력하세요
-- 표 머리글, 과목명, 쪽수, 메모는 무시하세요
-- objective는 correct_answer에 숫자를 넣고 correct_answer_text는 null로 두세요
-- subjective는 correct_answer를 0으로 두고 correct_answer_text에 정답 텍스트를 넣으세요
-- 불명확한 문항은 제외하세요
-- JSON 배열만 출력하세요`
-}
 
 export async function parseWeekProblemSheetPage(
   fileData: string,
@@ -254,24 +288,8 @@ ${SOURCE_IMAGE_FIELD_RULES}`,
   }
 }
 
-export async function parseProblemSheetAnswerKeyFile(
-  fileData: string,
-  mimeType: string,
-  questions: WeekProblemSheetQuestion[],
-): Promise<ProblemSheetAnswerKeyItem[]> {
-  const fileContent = buildFileBlock(fileData, mimeType, '지원하지 않는 파일 형식입니다. PDF 또는 이미지만 업로드해주세요.')
-
-  const raw = await callClaudeText({
-    model: 'claude-sonnet-4-6',
-    maxTokens: 8192,
-    content: [fileContent, { type: 'text', text: buildWeekProblemSheetAnswerVisionPrompt(questions) }],
-  })
-  console.log('[parseProblemSheetAnswerKeyFile] raw response length:', raw.length)
-
-  const parsed = parseJsonArrayResponse<ProblemSheetAnswerKeyItem>(raw, 'parseProblemSheetAnswerKeyFile')
-  console.log('[parseProblemSheetAnswerKeyFile] parsed count:', parsed.length, '| questions:', parsed.map((p) => p.question_number).join(', '))
-  return parsed
-}
+// 정오표 전용 파서(parseProblemSheetAnswerKeyFile)는 삭제됨 — 분리형 업로드 제거(2026-08-27)로
+// 정오표는 통합 흐름(시험지+정오표 동시 첨부)의 범위 분할 파서가 함께 읽는다.
 
 // ── 서술형 채점 ──────────────────────────────────────────────────────────
 
