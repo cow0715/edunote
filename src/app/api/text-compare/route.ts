@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { buildFileBlock, callClaudeText, parseJsonObjectResponse } from '@/lib/llm/client'
+import { buildFileBlock, callClaudeText, MODELS, parseJsonObjectResponse } from '@/lib/llm/client'
 import { err, getAuth, getTeacherId, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 
@@ -63,7 +63,7 @@ const synthesisSchema = z.object({
 type OutlineResult = z.infer<typeof outlineSchema>
 type PassageDetail = z.infer<typeof passageDetailSchema>
 
-const ANALYSIS_MODEL = 'claude-opus-4-7'
+const ANALYSIS_MODEL = MODELS.explanation
 
 function buildOutlinePrompt(feedback?: string) {
   const retrySection = feedback

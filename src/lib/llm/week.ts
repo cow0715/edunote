@@ -2,7 +2,7 @@
 
 import { GRADING_SYSTEM, GRADING_RULES, PARSE_ANSWER_SHEET_RULES, QUESTION_MARKUP_RULES, SOURCE_IMAGE_FIELD_RULES } from '../prompts'
 import {
-  buildFileBlock, callClaudeText,
+  buildFileBlock, callClaudeText, MODELS,
   extractJsonArrayCandidate, isContentFilterError, parseJsonArrayResponse,
 } from './client'
 import { discoverQuestionNumbers, rangedParseCall, sliceNumbers, type RangedCallStats, type RangedFile } from './ranged'
@@ -135,7 +135,7 @@ export async function parseAnswerSheet(
   tagCategories: TagCategory[] = [],
 ): Promise<ParsedAnswer[]> {
   const raw = await callClaudeText({
-    model: 'claude-sonnet-4-6',
+    model: MODELS.parse,
     maxTokens: 16384,
     content: [buildFileBlock(fileData, mimeType), { type: 'text', text: buildAnswerSheetPrompt(tagCategories) }],
   })
@@ -167,7 +167,8 @@ export async function parseAnswerSheetRanged(
   files: RangedFile[],
   tagCategories: TagCategory[] = [],
 ): Promise<AnswerSheetRangedResult> {
-  const model = 'claude-sonnet-4-6'
+  // sonnet-5: 4-6 대비 단가 33% 낮고 신세대라 필터 거절이 stop_reason 으로 온다 (2026-08-27 전환)
+  const model = MODELS.parse
   const prompt = buildAnswerSheetPrompt(tagCategories)
 
   const discovery = await discoverQuestionNumbers({
@@ -255,7 +256,7 @@ export async function parseWeekProblemSheetPage(
   const fileContent = buildFileBlock(fileData, mimeType, '지원하지 않는 파일 형식입니다. PDF 또는 이미지만 업로드해주세요.')
 
   const raw = await callClaudeText({
-    model: 'claude-sonnet-4-6',
+    model: MODELS.parse,
     maxTokens: 16384,
     content: [fileContent, {
       type: 'text',
@@ -368,7 +369,7 @@ ${answers.map((a, i) => `
 ${GRADING_RULES}`
 
   const raw = await callClaudeText({
-    model: 'claude-sonnet-4-6',
+    model: MODELS.parse,
     maxTokens: 4096,
     temperature: 0,
     content: prompt,

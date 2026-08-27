@@ -1,4 +1,4 @@
-import { callClaudeText, parseJsonArrayResponse } from '@/lib/llm/client'
+import { callClaudeText, MODELS, parseJsonArrayResponse } from '@/lib/llm/client'
 import type { ParsedVocabEntry } from '@/lib/vocab-xlsx'
 
 export type VocabVariantRelationType = 'original' | 'synonym' | 'derivative' | 'antonym'
@@ -244,7 +244,7 @@ export async function generateVariantMeanings(candidates: VocabVariantMeaningCan
   if (candidates.length === 0 || !process.env.ANTHROPIC_API_KEY) return []
 
   const raw = await callClaudeText({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODELS.light,
     maxTokens: 2500,
     content: `You fill Korean meanings for English vocabulary variants used by Korean middle/high school students. Return JSON only.
 
@@ -319,7 +319,7 @@ async function enrichVariantsWithAi(entries: VocabEntryWithVariants[]) {
   }))
 
   const raw = await callClaudeText({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODELS.light,
     maxTokens: 12000,
     content: `You normalize English vocabulary for Korean students. Return JSON only.
 

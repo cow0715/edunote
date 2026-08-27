@@ -4,7 +4,7 @@ import { jsonrepair } from 'jsonrepair'
 import { mapWithConcurrency } from '../concurrency'
 import { EXAM_BANK_PARSE_RULES } from '../prompts'
 import type { ParsedExplanation } from '../explanation-parser'
-import { buildFileBlock, callClaudeText, extractJsonArrayCandidate, isContentFilterError, parseJsonArrayResponse } from './client'
+import { buildFileBlock, callClaudeText, extractJsonArrayCandidate, isContentFilterError, MODELS, parseJsonArrayResponse } from './client'
 import { prewarmPdfCache, rangedParseCall, type RangedCallStats } from './ranged'
 
 export type ExamBankParsedQuestion = {
@@ -23,7 +23,7 @@ export async function parseExamBankPage(
   const fileContent = buildFileBlock(fileData, mimeType, '지원하지 않는 파일 형식 (PDF 또는 이미지만 가능)')
 
   const raw = await callClaudeText({
-    model: 'claude-sonnet-4-6',
+    model: MODELS.parse,
     maxTokens: 32768,
     stream: true,
     content: [fileContent, { type: 'text', text: EXAM_BANK_PARSE_RULES }],
@@ -62,7 +62,8 @@ export async function parseExamBankPageRanged(
   fileData: string,
   mimeType: string,
 ): Promise<ExamBankRangedResult> {
-  const model = 'claude-sonnet-4-6'
+  // sonnet-5: 4-6 대비 단가 33% 낮고(2/10 vs 3/15) 신세대라 필터 거절이 stop_reason 으로 온다 (2026-08-27 전환)
+  const model = MODELS.parse
   const files = [{ fileData, mimeType }]
   const warmStats = await prewarmPdfCache({ files, model, prompt: EXAM_BANK_PARSE_RULES })
 
@@ -205,7 +206,7 @@ JSON 배열만 출력 (다른 텍스트 없이):
 [{"question_number": 20, "intent": "빈칸에 들어갈 내용을 추론한다.", "translation": "...", "solution": "...", "vocabulary": "word1 뜻1   word2 뜻2"}]`
 
   const raw = await callClaudeText({
-    model: 'claude-opus-4-7',
+    model: MODELS.explanation,
     maxTokens: 16000,
     content: prompt,
   })
@@ -258,10 +259,6 @@ export type ExplanationParseDetail = {
   calls: ExplanationCallStats[]
 }
 
-/** 통짜(스코프 없는) 콜은 코어가 번호 필터를 안 하므로 독해 영역(18~45)만 남긴다 */
-function filterReadingRange(items: ParsedExplanation[]): ParsedExplanation[] {
-  return items.filter((e) => e.question_number >= 18 && e.question_number <= 45)
-}
 
 /**
  * 캐시 예열(max_tokens 0 — 파일+프롬프트를 읽어 캐시에 올리기만, 출력 없음) →
@@ -274,10 +271,10 @@ async function parseExplanationsRanged(
   label: string,
 ): Promise<ExplanationParseDetail> {
   const files = [{ fileData: base64, mimeType: 'application/pdf' }]
-  const warmStats = await prewarmPdfCache({ files, model: 'claude-opus-4-7', prompt })
+  const warmStats = await prewarmPdfCache({ files, model: MODELS.explanation, prompt })
 
   const parts = await Promise.all(EXPLANATION_RANGES.map((range) =>
-    rangedParseCall<ParsedExplanation>({ files, model: 'claude-opus-4-7', maxTokens: 16000, prompt, scope: { range }, label })))
+    rangedParseCall<ParsedExplanation>({ files, model: MODELS.explanation, maxTokens: 16000, prompt, scope: { range }, label })))
 
   const byNumber = new Map<number, ParsedExplanation>()
   for (const part of parts) {
@@ -351,28 +348,10 @@ const HAKPYUNG_EXPLANATION_PROMPT = `이 PDF는 교육청 학력평가(학평) �
 JSON 배열만 출력:
 [{"question_number": 18, "intent": "...", "translation": "...", "solution": "", "vocabulary": ""}]`
 
-/**
- * 학평(교육청 학력평가) 해설 PDF 통짜 1콜 파싱.
- * 학평 해설지는 [출제의도] + 한국어 번역만 있고, [풀이]/[어휘] 섹션이 없다.
- * 풀이와 어휘는 이후 generateExplanations(full mode)로 별도 생성.
- */
-export async function parsePdfExplanationsHakpyung(
-  buffer: ArrayBuffer,
-): Promise<ParsedExplanation[]> {
-  const base64 = Buffer.from(buffer).toString('base64')
-  try {
-    const { items } = await rangedParseCall<ParsedExplanation>({
-      files: [{ fileData: base64, mimeType: 'application/pdf' }], model: 'claude-opus-4-7', maxTokens: 16000,
-      prompt: HAKPYUNG_EXPLANATION_PROMPT, scope: null, label: 'parsePdfExplanationsHakpyung',
-    })
-    return filterReadingRange(items)
-  } catch (e) {
-    console.error('[parsePdfExplanationsHakpyung] 실패:', e)
-    throw new Error(`학평 Vision PDF 파싱 실패: ${e instanceof Error ? e.message : e}`)
-  }
-}
+// 학평형 통짜 1콜 파서는 삭제됨 — 라우트가 범위 분할로 전환(2026-08-27). 학평 해설지는
+// [출제의도] + 한국어 번역만 있고, 풀이/어휘는 이후 generateExplanations(full mode)로 별도 생성.
 
-/** 학평형 해설 PDF 출력 범위 분할 파싱 (통째 입력 + 캐싱 + 3콜) */
+/** 학평형 해설 PDF 출력 범위 분할 파싱 (통째 입력 + 캐싱 + 범위 병렬) */
 export async function parsePdfExplanationsHakpyungRanged(
   buffer: ArrayBuffer,
 ): Promise<ExplanationParseDetail> {

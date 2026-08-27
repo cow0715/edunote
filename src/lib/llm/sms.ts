@@ -1,7 +1,7 @@
 // ── SMS 생성 ─────────────────────────────────────────────────────────────
 
 import { SMS_RULES } from '../prompts'
-import { callClaudeText, parseJsonArrayResponse } from './client'
+import { callClaudeText, MODELS, parseJsonArrayResponse } from './client'
 
 export type SmsStudentInput = {
   student_name: string
@@ -45,7 +45,7 @@ ${rules}
 ${templateMessage.trim()}`
 
   const raw = await callClaudeText({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODELS.light,
     maxTokens: 1024,
     content: prompt,
   })
@@ -111,7 +111,7 @@ JSON 배열만 출력 (다른 텍스트 없이):
 [{"student_name": "이름", "message": "문자내용"}]`
 
   const raw = await callClaudeText({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODELS.light,
     maxTokens: 4096,
     content: prompt,
   })

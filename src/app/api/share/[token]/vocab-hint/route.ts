@@ -1,5 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/server'
-import { callClaudeText, parseJsonObjectResponse } from '@/lib/llm/client'
+import { callClaudeText, MODELS, parseJsonObjectResponse } from '@/lib/llm/client'
 import { NextResponse } from 'next/server'
 
 async function hasAnyActiveEnrollment(supabase: ReturnType<typeof createServiceClient>, studentId: string) {
@@ -38,7 +38,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
   if (!word) return NextResponse.json({ error: 'missing word' }, { status: 400 })
 
   const raw = await callClaudeText({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODELS.light,
     maxTokens: 150,
     content: `영어 단어 "${word}"를 사용한 자연스러운 예문 1개.
 JSON만 출력: {"sentence":"영어 예문","translation":"한국어 번역"}`,

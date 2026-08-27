@@ -1,17 +1,16 @@
 /**
- * 문서 파싱 파이프라인 엔진.
+ * 문서 파싱 파이프라인 엔진 (입력 분할형).
  *
  *   입력 파일들 → ① 청크 정책으로 분할 → ② 청크마다 LLM 파싱(도메인 함수) → ③ 병합 + 공용 후처리 → ④ 도메인 출력 변환
  *
- * 해설지형·문제지형·기출은행·모의고사가 모두 같은 엔진을 타고, 차이는 스펙(정책·프롬프트·후처리 조합)으로만 표현한다.
+ * 남은 사용처: 주차 해설지 통짜 폴백(whole), 모의고사 OCR/OMR(single-page).
+ * 문서 본문 파싱의 기본 경로는 llm/ranged.ts 의 출력 범위 분할이다 — pages 청킹(경계 정렬·
+ * 페이지 재시도)은 그쪽으로 대체되어 2026-08-27 제거됐다.
  * 저장(④ 이후)은 도메인 라우트가 담당한다.
  */
 
 import { mapWithConcurrency } from '../concurrency'
-import {
-  getPdfPageTexts, pageStartsWithQuestion, planAlignedPageChunks,
-  splitPdfByRangesBase64, splitPdfIntoChunksBase64, splitPdfToSinglePageBase64,
-} from '../pdf'
+import { splitPdfToSinglePageBase64 } from '../pdf'
 
 export type PipelineFile = {
   fileData: string
@@ -24,27 +23,19 @@ export type PipelineFile = {
 }
 
 export type ChunkPolicy =
-  /** 문서 통째로 1회 (해설지형·기출) */
+  /** 문서 통째로 1회 (주차 통짜 폴백) */
   | { kind: 'whole' }
-  /** n페이지씩. alignToQuestionStart 면 다음 페이지가 문항으로 시작할 때만 자른다 (지문 분리 방지) */
-  | { kind: 'pages'; pagesPerChunk: number; alignToQuestionStart?: boolean; maxPagesPerChunk?: number }
   /** 1페이지씩 (OMR·답안지 OCR) */
   | { kind: 'single-page' }
 
 export type ChunkErrorPolicy =
   /** 즉시 실패 */
   | 'throw'
-  /** 실패한 청크만 1페이지 단위로 다시 시도, 그래도 실패하면 throw ({ retryPerPage: true } 와 동일) */
-  | 'retry-per-page'
   /**
-   * 조합형 정책. 판별 순서가 중요하다:
-   * 1) skipIf 에 걸리는 에러(콘텐츠 필터 = 결정적)는 **재시도 없이 즉시 skip** — 재시도는 과금이고 필터는 다시 해도 걸린다.
-   * 2) retryPerPage 는 출력 문제(JSON 깨짐·잘림)용 — 실패 청크를 1페이지 단위로 재시도.
-   *    재시도 중 실패한 페이지도 skipIf 통과 시 그 페이지만 skip, 아니면 throw.
-   * 3) 어느 쪽도 아니면 throw.
-   * 네트워크성 429/529 는 Anthropic SDK 가 기본 2회 재시도하므로 여기서 중복 재시도하지 않는다.
+   * skipIf 에 걸리는 에러(콘텐츠 필터 = 결정적)는 재시도 없이 즉시 skip — 재시도는 과금이고
+   * 필터는 다시 해도 걸린다. 아니면 throw. 네트워크성 429/529 는 SDK 가 기본 2회 재시도한다.
    */
-  | { retryPerPage?: boolean; skipIf?: (error: unknown) => boolean }
+  | { skipIf?: (error: unknown) => boolean }
 
 /** skip 된 범위 기록. 페이지 번호는 1-base, endPage 는 범위를 모르면 null */
 export type SkippedRange = {
@@ -96,31 +87,10 @@ async function splitFile(file: PipelineFile, policy: ChunkPolicy): Promise<Pipel
   const label = (start: number, end: number) =>
     file.fileName ? `${file.fileName}#p${start + 1}-${end}` : `chunk-p${start + 1}-${end}.pdf`
 
-  if (policy.kind === 'single-page') {
-    const pages = await splitPdfToSinglePageBase64(file.fileData)
-    if (pages.length <= 1) return asIs
-    return pages.map((fileData, index) => ({
-      fileData, mimeType: 'application/pdf', fileName: label(index, index + 1), pageOffset: baseOffset + index, pageCount: 1,
-    }))
-  }
-
-  let chunks
-  if (policy.alignToQuestionStart) {
-    const pageTexts = await getPdfPageTexts(file.fileData).catch(() => null)
-    if (pageTexts && pageTexts.length > policy.pagesPerChunk) {
-      const ranges = planAlignedPageChunks(pageTexts.map(pageStartsWithQuestion), policy.pagesPerChunk, policy.maxPagesPerChunk)
-      chunks = await splitPdfByRangesBase64(file.fileData, ranges)
-    }
-  }
-  chunks ??= await splitPdfIntoChunksBase64(file.fileData, policy.pagesPerChunk)
-
-  if (chunks.length === 1) return asIs
-  return chunks.map((chunk) => ({
-    fileData: chunk.fileData,
-    mimeType: 'application/pdf',
-    fileName: label(chunk.startPage, chunk.endPage),
-    pageOffset: baseOffset + chunk.startPage,
-    pageCount: chunk.endPage - chunk.startPage,
+  const pages = await splitPdfToSinglePageBase64(file.fileData)
+  if (pages.length <= 1) return asIs
+  return pages.map((fileData, index) => ({
+    fileData, mimeType: 'application/pdf', fileName: label(index, index + 1), pageOffset: baseOffset + index, pageCount: 1,
   }))
 }
 
@@ -136,21 +106,13 @@ export async function runParsePipeline<TRaw, TOut>(
   if (chunks.length > 1) console.log(`[${label}] ${files.length}개 파일 → ${chunks.length}개 청크`)
 
   // 문자열 축약형을 조합형으로 정규화 (하위호환)
-  const policy: { retryPerPage?: boolean; skipIf?: (error: unknown) => boolean } =
-    onChunkError === 'throw' ? {}
-      : onChunkError === 'retry-per-page' ? { retryPerPage: true }
-        : onChunkError
+  const policy: { skipIf?: (error: unknown) => boolean } =
+    onChunkError === 'throw' ? {} : onChunkError
 
   const skippedChunks: number[] = []
   const skipped: SkippedRange[] = []
-  // 청크 내부에서 페이지 skip 이 생긴 지점 — "skip 직후 항목" 의 청크-로컬 인덱스
-  const localResets = new Map<number, number[]>()
 
   const errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
-
-  const recordSkip = (chunkIndex: number, startPage: number, endPage: number | null, reason: string) => {
-    skipped.push({ chunkIndex, startPage, endPage, reason })
-  }
 
   const parseOne = async (chunk: PipelineFile, index: number): Promise<TRaw[]> => {
     if (!chunk.fileData) throw new Error('업로드 파일 데이터를 읽지 못했습니다.')
@@ -159,33 +121,12 @@ export async function runParsePipeline<TRaw, TOut>(
     try {
       return normalize(await spec.parseChunk(chunk), chunk)
     } catch (error) {
-      // 1) 결정적 에러(콘텐츠 필터 등)는 재시도 없이 즉시 skip — 재시도는 과금이고 결과가 안 바뀐다
+      // 결정적 에러(콘텐츠 필터 등)는 재시도 없이 즉시 skip — 재시도는 과금이고 결과가 안 바뀐다
       if (policy.skipIf?.(error)) {
         console.warn(`[${label}] 청크 ${index + 1} 건너뜀 (${chunk.fileName ?? '?'}):`, errorText(error))
         skippedChunks.push(index + 1)
-        recordSkip(index + 1, chunkStartPage, chunkEndPage, errorText(error))
+        skipped.push({ chunkIndex: index + 1, startPage: chunkStartPage, endPage: chunkEndPage, reason: errorText(error) })
         return []
-      }
-      // 2) 출력 문제(JSON 깨짐 등)는 페이지 단위 재시도
-      if (policy.retryPerPage && chunk.mimeType === 'application/pdf') {
-        const pages = await splitFile(chunk, { kind: 'single-page' })
-        if (pages.length > 1) {
-          console.warn(`[${label}] 청크 파싱 실패 → 페이지 단위 재시도:`, errorText(error))
-          const collected: TRaw[] = []
-          for (const page of pages) {
-            try {
-              collected.push(...normalize(await spec.parseChunk(page), page))
-            } catch (pageError) {
-              if (!policy.skipIf?.(pageError)) throw pageError
-              const pageNumber = (page.pageOffset ?? 0) + 1
-              console.warn(`[${label}] ${pageNumber}쪽 건너뜀:`, errorText(pageError))
-              recordSkip(index + 1, pageNumber, pageNumber, errorText(pageError))
-              // skip 직후 항목은 직전 항목과의 연속성(지문 전파 등)을 가정하면 안 된다
-              localResets.set(index, [...(localResets.get(index) ?? []), collected.length])
-            }
-          }
-          return collected
-        }
       }
       throw error
     }
@@ -193,8 +134,7 @@ export async function runParsePipeline<TRaw, TOut>(
 
   const groups = await mapWithConcurrency(chunks, concurrency, parseOne)
 
-  // 병합 배열 기준 "직전에 결손이 있는" 항목 인덱스 계산:
-  // 청크 전체 skip → 다음 항목, 청크 내부 페이지 skip → 그 지점의 다음 항목
+  // 병합 배열 기준 "직전에 결손이 있는" 항목 인덱스 (skip 된 청크의 다음 항목)
   const resetIndices = new Set<number>()
   let offset = 0
   let pendingReset = false
@@ -203,10 +143,6 @@ export async function runParsePipeline<TRaw, TOut>(
     if (pendingReset && group.length > 0) {
       resetIndices.add(offset)
       pendingReset = false
-    }
-    for (const local of localResets.get(groupIndex) ?? []) {
-      if (local < group.length) resetIndices.add(offset + local)
-      else pendingReset = true // 청크 끝에서 skip — 다음 청크 첫 항목에서 리셋
     }
     offset += group.length
     if (chunkWasSkipped && group.length === 0) pendingReset = true

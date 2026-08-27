@@ -16,6 +16,18 @@ export const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
+/**
+ * 역할별 모델 지정 — 새 모델이 나오면 여기만 바꾼다.
+ * - parse: 시험지·답안지·해설지 PDF 파싱, Vision OCR (품질·비용 균형)
+ * - explanation: 해설 추출·생성, 변형 분석 리포트 (최고 품질)
+ * - light: 경량 작업 — 문자 생성, 단어 채점, 이름 판독, 예문 생성 (속도·비용)
+ */
+export const MODELS = {
+  parse: 'claude-sonnet-5',
+  explanation: 'claude-opus-5',
+  light: 'claude-haiku-4-5-20251001',
+} as const
+
 export type FileBlock = DocumentBlockParam | ImageBlockParam
 export type ContentBlock = FileBlock | TextBlockParam
 
@@ -67,12 +79,18 @@ export type CallClaudeDetailedResult = {
   stopReason: string | null
 }
 
+/** 신세대(sonnet-5·opus-5·opus-4.7/4.8·fable)는 temperature 등 샘플링 파라미터가 제거됨 — 전달하면 400 */
+function samplingRemoved(model: string): boolean {
+  return /sonnet-5|opus-5|opus-4-[78]|fable/.test(model)
+}
+
 /** Claude 호출 후 텍스트와 usage·stop_reason 까지 반환 (비용 검증·잘림 감지용) */
 export async function callClaudeTextDetailed(options: CallClaudeOptions): Promise<CallClaudeDetailedResult> {
   const params = {
     model: options.model,
     max_tokens: options.maxTokens,
-    ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+    // 신세대 모델엔 temperature 를 조용히 떨군다 — 호출부가 모델 세대를 몰라도 안전하게
+    ...(options.temperature !== undefined && !samplingRemoved(options.model) ? { temperature: options.temperature } : {}),
     messages: [{ role: 'user' as const, content: options.content }],
   }
 
@@ -87,6 +105,13 @@ export async function callClaudeTextDetailed(options: CallClaudeOptions): Promis
     cacheWriteTokens: res.usage.cache_creation_input_tokens ?? 0,
   }
   console.log(`[llm] ${options.model} in=${usage.inputTokens} out=${usage.outputTokens} cache_read=${usage.cacheReadTokens} cache_write=${usage.cacheWriteTokens} stop=${res.stop_reason}`)
+
+  // 신세대 모델(4.7+/5)은 콘텐츠 필터 거절을 에러가 아니라 정상 응답(stop_reason=refusal)으로 준다.
+  // 구세대의 에러 문자열 경로와 판별을 통일하기 위해 isContentFilterError 가 인식하는 문구로 throw.
+  if (res.stop_reason === 'refusal') {
+    const category = (res as { stop_details?: { category?: string | null } | null }).stop_details?.category
+    throw new Error(`Output blocked by content filtering (refusal${category ? `: ${category}` : ''})`)
+  }
 
   return {
     text: res.content

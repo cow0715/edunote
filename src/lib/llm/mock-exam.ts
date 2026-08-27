@@ -4,7 +4,7 @@ import type { TextBlockParam } from '@anthropic-ai/sdk/resources/messages/messag
 import { buildExamOcrVisionPrompt, ExamOcrQuestion } from '../prompts'
 import { runParsePipeline } from './pipeline'
 import {
-  buildFileBlock, callClaudeText,
+  buildFileBlock, callClaudeText, MODELS,
   parseJsonArrayResponse, parseJsonObjectResponse,
   type ContentBlock,
 } from './client'
@@ -134,7 +134,7 @@ export async function parseMockExamMetadataFiles(
     content.push(buildFileBlock(file.fileData, file.mimeType, MOCK_EXAM_FILE_ERROR))
   }
 
-  const raw = await callClaudeText({ model: 'claude-sonnet-4-6', maxTokens: 8192, content })
+  const raw = await callClaudeText({ model: MODELS.parse, maxTokens: 8192, content })
   return parseJsonArrayResponse<MockExamMetadataQuestion>(raw, 'parseMockExamMetadataFiles')
 }
 
@@ -151,7 +151,7 @@ export async function parseMockExamAnswerKeyFiles(
     content.push(buildFileBlock(file.fileData, file.mimeType, MOCK_EXAM_FILE_ERROR))
   }
 
-  const raw = await callClaudeText({ model: 'claude-sonnet-4-6', maxTokens: 4096, content })
+  const raw = await callClaudeText({ model: MODELS.parse, maxTokens: 4096, content })
   return parseJsonArrayResponse<MockExamMetadataQuestion>(raw, 'parseMockExamAnswerKeyFiles')
 }
 
@@ -160,7 +160,7 @@ export async function parseMockExamMetadataFile(
   mimeType: string,
 ): Promise<MockExamMetadataQuestion[]> {
   const raw = await callClaudeText({
-    model: 'claude-sonnet-4-6',
+    model: MODELS.parse,
     maxTokens: 8192,
     content: [
       buildFileBlock(fileData, mimeType, MOCK_EXAM_FILE_ERROR),
@@ -172,7 +172,7 @@ export async function parseMockExamMetadataFile(
 
 export async function parseMockExamMetadataText(rawText: string): Promise<MockExamMetadataQuestion[]> {
   const raw = await callClaudeText({
-    model: 'claude-sonnet-4-6',
+    model: MODELS.parse,
     maxTokens: 8192,
     content: `${MOCK_EXAM_METADATA_RULES}
 
@@ -193,7 +193,7 @@ export async function ocrExamAnswers(
 
   console.log('[ocrExamAnswers] Claude Vision OCR 사용')
   const raw = await callClaudeText({
-    model: 'claude-sonnet-4-6',
+    model: MODELS.parse,
     maxTokens: 4096,
     content: [fileContent, { type: 'text', text: buildExamOcrVisionPrompt(questions) }],
   })
@@ -411,7 +411,7 @@ async function ocrExamOmrPage(
 
   async function readOmr(strict: boolean) {
     const raw = await callClaudeText({
-      model: 'claude-sonnet-4-6',
+      model: MODELS.parse,
       maxTokens: 4096,
       content: [fileContent, { type: 'text', text: buildExamOmrVisionPrompt(questions, pageNumber, strict) }],
     })
@@ -421,7 +421,7 @@ async function ocrExamOmrPage(
 
   async function readNameOnly() {
     const raw = await callClaudeText({
-      model: 'claude-sonnet-4-6',
+      model: MODELS.parse,
       maxTokens: 1024,
       content: [fileContent, { type: 'text', text: buildExamOmrNameVisionPrompt(pageNumber) }],
     })

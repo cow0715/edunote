@@ -1,5 +1,5 @@
 import type { SupabaseServerClient } from '@/lib/api'
-import { callClaudeText, parseJsonArrayResponse } from '@/lib/llm/client'
+import { callClaudeText, MODELS, parseJsonArrayResponse } from '@/lib/llm/client'
 
 export type VocabEnrichmentCandidate = {
   normalized_word: string
@@ -16,7 +16,7 @@ export type VocabEnrichmentResult = {
   similar_words: string[]
 }
 
-const ENRICHMENT_MODEL = 'claude-haiku-4-5-20251001'
+const ENRICHMENT_MODEL = MODELS.light
 const TOPICS = ['과학/기술', '환경/생태', '경제/사회', '심리/인지', '예술/문화', '교육/학습', '일상/실용', '어휘', '어법', '기타']
 
 type VocabDbRow = VocabEnrichmentCandidate & {

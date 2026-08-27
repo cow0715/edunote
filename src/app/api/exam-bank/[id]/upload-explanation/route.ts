@@ -1,7 +1,7 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parseExplanationText } from '@/lib/explanation-parser'
-import { parsePdfExplanationsHakpyung } from '@/lib/anthropic'
+import { parsePdfExplanationsHakpyungRanged } from '@/lib/anthropic'
 import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
 
 export const maxDuration = 300
@@ -56,9 +56,9 @@ export async function POST(
 
   let explanations
   if (hakpyung) {
-    // 학평: Claude Vision으로 출제의도 + 해석 추출 (풀이/어휘는 generate-explanation에서 생성)
+    // 학평: 출력 범위 분할(예열+범위 병렬)로 출제의도 + 해석 추출 (풀이/어휘는 generate-explanation에서 생성)
     try {
-      explanations = await parsePdfExplanationsHakpyung(buffer)
+      explanations = (await parsePdfExplanationsHakpyungRanged(buffer)).items
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       return err(`학평 해설 PDF 파싱 실패: ${msg}`, 422)

@@ -1,5 +1,5 @@
 import { splitPdfToSinglePageBase64 } from '@/lib/pdf'
-import { buildFileBlock, callClaudeText, isContentFilterError } from '@/lib/llm/client'
+import { buildFileBlock, callClaudeText, isContentFilterError, MODELS } from '@/lib/llm/client'
 import { mapWithConcurrency } from '@/lib/concurrency'
 import { err, getAuth, getTeacherId } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -102,7 +102,7 @@ const EXTRACT_PROMPT = `너는 시험지 PDF에서 문제와 해설을 추출하
 
 async function extractWithClaude(base64: string, maxTokens = 32000): Promise<string> {
   const text = await callClaudeText({
-    model: 'claude-sonnet-4-6',
+    model: MODELS.parse,
     maxTokens,
     temperature: 0,
     stream: true,

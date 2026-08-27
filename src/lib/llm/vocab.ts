@@ -7,7 +7,7 @@ import {
 } from '../prompts'
 import { reconstructClovaLayout, ClovaField } from '../clova-layout'
 import { gradeBlankAnswer, gradeChoiceAnswer } from '../vocab-blank-grading'
-import { buildFileBlock, callClaudeText, parseJsonArrayResponse, parseJsonObjectResponse } from './client'
+import { buildFileBlock, callClaudeText, MODELS, parseJsonArrayResponse, parseJsonObjectResponse } from './client'
 
 export type VocabGradingResult = {
   number: number
@@ -90,7 +90,7 @@ export async function gradeVocabPhoto(
     // CLOVA OCR 성공 → Claude Vision으로 구조 파싱 + 동그라미 감지
     console.log(`[gradeVocabPhoto] CLOVA OCR 사용, 텍스트 길이: ${clovaText.length} (${tOcr - t0}ms)`)
     const parseRaw = await callClaudeText({
-      model: 'claude-sonnet-4-6',
+      model: MODELS.parse,
       maxTokens: 4096,
       content: [fileContent, { type: 'text', text: buildVocabOcrClovaPrompt(clovaText, exampleItems) }],
     })
@@ -100,7 +100,7 @@ export async function gradeVocabPhoto(
     // CLOVA 미설정 → Claude Vision으로 직접 OCR
     console.log('[gradeVocabPhoto] Claude Vision OCR fallback')
     const ocrRaw = await callClaudeText({
-      model: 'claude-sonnet-4-6',
+      model: MODELS.parse,
       maxTokens: 4096,
       content: [fileContent, { type: 'text', text: buildVocabOcrVisionPrompt(exampleItems) }],
     })
@@ -141,10 +141,10 @@ type VocabItem = { number: number; english_word: string; student_answer: string 
 /**
  * 단어 뜻 채점 모델. 기본 Haiku (2026-08-18 전환).
  * 42개 경계 사례(다의어·유사어·품사·오타·-ing/-ed) 3회 비교: Sonnet 40/42 · Haiku 39/42, 시간 11.3s → 4.9s.
- * 유일한 차이는 오타 관용(가셜→가설)이 Haiku 가 약간 박한 것. 문제 생기면 환경변수로 즉시 롤백:
- *   VOCAB_GRADING_MODEL=claude-sonnet-4-6
+ * 유일한 차이는 오타 관용(가셜→가설)이 Haiku 가 약간 박한 것. 문제 생기면 환경변수로 즉시 상위 모델 전환:
+ *   VOCAB_GRADING_MODEL=claude-sonnet-5
  */
-export const VOCAB_GRADING_MODEL = process.env.VOCAB_GRADING_MODEL || 'claude-haiku-4-5-20251001'
+export const VOCAB_GRADING_MODEL = process.env.VOCAB_GRADING_MODEL || MODELS.light
 
 export async function gradeVocabItems(items: VocabItem[], customRules?: string, model: string = VOCAB_GRADING_MODEL): Promise<{ number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]> {
   const raw = await callClaudeText({
@@ -200,7 +200,7 @@ export async function readVocabSheetName(fileData: string, mimeType: string, can
 JSON 만 출력: {"rawName": "홍길동", "name": "홍길동"} / {"rawName": "홍길둥", "name": null} / {"rawName": null, "name": null}`
 
   const raw = await callClaudeText({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODELS.light,
     maxTokens: 120,
     content: [fileContent, { type: 'text', text: prompt }],
   })
@@ -245,7 +245,7 @@ export type VocabWordEnrichment = {
 
 export async function parseVocabPdf(fileData: string, mimeType: string): Promise<VocabWordEnrichment[]> {
   const raw = await callClaudeText({
-    model: 'claude-sonnet-4-6',
+    model: MODELS.parse,
     maxTokens: 4096,
     content: [buildFileBlock(fileData, mimeType), { type: 'text', text: VOCAB_PDF_PROMPT }],
   })
@@ -259,7 +259,7 @@ export async function generateVocabExamples(
 ): Promise<{ id: string; sentence: string; translation: string }[]> {
   const wordList = words.map((w, i) => `${i}. ${w.english_word}`).join('\n')
   const raw = await callClaudeText({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODELS.light,
     maxTokens: 8000,
     content: `아래 단어들 각각에 대해 자연스러운 영어 예문 1개와 한국어 번역을 만들어줘.\nJSON 배열만 출력 (idx는 입력의 번호): [{"idx":0,"sentence":"영어 예문","translation":"한국어 번역"}, ...]\n\n${wordList}`,
   })

@@ -1,7 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
 import { PDFDocument } from 'pdf-lib'
-import { planAlignedPageChunks, pageStartsWithQuestion } from '../../src/lib/pdf'
-import { renumberDuplicateQuestions, propagateSharedPassage } from '../../src/lib/llm/postprocess'
 import { runParsePipeline, type PipelineFile } from '../../src/lib/llm/pipeline'
 
 async function makePdfBase64(pageCount: number): Promise<string> {
@@ -10,70 +8,7 @@ async function makePdfBase64(pageCount: number): Promise<string> {
   return Buffer.from(await doc.save()).toString('base64')
 }
 
-// ── 청크 경계 계획 ──────────────────────────────────────────────────────────
-
-describe('pageStartsWithQuestion', () => {
-  it('"1." / "12)" / "[6~7]" 로 시작하면 문항 시작', () => {
-    expect(pageStartsWithQuestion('1. 다음 글의 제목은?')).toBe(true)
-    expect(pageStartsWithQuestion('  12) 밑줄 친')).toBe(true)
-    expect(pageStartsWithQuestion('[6~7] 다음 글을 읽고')).toBe(true)
-  })
-  it('지문 중간 문장으로 시작하면 아님', () => {
-    expect(pageStartsWithQuestion('and the results were consistent with')).toBe(false)
-    expect(pageStartsWithQuestion('')).toBe(false)
-  })
-})
-
-describe('planAlignedPageChunks', () => {
-  it('경계가 전부 안전하면 n장씩 정확히 자른다', () => {
-    const starts = [true, true, true, true, true, true]
-    expect(planAlignedPageChunks(starts, 3)).toEqual([{ startPage: 0, endPage: 3 }, { startPage: 3, endPage: 6 }])
-  })
-
-  it('자르려는 다음 페이지가 문항 시작이 아니면 청크를 늘려 안전한 경계까지 간다 (지문이 4쪽으로 넘어가는 경우)', () => {
-    //          p1    p2    p3    p4(지문 이어짐) p5    p6
-    const starts = [true, true, true, false, true, true]
-    expect(planAlignedPageChunks(starts, 3)).toEqual([{ startPage: 0, endPage: 4 }, { startPage: 4, endPage: 6 }])
-  })
-
-  it('안전한 경계가 없으면 maxPagesPerChunk 에서 강제로 자른다', () => {
-    const starts = [true, false, false, false, false, false, false]
-    expect(planAlignedPageChunks(starts, 3, 5)).toEqual([{ startPage: 0, endPage: 5 }, { startPage: 5, endPage: 7 }])
-  })
-
-  it('전체가 n장 이하면 통째 1개', () => {
-    expect(planAlignedPageChunks([true, false], 3)).toEqual([{ startPage: 0, endPage: 2 }])
-  })
-})
-
-// ── 공용 후처리 ─────────────────────────────────────────────────────────────
-
-describe('renumberDuplicateQuestions', () => {
-  it('중복·누락 번호를 안 쓰인 가장 작은 번호로 채우고 순서는 보존한다', () => {
-    const items = [{ question_number: 1 }, { question_number: 1 }, { question_number: '3번' }, { question_number: null }]
-    expect(renumberDuplicateQuestions(items).map((q) => q.question_number)).toEqual([1, 2, 3, 4])
-  })
-})
-
-describe('propagateSharedPassage', () => {
-  it('"윗글의…" 발문인데 지문이 비어 있으면 직전 지문을 복사한다 (청크 경계에 걸린 세트)', () => {
-    const items = [
-      { question_number: 6, passage: 'The long passage...', question_text: '다음 글의 제목은?' },
-      { question_number: 7, passage: '', question_text: '윗글의 내용과 일치하는 것은?' },
-    ]
-    expect(propagateSharedPassage(items)[1].passage).toBe('The long passage...')
-  })
-
-  it('발문에 앞 지문 참조가 없으면 빈 지문을 건드리지 않는다 (지문 없는 문장형 문항 보호)', () => {
-    const items = [
-      { question_number: 1, passage: 'Some passage', question_text: '다음 글의 주제는?' },
-      { question_number: 2, passage: '', question_text: '다음 문장에서 어법상 틀린 것은?' },
-    ]
-    expect(propagateSharedPassage(items)[1].passage).toBe('')
-  })
-})
-
-// ── 엔진 ────────────────────────────────────────────────────────────────────
+// ── 엔진 (whole / single-page — 남은 입력 분할 정책) ─────────────────────────
 
 describe('runParsePipeline', () => {
   const img = (name: string): PipelineFile => ({ fileData: 'x', mimeType: 'image/png', fileName: name })
@@ -110,37 +45,6 @@ describe('runParsePipeline', () => {
     expect(offsets).toEqual([0, 1, 2])
   })
 
-  it('pages(2): 4페이지 → 2청크, 각 청크의 pageOffset 은 0, 2', async () => {
-    const offsets: number[] = []
-    await runParsePipeline({
-      label: 't',
-      chunk: { kind: 'pages', pagesPerChunk: 2 },
-      parseChunk: async (file) => { offsets.push(file.pageOffset ?? -1); return [] },
-      finalize: (items) => items,
-    }, [{ fileData: await makePdfBase64(4), mimeType: 'application/pdf' }])
-    expect(offsets.sort()).toEqual([0, 2])
-  })
-
-  it('retry-per-page: 청크가 실패하면 그 청크만 1페이지씩 다시 파싱한다', async () => {
-    const calls: number[] = []
-    const result = await runParsePipeline({
-      label: 't',
-      chunk: { kind: 'pages', pagesPerChunk: 3 },
-      onChunkError: 'retry-per-page',
-      parseChunk: async (file) => {
-        const pageCount = (await PDFDocument.load(Buffer.from(file.fileData, 'base64'))).getPageCount()
-        calls.push(pageCount)
-        if (pageCount > 1) throw new Error('too big')
-        return [{ page: file.pageOffset }]
-      },
-      finalize: (items) => items,
-    }, [{ fileData: await makePdfBase64(3), mimeType: 'application/pdf' }])
-
-    // 3페이지 통째(실패) → 1페이지 × 3 (성공)
-    expect(calls).toEqual([3, 1, 1, 1])
-    expect(result.items).toEqual([{ page: 0 }, { page: 1 }, { page: 2 }])
-  })
-
   it('skipIf: 판별에 걸린 청크만 건너뛰고 순번을 보고한다 (content filter 페이지)', async () => {
     const result = await runParsePipeline({
       label: 't',
@@ -157,8 +61,7 @@ describe('runParsePipeline', () => {
     expect(result.skippedChunks).toEqual([2])
   })
 
-  // 기출은행이 콘텐츠 필터에 걸렸을 때 타는 경로 — 사용자에게 "3쪽 건너뜀" 으로 보여주므로
-  // single-page 정책에서 skippedChunks 가 실제 페이지 번호와 같아야 한다.
+  // 사용자에게 "3쪽 건너뜀" 으로 보여주므로 single-page 정책에서 skippedChunks 가 실제 페이지 번호와 같아야 한다.
   it('single-page + skipIf: 필터에 걸린 페이지만 버리고 그 페이지 번호를 보고한다', async () => {
     const result = await runParsePipeline({
       label: 't',
@@ -176,49 +79,13 @@ describe('runParsePipeline', () => {
     expect(result.skippedChunks).toEqual([3])
   })
 
-  it('skipIf 에 안 걸리는 에러는 그대로 던진다', async () => {
-    await expect(runParsePipeline({
-      label: 't',
-      chunk: { kind: 'whole' },
-      onChunkError: { skipIf: () => false },
-      parseChunk: async () => { throw new Error('boom') },
-      finalize: (items) => items,
-    }, [img('f1')])).rejects.toThrow('boom')
-  })
-})
-
-// ── 조합형 실패 정책 (retryPerPage + skipIf) ───────────────────────────────
-
-describe('runParsePipeline 조합형 정책', () => {
-  it('필터 에러(skipIf)는 retryPerPage 가 있어도 재시도 없이 즉시 skip — 재시도는 과금', async () => {
-    const calls: string[] = []
-    const result = await runParsePipeline({
-      label: 't',
-      chunk: { kind: 'pages', pagesPerChunk: 3 },
-      onChunkError: { retryPerPage: true, skipIf: (e) => e instanceof Error && e.message.includes('filtered') },
-      parseChunk: async (file) => {
-        calls.push(file.fileName ?? '?')
-        throw new Error('Output blocked: filtered')
-      },
-      finalize: (items) => items,
-    }, [{ fileData: await makePdfBase64(6), mimeType: 'application/pdf' }])
-
-    expect(calls.length).toBe(2) // 청크 2개, 페이지 단위 재시도 없이 각 1회로 끝
-    expect(result.items).toEqual([])
-    expect(result.skipped).toHaveLength(2)
-    expect(result.skipped[0]).toMatchObject({ chunkIndex: 1, startPage: 1, endPage: 3 })
-    expect(result.skipped[1]).toMatchObject({ chunkIndex: 2, startPage: 4, endPage: 6 })
-  })
-
-  it('재시도 중 필터 페이지만 skip 하고 나머지는 수집, skip 직후 항목은 resetIndices 로 표시', async () => {
+  it('skip 된 청크 다음 항목은 resetIndices 로 표시된다 (연속성 가정 차단 지점)', async () => {
     let ctxSeen: { skipped: unknown[]; resetIndices: Set<number> } | null = null
-    const result = await runParsePipeline({
+    await runParsePipeline({
       label: 't',
-      chunk: { kind: 'pages', pagesPerChunk: 3 },
-      onChunkError: { retryPerPage: true, skipIf: (e) => e instanceof Error && e.message.includes('filtered') },
+      chunk: { kind: 'single-page' },
+      onChunkError: { skipIf: (e) => e instanceof Error && e.message.includes('filtered') },
       parseChunk: async (file) => {
-        const pageCount = (await PDFDocument.load(Buffer.from(file.fileData, 'base64'))).getPageCount()
-        if (pageCount > 1) throw new Error('broken json') // 통째는 출력 문제로 실패 → 페이지 재시도
         const page = (file.pageOffset ?? 0) + 1
         if (page === 2) throw new Error('Output blocked: filtered')
         return [{ page }]
@@ -227,47 +94,17 @@ describe('runParsePipeline 조합형 정책', () => {
       finalize: (items) => items,
     }, [{ fileData: await makePdfBase64(3), mimeType: 'application/pdf' }])
 
-    expect(result.items).toEqual([{ page: 1 }, { page: 3 }])
-    expect(result.skipped).toEqual([{ chunkIndex: 1, startPage: 2, endPage: 2, reason: 'Output blocked: filtered' }])
     // 3쪽 항목(병합 인덱스 1)은 2쪽 결손 직후 — 연속성 리셋 지점
     expect(ctxSeen!.resetIndices.has(1)).toBe(true)
   })
 
-  it('재시도 중 skipIf 에 안 걸리는 페이지 에러는 throw', async () => {
+  it('skipIf 에 안 걸리는 에러는 그대로 던진다', async () => {
     await expect(runParsePipeline({
       label: 't',
-      chunk: { kind: 'pages', pagesPerChunk: 3 },
-      onChunkError: { retryPerPage: true, skipIf: (e) => e instanceof Error && e.message.includes('filtered') },
-      parseChunk: async (file) => {
-        const pageCount = (await PDFDocument.load(Buffer.from(file.fileData, 'base64'))).getPageCount()
-        throw new Error(pageCount > 1 ? 'broken json' : 'boom')
-      },
+      chunk: { kind: 'whole' },
+      onChunkError: { skipIf: () => false },
+      parseChunk: async () => { throw new Error('boom') },
       finalize: (items) => items,
-    }, [{ fileData: await makePdfBase64(3), mimeType: 'application/pdf' }])).rejects.toThrow('boom')
-  })
-})
-
-// ── skip 공백을 아는 후처리 ─────────────────────────────────────────────────
-
-describe('후처리 skip 가드', () => {
-  it('결손이 있으면 renumber 는 공백을 메꾸지 않고 전체 최대 번호 다음으로만 채운다', () => {
-    // 6~14번 청크가 skip 된 상황에서 결손 직후 문항의 번호 누락 — 6을 도용하면 안 된다
-    const items = [{ question_number: 5 }, { question_number: null }, { question_number: 15 }]
-    const ctx = { skipped: [{ chunkIndex: 2 }], resetIndices: new Set<number>() }
-    expect(renumberDuplicateQuestions(items, ctx).map((q) => q.question_number)).toEqual([5, 16, 15])
-    // 결손이 없으면 기존처럼 직전 배정 다음 번호로 (공백 메꿈 허용)
-    expect(renumberDuplicateQuestions(items).map((q) => q.question_number)).toEqual([5, 6, 15])
-  })
-
-  it('propagate 는 결손 경계 직후 문항에 직전 지문을 전파하지 않는다', () => {
-    const items = [
-      { question_number: 1, passage: '앞 지문', question_text: '다음 글의 제목은?' },
-      { question_number: 9, passage: '', question_text: '윗글의 내용과 일치하는 것은?' },
-    ]
-    const ctx = { skipped: [{ chunkIndex: 2 }], resetIndices: new Set([1]) }
-    // 1번과 9번 사이 청크가 통째로 빠짐 — 9번의 "윗글" 은 앞 지문이 아니라 빠진 지문을 가리킨다
-    expect(propagateSharedPassage(items, ctx)[1].passage).toBe('')
-    // 가드 없으면 잘못 전파됐을 상황임을 확인
-    expect(propagateSharedPassage(items)[1].passage).toBe('앞 지문')
+    }, [img('f1')])).rejects.toThrow('boom')
   })
 })
