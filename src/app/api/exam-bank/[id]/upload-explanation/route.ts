@@ -1,7 +1,6 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
-import { parseExplanationText } from '@/lib/explanation-parser'
-import { parsePdfExplanationsHakpyungRanged } from '@/lib/anthropic'
+import { parsePdfExplanationsHakpyungRanged, parsePdfExplanationsWithClaudeRanged } from '@/lib/anthropic'
 import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
 
 export const maxDuration = 300
@@ -54,39 +53,21 @@ export async function POST(
 
   const buffer = await fileBlob.arrayBuffer()
 
+  // 두 형식 모두 vision 출력 범위 분할(예열 + 범위 병렬)로 통일 (2026-08-27) — 정규식 텍스트
+  // 파서는 EBS 폰트 인코딩 PDF 에서 조용히 깨져 별도 vision 폴백 엔드포인트가 필요했다.
+  // 형식 차이는 프롬프트 선택만: 학평은 출제의도+해석만 있고(풀이·어휘는 generate-explanation 생성),
+  // 평가원/수능은 [해석][풀이][Words and Phrases] 4필드가 원문에 있다.
   let explanations
-  if (hakpyung) {
-    // 학평: 출력 범위 분할(예열+범위 병렬)로 출제의도 + 해석 추출 (풀이/어휘는 generate-explanation에서 생성)
-    try {
-      explanations = (await parsePdfExplanationsHakpyungRanged(buffer)).items
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      return err(`학평 해설 PDF 파싱 실패: ${msg}`, 422)
-    }
-  } else {
-    // 평가원/수능: 기존 텍스트 정규식 파서
-    let rawText = ''
-    try {
-      const { extractText, getDocumentProxy } = await import('unpdf')
-      const pdf = await getDocumentProxy(new Uint8Array(buffer))
-      const { text } = await extractText(pdf, { mergePages: true })
-      rawText = text as string
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      return err(`PDF 텍스트 추출 실패: ${msg}`, 422)
-    }
-
-    const rawPreview = rawText.slice(0, 500)
-    try {
-      explanations = parseExplanationText(rawText)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      return err(`해설 PDF 파싱 실패: ${msg}\n\n[PDF 앞부분]\n${rawPreview}`, 422)
-    }
-
-    if (explanations.length === 0) {
-      return err(`해설을 추출할 수 없습니다. 문항 경계(예: "18. [출제의도]")를 찾지 못했습니다.\n\n[PDF 앞부분]\n${rawPreview}`, 422)
-    }
+  try {
+    explanations = hakpyung
+      ? (await parsePdfExplanationsHakpyungRanged(buffer)).items
+      : (await parsePdfExplanationsWithClaudeRanged(buffer)).items
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return err(`해설 PDF 파싱 실패: ${msg}`, 422)
+  }
+  if (explanations.length === 0) {
+    return err('해설을 추출할 수 없습니다. PDF를 확인해주세요.', 422)
   }
 
   const { data: questionRows } = await supabase

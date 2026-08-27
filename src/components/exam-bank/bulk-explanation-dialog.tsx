@@ -66,15 +66,14 @@ export function BulkExplanationDialog({
     setItems(newItems)
   }
 
-  const handleRun = async (useVision = false) => {
+  const handleRun = async () => {
     const matched = items.filter((it) => it.exam)
     if (!matched.length) return toast.error('매칭된 시험이 없습니다')
-    if (useVision && !confirmAiWork()) return
+    // 해설 파싱은 전부 vision 범위 분할로 통일됨 — 시험당 LLM 과금이 있으므로 확인
+    if (!confirmAiWork()) return
 
     setRunning(true)
     setCurrent(0)
-
-    const pdfEndpoint = useVision ? 'upload-explanation-vision' : 'upload-explanation'
 
     // entries() 로 도는 이유: `i++` 로 증가하는 변수를 아래 setItems 람다들이 붙잡으면
     // React Compiler 가 이 컴포넌트를 최적화에서 제외한다(UpdateExpression captured in lambda).
@@ -96,7 +95,7 @@ export function BulkExplanationDialog({
 
         // PDF 파싱
         const { ok: pdfOk, data } = await safeJson(
-          await fetch(`/api/exam-bank/${exam.id}/${pdfEndpoint}`, {
+          await fetch(`/api/exam-bank/${exam.id}/upload-explanation`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ storagePath }),
@@ -104,8 +103,7 @@ export function BulkExplanationDialog({
         )
         if (!pdfOk) throw new Error((data.error as string) || '파싱 실패')
 
-        const label = useVision ? 'Vision' : 'PDF'
-        const msg = `${label} ${data.updated}/${data.total}문항 완료`
+        const msg = `${data.updated}/${data.total}문항 완료`
 
         setItems((prev) => prev.map((x, idx) => idx === index ? { ...x, status: 'done', message: msg } : x))
       }, (e) => {
@@ -188,20 +186,12 @@ export function BulkExplanationDialog({
                 </div>
               )}
 
-              <div className="flex gap-2">
-                <Button className="flex-1" onClick={() => handleRun(false)} disabled={running || matchedCount === 0}>
-                  {running
-                    ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{current}/{matchedCount} 처리 중...</>
-                    : <><Upload className="mr-2 h-4 w-4" />일괄 처리</>
-                  }
-                </Button>
-                <Button variant="outline" onClick={() => handleRun(true)} disabled={running || matchedCount === 0} title="텍스트 추출 실패 PDF용 — Claude Vision으로 직접 파싱 (느림)">
-                  {running
-                    ? <Loader2 className="h-4 w-4 animate-spin" />
-                    : <><Sparkles className="mr-1.5 h-4 w-4 text-purple-500" />Vision</>
-                  }
-                </Button>
-              </div>
+              <Button className="w-full" onClick={handleRun} disabled={running || matchedCount === 0}>
+                {running
+                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{current}/{matchedCount} 처리 중...</>
+                  : <><Upload className="mr-2 h-4 w-4" />일괄 처리</>
+                }
+              </Button>
             </>
           )}
         </div>
