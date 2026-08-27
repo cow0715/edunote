@@ -444,10 +444,10 @@ async function parseProblemSheetQuestionInputs(
 }
 
 /**
- * 해설지형: 문서 통째 1회 파싱 (문항+정답+해설이 한 문서에 있음).
- * 같은 엔진을 타므로 번호 재배정·bbox 보정·밑줄 안전망을 문제지형과 동일하게 받는다.
+ * 해설지형 통짜 파싱 (문항+정답+해설을 한 콜에).
+ * 해설 섹션 경계를 못 찾는 문서(마커 없음·스캔형·이미지·복수 파일)의 폴백 경로.
  */
-export async function parseAnswerSheetDocument(
+async function parseAnswerSheetWhole(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
 ): Promise<{ answers: ParsedAnswer[]; skipped: SkippedRange[] }> {
@@ -470,6 +470,109 @@ export async function parseAnswerSheetDocument(
       : answer),
   }, toPipelineFiles(files))
   return { answers: items, skipped }
+}
+
+// ── 해설지통합형 분할 파싱 ─────────────────────────────────────────────────
+// 통합형은 "문항부 전체 → 해설부(끝 1~2페이지)" 배치가 고정이다. 해설 섹션 헤더를 찾으면
+// 문항부는 문제지형 청킹 파이프라인(병렬), 해설부는 통짜 1콜로 나눠 파싱하고 번호로 병합한다.
+// → 통짜 1콜의 순차 병목·거대 응답(문항+정답+해설 전부) 잘림 위험·필터 전체 실패를 해소.
+
+/** "정답 및 해설" 류 섹션 헤더. 문항 안 문구 오탐을 피해 페이지 첫머리 부근에서만 찾는다 */
+const EXPLANATION_SECTION_HEADER = /정\s*답\s*(?:및|과)?\s*해\s*설/
+
+/**
+ * 해설 섹션이 시작되는 페이지 인덱스(0-base). 못 찾거나 첫 페이지면 null (분할 불가 → 통짜 폴백).
+ * detectExplanationSection(있/없 판정)과 달리 헤더급 마커만 쓴다 — "[해설]" 류 문항 내 마커로
+ * 잘못 자르면 문항부가 해설부로 넘어가 구조 추출이 통째로 빠지기 때문.
+ */
+export function findExplanationSectionStartPage(pageTexts: string[]): number | null {
+  for (let index = 1; index < pageTexts.length; index += 1) {
+    const head = pageTexts[index].replace(/^\s+/, '').slice(0, 160)
+    if (EXPLANATION_SECTION_HEADER.test(head)) return index
+  }
+  return null
+}
+
+/**
+ * 분할 파싱 병합 (순수 함수): 구조(발문·지문·선지·원본이미지)는 문항부에서,
+ * 정답·해설·유형(답안 형식 기반)·소문항 분리는 해설부에서 가져온다.
+ * - 해설부에만 있는 번호는 해설부 항목 그대로 (문항부 결손 대비)
+ * - 문항부에만 있는 번호는 정답 없는 문항으로 유지 (해설부 결손 대비)
+ */
+export function mergeProblemStructureWithAnswerItems(
+  questions: WeekProblemSheetQuestion[],
+  answerItems: ParsedAnswer[],
+): ParsedAnswer[] {
+  const structureByNumber = new Map<number, ParsedAnswer>()
+  for (const question of questions) {
+    if (!structureByNumber.has(question.question_number)) {
+      structureByNumber.set(question.question_number, toParsedAnswerFromProblemSheetQuestion(question))
+    }
+  }
+
+  const merged: ParsedAnswer[] = []
+  const answeredNumbers = new Set<number>()
+  for (const item of answerItems) {
+    answeredNumbers.add(item.question_number)
+    const base = structureByNumber.get(item.question_number)
+    if (!base) {
+      merged.push(item)
+      continue
+    }
+    merged.push({
+      ...item,
+      question_text: base.question_text,
+      question_stem: base.question_stem,
+      passage: base.passage,
+      choices: base.choices,
+      question_type: base.question_type ?? item.question_type,
+      needs_source_image: base.needs_source_image,
+      source_image_reason: base.source_image_reason,
+      source_page: base.source_page,
+      source_bbox: base.source_bbox,
+    })
+  }
+
+  for (const [number, base] of structureByNumber) {
+    if (!answeredNumbers.has(number)) merged.push(base)
+  }
+
+  return merged.sort((a, b) =>
+    a.question_number - b.question_number || (a.sub_label ?? '').localeCompare(b.sub_label ?? ''))
+}
+
+/**
+ * 해설지형 진입점: 해설 섹션 경계를 찾으면 문항부(청킹 병렬)/해설부(통짜) 분할 파싱,
+ * 못 찾으면 기존 통짜 1콜. 시그니처·반환은 기존과 동일해 라우트 무변경.
+ */
+export async function parseAnswerSheetDocument(
+  files: ProblemSheetUploadInput[],
+  tagCategories: TagCategory[] = [],
+): Promise<{ answers: ParsedAnswer[]; skipped: SkippedRange[] }> {
+  const single = files.length === 1 ? files[0] : null
+  if (single?.fileData && single.mimeType === 'application/pdf') {
+    const pageTexts = await getPdfPageTexts(single.fileData).catch(() => null)
+    const boundary = pageTexts ? findExplanationSectionStartPage(pageTexts) : null
+    if (boundary !== null && pageTexts) {
+      console.log(`[week-answer-sheet] 해설 섹션 감지 p${boundary + 1} — 문항부/해설부 분할 파싱`)
+      // slicePdfRangeSafe: 일부 PDF 는 슬라이스가 백지가 된다 (실측: 숭문 진단평가) — 렌더 재조립 폴백 포함
+      const [problemData, answerData] = await Promise.all([
+        slicePdfRangeSafe(single.fileData, { startPage: 0, endPage: boundary }),
+        slicePdfRangeSafe(single.fileData, { startPage: boundary, endPage: pageTexts.length }),
+      ])
+      const [problemPart, answerPart] = await Promise.all([
+        parseProblemSheetQuestionInputs(
+          [{ fileData: problemData, mimeType: single.mimeType, fileName: single.fileName }], tagCategories),
+        parseAnswerSheetWhole(
+          [{ fileData: answerData, mimeType: single.mimeType, fileName: single.fileName, pageOffset: boundary }], tagCategories),
+      ])
+      return {
+        answers: mergeProblemStructureWithAnswerItems(problemPart.questions, answerPart.answers),
+        skipped: [...problemPart.skipped, ...answerPart.skipped],
+      }
+    }
+  }
+  return parseAnswerSheetWhole(files, tagCategories)
 }
 
 function normalizeQuestionStyle(

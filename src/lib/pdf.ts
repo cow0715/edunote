@@ -77,7 +77,12 @@ export async function getPdfPageTexts(fileData: string): Promise<string[]> {
 
 /** 페이지가 새 문항으로 시작하는지 — "1." / "1)" / "[6~7]" / "01." 등 */
 export function pageStartsWithQuestion(pageText: string): boolean {
-  const head = pageText.replace(/^\s+/, '').slice(0, 40)
+  // "2 / 7 I110:A+REG-0000459717 5. …" 류 머리글(쪽번호 + 콜론 포함 문서코드)은 건너뛰고 판정한다
+  const head = pageText
+    .replace(/^\s+/, '')
+    .replace(/^\d{1,3}\s*\/\s*\d{1,3}\s+/, '')
+    .replace(/^\S*:\S+\s+/, '')
+    .slice(0, 40)
   return /^(?:\[\s*\d+\s*[~\-]\s*\d+\s*\]|\d{1,2}\s*[.)])/.test(head)
 }
 
