@@ -3,9 +3,9 @@
 import { GRADING_SYSTEM, GRADING_RULES, PARSE_ANSWER_SHEET_RULES, QUESTION_MARKUP_RULES, SOURCE_IMAGE_FIELD_RULES } from '../prompts'
 import {
   buildFileBlock, callClaudeText, MODELS,
-  extractJsonArrayCandidate, isContentFilterError, parseJsonArrayResponse,
+  extractJsonArrayCandidate, parseJsonArrayResponse,
 } from './client'
-import { discoverQuestionNumbers, rangedParseCall, sliceNumbers, type RangedCallStats, type RangedFile } from './ranged'
+import { discoverQuestionNumbers, rangedParseCallIsolated, sliceNumbers, type RangedCallStats, type RangedFile } from './ranged'
 
 export type SubjectiveQuestion = {
   question_number: number
@@ -160,8 +160,6 @@ export type AnswerSheetRangedResult = {
   skippedNumbers: number[]
 }
 
-/** 범위 콜당 목표 문항 수 — 그룹 수(=병렬 폭)와 콜당 출력 크기의 균형점 */
-const ANSWER_SHEET_NUMBERS_PER_CALL = 6
 
 export async function parseAnswerSheetRanged(
   files: RangedFile[],
@@ -179,32 +177,24 @@ export async function parseAnswerSheetRanged(
   }
   console.log('[parseAnswerSheetRanged] 발견 번호:', discovery.numbers.join(', '))
 
-  const skippedNumbers: number[] = []
-  const groups = sliceNumbers(discovery.numbers, ANSWER_SHEET_NUMBERS_PER_CALL)
-  const parts = await Promise.all(groups.map(async (numbers) => {
-    try {
-      return await rangedParseCall<ParsedAnswer>({
-        files, model, maxTokens: 8192,
-        prompt, scope: { numbers }, label: 'parseAnswerSheetRanged',
-      })
-    } catch (error) {
-      // 필터(결정적)는 그 그룹만 결손 처리 — 재시도해도 같은 출력 요구라 결과가 안 바뀐다
-      if (!isContentFilterError(error)) throw error
-      console.warn(`[parseAnswerSheetRanged] ${numbers.join(',')}번 그룹 필터 skip:`, error instanceof Error ? error.message : error)
-      skippedNumbers.push(...numbers)
-      return null
-    }
-  }))
+  // 콜당 문항 수는 코어 공통 상수(NUMBERS_PER_RANGE_CALL) — 문항당 1콜 전 병렬.
+  // 필터에 걸린 문항은 정확히 그 문항만 결손된다.
+  const groups = sliceNumbers(discovery.numbers)
+  const parts = await Promise.all(groups.map((numbers) =>
+    rangedParseCallIsolated<ParsedAnswer>({
+      files, model, maxTokens: 8192,
+      prompt, scope: { numbers }, label: 'parseAnswerSheetRanged',
+    })))
 
   const items = parts
-    .flatMap((part) => part?.items ?? [])
+    .flatMap((part) => part.items)
     .sort((a, b) => a.question_number - b.question_number
       || (a.sub_label ?? '').localeCompare(b.sub_label ?? ''))
   return {
     items,
-    calls: [discovery.stats, ...parts.filter((p): p is NonNullable<typeof p> => p !== null).map((p) => p.stats)],
+    calls: [discovery.stats, ...parts.flatMap((part) => part.calls)],
     discoveredNumbers: discovery.numbers,
-    skippedNumbers,
+    skippedNumbers: parts.flatMap((part) => part.skippedNumbers).sort((a, b) => a - b),
   }
 }
 

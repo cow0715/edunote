@@ -12,7 +12,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { WeekResultTable } from '@/components/grade/week-result-table'
 import { GradeGrid } from '@/components/grade/grade-grid'
 import { SmsSheet } from '@/components/grade/sms-sheet'
-import { ExplanationDrainChip } from '@/components/grade/explanation-drain-chip'
 import { AttendanceManager } from '@/components/attendance/attendance-manager'
 import { AnswerSheetUploader } from '@/components/grade/answer-sheet-uploader'
 import { QuestionTypeEditor } from '@/components/grade/question-type-editor'
@@ -131,7 +130,6 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
       </div>
 
       {/* 해설 미생성 복구 칩 — 업로드 중 끊겨 해설이 비어 있을 때만 나타남 */}
-      <ExplanationDrainChip weekId={weekId} />
 
       {/* 페이지 탭: 현황 | 채점 */}
       <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as 'overview' | 'grade')}>

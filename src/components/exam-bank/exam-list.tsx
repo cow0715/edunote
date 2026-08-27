@@ -5,8 +5,7 @@ import { errorMessage, runWithLoading } from '@/lib/async-ui'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
-import { Trash2, ChevronDown, ChevronUp, FileText, BarChart2, Loader2, BookOpen, Sparkles } from 'lucide-react'
-import { confirmAiWork } from './constants'
+import { Trash2, ChevronDown, ChevronUp, FileText, BarChart2, Loader2, BookOpen } from 'lucide-react'
 import { QuestionList } from './question-list'
 import { ExplanationUploadDialog } from './explanation-upload-dialog'
 import type { ExamBank } from './types'
@@ -50,18 +49,7 @@ export function ExamList() {
   const queryClient = useQueryClient()
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [explanationTarget, setExplanationTarget] = useState<string | null>(null)
-  // useMutation: try/finally 로 로딩 state 를 관리하면 React Compiler 가 컴포넌트 전체를 건너뛴다(finally 미지원).
-  const generateExplanation = useMutation({
-    mutationFn: async (examId: string) => {
-      const res = await fetch(`/api/exam-bank/${examId}/generate-explanation`, { method: 'POST' })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? 'AI 해설 생성 실패')
-      return json as { updated: number; total: number }
-    },
-    onSuccess: (json) => toast.success(`AI 해설 생성 완료 (${json.updated}/${json.total}문항)`),
-    onError: (error) => toast.error(error instanceof Error && error.message ? error.message : 'AI 해설 생성 실패'),
-  })
-  const generatingId = generateExplanation.isPending ? generateExplanation.variables ?? null : null
+  // AI 해설 생성 버튼은 제거됨 — 해설 PDF 업로드가 추출 후 generate-explanation 을 자동으로 이어 호출한다.
 
   const { data: exams, isLoading } = useQuery<ExamBank[]>({
     queryKey: ['exam-bank'],
@@ -121,20 +109,6 @@ export function ExamList() {
                   title="해설 PDF 업로드"
                 >
                   <BookOpen className="h-4 w-4" />
-                </button>
-                <button
-                  disabled={generatingId === exam.id}
-                  onClick={() => {
-                    if (!confirmAiWork()) return
-                    generateExplanation.mutate(exam.id)
-                  }}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="AI 해설/어휘 생성 (18~45번)"
-                >
-                  {generatingId === exam.id
-                    ? <Loader2 className="h-4 w-4 animate-spin" />
-                    : <Sparkles className="h-4 w-4" />
-                  }
                 </button>
                 <button
                   onClick={() => { if (confirm('이 시험과 모든 문항을 삭제하시겠습니까?')) deleteMutation.mutate(exam.id) }}

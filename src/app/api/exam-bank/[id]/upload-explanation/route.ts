@@ -1,7 +1,8 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parsePdfExplanationsHakpyungRanged, parsePdfExplanationsWithClaudeRanged } from '@/lib/anthropic'
-import { syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
+import { mergeExamVocabularyText, syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
+import { enrichExamQuestionVocabulary } from '@/lib/vocab-enrichment'
 
 export const maxDuration = 300
 
@@ -53,15 +54,17 @@ export async function POST(
 
   const buffer = await fileBlob.arrayBuffer()
 
-  // 두 형식 모두 vision 출력 범위 분할(예열 + 범위 병렬)로 통일 (2026-08-27) — 정규식 텍스트
-  // 파서는 EBS 폰트 인코딩 PDF 에서 조용히 깨져 별도 vision 폴백 엔드포인트가 필요했다.
-  // 형식 차이는 프롬프트 선택만: 학평은 출제의도+해석만 있고(풀이·어휘는 generate-explanation 생성),
-  // 평가원/수능은 [해석][풀이][Words and Phrases] 4필드가 원문에 있다.
+  // 두 형식 모두 vision 출력 범위 분할(예열 + 범위 병렬)로 통일 — 추출과 AI 보완을 한 콜에:
+  // 해석·출제의도는 원문 그대로 추출(창작 금지), 풀이·어휘는 원문 기반 작성 (학평은 원문에 없어 신규 작성).
+  // 콘텐츠 필터에 걸린 범위는 문항 단위로 격리 재시도돼 진짜 걸린 문항만 결손된다 (skipped_questions).
   let explanations
+  let skippedQuestions: number[] = []
   try {
-    explanations = hakpyung
-      ? (await parsePdfExplanationsHakpyungRanged(buffer)).items
-      : (await parsePdfExplanationsWithClaudeRanged(buffer)).items
+    const parsed = hakpyung
+      ? await parsePdfExplanationsHakpyungRanged(buffer)
+      : await parsePdfExplanationsWithClaudeRanged(buffer)
+    explanations = parsed.items
+    skippedQuestions = parsed.skippedNumbers
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return err(`해설 PDF 파싱 실패: ${msg}`, 422)
@@ -72,18 +75,25 @@ export async function POST(
 
   const { data: questionRows } = await supabase
     .from('exam_bank_question')
-    .select('id, question_number, question_type, passage')
+    .select('id, question_number, question_type, passage, explanation_vocabulary')
     .eq('exam_bank_id', id)
   const questionMap = new Map((questionRows ?? []).map((q) => [q.question_number, q]))
 
   // 문항번호 매칭하여 UPDATE (빈 값은 skip하여 기존 데이터 보존)
   let updated = 0
+  const normalizedWords = new Set<string>()
   for (const ex of explanations) {
+    const question = questionMap.get(ex.question_number)
+    // 기존 어휘와 병합 — 재업로드해도 이미 쌓인 단어를 잃지 않는다
+    const vocabulary = ex.vocabulary?.trim()
+      ? mergeExamVocabularyText(question?.explanation_vocabulary, ex.vocabulary, undefined, question?.passage ?? '') || ex.vocabulary
+      : null
+
     const updateData: Record<string, unknown> = {}
     if (ex.intent?.trim()) updateData.explanation_intent = ex.intent
     if (ex.translation?.trim()) updateData.explanation_translation = ex.translation
     if (ex.solution?.trim()) updateData.explanation_solution = ex.solution
-    if (ex.vocabulary?.trim()) updateData.explanation_vocabulary = ex.vocabulary
+    if (vocabulary) updateData.explanation_vocabulary = vocabulary
 
     if (Object.keys(updateData).length === 0) {
       updated++
@@ -97,13 +107,25 @@ export async function POST(
       .eq('question_number', ex.question_number)
 
     if (!error) {
-      const question = questionMap.get(ex.question_number)
-      if (question && 'explanation_vocabulary' in updateData) {
-        await syncExamQuestionVocabulary(supabase, question.id, ex.vocabulary, question.question_type, question.passage)
+      if (question && vocabulary) {
+        const synced = await syncExamQuestionVocabulary(supabase, question.id, vocabulary, question.question_type, question.passage)
+        for (const word of synced.normalizedWords) normalizedWords.add(word)
       }
       updated++
     }
   }
 
-  return ok({ updated, total: explanations.length, mode: hakpyung ? 'hakpyung' : 'standard' })
+  // 단어 DB 보강 (기존 generate-explanation 라우트에서 이식 — 뜻·예문 없는 신규 단어 채우기)
+  let enriched = { candidates: 0, generated: 0, updated: 0 }
+  if (normalizedWords.size > 0) {
+    enriched = await enrichExamQuestionVocabulary(serviceClient, { normalizedWords: [...normalizedWords], limit: 300, batchSize: 40 })
+  }
+
+  return ok({
+    updated,
+    total: explanations.length,
+    mode: hakpyung ? 'hakpyung' : 'standard',
+    skipped_questions: skippedQuestions,
+    enriched,
+  })
 }

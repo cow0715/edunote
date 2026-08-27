@@ -3,7 +3,6 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { parseExamBankPageRanged } from '@/lib/anthropic'
 import type { PipelineFile } from '@/lib/llm/pipeline'
 import { getMegastudyStats } from '@/lib/megastudy'
-import { NextResponse } from 'next/server'
 
 export const maxDuration = 300
 
@@ -116,9 +115,8 @@ export async function POST(request: Request) {
     const [file] = files
     const result = await parseExamBankPageRanged(file.fileData, file.mimeType)
     const questions = result.items
-    // 필터로 skip 된 범위의 번호들 — 페이지 개념이 없어졌으므로 문항 번호로 결손을 보고한다
-    const skippedQuestions = result.skippedRanges.flatMap(([start, end]) =>
-      Array.from({ length: end - start + 1 }, (_, i) => start + i))
+    // 필터 결손 문항 번호 (문항 단위 격리 재시도 후에도 걸린 것만)
+    const skippedQuestions = result.skippedNumbers
 
     if (questions.length === 0) {
       await supabase.from('exam_bank').delete().eq('id', exam.id)

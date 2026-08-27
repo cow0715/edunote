@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Upload, Loader2, Sparkles, FolderOpen, CheckCircle2, XCircle } from 'lucide-react'
+import { Upload, Loader2, FolderOpen, CheckCircle2, XCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { safeJson, confirmAiWork } from './constants'
 import type { ExamBank } from './types'
@@ -103,7 +103,10 @@ export function BulkExplanationDialog({
         )
         if (!pdfOk) throw new Error((data.error as string) || '파싱 실패')
 
-        const msg = `${data.updated}/${data.total}문항 완료`
+        // 추출 + AI 풀이·어휘 보완이 한 콜로 처리된다. 필터 결손 문항은 번호로 표시.
+        const skipped = Array.isArray(data.skipped_questions) ? data.skipped_questions as number[] : []
+        const msg = `${data.updated}/${data.total}문항 완료 (AI 풀이·어휘 포함)`
+          + (skipped.length ? ` · ${skipped.join(',')}번 필터 결손` : '')
 
         setItems((prev) => prev.map((x, idx) => idx === index ? { ...x, status: 'done', message: msg } : x))
       }, (e) => {

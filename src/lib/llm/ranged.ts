@@ -11,7 +11,7 @@
  * discoverQuestionNumbers 로 번호를 발견한 뒤 numbers 스코프를 쓴다.
  */
 
-import { buildFileBlock, callClaudeTextDetailed, parseJsonArrayResponse, type CallClaudeUsage, type ContentBlock } from './client'
+import { buildFileBlock, callClaudeTextDetailed, isContentFilterError, parseJsonArrayResponse, type CallClaudeUsage, type ContentBlock } from './client'
 import { coerceQuestionNumber } from './postprocess'
 
 export type RangedCallStats = CallClaudeUsage & {
@@ -85,6 +85,58 @@ export async function rangedParseCall<T extends { question_number: unknown }>(op
   }
 }
 
+function scopeToNumbers(scope: RangedScope): number[] {
+  if ('numbers' in scope) return scope.numbers
+  const [start, end] = scope.range
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i)
+}
+
+/**
+ * 필터 격리 범위 콜: 범위 콜이 콘텐츠 필터로 거절되면 문항 단위 콜로 쪼개 재시도한다.
+ * 필터는 출력 기준이라 같은 범위의 무해한 문항은 살아남는다 — 진짜 걸린 문항만 결손으로 남는다.
+ * 문항 단위 재시도는 캐시 히트(입력 0.1배)라 비용이 미미하고, 필터 이벤트에서만 발동한다.
+ * 필터가 아닌 에러는 그대로 throw.
+ */
+export async function rangedParseCallIsolated<T extends { question_number: unknown }>(opts: {
+  files: RangedFile[]
+  model: string
+  maxTokens: number
+  prompt: string
+  scope: RangedScope
+  label: string
+}): Promise<{ items: T[]; calls: RangedCallStats[]; skippedNumbers: number[] }> {
+  try {
+    const { items, stats } = await rangedParseCall<T>(opts)
+    return { items, calls: [stats], skippedNumbers: [] }
+  } catch (error) {
+    if (!isContentFilterError(error)) throw error
+    const numbers = scopeToNumbers(opts.scope)
+    // 이미 1문항 콜이면 재시도해도 같은 출력 요구 — 즉시 결손 처리
+    if (numbers.length <= 1) {
+      console.warn(`[${opts.label}] ${numbers[0]}번 필터 skip:`, error instanceof Error ? error.message : error)
+      return { items: [], calls: [], skippedNumbers: numbers }
+    }
+    console.warn(`[${opts.label}] ${numbers[0]}~${numbers[numbers.length - 1]}번 범위 필터 거절 → 문항 단위 격리 재시도`)
+
+    const skippedNumbers: number[] = []
+    const parts = await Promise.all(numbers.map(async (n) => {
+      try {
+        return await rangedParseCall<T>({ ...opts, scope: { numbers: [n] } })
+      } catch (single) {
+        if (!isContentFilterError(single)) throw single
+        console.warn(`[${opts.label}] ${n}번 필터 skip:`, single instanceof Error ? single.message : single)
+        skippedNumbers.push(n)
+        return null
+      }
+    }))
+    return {
+      items: parts.flatMap((part) => part?.items ?? []),
+      calls: parts.filter((p): p is NonNullable<typeof p> => p !== null).map((p) => p.stats),
+      skippedNumbers,
+    }
+  }
+}
+
 /** 캐시 예열: max_tokens 0 — 파일+프롬프트를 읽어 캐시에 올리기만 하고 출력은 없다 (실측 31p 7.6s) */
 export async function prewarmPdfCache(opts: {
   files: RangedFile[]
@@ -136,10 +188,19 @@ export async function discoverQuestionNumbers(opts: {
 }
 
 /**
+ * 범위 콜당 목표 문항 수 (전 파이프라인 공통) — 분할 수 = 병렬 폭.
+ * 매 콜이 캐시된 문서 전체를 보므로 잘게 쪼개도 컨텍스트 손실이 없고, 추가 비용은 콜당
+ * 캐시 읽기 0.1배 뿐이다. 1 = 문항당 1콜(최대 병렬): 기출 28병렬·주차 ~20병렬 —
+ * 단일 사용자·단일 작업 전제라 rate limit(ITPM 10M/분) 대비 한 자릿수 % 수준이다.
+ * 콜당 출력이 최소라 잘림·벽시계도 최소가 되고, 필터 결손도 정확히 그 문항 하나로 격리된다.
+ */
+export const NUMBERS_PER_RANGE_CALL = 1
+
+/**
  * 정렬된 번호 목록을 콜당 목표 개수로 연속 슬라이스 (병렬 폭 = 슬라이스 수).
  * 나머지는 앞쪽 그룹부터 1개씩 흡수해 그룹 크기 편차를 1 이내로 유지한다.
  */
-export function sliceNumbers(numbers: number[], perCall = 6): number[][] {
+export function sliceNumbers(numbers: number[], perCall = NUMBERS_PER_RANGE_CALL): number[][] {
   if (!numbers.length) return []
   const groupCount = Math.ceil(numbers.length / perCall)
   const baseSize = Math.floor(numbers.length / groupCount)

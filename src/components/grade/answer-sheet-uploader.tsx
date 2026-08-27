@@ -196,14 +196,6 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
     return () => clearInterval(timer)
   }, [isLoading])
 
-  // 해설 드레인은 브라우저가 오케스트레이터라 탭이 닫히면 다음 요청이 안 나간다 — 닫기 전 경고
-  useEffect(() => {
-    if (!isLoading) return
-    const warn = (event: BeforeUnloadEvent) => { event.preventDefault() }
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [isLoading])
-
   function resetQueries() {
     qc.invalidateQueries({ queryKey: ['exam-questions', weekId] })
     qc.invalidateQueries({ queryKey: ['grade', weekId] })
@@ -253,38 +245,6 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
     return false
   }
 
-  /**
-   * AI 해설 드레인 — 요청당 일부 배치씩, remaining 0 까지. 실패는 삼키고 보고만 (해설은 부가 정보).
-   * includeExisting: 업로드 직후 1회는 원본 해설이 있어도 전 문항을 통합·확장 재작성한다.
-   */
-  async function drainExplanations(
-    opts: { includeExisting: boolean },
-    onProgress: (generatedSoFar: number) => void,
-  ): Promise<{ generated: number; failed: boolean }> {
-    let generatedTotal = 0
-    let offset = 0
-    let failed = false
-    try {
-      for (let guard = 0; guard < 20; guard += 1) {
-        onProgress(generatedTotal)
-        const response = await fetch(`/api/weeks/${weekId}/explanations-drain`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ includeExisting: opts.includeExisting, offset }),
-        })
-        if (!response.ok) { failed = true; break }
-        const drain = parseJsonSafely(await response.text())
-        generatedTotal += Number(drain.generated ?? 0)
-        offset += Number(drain.attempted ?? 0)
-        if (Number(drain.failed_batches ?? 0) > 0) failed = true
-        if (Number(drain.remaining ?? 0) <= 0) break
-      }
-    } catch {
-      failed = true
-    }
-    return { generated: generatedTotal, failed }
-  }
-
   async function startImportConfirmed() {
     if (!file) return
 
@@ -318,13 +278,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
         toast.warning(`${skippedQuestions.join(', ')}번 문항은 인식하지 못했습니다 — 직접 추가하거나 파일을 다시 올려주세요.`)
       }
 
-      // 업로드 직후엔 원본 해설이 있어도 전 문항을 AI 로 보완한다 (같은 클릭 안에서 자동)
-      const drain = await drainExplanations({ includeExisting: true }, (generated) => {
-        setStatus(weekId, { type: 'loading', step: generated > 0 ? `AI 보완 해설을 만들고 있습니다. (${generated}문항 완료)` : 'AI 보완 해설을 만들고 있습니다.' })
-      })
-      if (drain.generated > 0) toast.success(`AI 해설 ${drain.generated}문항을 보완했습니다.`)
-      if (drain.failed) toast.warning('일부 해설 생성에 실패했습니다. 같은 파일을 다시 올리면 남은 해설만 이어서 생성됩니다.')
-
+      // 해설 보완은 파싱 콜에 통합됨 (프롬프트가 원문 해설을 기반으로 보강 작성) — 별도 드레인 없음
       setStatus(weekId, {
         type: 'done',
         questions_parsed: questionsParsed,
