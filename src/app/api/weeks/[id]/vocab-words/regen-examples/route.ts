@@ -35,7 +35,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
         examples.map((u) =>
           supabase
             .from('vocab_word')
-            .update({ example_sentence: u.sentence, example_translation: u.translation, example_source: 'teacher_ai' })
+            .update({ example_sentence: u.sentence, example_translation: u.translation, example_distractor: u.distractor, example_source: 'teacher_ai' })
             .eq('id', u.id)
         )
       )

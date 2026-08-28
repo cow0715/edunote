@@ -261,15 +261,41 @@ export async function parseVocabPdf(fileData: string, mimeType: string): Promise
 
 export async function generateVocabExamples(
   words: { id: string; english_word: string }[]
-): Promise<{ id: string; sentence: string; translation: string }[]> {
+): Promise<{ id: string; sentence: string; translation: string; distractor: string | null }[]> {
   const wordList = words.map((w, i) => `${i}. ${w.english_word}`).join('\n')
   const raw = await callClaudeText({
     model: MODELS.light,
     maxTokens: 8000,
-    content: `아래 단어들 각각에 대해 자연스러운 영어 예문 1개와 한국어 번역을 만들어줘.\nJSON 배열만 출력 (idx는 입력의 번호): [{"idx":0,"sentence":"영어 예문","translation":"한국어 번역"}, ...]\n\n${wordList}`,
+    content: `아래 단어들 각각에 대해 자연스러운 영어 예문 1개와 한국어 번역, 그리고 선택형 오답 후보 1개를 만들어줘.
+
+distractor(오답 후보) 규칙 — 이게 시험 변별력을 정한다:
+- 예문의 그 단어 자리에 **바꿔 넣어도 문법이 성립**해야 한다 (품사·수·태 일치).
+  문법이 깨지면 학생이 뜻을 몰라도 소거로 맞히므로 문항이 무의미해진다.
+- 단, 넣으면 **문장의 뜻이 틀리거나 어색**해야 한다 (정답이 둘이 되면 안 된다).
+- 따라서 유의어·거의 같은 뜻은 금지. 뜻이 분명히 다른 같은 품사 단어를 고른다.
+- 출제 단어가 구(phrase)면 오답도 같은 형태의 구로 (예: "take a break" → "make a call").
+- 예문에 이미 등장한 단어 금지. 적절한 후보가 없으면 null (억지로 만들지 말 것).
+
+JSON 배열만 출력 (idx는 입력의 번호):
+[{"idx":0,"sentence":"영어 예문","translation":"한국어 번역","distractor":"오답 후보 또는 null"}, ...]
+
+${wordList}`,
   })
-  const parsed = parseJsonArrayResponse<{ idx: number; sentence: string; translation: string }>(raw, 'generateVocabExamples')
+  const parsed = parseJsonArrayResponse<{ idx: number; sentence: string; translation: string; distractor?: string | null }>(raw, 'generateVocabExamples')
   return parsed
     .filter((p) => p.idx != null && p.sentence && p.translation && words[p.idx])
-    .map((p) => ({ id: words[p.idx].id, sentence: p.sentence, translation: p.translation }))
+    .map((p) => {
+      const candidate = (p.distractor ?? '').trim()
+      const lower = candidate.toLowerCase()
+      const word = words[p.idx].english_word.trim().toLowerCase()
+      // 자기 자신·빈값·예문에 이미 있는 표현은 버린다 (답이 드러나거나 정답이 둘이 된다).
+      // 부분 문자열까지 걸러 과하게 엄격하지만, 버려도 코드 규칙으로 폴백되므로 안전한 쪽으로 둔다.
+      const usable = !!lower && lower !== word && !p.sentence.toLowerCase().includes(lower)
+      return {
+        id: words[p.idx].id,
+        sentence: p.sentence,
+        translation: p.translation,
+        distractor: usable ? candidate : null,
+      }
+    })
 }

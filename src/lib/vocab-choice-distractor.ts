@@ -100,3 +100,26 @@ export function choiceDistractor(word: VocabEntry, fallbackWords: VocabEntry[] =
   return antonym ?? null
 }
 
+/**
+ * 선택형 오답 후보 — AI 가 예문과 함께 만들어 둔 것을 먼저 쓰고, 없으면 코드 규칙으로 폴백한다.
+ *
+ * 오답의 질이 곧 변별력이다. 품사가 안 맞으면 문장이 성립하지 않아
+ * 학생이 뜻을 몰라도 소거로 맞히므로 오히려 너무 쉬운 문항이 된다.
+ * 코드 규칙은 철자·품사 유사도만 보므로 "문맥상 그럴듯한 오답"까지는 못 만든다 —
+ * 그건 예문을 만든 AI 가 더 잘 안다 (example_distractor).
+ *
+ * 둘 다 실패하면 null → 호출부는 그 단어로 선택형을 만들지 않는다.
+ * 잘못된 문항을 내느니 안 내는 게 낫다.
+ */
+export function resolveChoiceDistractor(word: VocabEntry, fallbackWords: VocabEntry[] = []): string | null {
+  const fromAi = normalizePromptCandidate(word.example_distractor)
+  if (fromAi) {
+    const self = word.english_word.trim().toLocaleLowerCase('en-US')
+    const sentence = (word.example_sentence ?? '').toLocaleLowerCase('en-US')
+    const lower = fromAi.toLocaleLowerCase('en-US')
+    // 저장 시점에 걸렀지만, 예문이 나중에 바뀌었을 수 있어 여기서 한 번 더 본다
+    if (lower !== self && !sentence.includes(lower)) return fromAi
+  }
+  return choiceDistractor(word, fallbackWords)
+}
+

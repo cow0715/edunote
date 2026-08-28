@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { VocabEntry } from '@/store/upload-store'
-import { choiceDistractor, normalizePos } from '@/lib/vocab-choice-distractor'
+import { choiceDistractor, normalizePos, resolveChoiceDistractor } from '@/lib/vocab-choice-distractor'
 
 // 선택형 [ 정답 / 오답 ] 의 오답은 AI 없이 같은 단어장에서 고른다.
 // 반의어일 필요 없음 — "비슷하게 생겼지만 다른 단어" 우선, 유의어/파생어/예문 속 단어는 제외.
@@ -64,6 +64,44 @@ describe('choiceDistractor', () => {
     const lonely = w({ english_word: 'happy', antonyms: ['sad'] })
     expect(choiceDistractor(lonely, [lonely])).toBe('sad')
     expect(choiceDistractor(w({ english_word: 'happy' }), [])).toBeNull()
+  })
+})
+
+// 오답의 질이 곧 변별력이다. 품사가 안 맞으면 문장이 성립하지 않아
+// 학생이 뜻을 몰라도 소거로 맞힌다 (운영 실사례: "Let's [ take a break / impressive ]").
+// 문맥상 그럴듯한 오답은 예문을 만든 AI 가 더 잘 알므로 그 후보를 먼저 쓴다.
+describe('resolveChoiceDistractor — AI 후보 우선', () => {
+  it('AI 가 만들어 둔 후보가 있으면 그것을 쓴다', () => {
+    const word = w({
+      english_word: 'take a break',
+      example_sentence: "Let's take a break and grab some coffee.",
+      example_distractor: 'make a call',
+    })
+    expect(resolveChoiceDistractor(word, LIST)).toBe('make a call')
+  })
+
+  it('AI 후보가 정답 자신이면 버리고 코드 규칙으로 폴백', () => {
+    const word = w({ english_word: 'unique', part_of_speech: 'adj', example_distractor: 'unique' })
+    expect(resolveChoiceDistractor(word, LIST)).not.toBe('unique')
+  })
+
+  it('AI 후보가 예문에 이미 있으면 버린다 — 답이 드러난다', () => {
+    const word = w({
+      english_word: 'exhibit',
+      example_sentence: 'The museum will exhibit the rare paintings next month.',
+      example_distractor: 'paintings',
+    })
+    expect(resolveChoiceDistractor(word, LIST)).not.toBe('paintings')
+  })
+
+  it('AI 후보가 없으면 기존 코드 규칙 결과와 같다', () => {
+    const word = w({ english_word: 'unique', part_of_speech: 'adj' })
+    expect(resolveChoiceDistractor(word, LIST)).toBe(choiceDistractor(word, LIST))
+  })
+
+  it('AI 후보도 코드 후보도 없으면 null — 호출부가 선택형을 만들지 않는다', () => {
+    const lonely = w({ english_word: 'happy' })
+    expect(resolveChoiceDistractor(lonely, [lonely])).toBeNull()
   })
 })
 

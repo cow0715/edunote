@@ -20,6 +20,8 @@ export type VocabEntry = {
   derivatives?: string | null
   source_row_index?: number | null
   example_sentence?: string | null
+  /** 예문 생성 때 AI 가 같이 만든 선택형 오답 후보 (없으면 코드 규칙으로 폴백) */
+  example_distractor?: string | null
   example_translation?: string | null
   example_source?: string | null
   variants?: VocabVariant[]

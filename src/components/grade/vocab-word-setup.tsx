@@ -23,7 +23,7 @@ import {
 } from '@/lib/vocab-test-ratio'
 import { VocabSourceRatioPanel } from '@/components/grade/vocab-source-ratio-panel'
 import { useUploadStore, VocabEntry } from '@/store/upload-store'
-import { choiceDistractor, normalizePromptCandidate } from '@/lib/vocab-choice-distractor'
+import { normalizePromptCandidate, resolveChoiceDistractor } from '@/lib/vocab-choice-distractor'
 import { errorMessage, runOrReport, runWithLoading } from '@/lib/async-ui'
 
 const PROMPT_KEY = 'vocab_grading_rules'
@@ -237,7 +237,8 @@ function computePromptOptions(word: VocabEntry): PromptOption[] {
   }
   // 예문선택: 오답 후보는 반의어 우선. 옵션 목록에서는 정답을 왼쪽에 고정해 두고
   // (텍스트가 흔들리면 저장된 시험지 복원 시 매칭이 깨진다), 실제 출제 시 좌우를 섞는다.
-  const distractor = choiceDistractor(word, fallbackDistractorWords)
+  // 적합한 오답이 없으면 선택형을 아예 만들지 않는다 — 문법이 깨진 보기는 뜻을 몰라도 맞힌다
+  const distractor = resolveChoiceDistractor(word, fallbackDistractorWords)
   if (distractor) {
     const choice = choiceExampleSentence(word.example_sentence, word.english_word, distractor, false)
     if (choice.matched && choice.text) {
@@ -256,7 +257,7 @@ function computePromptOptions(word: VocabEntry): PromptOption[] {
 
 /** 정답 좌우를 랜덤으로 섞은 선택형 prompt 를 만든다 (실제 출제용) */
 function randomizedChoicePrompt(word: VocabEntry, option: PromptOption): SelectedPrompt {
-  const distractor = choiceDistractor(word, fallbackDistractorWords)
+  const distractor = resolveChoiceDistractor(word, fallbackDistractorWords)
   const choice = distractor
     ? choiceExampleSentence(word.example_sentence, word.english_word, distractor, Math.random() < 0.5)
     : null

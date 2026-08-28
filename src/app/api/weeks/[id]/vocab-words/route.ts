@@ -35,6 +35,7 @@ type OldWordRow = {
   number: number
   english_word: string
   example_sentence: string | null
+  example_distractor?: string | null
   example_translation: string | null
   example_source: string | null
 }
@@ -99,7 +100,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   const { data, error } = await supabase
     .from('vocab_word')
-    .select('id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, source_row_index, example_sentence, example_translation, example_source')
+    .select('id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, source_row_index, example_sentence, example_translation, example_distractor, example_source')
     .eq('week_id', weekId)
     .order('number')
 
@@ -248,6 +249,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           derivatives: w.derivatives ?? null,
           source_row_index: w.source_row_index ?? null,
           example_sentence: shouldPreserveExistingExamples ? oldWord?.example_sentence ?? null : null,
+          example_distractor: shouldPreserveExistingExamples ? oldWord?.example_distractor ?? null : null,
           example_translation: shouldPreserveExistingExamples ? oldWord?.example_translation ?? null : null,
           example_source: shouldPreserveExistingExamples ? oldWord?.example_source ?? null : null,
         }

@@ -28,7 +28,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const { data: words, error: wordError } = weekIds.length > 0
     ? await supabase
         .from('vocab_word')
-        .select('id, week_id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, example_sentence, example_translation')
+        .select('id, week_id, number, passage_label, english_word, part_of_speech, correct_answer, synonyms, antonyms, derivatives, example_sentence, example_translation, example_distractor')
         .in('week_id', weekIds)
         .order('week_id')
         .order('number')
