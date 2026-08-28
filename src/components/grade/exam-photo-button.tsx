@@ -12,8 +12,10 @@ export type ExamOcrResult = {
   student_answer_text?: string
 }
 
-export function ExamPhotoButton({ weekId, disabled, onResult }: {
+export function ExamPhotoButton({ weekId, studentId, disabled, onResult }: {
   weekId: string
+  /** 있으면 서버가 사진을 exam-photos 에 보관한다 (원본 확인·재판독용) */
+  studentId?: string
   disabled: boolean
   onResult: (results: ExamOcrResult[]) => void
 }) {
@@ -35,7 +37,7 @@ export function ExamPhotoButton({ weekId, disabled, onResult }: {
       const resp = await fetch(`/api/weeks/${weekId}/ocr-exam-photo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileData: b64, mimeType: file.type }),
+        body: JSON.stringify({ fileData: b64, mimeType: file.type, studentId }),
       })
       const data = await resp.json()
       if (data.ok) {

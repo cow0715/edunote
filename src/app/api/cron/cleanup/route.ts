@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { pruneOldVocabPhotos } from '@/lib/vocab-photo-retention'
+import { EXAM_PHOTO_BUCKET, pruneOldVocabPhotos } from '@/lib/vocab-photo-retention'
 
 // Vercel Cron 이 매일 새벽 3시(KST) = 18:00 UTC 에 호출.
 // 단어 시험지 사진처럼 보관 기간이 지난 Storage 객체를 정리한다.
@@ -21,6 +21,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: photoPrune.error, deleted: photoPrune.deleted.length }, { status: 500 })
   }
 
-  console.log(`[cron/cleanup] 단어 사진 ${photoPrune.deleted.length}개 삭제 (전체 ${photoPrune.scanned}개 중)`)
-  return NextResponse.json({ ok: true, deleted: photoPrune.deleted.length, scanned: photoPrune.scanned })
+  // 진단평가 답안지 사진도 같은 30일 보존 정책
+  const examPrune = await pruneOldVocabPhotos(supabase, { bucket: EXAM_PHOTO_BUCKET })
+  if (examPrune.error) {
+    console.error('[cron/cleanup] 답안지 사진 정리 실패:', examPrune.error)
+    return NextResponse.json({ ok: false, error: examPrune.error, deleted: photoPrune.deleted.length + examPrune.deleted.length }, { status: 500 })
+  }
+
+  console.log(`[cron/cleanup] 단어 사진 ${photoPrune.deleted.length}개 + 답안지 사진 ${examPrune.deleted.length}개 삭제 (전체 ${photoPrune.scanned + examPrune.scanned}개 중)`)
+  return NextResponse.json({ ok: true, deleted: photoPrune.deleted.length + examPrune.deleted.length, scanned: photoPrune.scanned + examPrune.scanned })
 }

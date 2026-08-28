@@ -1,7 +1,8 @@
 import { getAuth, err, ok } from '@/lib/api'
 import { splitStoragePath } from '@/lib/storage-path'
 
-const BUCKET = 'vocab-photos'
+// 시험지 사진 버킷들 — 임의 버킷 접근을 막기 위한 allowlist
+const ALLOWED_BUCKETS = new Set(['vocab-photos', 'exam-photos'])
 
 export async function GET(request: Request) {
   const { supabase, user } = await getAuth()
@@ -10,6 +11,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const path = searchParams.get('path')
   if (!path) return err('path 없음')
+  const BUCKET = searchParams.get('bucket') ?? 'vocab-photos'
+  if (!ALLOWED_BUCKETS.has(BUCKET)) return err('허용되지 않은 버킷')
 
   const { data, error } = await supabase.storage
     .from(BUCKET)

@@ -249,32 +249,6 @@ function getExamOcrResultKey(result: ExamOcrResult): string {
   return `${result.question_number}|${result.sub_label ?? ''}`
 }
 
-function scoreExamOcrResult(result: ExamOcrResult): number {
-  if (typeof result.student_answer === 'number') return 100
-  const text = result.student_answer_text?.trim() ?? ''
-  if (!text) return 0
-  return Math.min(text.length, 80)
-}
-
-function mergeExamOcrResults(results: ExamOcrResult[][]): ExamOcrResult[] {
-  const merged = new Map<string, ExamOcrResult>()
-
-  for (const pageResults of results) {
-    for (const result of pageResults) {
-      const key = getExamOcrResultKey(result)
-      const current = merged.get(key)
-      if (!current || scoreExamOcrResult(result) > scoreExamOcrResult(current)) {
-        merged.set(key, result)
-      }
-    }
-  }
-
-  return [...merged.values()].sort((a, b) => {
-    if (a.question_number !== b.question_number) return a.question_number - b.question_number
-    return (a.sub_label ?? '').localeCompare(b.sub_label ?? '')
-  })
-}
-
 // ── OMR 인식 ─────────────────────────────────────────────────────────────
 
 function buildExamOmrVisionPrompt(questions: ExamOcrQuestion[], pageNumber: number, strict = false) {
@@ -461,22 +435,6 @@ async function ocrExamOmrPage(
   }
 
   return result
-}
-
-/** 답안지 OCR: 파일을 1페이지씩 쪼개 동시 3으로 인식, 문항 키 기준으로 정보량 많은 쪽을 채택해 병합 (결과는 입력 순서 유지) */
-export async function ocrExamAnswerBatch(
-  files: ExamOcrBatchInput[],
-  questions: ExamOcrQuestion[],
-): Promise<{ results: ExamOcrResult[]; pagesProcessed: number }> {
-  const { items, chunkCount } = await runParsePipeline<ExamOcrResult, ExamOcrResult>({
-    label: 'mock-exam-answer-ocr',
-    chunk: { kind: 'single-page' },
-    concurrency: 3,
-    parseChunk: (file) => ocrExamAnswers(file.fileData, file.mimeType, questions),
-    postProcess: [(all) => mergeExamOcrResults([all])],
-    finalize: (all) => all,
-  }, files)
-  return { results: items, pagesProcessed: chunkCount }
 }
 
 /** OMR 인식: 1페이지씩 동시 3. page_number 는 입력 순서(1-base)로 부여 — 동시 처리해도 결과 배열은 입력 순서 유지 */

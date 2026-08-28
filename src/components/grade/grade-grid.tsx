@@ -74,6 +74,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       homework_done: number | null
       memo: string | null
       vocab_photo_path: string | null
+      exam_photo_path: string | null
       student_answer: SavedAnswer[]
       student_vocab_answer: SavedVocabAnswer[]
     }
@@ -183,6 +184,14 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     const m = new Map<string, string>()
     for (const score of data?.weekScores ?? []) {
       if (score.vocab_photo_path) m.set(score.student_id, score.vocab_photo_path)
+    }
+    return m
+  }, [data?.weekScores])
+
+  const examPhotoPathMap = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const score of data?.weekScores ?? []) {
+      if (score.exam_photo_path) m.set(score.student_id, score.exam_photo_path)
     }
     return m
   }, [data?.weekScores])
@@ -648,6 +657,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                   row={sheetRow}
                   questions={activeQuestions}
                   readingTotal={effectiveReadingTotal}
+                  examPhotoPath={examPhotoPathMap.get(sheetRow.student_id) ?? null}
                   updateRow={updateRow}
                   updateAnswer={updateAnswer}
                   updateAnswerText={updateAnswerText}

@@ -6,6 +6,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const VOCAB_PHOTO_BUCKET = 'vocab-photos'
+export const EXAM_PHOTO_BUCKET = 'exam-photos'
 export const DEFAULT_VOCAB_PHOTO_RETENTION_DAYS = 30
 
 export function resolvePhotoRetentionDays(raw: string | undefined = process.env.VOCAB_PHOTO_RETENTION_DAYS): number {
@@ -43,11 +44,11 @@ export function selectExpiredPhotoPaths(
  */
 export async function pruneOldVocabPhotos(
   supabase: SupabaseClient,
-  opts: { now?: Date; retentionDays?: number } = {},
+  opts: { now?: Date; retentionDays?: number; bucket?: string } = {},
 ): Promise<{ deleted: string[]; scanned: number; error?: string }> {
   const now = opts.now ?? new Date()
   const retentionDays = opts.retentionDays ?? resolvePhotoRetentionDays()
-  const storage = supabase.storage.from(VOCAB_PHOTO_BUCKET)
+  const storage = supabase.storage.from(opts.bucket ?? VOCAB_PHOTO_BUCKET)
 
   const { data: folders, error: folderErr } = await storage.list('', { limit: 1000 })
   if (folderErr) return { deleted: [], scanned: 0, error: folderErr.message }

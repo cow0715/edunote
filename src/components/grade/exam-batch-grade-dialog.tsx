@@ -162,7 +162,7 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
       const resp = await fetch(`/api/weeks/${weekId}/ocr-exam-photo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileData: it.b64, mimeType: it.mimeType }),
+        body: JSON.stringify({ fileData: it.b64, mimeType: it.mimeType, studentId: it.studentId }),
       })
       const data = await resp.json()
       if (data.ok) {

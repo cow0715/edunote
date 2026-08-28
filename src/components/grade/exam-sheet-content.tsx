@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ImageIcon } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
@@ -13,7 +13,6 @@ import { oxNotation } from '@/lib/ox-grading'
 import { ScoreToggleField } from './score-toggle-field'
 import { AnswerKey, CorrectChip, OXInput } from './question-inputs'
 import { SourceImagePreview } from './source-image-preview'
-import { ExamBatchUploadButton } from './exam-batch-upload-button'
 import { ExamPhotoButton, ExamOcrResult } from './exam-photo-button'
 
 /**
@@ -173,11 +172,13 @@ const STYLE_SHORT: Record<ExamQuestion['question_style'], string | null> = {
   find_error: '교정',
 }
 
-export function ExamSheetContent({ weekId, row, questions, readingTotal, updateRow, updateAnswer, updateAnswerText }: {
+export function ExamSheetContent({ weekId, row, questions, readingTotal, examPhotoPath, updateRow, updateAnswer, updateAnswerText }: {
   weekId: string
   row: GradeRow
   questions: ExamQuestion[]
   readingTotal: number
+  /** 저장된 답안지 사진 경로 (exam-photos 버킷) — 없으면 null */
+  examPhotoPath?: string | null
   updateRow: (studentId: string, key: keyof GradeRow, value: unknown) => void
   updateAnswer: (studentId: string, questionId: string, value: number | null) => void
   updateAnswerText: (studentId: string, questionId: string, text: string) => void
@@ -185,6 +186,42 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, updateR
   const hasSubjective = questions.some((q) => q.question_style === 'subjective')
   const disabled = !row.present || !row.reading_present
   const [openImageIds, setOpenImageIds] = useState<Set<string>>(new Set())
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const [photoOpen, setPhotoOpen] = useState(false)
+  const [rereading, setRereading] = useState(false)
+
+  // 사진 경로가 바뀌면 이전 서명 URL 을 즉시 지운다 — 렌더 중 조정 (다른 학생 사진이 잠깐 남는 것 방지)
+  const [syncedPhotoPath, setSyncedPhotoPath] = useState<string | null | undefined>(examPhotoPath)
+  if (syncedPhotoPath !== examPhotoPath) {
+    setSyncedPhotoPath(examPhotoPath)
+    setPhotoUrl(null)
+  }
+  useEffect(() => {
+    if (!examPhotoPath) return
+    // fetch 후(then 안) setState — 렌더 중 동기 호출이 아니라 규칙에 걸리지 않는다
+    fetch(`/api/vocab-photo-url?bucket=exam-photos&path=${encodeURIComponent(examPhotoPath)}`)
+      .then((r) => r.json())
+      .then((d) => { if (d.url) setPhotoUrl(d.url) })
+      .catch(() => {})
+  }, [examPhotoPath])
+
+  // 저장된 사진으로 재판독 — 재촬영 없이 OCR 만 다시 돌려 답을 다시 채운다
+  async function rereadFromStored() {
+    setRereading(true)
+    try {
+      const resp = await fetch(`/api/weeks/${weekId}/ocr-exam-photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId: row.student_id, useStored: true }),
+      })
+      const data = await resp.json()
+      if (data.ok) applyOcrResults(data.results)
+    } catch {
+      // 버튼 옆 상태 표시 없이 조용히 실패 — 재시도 가능
+    } finally {
+      setRereading(false)
+    }
+  }
 
   function applyOcrResults(results: ExamOcrResult[]) {
     for (const r of results) {
@@ -249,16 +286,51 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, updateR
       {questions.length > 0 && (
         <div className="flex items-center gap-1 px-4 py-2 border-b bg-gray-50/30">
           <span className="text-xs text-gray-400 mr-1">답안 OCR</span>
-          <ExamBatchUploadButton
-            weekId={weekId}
-            disabled={!row.present}
-            onResult={applyOcrResults}
-          />
           <ExamPhotoButton
             weekId={weekId}
+            studentId={row.student_id}
             disabled={!row.present}
             onResult={applyOcrResults}
           />
+          {photoUrl && (
+            <>
+              <button
+                type="button"
+                onClick={() => setPhotoOpen(true)}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 transition-colors shrink-0"
+              >
+                <ImageIcon className="h-3 w-3" />
+                원본 사진
+              </button>
+              <button
+                type="button"
+                disabled={rereading || !row.present}
+                onClick={rereadFromStored}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 transition-colors shrink-0 disabled:text-gray-300"
+              >
+                {rereading ? '재판독 중...' : '저장 사진 재판독'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 답안지 사진 전체보기 오버레이 */}
+      {photoOpen && photoUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          onClick={() => setPhotoOpen(false)}
+        >
+          <div className="relative max-h-[90vh] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={photoUrl} alt="답안지 사진" className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain" />
+            <button
+              onClick={() => setPhotoOpen(false)}
+              className="absolute -top-3 -right-3 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow text-gray-600 hover:bg-gray-100"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
