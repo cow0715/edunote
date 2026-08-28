@@ -171,13 +171,16 @@ export function VocabTestPrintSheet({ items, answers, studentName }: { items: Vo
                 <p className="text-[10px] font-bold tracking-[0.28em] text-gray-500">Vocabulary Test</p>
                 <h2 className="mt-1 text-2xl font-black text-gray-950">어휘 Test</h2>
               </div>
-              <div className="grid grid-cols-[44px_150px] gap-y-3 text-sm">
+              {/* 이름·점수 한 줄 — 두 줄이면 사진이 단어 표만 담을 때 이름란이 프레임 밖으로 나가
+                  일괄 채점 이름 매칭이 실패한다. 헤더를 낮춰 표와 같이 찍히게 한다. */}
+              <div className="flex items-end gap-2 text-sm">
                 <span className="font-bold text-gray-700">이름</span>
-                <span className="relative border-b border-gray-700">
+                <span className="relative w-[130px] border-b border-gray-700">
                   {studentName && <span className="absolute inset-x-0 -top-[2px] text-center text-[16px]" style={HANDWRITING_STYLE}>{studentName}</span>}
+                  &nbsp;
                 </span>
-                <span className="font-bold text-gray-700">점수</span>
-                <span className="border-b border-gray-700" />
+                <span className="ml-3 font-bold text-gray-700">점수</span>
+                <span className="w-[72px] border-b border-gray-700">&nbsp;</span>
               </div>
             </header>
 
