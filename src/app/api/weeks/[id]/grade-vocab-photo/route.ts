@@ -1,6 +1,6 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeVocabPhoto } from '@/lib/anthropic'
-import type { VocabOcrExampleItem } from '@/lib/prompts'
+import type { VocabOcrExampleItem, VocabOcrExpectedItem } from '@/lib/prompts'
 import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
 
 // 한 학생 15~20초. 일괄 채점(15명 안쪽)을 한 요청에서 병렬로 돌릴 수 있게 Pro 상한까지.
@@ -149,12 +149,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: promptRow } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
   const customRules = promptRow?.content ?? undefined
 
+  // 시험지에 인쇄된 전체 문항 목록 — 사진 일부가 안 보여도 OCR 목록이 중간에 끊기지 않게 앵커로 준다.
+  // 예문 파트 번호는 단어 대신 null (문장 원문은 exampleItems 로 따로 전달 — 정답 오염 방지)
+  const exampleNumbers = new Set(exampleItems.map((item) => item.number))
+  const expectedItems: VocabOcrExpectedItem[] = gradingWords
+    .map((w) => ({ number: w.number, word: exampleNumbers.has(w.number) ? null : (w.test_word ?? w.english_word) }))
+    .sort((a, b) => a.number - b.number)
+
   let results
   try {
     results = await gradeVocabPhoto(fileData, mimeType, {
       correctAnswers: correctAnswerMap.size > 0 ? correctAnswerMap : undefined,
       customRules,
       exampleItems: exampleItems.length > 0 ? exampleItems : undefined,
+      expectedItems: expectedItems.length > 0 ? expectedItems : undefined,
     })
   } catch (e) {
     console.error('[grade-vocab-photo] AI 채점 실패', e)
@@ -308,5 +316,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     console.error('[grade-vocab-photo] 사진 업로드 예외', e)
   }
 
-  return ok({ ok: true, vocab_correct: vocabCorrect, vocab_total: answerInserts.length, results })
+  // 결손 보고 — 시험지 문항 중 저장까지 못 간 번호. 예전엔 50문항 중 35개만 와도
+  // 조용히 성공 처리돼 학부모 화면에 그대로 나갔다 (운영 사고). UI 가 경고를 띄운다.
+  const savedNumbers = new Set(answerInserts.map((a) => a.test_number))
+  const missingNumbers = gradingWords
+    .map((w) => w.number)
+    .filter((n) => !savedNumbers.has(n))
+    .sort((a, b) => a - b)
+  if (missingNumbers.length > 0) {
+    console.warn(`[grade-vocab-photo] 결손 ${missingNumbers.length}문항: ${missingNumbers.join(',')}`)
+  }
+
+  return ok({ ok: true, vocab_correct: vocabCorrect, vocab_total: answerInserts.length, missing_numbers: missingNumbers, results })
 }

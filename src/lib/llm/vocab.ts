@@ -3,11 +3,11 @@
 import {
   buildVocabOcrClovaPrompt, buildVocabOcrVisionPrompt,
   buildVocabGradingPrompt, VOCAB_PDF_PROMPT,
-  VocabOcrExampleItem,
+  VocabOcrExampleItem, VocabOcrExpectedItem,
 } from '../prompts'
 import { reconstructClovaLayout, ClovaField } from '../clova-layout'
 import { gradeBlankAnswer, gradeChoiceAnswer } from '../vocab-blank-grading'
-import { buildFileBlock, callClaudeText, MODELS, parseJsonArrayResponse, parseJsonObjectResponse } from './client'
+import { buildFileBlock, callClaudeText, callClaudeTextDetailed, MODELS, parseJsonArrayResponse, parseJsonObjectResponse } from './client'
 
 export type VocabGradingResult = {
   number: number
@@ -67,6 +67,8 @@ export type GradeVocabPhotoOptions = {
   customRules?: string
   /** 예문 파트 문항 (인쇄 원문). OCR 파서에 인쇄 텍스트를 알려주는 용도 — 정답은 포함하지 않는다 */
   exampleItems?: VocabOcrExampleItem[]
+  /** 시험지에 인쇄된 전체 문항 목록 — 사진 일부가 안 보여도 목록이 끊기지 않게 하는 앵커 */
+  expectedItems?: VocabOcrExpectedItem[]
 }
 
 export async function gradeVocabPhoto(
@@ -74,7 +76,7 @@ export async function gradeVocabPhoto(
   mimeType: string,
   options: GradeVocabPhotoOptions = {},
 ): Promise<VocabGradingResult[]> {
-  const { correctAnswers, customRules, exampleItems } = options
+  const { correctAnswers, customRules, exampleItems, expectedItems } = options
   const fileContent = buildFileBlock(fileData, mimeType, '지원하지 않는 파일 형식 (이미지 또는 PDF만 가능)')
 
   // ── Step 1: OCR ───────────────────────────────────────────────────────
@@ -89,23 +91,26 @@ export async function gradeVocabPhoto(
   if (clovaText !== null) {
     // CLOVA OCR 성공 → Claude Vision으로 구조 파싱 + 동그라미 감지
     console.log(`[gradeVocabPhoto] CLOVA OCR 사용, 텍스트 길이: ${clovaText.length} (${tOcr - t0}ms)`)
-    const parseRaw = await callClaudeText({
+    const parsed = await callClaudeTextDetailed({
       model: MODELS.parse,
-      maxTokens: 4096,
-      content: [fileContent, { type: 'text', text: buildVocabOcrClovaPrompt(clovaText, exampleItems) }],
+      maxTokens: 8192,
+      content: [fileContent, { type: 'text', text: buildVocabOcrClovaPrompt(clovaText, exampleItems, expectedItems) }],
     })
-    console.log(`[gradeVocabPhoto] 구조 파싱 raw length: ${parseRaw.length} (${Date.now() - tOcr}ms)`)
-    ocrItems = parseJsonArrayResponse<OcrItem>(parseRaw, 'gradeVocabPhoto:구조파싱')
+    // max_tokens 로 끊긴 배열은 jsonrepair 가 부분 복구해 조용히 문항이 사라진다 — 잘림은 실패로 처리
+    if (parsed.stopReason === 'max_tokens') throw new Error('OCR 응답이 길이 제한에 잘렸습니다. 다시 시도해주세요.')
+    console.log(`[gradeVocabPhoto] 구조 파싱 raw length: ${parsed.text.length} (${Date.now() - tOcr}ms)`)
+    ocrItems = parseJsonArrayResponse<OcrItem>(parsed.text, 'gradeVocabPhoto:구조파싱')
   } else {
     // CLOVA 미설정 → Claude Vision으로 직접 OCR
     console.log('[gradeVocabPhoto] Claude Vision OCR fallback')
-    const ocrRaw = await callClaudeText({
+    const visionParsed = await callClaudeTextDetailed({
       model: MODELS.parse,
-      maxTokens: 4096,
-      content: [fileContent, { type: 'text', text: buildVocabOcrVisionPrompt(exampleItems) }],
+      maxTokens: 8192,
+      content: [fileContent, { type: 'text', text: buildVocabOcrVisionPrompt(exampleItems, expectedItems) }],
     })
-    console.log('[gradeVocabPhoto] OCR raw length:', ocrRaw.length)
-    ocrItems = parseJsonArrayResponse<OcrItem>(ocrRaw, 'gradeVocabPhoto:OCR')
+    if (visionParsed.stopReason === 'max_tokens') throw new Error('OCR 응답이 길이 제한에 잘렸습니다. 다시 시도해주세요.')
+    console.log('[gradeVocabPhoto] OCR raw length:', visionParsed.text.length)
+    ocrItems = parseJsonArrayResponse<OcrItem>(visionParsed.text, 'gradeVocabPhoto:OCR')
   }
 
   // ── Step 2: 채점 ─────────────────────────────────────────────────────
@@ -145,12 +150,14 @@ type VocabItem = { number: number; english_word: string; student_answer: string 
  * 이 model 기본값만 MODELS.parse 로 바꾼다.
  */
 export async function gradeVocabItems(items: VocabItem[], customRules?: string, model: string = MODELS.light): Promise<{ number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]> {
-  const raw = await callClaudeText({
+  const res = await callClaudeTextDetailed({
     model,
-    maxTokens: 4096,
+    maxTokens: 8192,
     content: buildVocabGradingPrompt(items, customRules),
   })
-  return parseJsonArrayResponse(raw, 'gradeVocabItems')
+  // 잘린 배열을 부분 복구하면 뒷번호 채점이 조용히 사라진다 — 실패로 처리
+  if (res.stopReason === 'max_tokens') throw new Error('채점 응답이 길이 제한에 잘렸습니다. 다시 시도해주세요.')
+  return parseJsonArrayResponse(res.text, 'gradeVocabItems')
 }
 
 // ── 단어 시험지 이름란 판독 (일괄 채점 매칭용) ─────────────────────────────

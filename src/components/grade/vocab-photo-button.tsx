@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { Camera, Loader2, RefreshCw } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatNumberRanges } from '@/lib/utils'
 import { compressImageForUpload } from '@/lib/image-compress'
 import { runWithLoading } from '@/lib/async-ui'
 
@@ -17,6 +17,8 @@ export function VocabPhotoButton({ weekId, studentId, disabled, hasExistingData,
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 채점은 성공했지만 시험지 문항 일부를 못 읽은 경우 — 재촬영 유도 (조용한 결손 방지)
+  const [warning, setWarning] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   function handleClick() {
@@ -32,6 +34,7 @@ export function VocabPhotoButton({ weekId, studentId, disabled, hasExistingData,
     if (!file) return
     e.target.value = ''
     setError(null)
+    setWarning(null)
     await runWithLoading(setLoading, async () => {
       // 업로드 전 압축 (긴 변 1600 · JPEG 80%). Storage 용량 + 전송/OCR 시간 절약
       const { base64: b64, mimeType } = await compressImageForUpload(file)
@@ -42,6 +45,10 @@ export function VocabPhotoButton({ weekId, studentId, disabled, hasExistingData,
       })
       const data = await resp.json()
       if (data.ok) {
+        const missing: number[] = data.missing_numbers ?? []
+        if (missing.length > 0) {
+          setWarning(`${missing.length}문항을 읽지 못했습니다 (${formatNumberRanges(missing)}) — 사진을 확인하고 재촬영해주세요`)
+        }
         onResult(data.vocab_correct, data.vocab_total, data.results)
       } else {
         setError(data.error ?? '채점 실패')
@@ -70,6 +77,7 @@ export function VocabPhotoButton({ weekId, studentId, disabled, hasExistingData,
         {loading ? '채점 중...' : hasExistingData ? '재채점' : '사진 채점'}
       </button>
       {error && <span className="text-xs text-red-400">{error}</span>}
+      {warning && <span className="text-xs font-medium text-amber-600">⚠ {warning}</span>}
     </>
   )
 }

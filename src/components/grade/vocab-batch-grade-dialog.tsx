@@ -13,7 +13,7 @@ import { runOrReport } from '@/lib/async-ui'
 import { AlertTriangle, CheckCircle2, ImagePlus, Loader2, RefreshCw, Trash2, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
+import { cn, formatNumberRanges } from '@/lib/utils'
 import { compressImageForUpload } from '@/lib/image-compress'
 import type { VocabResult } from './vocab-photo-button'
 
@@ -34,7 +34,7 @@ type Item = {
   rawName: string | null
   status: 'idle' | 'reading' | 'ready' | 'grading' | 'done' | 'error'
   error?: string
-  result?: { vocab_correct: number; vocab_total: number }
+  result?: { vocab_correct: number; vocab_total: number; missing: number[] }
 }
 
 // 반 정원이 15명 이하라 전 학생 동시 실행 — 학생당 별도 서버 요청이라 서로 안 막힌다.
@@ -168,7 +168,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
         })
         const data = await resp.json()
         if (data.ok) {
-          patch(it.id, { status: 'done', result: { vocab_correct: data.vocab_correct, vocab_total: data.vocab_total } })
+          patch(it.id, { status: 'done', result: { vocab_correct: data.vocab_correct, vocab_total: data.vocab_total, missing: data.missing_numbers ?? [] } })
           onGraded(it.studentId!, data.vocab_correct, data.vocab_total, data.results)
         } else {
           patch(it.id, { status: 'error', error: data.error ?? '채점 실패' })
@@ -192,7 +192,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
         })
         const data = await resp.json()
         if (data.ok) {
-          patch(it.id, { status: 'done', result: { vocab_correct: data.vocab_correct, vocab_total: data.vocab_total } })
+          patch(it.id, { status: 'done', result: { vocab_correct: data.vocab_correct, vocab_total: data.vocab_total, missing: data.missing_numbers ?? [] } })
           onGraded(it.studentId!, data.vocab_correct, data.vocab_total, data.results)
         } else patch(it.id, { status: 'error', error: data.error ?? '채점 실패' })
       }, () => patch(it.id, { status: 'error', error: '네트워크 오류' }))
@@ -332,7 +332,9 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
                     {/* 상태 */}
                     <div className="flex w-20 shrink-0 items-center justify-end gap-1 text-xs">
                       {it.status === 'grading' && <><Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" /><span className="text-indigo-500">채점 중</span></>}
-                      {it.status === 'done' && it.result && <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /><span className="font-semibold text-emerald-700">{it.result.vocab_correct}/{it.result.vocab_total}</span></>}
+                      {it.status === 'done' && it.result && (it.result.missing.length > 0
+                        ? <><AlertTriangle className="h-3.5 w-3.5 text-amber-500" /><span className="font-semibold text-amber-700" title={`읽지 못한 문항: ${formatNumberRanges(it.result.missing)}`}>{it.result.vocab_correct}/{it.result.vocab_total} · {it.result.missing.length}개 누락</span></>
+                        : <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /><span className="font-semibold text-emerald-700">{it.result.vocab_correct}/{it.result.vocab_total}</span></>)}
                       {it.status === 'error' && <><XCircle className="h-3.5 w-3.5 text-rose-400" /><span className="truncate text-rose-500" title={it.error}>실패</span></>}
                       {isDup && it.status === 'ready' && <span title="같은 학생에 사진이 2장 이상 — 뒤 사진이 앞 결과를 덮어씁니다"><AlertTriangle className="h-3.5 w-3.5 text-rose-400" /></span>}
                       {(it.status === 'ready' || it.status === 'idle') && !isDup && (

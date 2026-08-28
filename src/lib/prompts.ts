@@ -309,6 +309,32 @@ export type VocabOcrExampleItem = {
   kind: 'meaning' | 'blank' | 'choice'
 }
 
+export type VocabOcrExpectedItem = {
+  number: number
+  /** 뜻쓰기 파트에 인쇄된 단어. 예문 파트 문항은 null (예문 섹션에 원문이 따로 있다) */
+  word: string | null
+}
+
+/**
+ * 기대 문항 앵커 — 시험지에 인쇄된 전체 번호·단어를 모델에 알려준다.
+ * 운영 사고: 사진 일부가 안 보이면 모델이 그 번호에서 목록 생성을 멈춰
+ * 이후 문항 전체가 조용히 누락됐다 (50문항 중 1~35만 저장). 전체 목록을 주면
+ * 모델이 번호를 스스로 발견할 필요가 없어 중간에 끊기지 않는다.
+ */
+export function buildVocabOcrExpectedSection(items: VocabOcrExpectedItem[] | undefined): string {
+  if (!items || items.length === 0) return ''
+  return [
+    '',
+    `━━━ [최우선] 인쇄된 문항 목록 (전체 ${items.length}문항) ━━━`,
+    '이 시험지에 인쇄된 문항은 아래가 전부입니다. 출력 배열에는 아래 모든 번호가 정확히 한 번씩 있어야 합니다.',
+    '사진이 흐리거나 잘리거나 접혀서 안 보이는 번호도 건너뛰지 말고 student_answer: null 로 포함하세요.',
+    '(null = 판독 불가, "" = 칸은 보이는데 학생이 안 씀 — 반드시 구분)',
+    ...items.map((item) => item.word
+      ? `- ${item.number}번: ${item.word}`
+      : `- ${item.number}번: (예문 파트 — 아래 예문 목록 참고)`),
+  ].join('\n')
+}
+
 export function buildVocabOcrExampleSection(items: VocabOcrExampleItem[] | undefined): string {
   if (!items || items.length === 0) return ''
   const meaningItems = items.filter((item) => item.kind === 'meaning')
@@ -357,13 +383,14 @@ export function buildVocabOcrExampleSection(items: VocabOcrExampleItem[] | undef
 
 // ── 단어 시험지 OCR (CLOVA + Claude 구조 파싱) ───────────────────────────
 
-export function buildVocabOcrClovaPrompt(clovaText: string, exampleItems?: VocabOcrExampleItem[]): string {
+export function buildVocabOcrClovaPrompt(clovaText: string, exampleItems?: VocabOcrExampleItem[], expectedItems?: VocabOcrExpectedItem[]): string {
   return `단어 시험지의 학생 답안을 구조화하세요.
 이미지와 CLOVA OCR 텍스트를 **둘 다** 보고 서로 교차 검증하세요.
 충돌하면 **이미지가 우선**입니다. CLOVA 텍스트는 오인식·순서 오류가 있을 수 있습니다.
 
 CLOVA OCR 텍스트:
 ${clovaText}
+${buildVocabOcrExpectedSection(expectedItems)}
 ${buildVocabOcrExampleSection(exampleItems)}
 
 ━━━ [최우선] 2단 레이아웃 규칙 ━━━
@@ -493,8 +520,9 @@ export const VOCAB_OCR_VISION_PROMPT = `이 단어 시험지에서 각 문항의
 JSON 배열만 출력:
 [{"number":1,"english_word":"necessary","student_answer":"필수적인"},{"number":2,"english_word":"abandon","student_answer":""}]`
 
-export function buildVocabOcrVisionPrompt(exampleItems?: VocabOcrExampleItem[]): string {
+export function buildVocabOcrVisionPrompt(exampleItems?: VocabOcrExampleItem[], expectedItems?: VocabOcrExpectedItem[]): string {
   return `${VOCAB_OCR_VISION_PROMPT}
+${buildVocabOcrExpectedSection(expectedItems)}
 ${buildVocabOcrExampleSection(exampleItems)}`
 }
 
