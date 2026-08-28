@@ -9,6 +9,7 @@ import { CheckCircle2, ChevronDown, Images, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { VocabBatchGradeDialog } from '@/components/grade/vocab-batch-grade-dialog'
 import { ExamSheetContent } from '@/components/grade/exam-sheet-content'
+import { SubjectiveReviewPanel } from '@/components/grade/subjective-review-panel'
 import type { ExamQuestion } from '@/lib/types'
 import type { GradeRow } from '@/hooks/use-grade'
 import { VocabTestPrintSheet } from '@/components/grade/vocab-test-print-sheet'
@@ -27,7 +28,7 @@ const PRESETS = [
   { label: '40 (기존 레이아웃)', meaning: 40, exampleMeaning: 0, exampleBlank: 0, exampleChoice: 0 },
 ] as const
 
-type Tab = 'test' | 'filled' | 'grading' | 'sheet' | 'share' | 'retake' | 'retakeResult' | 'batch' | 'exam'
+type Tab = 'test' | 'filled' | 'grading' | 'sheet' | 'share' | 'retake' | 'retakeResult' | 'batch' | 'exam' | 'review'
 const TABS: Array<{ key: Tab; label: string; desc: string }> = [
   { key: 'test', label: '시험지', desc: 'A(뜻쓰기 2단) + B/C/D 예문 파트. 예문 있으면 1페이지 압축' },
   { key: 'filled', label: '채워진 시험지', desc: '채점 테스트용 — 학생이 답을 쓴 상태 (손글씨풍). 이걸 캡처해 OCR 채점에 넣는다' },
@@ -38,6 +39,7 @@ const TABS: Array<{ key: Tab; label: string; desc: string }> = [
   { key: 'retakeResult', label: '재시험 결과', desc: '제출 후 카드가 하나씩 뒤집히며 정오 표시. 오답은 펼쳐서 유의어·반의어' },
   { key: 'batch', label: '일괄 채점', desc: '사진 여러 장 → 이름 자동 매칭 확인 → 병렬 채점. 실제 다이얼로그, API 는 가짜 응답' },
   { key: 'exam', label: '진단평가 채점지', desc: '강사 채점 화면(시험 셀) — 인쇄 답안지와 같은 표(번호 | 답), 같은 순서. 정답 테두리·오답 빨강. 실제 컴포넌트' },
+  { key: 'review', label: '서술형 검토', desc: '검토 패널 — 세그먼트 토글(옅은 채움=AI 판정, 진한 채움=교사 확정), 정렬 고정. 실제 컴포넌트' },
 ]
 
 /** 샘플 오답 생성: 유형별로 그럴듯한 틀린 답 */
@@ -521,6 +523,64 @@ const EXAM_SAMPLE_QUESTIONS: ExamQuestion[] = [
   sampleExamQuestion({ id: 'q28', question_number: 28, question_style: 'find_error', correct_answer_text: '4:satisfied' }),
 ]
 
+function SubjectiveReviewPreview() {
+  const questions: ExamQuestion[] = [
+    sampleExamQuestion({
+      id: 'rq4', question_number: 4, question_style: 'subjective',
+      correct_answer_text: '가상 음악 공장에서 일하는 것처럼 노래를 조립하는 방법을 고안했다.',
+      grading_criteria: '핵심 개념(가상 공장/조립 방식)이 담기면 정답',
+    }),
+    sampleExamQuestion({
+      id: 'rq7', question_number: 7, sub_label: 'a', question_style: 'find_error',
+      correct_answer_text: '4:satisfied',
+    }),
+  ]
+  const mkRow = (id: string, name: string, byQ: Record<string, { text: string; is_correct?: boolean; needs_review?: boolean; feedback?: string }>): GradeRow => ({
+    student_id: id, student_name: name, present: true, vocab_correct: null,
+    reading_present: true, reading_correct: null, homework_done: null, memo: '',
+    answers: questions.map((q) => {
+      const a = byQ[q.id]
+      return {
+        exam_question_id: q.id,
+        student_answer: null,
+        student_answer_text: a?.text ?? '',
+        is_correct: a?.is_correct,
+        needs_review: a?.needs_review ?? false,
+        teacher_confirmed: false,
+        ai_feedback: a?.feedback ?? '',
+      }
+    }),
+  })
+  const rows: GradeRow[] = [
+    mkRow('r1', '김검토', {
+      rq4: { text: '가상 음악 공쟝에서 노래를 조립함', is_correct: false, needs_review: true, feedback: 'AI 응답 누락 — 수동 확인 필요' },
+      rq7: { text: '4: satisfied', is_correct: false, needs_review: true, feedback: 'AI 채점 실패 — 수동 확인 필요' },
+    }),
+    mkRow('r2', '박오답', {
+      rq4: { text: '노래방에서 연습했다', is_correct: false, feedback: '핵심 개념 없음' },
+      rq7: { text: '③ whose → who', is_correct: false, feedback: '④번이 정답 (③번 선택)' },
+    }),
+    mkRow('r3', '이정답', {
+      rq4: { text: '가상 음악 공장에서 일하듯 노래를 조립하는 방법을 고안', is_correct: true },
+      rq7: { text: '4:satisfied', is_correct: true },
+    }),
+    mkRow('r4', '최미입력', { rq4: { text: '' }, rq7: { text: '' } }),
+    mkRow('r5', '한검토2', {
+      rq4: { text: '엄상 eae 화', is_correct: false, needs_review: true, feedback: 'OCR 판독 불안정' },
+      rq7: { text: 'satisfying → satisfied', is_correct: false, needs_review: true, feedback: '기호 누락' },
+    }),
+  ]
+  return (
+    <div className="mx-auto max-w-3xl rounded-xl border bg-white p-4">
+      <SubjectiveReviewPanel weekId="sample-week" questions={questions} rows={rows} />
+      <p className="mt-4 text-[11px] text-gray-400">
+        샘플 5명 × 2문항. 저장 버튼은 실제 API 를 호출하므로 갤러리에선 실패가 정상.
+        토글: ⚠️ 행(호박 링) 클릭 → 진한 채움(교사 확정), 재클릭 → 해제. 판정해도 행 순서 고정.
+      </p>
+    </div>
+  )
+}
+
 function ExamSheetPreview() {
   const [row, setRow] = useState<GradeRow>(() => ({
     student_id: 's1', student_name: '김테스트', present: true, vocab_correct: null, reading_present: true, reading_correct: null,
@@ -646,6 +706,7 @@ export default function VocabPrintPreviewPage() {
           {tab === 'retakeResult' && <RetakeResultPreview items={items} />}
           {tab === 'batch' && <BatchGradePreview />}
           {tab === 'exam' && <ExamSheetPreview />}
+          {tab === 'review' && <SubjectiveReviewPreview />}
         </div>
       )}
     </div>

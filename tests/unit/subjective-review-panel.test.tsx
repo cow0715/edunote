@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SubjectiveReviewPanel } from '@/components/grade/subjective-review-panel'
 import type { ExamQuestion } from '@/lib/types'
@@ -79,7 +79,7 @@ describe('SubjectiveReviewPanel — 판정 버튼 분리', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderPanel(rows)
 
-    fireEvent.click(screen.getByRole('button', { name: '✗ 오답' }))
+    fireEvent.click(screen.getByRole('button', { name: '오답' }))
     fireEvent.click(screen.getByRole('button', { name: '검토 완료 저장 (1건)' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
@@ -92,7 +92,7 @@ describe('SubjectiveReviewPanel — 판정 버튼 분리', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderPanel(rows)
 
-    fireEvent.click(screen.getByRole('button', { name: '✓ 정답' }))
+    fireEvent.click(screen.getByRole('button', { name: '정답' }))
     fireEvent.click(screen.getByRole('button', { name: '검토 완료 저장 (1건)' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
@@ -102,11 +102,30 @@ describe('SubjectiveReviewPanel — 판정 버튼 분리', () => {
 
   it('같은 버튼을 다시 누르면 판정이 해제된다', () => {
     renderPanel(rows)
-    const wrongButton = screen.getByRole('button', { name: '✗ 오답' })
+    const wrongButton = screen.getByRole('button', { name: '오답' })
     fireEvent.click(wrongButton)
     expect(screen.getByRole('button', { name: '검토 완료 저장 (1건)' })).toBeTruthy()
     fireEvent.click(wrongButton)
     expect(screen.getByRole('button', { name: '변경 없음' })).toBeTruthy()
+  })
+
+  it('판정해도 행 순서가 고정된다 — 정렬은 저장 전 원본 상태 기준', () => {
+    // 예전엔 판정 반영 상태로 정렬해서, ⚠️ 를 정답 처리하는 순간(우선순위 0→2)
+    // 행이 오답 학생(1) 아래로 튀며 목록이 재배열됐다.
+    renderPanel([
+      makeRow('s1', '검토학생', { text: '애매한 답', is_correct: false, needs_review: true }),
+      makeRow('s2', '오답학생', { text: '틀린 답', is_correct: false }),
+    ])
+    fireEvent.click(screen.getByRole('button', { name: '전체' }))
+
+    const rowNames = () => screen.getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell')[0].textContent)
+    expect(rowNames()).toEqual(['검토학생', '오답학생'])
+
+    const reviewRow = screen.getAllByRole('row').find((r) => r.textContent?.includes('검토학생'))!
+    fireEvent.click(within(reviewRow).getByRole('button', { name: '정답' }))
+
+    expect(rowNames()).toEqual(['검토학생', '오답학생'])
+    expect(screen.getByRole('button', { name: '검토 완료 저장 (1건)' })).toBeTruthy()
   })
 
   it('검토 대기가 없으면 전체 보기가 기본이다', () => {

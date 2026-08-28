@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Check, X } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -11,15 +12,20 @@ import { Button } from '@/components/ui/button'
 
 type Override = { student_id: string; exam_question_id: string; is_correct: boolean }
 
+/**
+ * 분류 순서: ⚠️ 검토 필요 → 오답 → 정답 → 미입력.
+ * 저장 전 원본 상태로만 계산한다 — 판정 반영 상태로 정렬하면 버튼을 누르는 순간
+ * 행이 아래로 튀어 목록이 재배열되는 사고가 있었다. 순서는 세션 내내 고정.
+ */
 function sortPriority(a: {
   answered: boolean
-  needs_review: boolean
-  is_correct: boolean | undefined
+  originalNeedsReview: boolean
+  originalIsCorrect: boolean | undefined
 }): number {
   if (!a.answered) return 3
-  if (a.needs_review) return 0
-  if (a.is_correct === false) return 1
-  if (a.is_correct === true) return 2
+  if (a.originalNeedsReview) return 0
+  if (a.originalIsCorrect === false) return 1
+  if (a.originalIsCorrect === true) return 2
   return 3
 }
 
@@ -142,6 +148,7 @@ export function SubjectiveReviewPanel({
               ai_feedback: answer?.ai_feedback ?? '',
               isOverridden,
               originalNeedsReview,
+              originalIsCorrect: answer?.is_correct,
             }
           })
           // "검토 필요만" 필터 — 저장 전 원본 needs_review 기준이라 판정을 내려도 목록에 남는다
@@ -199,43 +206,52 @@ export function SubjectiveReviewPanel({
                     <td className="px-4 py-2.5 text-center">
                       {!sr.answered ? (
                         <span className="text-gray-300 text-xs">—</span>
-                      ) : (
-                        <div className="inline-flex items-center gap-1.5">
-                          {sr.needs_review && !sr.isOverridden && (
-                            <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700">⚠️ 검토</span>
-                          )}
-                          <button
-                            type="button"
-                            title="정답으로 확정"
-                            onClick={() => setVerdict(sr.student_id, q.id, true)}
+                      ) : (() => {
+                        const pending = sr.needs_review && !sr.isOverridden
+                        const correctOn = !pending && sr.is_correct === true
+                        const wrongOn = !pending && sr.is_correct === false
+                        return (
+                          <div
                             className={cn(
-                              'rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
-                              sr.isOverridden && sr.is_correct
-                                ? 'bg-green-600 text-white hover:bg-green-700'
-                                : !sr.isOverridden && !sr.needs_review && sr.is_correct === true
-                                  ? 'bg-green-50 text-green-700 hover:bg-green-100'
-                                  : 'bg-gray-50 text-gray-400 hover:bg-green-50 hover:text-green-600'
+                              'inline-flex overflow-hidden rounded-full text-xs font-semibold transition-shadow',
+                              pending ? 'bg-amber-50 ring-1 ring-inset ring-amber-300' : 'bg-gray-100/80'
                             )}
                           >
-                            ✓ 정답
-                          </button>
-                          <button
-                            type="button"
-                            title="오답으로 확정"
-                            onClick={() => setVerdict(sr.student_id, q.id, false)}
-                            className={cn(
-                              'rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
-                              sr.isOverridden && !sr.is_correct
-                                ? 'bg-red-500 text-white hover:bg-red-600'
-                                : !sr.isOverridden && !sr.needs_review && sr.is_correct === false
-                                  ? 'bg-red-50 text-red-500 hover:bg-red-100'
-                                  : 'bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-500'
-                            )}
-                          >
-                            ✗ 오답
-                          </button>
-                        </div>
-                      )}
+                            <button
+                              type="button"
+                              aria-label="정답"
+                              title={sr.isOverridden && sr.is_correct ? '확정 해제' : '정답으로 확정'}
+                              onClick={() => setVerdict(sr.student_id, q.id, true)}
+                              className={cn(
+                                'flex h-7 w-9 items-center justify-center transition-colors active:scale-95',
+                                correctOn
+                                  ? sr.isOverridden
+                                    ? 'bg-emerald-500 text-white'
+                                    : 'bg-emerald-100 text-emerald-600'
+                                  : 'text-gray-300 hover:text-emerald-500'
+                              )}
+                            >
+                              <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="오답"
+                              title={sr.isOverridden && !sr.is_correct ? '확정 해제' : '오답으로 확정'}
+                              onClick={() => setVerdict(sr.student_id, q.id, false)}
+                              className={cn(
+                                'flex h-7 w-9 items-center justify-center transition-colors active:scale-95',
+                                wrongOn
+                                  ? sr.isOverridden
+                                    ? 'bg-rose-500 text-white'
+                                    : 'bg-rose-100 text-rose-500'
+                                  : 'text-gray-300 hover:text-rose-500'
+                              )}
+                            >
+                              <X className="h-3.5 w-3.5" strokeWidth={3} />
+                            </button>
+                          </div>
+                        )
+                      })()}
                     </td>
                   </tr>
                 ))}
