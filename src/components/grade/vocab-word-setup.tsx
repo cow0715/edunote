@@ -20,6 +20,7 @@ import {
   VocabSourceRatio,
   allocatePromptTargets,
   rebalanceSourceRatio,
+  ratioFromPrompts,
 } from '@/lib/vocab-test-ratio'
 import { VocabSourceRatioPanel } from '@/components/grade/vocab-source-ratio-panel'
 import { useUploadStore, VocabEntry } from '@/store/upload-store'
@@ -597,12 +598,16 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     setActiveTest(test)
     setGradedCount(data.gradedCount ?? 0)
     setSelectedWordIds(sortedItems.map((item) => item.vocab_word_id))
-    setSelectedPrompts(Object.fromEntries(sortedItems.map((item) => {
+    const restoredPrompts = Object.fromEntries(sortedItems.map((item) => {
       return [
         item.vocab_word_id,
         normalizeSelectedPrompt(item.vocab_word, item.prompt_source, item.prompt_text, item.vocab_word_variant_id ?? item.vocab_word_variant?.id ?? null),
       ]
-    })))
+    }))
+    setSelectedPrompts(restoredPrompts)
+    // 비율 패널을 실제 문항 구성에서 역산해 맞춘다 (없으면 기본값 유지)
+    const ratioFromItems = ratioFromPrompts(Object.values(restoredPrompts))
+    if (ratioFromItems) setSourceRatio(ratioFromItems)
   }, [weekId])
 
   // 스토어의 저장본이 바뀌면 편집본을 거기에 맞춘다 — 렌더 중 조정.

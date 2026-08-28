@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   RATIO_SOURCES,
+  ratioFromPrompts,
   DEFAULT_SOURCE_RATIO,
   SOURCE_RATIO_PRESETS,
   allocatePromptTargets,
@@ -79,6 +80,36 @@ describe('allocatePromptTargets', () => {
     expect(targets.synonym).toBe(8)
     expect(targets.antonym).toBe(8)
     expect(targets.example_meaning).toBe(8)
+  })
+})
+
+// 저장된 시험지를 다시 열면 비율 패널이 기본값(예문선택 0%)을 보여줘,
+// 실제로는 선택형이 8문항 들어 있는데도 0% 로 뜨는 모순이 있었다.
+describe('ratioFromPrompts — 실제 문항 구성에서 비율 역산', () => {
+  const p = (source: string, n: number) => Array.from({ length: n }, () => ({ prompt_source: source }))
+
+  it('문항 구성 비율을 그대로 되돌린다', () => {
+    const ratio = ratioFromPrompts([...p('word', 5), ...p('synonym', 3), ...p('example_choice', 2)])
+    expect(ratio).toMatchObject({ word: 50, synonym: 30, example_choice: 20 })
+  })
+
+  it('합이 항상 100 이다 (나누어떨어지지 않아도)', () => {
+    const ratio = ratioFromPrompts([...p('word', 1), ...p('synonym', 1), ...p('antonym', 1)])!
+    const sum = RATIO_SOURCES.reduce((n, s) => n + ratio[s], 0)
+    expect(sum).toBe(100)
+  })
+
+  it('운영 사례: 선택형이 들어 있으면 0% 로 뜨지 않는다', () => {
+    const ratio = ratioFromPrompts([...p('word', 38), ...p('synonym', 25), ...p('example_choice', 8)])!
+    expect(ratio.example_choice).toBeGreaterThan(0)
+  })
+
+  it('prompt_source 가 없으면 원본으로 센다', () => {
+    expect(ratioFromPrompts([{ prompt_source: null }, { prompt_source: undefined }])).toMatchObject({ word: 100 })
+  })
+
+  it('문항이 없으면 null — 기본값을 유지한다', () => {
+    expect(ratioFromPrompts([])).toBeNull()
   })
 })
 

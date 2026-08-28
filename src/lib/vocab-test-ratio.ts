@@ -8,6 +8,10 @@ export type VocabRatioSource = (typeof RATIO_SOURCES)[number]
 
 export type VocabSourceRatio = Record<VocabRatioSource, number>
 
+const EMPTY_RATIO: VocabSourceRatio = {
+  word: 0, synonym: 0, antonym: 0, derivative: 0, example_meaning: 0, example: 0, example_choice: 0,
+}
+
 export const DEFAULT_SOURCE_RATIO: VocabSourceRatio = {
   word: 40, synonym: 20, antonym: 20, derivative: 0, example_meaning: 20, example: 0, example_choice: 0,
 }
@@ -28,6 +32,39 @@ export function ratioSourceLabel(source: VocabRatioSource): string {
   if (source === 'example') return '예문빈칸'
   if (source === 'example_choice') return '예문선택'
   return '원본'
+}
+
+/**
+ * 실제 출제된 문항 구성에서 비율을 역산한다.
+ * 저장된 시험지를 다시 열었을 때 비율 패널이 기본값을 보여주면
+ * "예문선택 0%" 인데 시험지엔 선택형이 들어 있는 모순된 화면이 된다.
+ * 합이 100 이 되도록 최대 잔여법으로 배분한다. 문항이 없으면 null.
+ */
+export function ratioFromPrompts(sources: Array<{ prompt_source?: string | null }>): VocabSourceRatio | null {
+  const total = sources.length
+  if (total === 0) return null
+
+  const counts = { ...EMPTY_RATIO }
+  for (const item of sources) {
+    const source = (item.prompt_source ?? 'word') as VocabRatioSource
+    if (source in counts) counts[source] += 1
+  }
+
+  const exact = RATIO_SOURCES.map((source) => ({ source, value: (counts[source] / total) * 100 }))
+  const ratio = { ...EMPTY_RATIO }
+  for (const { source, value } of exact) ratio[source] = Math.floor(value)
+
+  // 내림하고 남은 몫은 소수부가 큰 유형부터 1%씩 (합 100 보정)
+  let remainder = 100 - RATIO_SOURCES.reduce((sum, source) => sum + ratio[source], 0)
+  const byFraction = exact
+    .map(({ source, value }) => ({ source, frac: value - Math.floor(value) }))
+    .sort((a, b) => b.frac - a.frac)
+  for (const { source } of byFraction) {
+    if (remainder <= 0) break
+    ratio[source] += 1
+    remainder -= 1
+  }
+  return ratio
 }
 
 export function clampPercent(value: number) {
