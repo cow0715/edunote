@@ -102,6 +102,9 @@ function GradingSheetPreview({ items }: { items: SampleItem[] }) {
             <div className="space-y-0.5">
               {part.rows.map((a, i) => {
                 const ok = isCorrectAt(i, true)
+                // 선택형은 학생이 고른 쪽에 동그라미 — 실제 정오표와 같은 표시
+                const isChoice = part.source === 'example_choice'
+                const student = answerOf(a, ok)
                 return (
                   <div key={a.id} className="flex min-w-0 items-center gap-1 rounded px-0.5 py-0.5 text-xs">
                     <span className="w-5 shrink-0 text-right text-gray-300">{a.test_number}.</span>
@@ -110,12 +113,20 @@ function GradingSheetPreview({ items }: { items: SampleItem[] }) {
                         source={part.source}
                         promptText={a.prompt_text ?? ''}
                         answer={part.source === 'example_meaning' ? a.meaning : a.answer}
+                        studentAnswer={student}
                         isCorrect={ok}
                         size="xs"
+                        onPickOption={isChoice ? () => {} : undefined}
                       />
                     </div>
-                    <span className="shrink-0 text-gray-300">→</span>
-                    {controls(answerOf(a, ok), ok, 'w-28 shrink-0')}
+                    {isChoice ? (
+                      <span className={`w-5 shrink-0 text-center font-bold ${ok ? 'text-green-500' : 'text-red-400'}`}>{ok ? '✓' : '✗'}</span>
+                    ) : (
+                      <>
+                        <span className="shrink-0 text-gray-300">→</span>
+                        {controls(student, ok, 'w-28 shrink-0')}
+                      </>
+                    )}
                   </div>
                 )
               })}

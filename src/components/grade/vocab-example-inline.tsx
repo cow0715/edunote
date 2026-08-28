@@ -37,6 +37,12 @@ type Props = {
   /** 문제 자리에 무엇을 채울지. 기본 'answer' */
   fill?: 'answer' | 'student'
   size?: 'xs' | 'sm'
+  /**
+   * 선택형 전용 — 주면 문장 속 두 후보가 클릭 가능한 버튼이 되고,
+   * 학생이 고른 쪽에 손으로 친 듯한 동그라미가 표시된다 (정오표용).
+   * 시험지에서 학생이 실제로 한 동작과 같은 모양이라 옆에 답 텍스트를 따로 둘 필요가 없다.
+   */
+  onPickOption?: (option: string) => void
 }
 
 const KEY = 'font-semibold text-gray-900 dark:text-white'
@@ -49,7 +55,7 @@ const EMPTY = 'text-gray-300 dark:text-gray-600'
 export const ANSWER_RIGHT_CLASS = RIGHT
 export const ANSWER_WRONG_CLASS = 'text-rose-500 line-through decoration-rose-300 dark:text-rose-400'
 
-export function ExampleSentenceInline({ source, promptText, answer, studentAnswer, isCorrect, fill = 'answer', size = 'sm' }: Props) {
+export function ExampleSentenceInline({ source, promptText, answer, studentAnswer, isCorrect, fill = 'answer', size = 'sm', onPickOption }: Props) {
   const textSize = size === 'xs' ? 'text-[11.5px] leading-[18px]' : 'text-[13px] leading-6'
   const wrong = isCorrect === false
   const student = (studentAnswer ?? '').trim()
@@ -97,6 +103,50 @@ export function ExampleSentenceInline({ source, promptText, answer, studentAnswe
   if (!parsed) return <span className={`${textSize} ${MUTED}`}>{promptText}</span>
   const answerLower = (answer ?? '').toLowerCase()
   const studentLower = student.toLowerCase()
+
+  // 정오표 모드: 학생이 고른 쪽에 동그라미, 정답은 초록. 클릭하면 고른 쪽을 바꾼다.
+  if (onPickOption) {
+    return (
+      <span className={`${textSize} ${MUTED}`}>
+        {parsed.before}
+        <span className="font-semibold text-gray-400">[</span>
+        {parsed.options.map((option, index) => {
+          const lower = option.toLowerCase()
+          const picked = !!student && lower === studentLower
+          const isAnswer = lower === answerLower
+          return (
+            <span key={index}>
+              {index === 1 && <span className="px-0.5 text-gray-300">/</span>}
+              <button
+                type="button"
+                title={picked ? '학생이 고른 답 (다른 쪽을 누르면 바꿉니다)' : `${option} 으로 바꾸기`}
+                onClick={() => onPickOption(option)}
+                className={`relative mx-1.5 inline-block transition-colors ${
+                  isAnswer
+                    ? 'font-semibold text-emerald-600 dark:text-emerald-400'
+                    : picked ? 'font-semibold text-rose-500 dark:text-rose-400' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                {option}
+                {picked && (
+                  <span
+                    aria-hidden
+                    className={`pointer-events-none absolute -inset-x-1 -inset-y-[3px] rounded-[50%] border-[1.5px] ${
+                      isAnswer ? 'border-emerald-500' : 'border-rose-400'
+                    }`}
+                    style={{ transform: 'rotate(-2deg)', borderTopLeftRadius: '55% 45%', borderBottomRightRadius: '45% 55%' }}
+                  />
+                )}
+              </button>
+            </span>
+          )
+        })}
+        <span className="font-semibold text-gray-400">]</span>
+        {parsed.after}
+      </span>
+    )
+  }
+
   return (
     <span className={`${textSize} ${MUTED}`}>
       {parsed.before}

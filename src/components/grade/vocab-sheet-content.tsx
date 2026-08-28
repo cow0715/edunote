@@ -9,6 +9,7 @@ import { GradeRow } from '@/hooks/use-grade'
 import { cn } from '@/lib/utils'
 import { VocabPhotoButton } from './vocab-photo-button'
 import { ExampleSentenceInline, EXAMPLE_LABEL, isExampleSourceValue } from './vocab-example-inline'
+import { gradeChoiceAnswer } from '@/lib/vocab-blank-grading'
 
 export type VocabAnswerRow = { id: string; number: number; source_number?: number; english_word: string; test_word?: string | null; test_source?: string | null; test_prompt?: string | null; test_answer?: string | null; student_answer: string | null; is_correct: boolean; teacher_locked: boolean }
 
@@ -236,7 +237,11 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
                       {EXAMPLE_LABEL[part.source].long} <span className="font-normal text-gray-400">{part.rows.length}문항 · {EXAMPLE_LABEL[part.source].hint}</span>
                     </p>
                     <div className="space-y-0.5">
-                      {part.rows.map((a) => (
+                      {part.rows.map((a) => {
+                        // 선택형은 학생이 시험지에서 한 동작(동그라미)을 문장 안에 그대로 그린다.
+                        // 문장엔 정답, 옆칸엔 학생 답이라 서로 다른 걸 보여주던 게 헷갈렸다.
+                        const isChoice = part.source === 'example_choice' && !!a.test_prompt
+                        return (
                         <div key={a.id} className={cn('flex items-center gap-1 text-xs min-w-0 py-0.5 rounded px-0.5', rowBg(a))}>
                           <span className="text-gray-300 w-5 shrink-0 text-right">{a.number}.</span>
                           {/* 예문 파트: 시험지 문장이 메인, 학생 답 입력칸은 오른쪽 고정폭 */}
@@ -246,18 +251,41 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
                                 source={part.source}
                                 promptText={a.test_prompt}
                                 answer={a.test_answer}
-                                // 학생 답은 오른쪽 입력칸에 있으므로 문장 안에는 정답만 표시
+                                studentAnswer={a.student_answer}
                                 isCorrect={a.is_correct}
                                 size="xs"
+                                onPickOption={isChoice ? (option) => {
+                                  // 선택형은 코드로 결정적 채점 — 클릭 즉시 정오 반영 (LLM 재채점 불필요)
+                                  const next = gradeChoiceAnswer(option, a.test_answer)
+                                  const updated = editableVocab.map((x) => x.id === a.id
+                                    ? { ...x, student_answer: option, is_correct: next, teacher_locked: false }
+                                    : x)
+                                  setEditableVocab(updated)
+                                  setDirtyIds((prev) => { const s = new Set(prev); s.delete(a.id); return s })
+                                  saveVocabAnswer(a.id, option, next, false)
+                                  updateRow(row.student_id, 'vocab_correct', updated.filter((x) => x.is_correct).length)
+                                } : undefined}
                               />
                             ) : (
                               <span className="font-mono text-gray-600">{a.test_word ?? a.english_word}</span>
                             )}
                           </div>
-                          <span className="text-gray-300 shrink-0">→</span>
-                          {renderAnswerControls(a, 'w-28 shrink-0')}
+                          {isChoice ? (
+                            // 미응답은 동그라미가 없어 상태가 안 보이므로 표식만 남긴다
+                            !a.student_answer?.trim()
+                              ? <span className="shrink-0 text-[10px] text-gray-300">미응답</span>
+                              : <span className={cn('shrink-0 w-5 text-center font-bold', a.is_correct ? 'text-green-500' : 'text-red-400')}>
+                                  {a.is_correct ? '✓' : '✗'}
+                                </span>
+                          ) : (
+                            <>
+                              <span className="text-gray-300 shrink-0">→</span>
+                              {renderAnswerControls(a, 'w-28 shrink-0')}
+                            </>
+                          )}
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 ))}

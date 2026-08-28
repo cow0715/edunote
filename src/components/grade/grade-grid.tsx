@@ -295,6 +295,17 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
   const activeQuestions = questions.filter((q) => !q.is_void)
   const effectiveReadingTotal = activeQuestions.length > 0 ? activeQuestions.length : readingTotal
   const hasSubjective = activeQuestions.some((q) => q.question_style === 'subjective')
+
+  // 저장 중 표시할 진행 요약 — AI 채점은 몇십 초 걸릴 수 있어 무엇을 처리 중인지 알려준다
+  const savingSummary = (() => {
+    const present = rows.filter((r) => r.present)
+    if (!hasSubjective) return `학생 ${present.length}명`
+    const subjectiveCount = present.reduce((n, r) => n + r.answers.filter((a) => {
+      const q = questions.find((x) => x.id === a.exam_question_id)
+      return (q?.question_style === 'subjective' || q?.question_style === 'find_error') && !!a.student_answer_text?.trim()
+    }).length, 0)
+    return `학생 ${present.length}명 · 서술형 ${subjectiveCount}건`
+  })()
   const showVocab = vocabTotal > 0
   const showExam = readingTotal > 0 || questions.length > 0
 
@@ -371,16 +382,25 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
         </div>
       )}
 
-      {/* 테이블 */}
-      <div className="relative rounded-xl border bg-white overflow-hidden">
+      {/* 채점 영역 — 저장 중에는 이 블록 전체를 덮는다.
+          예전엔 테이블에만 오버레이가 걸려서 아래 저장줄·검토 패널은 그대로 눌렸고,
+          그때 편집한 내용은 저장 완료 후 refetch 로 조용히 덮였다. 범위를 실제 영향 범위로 맞춘다. */}
+      <div className="relative space-y-3">
         {saveGrade.isPending && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/75">
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-indigo-500" />
-              {hasSubjective ? 'AI 채점 중...' : '저장 중...'}
+          <div className="absolute inset-0 z-20 flex items-start justify-center rounded-xl bg-white/80 backdrop-blur-[1px]">
+            <div className="mt-16 flex flex-col items-center gap-2 text-sm text-gray-600">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-indigo-500" />
+              <span className="font-medium">{hasSubjective ? 'AI 채점 중…' : '저장 중…'}</span>
+              <span className="text-xs text-gray-400">
+                {savingSummary}
+              </span>
+              <span className="text-[11px] text-gray-300">완료될 때까지 이 화면은 편집할 수 없습니다</span>
             </div>
           </div>
         )}
+
+      {/* 테이블 */}
+      <div className="rounded-xl border bg-white overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-gray-50/80">
@@ -584,6 +604,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           />
         </div>
       )}
+      </div>
 
       {/* 슬라이드 Sheet */}
       <Sheet open={sheetView !== null} onOpenChange={(open) => {
