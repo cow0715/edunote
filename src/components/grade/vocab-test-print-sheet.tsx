@@ -155,6 +155,18 @@ export function VocabTestPrintSheet({ items, answers, studentName }: { items: Vo
   const meaningPages = chunk(meaningItems, ITEMS_PER_PAGE)
   const pageCount = Math.max(meaningPages.length, exampleSections.length > 0 ? 1 : 0)
 
+  const nameScoreInline = (
+    <span className="flex shrink-0 items-end gap-2 text-[12px] font-bold text-gray-700">
+      <span>이름</span>
+      <span className="relative w-[110px] border-b border-gray-700">
+        {studentName && <span className="absolute inset-x-0 -top-[2px] text-center text-[16px]" style={HANDWRITING_STYLE}>{studentName}</span>}
+        &nbsp;
+      </span>
+      <span className="ml-2">점수</span>
+      <span className="w-[64px] border-b border-gray-700">&nbsp;</span>
+    </span>
+  )
+
   return (
     <div className="mx-auto space-y-4 print:space-y-0">
       {Array.from({ length: pageCount }, (_, pageIndex) => {
@@ -166,31 +178,26 @@ export function VocabTestPrintSheet({ items, answers, studentName }: { items: Vo
         const isLastPage = pageIndex === pageCount - 1
         return (
           <section key={pageIndex} className="vocab-print-page bg-white shadow-sm print:shadow-none">
+            {/* 이름·점수는 헤더가 아니라 단어 표 바로 윗줄에 둔다 — 사진을 표만 타이트하게 찍어도
+                이 줄은 프레임에 들어오므로 일괄 채점 이름 매칭이 살아남는다. */}
             <header className="mb-5 flex items-end justify-between border-b-2 border-gray-900 pb-3">
               <div>
                 <p className="text-[10px] font-bold tracking-[0.28em] text-gray-500">Vocabulary Test</p>
                 <h2 className="mt-1 text-2xl font-black text-gray-950">어휘 Test</h2>
               </div>
-              {/* 이름·점수 한 줄 — 두 줄이면 사진이 단어 표만 담을 때 이름란이 프레임 밖으로 나가
-                  일괄 채점 이름 매칭이 실패한다. 헤더를 낮춰 표와 같이 찍히게 한다. */}
-              <div className="flex items-end gap-2 text-sm">
-                <span className="font-bold text-gray-700">이름</span>
-                <span className="relative w-[130px] border-b border-gray-700">
-                  {studentName && <span className="absolute inset-x-0 -top-[2px] text-center text-[16px]" style={HANDWRITING_STYLE}>{studentName}</span>}
-                  &nbsp;
-                </span>
-                <span className="ml-3 font-bold text-gray-700">점수</span>
-                <span className="w-[72px] border-b border-gray-700">&nbsp;</span>
-              </div>
+              {pageItems.length === 0 && nameScoreInline}
             </header>
 
             {pageItems.length > 0 && (
               <>
-                {showPartLabels && pageIndex === 0 && (
-                  <p className="mb-2 text-[12px] font-black text-gray-900">
-                    {partLetter(0)}. 뜻쓰기 <span className="ml-1 font-semibold text-gray-500">— 다음 단어의 뜻을 쓰시오. ({meaningItems.length}문항)</span>
-                  </p>
-                )}
+                <div className="mb-2 flex items-end justify-between gap-4">
+                  {showPartLabels && pageIndex === 0 ? (
+                    <p className="text-[12px] font-black text-gray-900">
+                      {partLetter(0)}. 뜻쓰기 <span className="ml-1 font-semibold text-gray-500">— 다음 단어의 뜻을 쓰시오. ({meaningItems.length}문항)</span>
+                    </p>
+                  ) : <span />}
+                  {nameScoreInline}
+                </div>
                 <div className="grid grid-cols-2 gap-x-10">
                   {[left, right].map((column, columnIndex) => (
                     <div key={columnIndex} className="space-y-0">
