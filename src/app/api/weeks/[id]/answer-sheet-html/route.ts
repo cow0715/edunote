@@ -1,5 +1,6 @@
 import { getAuth, getTeacherId, assertWeekOwner, err } from '@/lib/api'
 import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
+import { oxChoiceLabels, oxNotationForGroup } from '@/lib/ox-grading'
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
@@ -61,9 +62,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     rowInfos.push({ qNum, group, isShort, heightPt: 0 })
   }
   const availablePt = 255 * 2.835
-  const minHeights = rowInfos.map((row) => row.isShort ? 36 : 44)
+  const isFindError = (row: RowInfo) => row.group[0]?.question_style === 'find_error'
+  // find_error 는 「기호[ ] 고친 표현」 슬롯이 세로로 3줄 이상 서므로 기본 높이가 크다
+  const minHeights = rowInfos.map((row) => isFindError(row) ? 68 : row.isShort ? 36 : 44)
   const minTotal = minHeights.reduce((sum, height) => sum + height, 0)
-  const weights = rowInfos.map((row) => row.isShort ? 1 : 2.4)
+  const weights = rowInfos.map((row) => isFindError(row) ? 3.2 : row.isShort ? 1 : 2.4)
   const weightTotal = weights.reduce((sum, weight) => sum + weight, 0)
 
   // A4(297mm) - 상하마진(20mm) - 제목+학교/이름(16mm) - 여유(6mm) = 255mm
@@ -93,8 +96,13 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     const hasSub = group.length > 1 || first.sub_label !== null
     const tr = trStyle(heightPt)
 
+    // multi_select 는 보기가 ①~⑤일 수도, ⓐ~ⓔ일 수도 있다 — 정답키 표기를 따라간다
+    const choiceMarks = style === 'multi_select' && /[a-e]/i.test(first.correct_answer_text ?? '')
+      ? ['ⓐ', 'ⓑ', 'ⓒ', 'ⓓ', 'ⓔ']
+      : ['①', '②', '③', '④', '⑤']
+
     if ((style === 'objective' || style === 'multi_select') && !hasSub) {
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:18px;">① &nbsp;&nbsp; ② &nbsp;&nbsp; ③ &nbsp;&nbsp; ④ &nbsp;&nbsp; ⑤</span></td></tr>`)
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:18px;">${choiceMarks.join(' &nbsp;&nbsp; ')}</span></td></tr>`)
     } else if ((style === 'objective' || style === 'multi_select') && hasSub) {
       const cells = group.map((q) =>
         `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}><span style="font-size:14px;">① ② ③ ④ ⑤</span></td>`
@@ -102,10 +110,29 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       const remainingColSpan = Math.max(0, answerColSpan - group.length * 2)
       rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td>${cells}${remainingColSpan > 0 ? `<td ${answerAttr} colspan="${remainingColSpan}">&nbsp;</td>` : ''}</tr>`)
     } else if (style === 'ox') {
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}">O &nbsp;/&nbsp; X &nbsp;&nbsp; 수정어: </td></tr>`)
+      // 시험지가 T/F 로 물으면 답안지도 T/F — T/F 판단형은 수정어 칸이 없다
+      const notation = oxNotationForGroup(group.map((q) => q.correct_answer_text))
+      const { yes, no } = oxChoiceLabels(notation)
+      if (hasSub) {
+        const cells = group.map((q) =>
+          `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}><span style="font-size:14px;">${notation === 'OX' ? `${yes}/${no} 수정:` : `${yes} / ${no}`}</span></td>`
+        ).join('')
+        const remainingColSpan = Math.max(0, answerColSpan - group.length * 2)
+        rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td>${cells}${remainingColSpan > 0 ? `<td ${answerAttr} colspan="${remainingColSpan}">&nbsp;</td>` : ''}</tr>`)
+      } else {
+        const correctionCell = notation === 'OX' ? ' &nbsp;&nbsp; 수정어: ' : ''
+        rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}">${yes} &nbsp;/&nbsp; ${no}${correctionCell}</td></tr>`)
+      }
     } else if (style === 'multi_select') {
       rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}">&nbsp;</td></tr>`)
-    } else if ((style === 'find_error' || style === 'subjective') && hasSub) {
+    } else if (style === 'find_error') {
+      // 소문항 기호를 인쇄하면 정답 유출 + 칸 수가 정답 수 힌트 → 기호 없는 고정 슬롯(최소 3칸)
+      const slotCount = Math.max(3, group.length)
+      const slotLines = Array.from({ length: slotCount })
+        .map(() => '번호·기호 [&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;] &nbsp; 고친 표현: ____________________________________________')
+        .join('<br/><br/>')
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:11px;font-weight:600;">${slotLines}</span></td></tr>`)
+    } else if (style === 'subjective' && hasSub) {
       const cells = group.map((q) =>
         `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}>&nbsp;</td>`
       ).join('')

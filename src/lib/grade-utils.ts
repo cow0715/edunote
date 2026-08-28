@@ -1,4 +1,5 @@
 import type { SupabaseServerClient } from '@/lib/api'
+import { normalizeErrorSymbol } from '@/lib/find-error-grading'
 
 export async function recalcReadingCorrect(supabase: SupabaseServerClient, scoreIds: string[]) {
   await Promise.all(
@@ -20,21 +21,18 @@ export async function recalcReadingCorrect(supabase: SupabaseServerClient, score
 
 // ── 공유 채점 헬퍼 ───────────────────────────────────────────────────────
 // grade/route.ts, parse-answers/route.ts, questions/route.ts 가 공유.
-
-// oxSelection: 'O' | 'X' | null, correctionText: 수정어만 (X 접두사 없음)
-export function gradeOX(correctAnswerText: string, oxSelection: string | null, correctionText: string): boolean {
-  const correct = correctAnswerText.trim()
-  if (/^O$/i.test(correct)) return oxSelection === 'O'
-  if (oxSelection !== 'X') return false
-  let correction = correct.match(/\((.+)\)/)?.[1]?.trim().toLowerCase() ?? ''
-  if (correction.includes('→')) correction = correction.split('→').pop()?.trim() ?? correction
-  const student = correctionText.trim().toLowerCase()
-  // '/' 구분자로 복수 정답 허용 (예: "in which / where")
-  const alternatives = correction.split('/').map((s) => s.trim()).filter(Boolean)
-  return alternatives.some((alt) => student === alt)
-}
+// OX 판정은 UI 도 같이 쓰므로 @/lib/ox-grading 으로 분리했다.
 
 export function gradeMultiSelect(correctAnswerText: string, studentAnswerText: string): boolean {
-  const normalize = (t: string) => t.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean).sort().join(',')
+  // ①→1, ⓐ→a, (b)→b, A→a — 학생·OCR 이 어떤 표기로 적든 정답키("1,3" / "a,b,e")와 맞춘다
+  const normalize = (t: string) => t
+    .split(',')
+    .map((s) => {
+      const token = s.trim()
+      return normalizeErrorSymbol(token) ?? token.toLowerCase()
+    })
+    .filter(Boolean)
+    .sort()
+    .join(',')
   return normalize(correctAnswerText) === normalize(studentAnswerText)
 }

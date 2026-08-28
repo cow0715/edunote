@@ -102,7 +102,12 @@ question_style은 문항 유형 이름이 아니라 답안 형식만 보고 결�
        "n개 고르" 형은 multi_select 아님 → STEP 2 ⑥번에 따라 sub_label 분리
 
 2. ox
-   조건: 정답이 정확히 "O" 또는 "X (수정어)" 이진 형식인 단일 어법 판단
+   조건: 답이 둘 중 하나인 이진 판단 문항. 시험지 표기에 따라 두 형식을 쓴다.
+     (A) 어법 판단형 → correct_answer_text = "O" 또는 "X (수정어)"
+     (B) 내용 참·거짓 판단형(Choose True or False, T/F, 맞으면 T 틀리면 F 등)
+         → correct_answer_text = "T" 또는 "F" (수정어 없이 한 글자만)
+   ※ 시험지가 T/F 로 물으면 O/X 로 바꾸지 말고, O/X 로 물으면 T/F 로 바꾸지 말 것
+      — 인쇄 답안지와 채점 버튼이 이 값을 보고 시험지와 같은 기호를 쓴다
    ※ 어법교정이라도 여러 기호(ⓐ~ⓔ)가 등장하면 ox 절대 사용 금지
 
 3. find_error
@@ -499,6 +504,8 @@ export type ExamOcrQuestion = {
   question_number: number
   sub_label: string | null
   question_style: 'objective' | 'ox' | 'subjective' | 'find_error' | 'multi_select'
+  /** ox 문항의 표기법 — T/F 답안지는 모델에게 T/F 로 읽으라고 알려줘야 한다 */
+  ox_notation?: 'OX' | 'TF'
 }
 
 function buildExamQuestionList(questions: ExamOcrQuestion[]): string {
@@ -506,9 +513,11 @@ function buildExamQuestionList(questions: ExamOcrQuestion[]): string {
     objective:    '객관식 (1~5 중 선택)',
     ox:           'O/X 교정형',
     subjective:   '서술형',
-    find_error:   '오류교정',
+    find_error:   '오류교정 (기호+고친 표현)',
     multi_select: '복수정답',
   }
+  const labelFor = (q: ExamOcrQuestion) =>
+    q.question_style === 'ox' && q.ox_notation === 'TF' ? 'T/F 판단형' : styleLabel[q.question_style]
   const grouped = new Map<number, ExamOcrQuestion[]>()
   for (const q of questions) {
     const arr = grouped.get(q.question_number) ?? []
@@ -518,10 +527,10 @@ function buildExamQuestionList(questions: ExamOcrQuestion[]): string {
   const lines: string[] = []
   for (const [num, group] of [...grouped.entries()].sort((a, b) => a[0] - b[0])) {
     if (group.length === 1 && !group[0].sub_label) {
-      lines.push(`- ${num}번: ${styleLabel[group[0].question_style]}`)
+      lines.push(`- ${num}번: ${labelFor(group[0])}`)
     } else {
       for (const q of group) {
-        lines.push(`- ${num}번 (${q.sub_label}): ${styleLabel[q.question_style]}`)
+        lines.push(`- ${num}번 (${q.sub_label}): ${labelFor(q)}`)
       }
     }
   }
@@ -532,10 +541,18 @@ const EXAM_OCR_RULES = `규칙:
 - 객관식: student_answer에 숫자(1~5). 동그라미 또는 숫자 기입 모두 인식
 - 객관식/복수정답에서 X표, 취소선, 지운 흔적이 있는 번호는 취소된 답으로 보고 최종 선택에서 제외. 예: ①에 X표가 있고 ④가 다시 동그라미/색칠되어 있으면 student_answer는 4
 - 단일 객관식에서 여러 표시가 보이면 취소되지 않은 가장 명확한 최종 동그라미/색칠/체크 1개만 student_answer로 반환
-- 서술형/오류교정: student_answer_text에 영어 텍스트 그대로
+- 서술형: student_answer_text에 영어 텍스트 그대로
+- 오류교정: 답안지에 「번호·기호 [ ] 고친 표현: ___」 슬롯이 여러 개 있다. 학생이 기입한 슬롯마다
+  기호와 고친 표현을 각각 읽어 student_answer_text에 "기호:고친표현" 형식으로 저장
+  (예: 기호 칸에 b, 고침 칸에 "Rarely did the workers have time to relax" → "b:Rarely did the workers have time to relax").
+  기호 칸이 비었으면 고친 표현만 저장. 빈 슬롯은 제외.
+  같은 문항에 소문항이 여러 개면 기입된 슬롯을 위에서부터 문항 목록의 sub_label 순서에 차례로 배정
+  (학생이 쓴 기호가 sub_label과 달라도 그대로 배정 — 기호 매칭은 채점이 처리한다)
 - O/X 교정형: student_answer_text에 "O" 또는 "X 수정어" (예: "X has been")
+- T/F 판단형: 학생이 T 또는 F 에 동그라미/기입 — student_answer_text에 "T" 또는 "F" 한 글자만 (수정어 없음, O/X 로 바꾸지 말 것)
 - 복수정답: 학생이 ①~⑤ 중 여러 개를 동그라미/색칠/체크한 것을 모두 읽고 student_answer_text에 쉼표 구분 숫자로 저장 (예: ①과 ③이 표시됨 → "1,3")
 - 복수정답은 student_answer를 쓰지 말고 반드시 student_answer_text를 사용. "①③", "①,③", "1 3"처럼 보이면 모두 "1,3"으로 변환
+- 복수정답 보기가 ⓐ~ⓔ/a~e 알파벳이면 소문자 알파벳 쉼표 구분으로 변환 (예: ⓐ와 ⓔ 표시 → "a,e")
 - sub_label 있는 문항: (a)(b) 표기 찾아 분리. 표기 없으면 첫 번째 sub_label에 전체 텍스트, 나머지는 제외
 - 이미지에 보이지 않는 문항(뒷면 등)은 결과에서 제외
 - 빈 답안은 결과에서 제외

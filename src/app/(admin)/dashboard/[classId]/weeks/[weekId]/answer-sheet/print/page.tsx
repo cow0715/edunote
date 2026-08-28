@@ -1,5 +1,6 @@
 import { assertWeekOwner, getAuth, getTeacherId } from '@/lib/api'
 import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
+import { oxChoiceLabels, oxNotationForGroup } from '@/lib/ox-grading'
 import { Fragment } from 'react'
 import { PrintButton } from './print-button'
 
@@ -7,6 +8,8 @@ type QuestionRow = {
   question_number: number
   sub_label: string | null
   question_style: string
+  /** OX 표기법(O/X vs T/F) 판별용 — 시험지와 같은 기호를 인쇄하려고 읽는다 */
+  correct_answer_text: string | null
 }
 
 type RowInfo = {
@@ -39,10 +42,12 @@ function buildRows(questions: QuestionRow[]): RowInfo[] {
     group,
     isShort: isShortStyle(group[0]?.question_style),
   }))
+  const isFindError = (row: { group: QuestionRow[] }) => row.group[0]?.question_style === 'find_error'
   const availablePt = 255 * 2.835
-  const minHeights = baseRows.map((row) => row.isShort ? 36 : 44)
+  // find_error 는 「기호[ ] 고친 표현」 슬롯이 세로로 3줄 이상 서므로 기본 높이가 크다
+  const minHeights = baseRows.map((row) => isFindError(row) ? 68 : row.isShort ? 36 : 44)
   const minTotal = minHeights.reduce((sum, height) => sum + height, 0)
-  const weights = baseRows.map((row) => row.isShort ? 1 : 2.4)
+  const weights = baseRows.map((row) => isFindError(row) ? 3.2 : row.isShort ? 1 : 2.4)
   const weightTotal = weights.reduce((sum, weight) => sum + weight, 0)
 
   return baseRows.map((row, index) => ({
@@ -53,10 +58,18 @@ function buildRows(questions: QuestionRow[]): RowInfo[] {
   }))
 }
 
-function ObjectiveMarks() {
+const CIRCLED_NUMBER_MARKS = ['①', '②', '③', '④', '⑤']
+const CIRCLED_LETTER_MARKS = ['ⓐ', 'ⓑ', 'ⓒ', 'ⓓ', 'ⓔ']
+
+/** multi_select 는 보기가 ①~⑤일 수도, ⓐ~ⓔ일 수도 있다 — 정답키 표기를 따라간다 */
+function choiceMarksFor(correctAnswerText: string | null): string[] {
+  return /[a-e]/i.test(correctAnswerText ?? '') ? CIRCLED_LETTER_MARKS : CIRCLED_NUMBER_MARKS
+}
+
+function ObjectiveMarks({ marks = CIRCLED_NUMBER_MARKS }: { marks?: string[] }) {
   return (
     <div className="flex items-center gap-6 text-[18px] font-semibold">
-      {['①', '②', '③', '④', '⑤'].map((mark) => (
+      {marks.map((mark) => (
         <span key={mark}>{mark}</span>
       ))}
     </div>
@@ -73,7 +86,7 @@ function AnswerCells({ row, maxSubs }: { row: RowInfo; maxSubs: number }) {
   if ((style === 'objective' || style === 'multi_select') && !hasSub) {
     return (
       <td className="answer-cell" colSpan={answerColSpan}>
-        <ObjectiveMarks />
+        <ObjectiveMarks marks={style === 'multi_select' ? choiceMarksFor(first?.correct_answer_text ?? null) : undefined} />
       </td>
     )
   }
@@ -90,14 +103,51 @@ function AnswerCells({ row, maxSubs }: { row: RowInfo; maxSubs: number }) {
   }
 
   if (style === 'ox') {
+    const notation = oxNotationForGroup(row.group.map((q) => q.correct_answer_text))
+    const { yes, no } = oxChoiceLabels(notation)
+    // T/F 판단형은 수정답 칸이 없다
+    if (hasSub) {
+      return (
+        <>
+          {row.group.map((q) => (
+            <FragmentCells
+              key={`${q.question_number}-${q.sub_label ?? 'none'}`}
+              label={q.sub_label}
+              marks={notation === 'OX' ? `${yes}/${no} 수정:` : `${yes} / ${no}`}
+            />
+          ))}
+          {row.group.length < maxSubs && <td className="answer-cell" colSpan={remainingColSpan} />}
+        </>
+      )
+    }
     return (
       <td className="answer-cell" colSpan={answerColSpan}>
-        O / X&nbsp;&nbsp;&nbsp; 수정답:
+        {yes} / {no}{notation === 'OX' && <>&nbsp;&nbsp;&nbsp; 수정답:</>}
       </td>
     )
   }
 
-  if ((style === 'find_error' || style === 'subjective') && hasSub) {
+  if (style === 'find_error') {
+    // 소문항 기호(b, d …)를 인쇄하면 정답이 유출되고, 칸 수가 정답 수 힌트가 되므로
+    // 기호 없는 고정 슬롯(최소 3칸)으로 통일한다. 학생이 기호와 고친 표현을 직접 쓴다.
+    const slotCount = Math.max(3, row.group.length)
+    return (
+      <td className="answer-cell" colSpan={answerColSpan}>
+        <div className="fe-slots">
+          {Array.from({ length: slotCount }).map((_, index) => (
+            <div key={index} className="fe-slot">
+              {/* 번호형(①~⑤)·기호형(ⓐ~ⓔ) 문제지 모두 커버하는 라벨 */}
+              <span>번호·기호 [&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]</span>
+              <span>고친 표현:</span>
+              <span className="fe-line" />
+            </div>
+          ))}
+        </div>
+      </td>
+    )
+  }
+
+  if (style === 'subjective' && hasSub) {
     return (
       <>
         {row.group.map((q) => (
@@ -111,11 +161,11 @@ function AnswerCells({ row, maxSubs }: { row: RowInfo; maxSubs: number }) {
   return <td className="answer-cell" colSpan={answerColSpan} />
 }
 
-function FragmentCells({ label, objective = false }: { label: string | null; objective?: boolean }) {
+function FragmentCells({ label, objective = false, marks }: { label: string | null; objective?: boolean; marks?: string }) {
   return (
     <>
       <td className="sub-header">{label ? `(${label})` : ''}</td>
-      <td className="sub-answer">{objective ? '① ② ③ ④ ⑤' : ''}</td>
+      <td className="sub-answer">{marks ?? (objective ? '① ② ③ ④ ⑤' : '')}</td>
     </>
   )
 }
@@ -141,7 +191,7 @@ export default async function AnswerSheetPrintPage({
 
   const { data: questions } = await supabase
     .from('exam_question')
-    .select('question_number, sub_label, question_style')
+    .select('question_number, sub_label, question_style, correct_answer_text')
     .eq('week_id', weekId)
     .eq('exam_type', 'reading')
     .order('question_number')
@@ -245,6 +295,26 @@ export default async function AnswerSheetPrintPage({
 
         .answer-cell {
           font-size: 14px;
+        }
+
+        .fe-slots {
+          display: flex;
+          flex-direction: column;
+          gap: 7pt;
+        }
+
+        .fe-slot {
+          display: flex;
+          align-items: flex-end;
+          gap: 5pt;
+          font-size: 11px;
+          font-weight: 600;
+        }
+
+        .fe-slot .fe-line {
+          flex: 1;
+          border-bottom: 1px solid #999;
+          height: 13pt;
         }
 
         .sub-header {

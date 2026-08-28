@@ -5,6 +5,9 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { SourceImagePreview } from '@/components/grade/source-image-preview'
 import { ExamQuestion } from '@/lib/types'
+import {
+  formatOXStudentInput, oxChoiceLabels, oxNotation, parseOXStudentInput, type OXNotation,
+} from '@/lib/ox-grading'
 import { cn } from '@/lib/utils'
 
 // ── 객관식 버튼 ────────────────────────────────────────
@@ -33,19 +36,22 @@ export const ObjectiveInput = memo(function ObjectiveInput({
 
 // ── OX 입력 ────────────────────────────────────────────
 export const OXInput = memo(function OXInput({
-  textValue, onChange, disabled,
-}: { textValue: string; onChange: (t: string) => void; disabled: boolean }) {
-  const upper = textValue.trim().toUpperCase()
-  const isO = upper === 'O'
-  const isX = upper.startsWith('X')
-  const currentCorr = isX ? textValue.trim().slice(1).trim() : ''
+  textValue, onChange, disabled, notation = 'OX',
+}: { textValue: string; onChange: (t: string) => void; disabled: boolean; notation?: OXNotation }) {
+  // T/F 판단형은 수정어를 묻지 않는다 — 버튼 기호도 시험지대로 T/F 로 보여준다
+  const isTF = notation === 'TF'
+  const { yes, no } = oxChoiceLabels(notation)
+  const { oxSelection, correction } = parseOXStudentInput(textValue)
+  const isO = oxSelection === 'O'
+  const isX = oxSelection === 'X'
+  const currentCorr = isTF ? '' : (correction ?? '')
   // 수정어를 기억해 둔다 (X → O → X 로 되돌아올 때 복원용).
   // 렌더 중 조정 — effect 로 하면 한 박자 늦게 반영된다.
   const [rememberedCorr, setRememberedCorr] = useState(currentCorr)
   if (currentCorr && currentCorr !== rememberedCorr) setRememberedCorr(currentCorr)
 
-  function selectO() { onChange('O') }
-  function selectX() { onChange(rememberedCorr ? `X ${rememberedCorr}` : 'X') }
+  function selectO() { onChange(yes) }
+  function selectX() { onChange(isTF ? no : (rememberedCorr ? `X ${rememberedCorr}` : 'X')) }
   function onCorrectionChange(v: string) {
     setRememberedCorr(v)
     onChange(v ? `X ${v}` : 'X')
@@ -61,7 +67,7 @@ export const OXInput = memo(function OXInput({
           'flex h-8 w-10 items-center justify-center rounded-md text-sm font-bold transition-colors',
           isO ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
         )}
-      >O</button>
+      >{yes}</button>
       <button
         type="button"
         disabled={disabled}
@@ -70,8 +76,8 @@ export const OXInput = memo(function OXInput({
           'flex h-8 w-10 items-center justify-center rounded-md text-sm font-bold transition-colors',
           isX ? 'bg-rose-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
         )}
-      >X</button>
-      {isX && (
+      >{no}</button>
+      {isX && !isTF && (
         <Input
           value={currentCorr}
           onChange={(e) => onCorrectionChange(e.target.value)}
@@ -80,7 +86,7 @@ export const OXInput = memo(function OXInput({
           className="h-8 w-28 text-sm"
         />
       )}
-      {isO && rememberedCorr && (
+      {isO && !isTF && rememberedCorr && (
         <span className="text-xs text-gray-300 truncate max-w-24">{rememberedCorr}</span>
       )}
     </div>
@@ -255,11 +261,12 @@ export const QuestionRow = memo(function QuestionRow({
         )}
         {q.question_style === 'ox' && (() => {
           const savedText = answer?.student_answer_text?.trim() ?? ''
-          const isAnsweredX = savedText.toUpperCase().startsWith('X')
-          const enteredCorrection = isAnsweredX ? savedText.slice(1).trim() : ''
+          const notation = oxNotation(q.correct_answer_text)
+          const { oxSelection, correction } = parseOXStudentInput(savedText)
+          const showsCorrection = notation === 'OX' && oxSelection === 'X'
           return (
             <>
-              <OXInput textValue={savedText} onChange={onChangeText} disabled={disabled} />
+              <OXInput textValue={savedText} onChange={onChangeText} disabled={disabled} notation={notation} />
               {savedText && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-400 shrink-0">학생 답:</span>
@@ -267,7 +274,9 @@ export const QuestionRow = memo(function QuestionRow({
                     'text-xs font-medium px-2 py-0.5 rounded-full shrink-0',
                     answer?.is_correct ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-500'
                   )}>
-                    {isAnsweredX ? `X${enteredCorrection ? ` → ${enteredCorrection}` : ''}` : savedText}
+                    {showsCorrection
+                      ? `X${correction ? ` → ${correction}` : ''}`
+                      : formatOXStudentInput(oxSelection, correction, notation)}
                     {' '}{answer?.is_correct ? '✓' : '✗'}
                   </span>
                 </div>
@@ -311,7 +320,7 @@ export const QuestionRow = memo(function QuestionRow({
           )
         })()}
         {q.question_style === 'find_error' && (() => {
-          const correction = q.correct_answer_text?.split(':')[1]?.trim() ?? ''
+          const keyExample = q.correct_answer_text?.trim() ?? ''
           return (
             <>
               <Textarea
@@ -319,7 +328,7 @@ export const QuestionRow = memo(function QuestionRow({
                 onChange={(e) => setLocalText(e.target.value)}
                 onBlur={() => onChangeText(localText)}
                 disabled={disabled}
-                placeholder={correction ? `수정어 입력 (예: ${correction})` : '수정어 입력'}
+                placeholder={keyExample ? `기호:고친 표현 (예: ${keyExample})` : '기호:고친 표현'}
                 rows={2}
                 className="text-sm resize-none"
               />

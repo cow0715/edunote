@@ -134,3 +134,45 @@ describe('OXInput — disabled', () => {
     expect(currentValue()).toBe('')
   })
 })
+
+// 운영 회귀: "Choose True or False (T/F)" 문항은 정답키가 T/F 라
+// 버튼도 시험지대로 T/F 를 보여주고, 수정어 칸은 나오지 않아야 한다.
+function ControlledTF({ initial = '' }: { initial?: string }) {
+  const [value, setValue] = useState(initial)
+  return (
+    <div>
+      <span data-testid="value">{value}</span>
+      <OXInput textValue={value} onChange={setValue} disabled={false} notation="TF" />
+    </div>
+  )
+}
+
+describe('OXInput — T/F 표기법', () => {
+  it('버튼이 T / F 로 표시된다', () => {
+    render(<ControlledTF />)
+    expect(screen.getByRole('button', { name: 'T' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'F' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'O' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'X' })).toBeNull()
+  })
+
+  it('T 를 누르면 T, F 를 누르면 F 가 저장된다', () => {
+    render(<ControlledTF />)
+    fireEvent.click(screen.getByRole('button', { name: 'T' }))
+    expect(currentValue()).toBe('T')
+    fireEvent.click(screen.getByRole('button', { name: 'F' }))
+    expect(currentValue()).toBe('F')
+  })
+
+  it('F 를 골라도 수정어 입력칸이 나오지 않는다', () => {
+    render(<ControlledTF />)
+    fireEvent.click(screen.getByRole('button', { name: 'F' }))
+    expect(screen.queryByPlaceholderText('수정어')).toBeNull()
+  })
+
+  it('선택된 버튼을 다시 누르면 해제된다', () => {
+    render(<ControlledTF initial="F" />)
+    fireEvent.click(screen.getByRole('button', { name: 'F' }))
+    expect(currentValue()).toBe('')
+  })
+})

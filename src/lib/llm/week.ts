@@ -126,7 +126,7 @@ ${QUESTION_MARKUP_RULES}
 ${SOURCE_IMAGE_FIELD_RULES}
 
 JSON 배열만 출력 (다른 텍스트 없이, 각 객체에 needs_source_image/source_image_reason/source_page/source_bbox 포함):
-[{"question_number":1,"sub_label":null,"question_style":"objective","question_type":"가정법/조동사","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"...","question_text":"다음 글의 빈칸에 들어갈 말로 가장 적절한 것은?\\nThe researcher concluded that the results were inconclusive. ________ further investigation was needed before any definitive claims could be made about the phenomenon."},{"question_number":2,"sub_label":null,"question_style":"multi_select","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"1,3","grading_criteria":null,"explanation":"...","question_text":"윗글의 내용과 일치하는 것을 모두 고르시오.\\nJohn was born in London in 1990. He studied engineering at university and later moved to Seoul for work."},{"question_number":5,"sub_label":"a","question_style":"ox","question_type":"대명사","correct_answer":0,"correct_answer_text":"X (their)","grading_criteria":null,"explanation":"...","question_text":"다음 문장에서 어법상 틀린 것을 고르시오.\\nEach of the students raised their hand."},{"question_number":5,"sub_label":"b","question_style":"ox","question_type":"수의 일치","correct_answer":0,"correct_answer_text":"O","grading_criteria":null,"explanation":"...","question_text":"다음 문장의 어법이 올바른지 판단하시오.\\nThe committee has made its decision."}]`
+[{"question_number":1,"sub_label":null,"question_style":"objective","question_type":"가정법/조동사","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"...","question_text":"다음 글의 빈칸에 들어갈 말로 가장 적절한 것은?\\nThe researcher concluded that the results were inconclusive. ________ further investigation was needed before any definitive claims could be made about the phenomenon."},{"question_number":2,"sub_label":null,"question_style":"multi_select","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"1,3","grading_criteria":null,"explanation":"...","question_text":"윗글의 내용과 일치하는 것을 모두 고르시오.\\nJohn was born in London in 1990. He studied engineering at university and later moved to Seoul for work."},{"question_number":5,"sub_label":"a","question_style":"ox","question_type":"대명사","correct_answer":0,"correct_answer_text":"X (their)","grading_criteria":null,"explanation":"...","question_text":"다음 문장에서 어법상 틀린 것을 고르시오.\\nEach of the students raised their hand."},{"question_number":5,"sub_label":"b","question_style":"ox","question_type":"수의 일치","correct_answer":0,"correct_answer_text":"O","grading_criteria":null,"explanation":"...","question_text":"다음 문장의 어법이 올바른지 판단하시오.\\nThe committee has made its decision."},{"question_number":6,"sub_label":"a","question_style":"ox","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"F","grading_criteria":null,"explanation":"...","question_text":"Choose True or False (T/F) based on the content of the following text.\\nJohn moved to Seoul in 1990 to study engineering."}]`
 }
 
 export async function parseAnswerSheet(
@@ -227,7 +227,7 @@ const WEEK_PROBLEM_SHEET_PARSE_RULES = `이 PDF는 주차별 설정의 '중간·
 
 판단 규칙:
 - 1개 정답 객관식은 objective
-- O/X 판단은 ox
+- O/X 어법 판단, T/F 내용 참·거짓 판단은 ox (시험지 표기를 그대로 따른다)
 - 여러 개를 모두 고르는 형식은 multi_select
 - 서답형, 영작형, 빈칸 완성형 텍스트 답안은 subjective
 
@@ -347,6 +347,7 @@ ${answers.map((a, i) => `
 `).join('')}
 
 ## 출력 형식 (JSON 배열만 출력, 다른 텍스트 없이)
+위 학생 답안 [0]~[${answers.length - 1}] 의 모든 idx 를 각각 정확히 한 번씩 포함할 것 (누락·중복 금지):
 [
   {
     "idx": 위 답안의 [숫자],
@@ -441,6 +442,24 @@ export async function gradeSubjectiveAnswers(
         })
       }
     }
+  }
+
+  // 모델이 idx 를 빠뜨리면 해당 답안은 grade route 의 초기값(is_correct=false)이
+  // 아무 표시 없이 남는다 (운영에서 정답키와 동일한 답이 조용히 오답 처리된 실사례).
+  // 응답에 없는 답안을 needs_review 로 마킹해 검토 패널에 드러낸다.
+  const covered = new Set(allResults.map((r) => `${r.week_score_id}|${r.exam_question_id}`))
+  for (const a of answers) {
+    const key = `${a.week_score_id}|${a.exam_question_id}`
+    if (covered.has(key)) continue
+    covered.add(key)
+    console.error(`[gradeSubjectiveAnswers] 응답 누락 idx: ${a.question_number}${a.sub_label ?? ''} (${a.student_name})`)
+    allResults.push({
+      week_score_id: a.week_score_id,
+      exam_question_id: a.exam_question_id,
+      is_correct: false,
+      needs_review: true,
+      ai_feedback: 'AI 응답 누락 — 수동 확인 필요',
+    })
   }
 
   return allResults

@@ -9,6 +9,7 @@ import { GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { acceptedObjectiveAnswers, gradeObjective } from '@/lib/objective-grading'
+import { oxNotation } from '@/lib/ox-grading'
 import { ScoreToggleField } from './score-toggle-field'
 import { AnswerKey, CorrectChip, OXInput } from './question-inputs'
 import { SourceImagePreview } from './source-image-preview'
@@ -93,7 +94,7 @@ function TextAnswerCell({ q, answer, disabled, onChangeText }: {
   const correction = q.correct_answer_text?.split(':')[1]?.trim() ?? ''
   const isSymbolCorr = !!q.correct_answer_text && /^[a-z]:.+$/i.test(q.correct_answer_text.trim())
   const placeholder = isFindError
-    ? (correction ? `수정어 입력 (예: ${correction})` : '수정어 입력')
+    ? (q.correct_answer_text ? `기호:고친 표현 (예: ${q.correct_answer_text.trim()})` : '기호:고친 표현')
     : isSymbolCorr ? `수정어만 입력 (예: ${correction})` : '답안 입력'
   const hasAnswer = !!answer?.student_answer_text
 
@@ -130,7 +131,12 @@ function AnswerCell({ q, answer, disabled, onChangeAnswer, onChangeText }: {
     const savedText = answer?.student_answer_text?.trim() ?? ''
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <OXInput textValue={savedText} onChange={onChangeText} disabled={disabled} />
+        <OXInput
+          textValue={savedText}
+          onChange={onChangeText}
+          disabled={disabled}
+          notation={oxNotation(q.correct_answer_text)}
+        />
         {savedText && (
           <span className={cn('text-xs font-bold', answer?.is_correct ? 'text-green-500' : 'text-red-400')}>
             {answer?.is_correct ? '✓' : '✗'}

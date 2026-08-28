@@ -513,7 +513,12 @@ const EXAM_SAMPLE_QUESTIONS: ExamQuestion[] = [
   sampleExamQuestion({ id: 'q23', question_number: 23, correct_answer: 1, needs_source_image: true, source_image_reason: '도표' }),
   sampleExamQuestion({ id: 'q24', question_number: 24, correct_answer: 5 }),
   sampleExamQuestion({ id: 'q25', question_number: 25, question_style: 'ox', correct_answer_text: 'X → have' }),
+  // T/F 판단형 — 버튼·정답키가 O/X 가 아니라 시험지대로 T/F 로 나와야 한다
+  sampleExamQuestion({ id: 'q27a', question_number: 27, sub_label: 'a', question_style: 'ox', correct_answer_text: 'T' }),
+  sampleExamQuestion({ id: 'q27b', question_number: 27, sub_label: 'b', question_style: 'ox', correct_answer_text: 'F' }),
   sampleExamQuestion({ id: 'q26', question_number: 26, question_style: 'subjective', correct_answer_text: 'The author claims that ...' }),
+  // find_error — 채점 입력이 "기호:고친 표현" 정규형을 안내해야 한다
+  sampleExamQuestion({ id: 'q28', question_number: 28, question_style: 'find_error', correct_answer_text: '4:satisfied' }),
 ]
 
 function ExamSheetPreview() {

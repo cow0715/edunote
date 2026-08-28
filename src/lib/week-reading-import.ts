@@ -12,7 +12,9 @@ import type {
   TagCategory,
   WeekProblemSheetQuestion,
 } from '@/lib/anthropic'
-import { recalcReadingCorrect, gradeMultiSelect, gradeOX } from '@/lib/grade-utils'
+import { recalcReadingCorrect, gradeMultiSelect } from '@/lib/grade-utils'
+import { gradeOX } from '@/lib/ox-grading'
+import { gradeFindErrorRow, normalizeFindErrorKeyText } from '@/lib/find-error-grading'
 
 import { getPdfPageCount } from '@/lib/pdf'
 import { runParsePipeline, type PipelineFile, type SkippedRange } from '@/lib/llm/pipeline'
@@ -246,6 +248,20 @@ export async function fetchTeacherTagContext(
 /** 텍스트 답안을 받는 형식 — 서술형 카테고리 태그가 붙어야 하는 문항 */
 const SUBJECTIVE_QUESTION_STYLES = new Set(['subjective', 'find_error'])
 
+/** 문항 번호별 find_error 정답키 묶음 — 소문항 집합 매칭 재채점용 */
+function buildFindErrorKeyMap(
+  questions: { question_number: number; question_style: string; correct_answer_text: string | null }[],
+): Map<number, (string | null)[]> {
+  const map = new Map<number, (string | null)[]>()
+  for (const q of questions) {
+    if (q.question_style !== 'find_error') continue
+    const arr = map.get(q.question_number) ?? []
+    arr.push(q.correct_answer_text)
+    map.set(q.question_number, arr)
+  }
+  return map
+}
+
 /**
  * 서술형 카테고리 판별. 카테고리에 플래그 컬럼이 없어 이름으로 본다.
  * (시드 기본값이 '서술형 유형'. 강사가 카테고리명에서 '서술형'을 빼면 판별이 깨진다.)
@@ -291,10 +307,16 @@ export function normalizeParsedAnswers(parsedAnswers: ParsedAnswer[]): ParsedAns
       const questionNumber = coerceQuestionNumber(answer.question_number)
       if (!questionNumber) return null
 
+      // find_error 정답키는 "기호:수정어" 규격으로 정규화 (기호 표기·화살표 이탈 흡수)
+      const correctAnswerText = answer.question_style === 'find_error'
+        ? normalizeFindErrorKeyText(answer.correct_answer_text) ?? answer.correct_answer_text
+        : answer.correct_answer_text
+
       return {
         ...answer,
         question_number: questionNumber,
         correct_answer: coerceCorrectAnswer(answer.correct_answer),
+        correct_answer_text: correctAnswerText,
         sub_label: answer.sub_label ? String(answer.sub_label).trim() || null : null,
       }
     })
@@ -924,6 +946,7 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
     questions.map((question) => [`${question.question_number}__${question.sub_label ?? ''}`, question]),
   )
   const questionById = new Map(questions.map((question) => [question.id, question]))
+  const findErrorKeysByNumber = buildFindErrorKeyMap([...questionById.values()])
 
   const subjectiveForGrading: SubjectiveStudentAnswer[] = []
 
@@ -973,11 +996,22 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
           }
 
           if (question.question_style === 'find_error' && answer.student_answer_text?.trim()) {
-            await supabase.from('student_answer').update({
-              is_correct: false,
-              needs_review: true,
-              ai_feedback: '채점 페이지에서 다시 검토해 주세요.',
-            }).eq('id', answer.id)
+            // 기호+표현이 정답과 일치하거나 기호가 아예 다르면 코드로 확정, 애매한 것만 검토 표시
+            const keys = findErrorKeysByNumber.get(question.question_number) ?? [question.correct_answer_text]
+            const verdict = gradeFindErrorRow(keys, answer.student_answer_text)
+            if (verdict === 'ai') {
+              await supabase.from('student_answer').update({
+                is_correct: false,
+                needs_review: true,
+                ai_feedback: '채점 페이지에서 다시 검토해 주세요.',
+              }).eq('id', answer.id)
+            } else if ((verdict === 'correct') !== answer.is_correct) {
+              await supabase.from('student_answer').update({
+                is_correct: verdict === 'correct',
+                needs_review: false,
+                ai_feedback: null,
+              }).eq('id', answer.id)
+            }
             return
           }
 
@@ -1152,6 +1186,7 @@ export async function applyWeekReadingAnswerKeyAndRegrade(params: {
     updatedRows.map((question) => [`${question.question_number}__${question.sub_label ?? ''}`, question]),
   )
   const questionById = new Map(updatedRows.map((question) => [question.id, question]))
+  const findErrorKeysByNumber = buildFindErrorKeyMap([...questionById.values()])
 
   const subjectiveForGrading: SubjectiveStudentAnswer[] = []
 
@@ -1201,11 +1236,22 @@ export async function applyWeekReadingAnswerKeyAndRegrade(params: {
           }
 
           if (question.question_style === 'find_error' && answer.student_answer_text?.trim()) {
-            await supabase.from('student_answer').update({
-              is_correct: false,
-              needs_review: true,
-              ai_feedback: '채점 페이지에서 다시 검토해 주세요.',
-            }).eq('id', answer.id)
+            // 기호+표현이 정답과 일치하거나 기호가 아예 다르면 코드로 확정, 애매한 것만 검토 표시
+            const keys = findErrorKeysByNumber.get(question.question_number) ?? [question.correct_answer_text]
+            const verdict = gradeFindErrorRow(keys, answer.student_answer_text)
+            if (verdict === 'ai') {
+              await supabase.from('student_answer').update({
+                is_correct: false,
+                needs_review: true,
+                ai_feedback: '채점 페이지에서 다시 검토해 주세요.',
+              }).eq('id', answer.id)
+            } else if ((verdict === 'correct') !== answer.is_correct) {
+              await supabase.from('student_answer').update({
+                is_correct: verdict === 'correct',
+                needs_review: false,
+                ai_feedback: null,
+              }).eq('id', answer.id)
+            }
             return
           }
 

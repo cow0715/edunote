@@ -1,6 +1,8 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import type { SupabaseServerClient } from '@/lib/api'
-import { recalcReadingCorrect, gradeOX, gradeMultiSelect } from '@/lib/grade-utils'
+import { recalcReadingCorrect, gradeMultiSelect } from '@/lib/grade-utils'
+import { gradeOX } from '@/lib/ox-grading'
+import { gradeFindErrorRow } from '@/lib/find-error-grading'
 
 // 비객관식 문항 재채점 (OX/multi_select는 코드로 즉시, subjective/find_error는 needs_review 플래그)
 // - is_void/all_correct 고정 상태는 건너뜀 (해제 시에만 호출됨)
@@ -61,6 +63,17 @@ async function regradeQuestion(
   if (style === 'subjective' || style === 'find_error') {
     // 서술형/오류교정은 AI 자동 호출 비용/대기시간 문제로 즉시 재채점하지 않음
     // → needs_review 플래그로 표시 → 교사가 채점 페이지에서 "채점 저장"을 눌러 AI 재채점
+    // 단 find_error 는 기호+표현 비교로 확정 가능한 정오는 코드가 즉시 반영한다.
+    const findErrorKeys = style === 'find_error'
+      ? await supabase
+          .from('exam_question')
+          .select('correct_answer_text')
+          .eq('week_id', q.week_id)
+          .eq('question_number', q.question_number)
+          .eq('question_style', 'find_error')
+          .then(({ data }) => (data ?? []).map((row) => row.correct_answer_text))
+      : null
+
     const { data: answers } = await supabase
       .from('student_answer')
       .select('id, week_score_id, student_answer_text, teacher_confirmed')
@@ -70,6 +83,16 @@ async function regradeQuestion(
         .filter((a) => !a.teacher_confirmed && a.student_answer_text?.trim())
         .map((a) => {
           regradeScoreIds.add(a.week_score_id)
+          if (findErrorKeys) {
+            const verdict = gradeFindErrorRow(findErrorKeys, a.student_answer_text)
+            if (verdict !== 'ai') {
+              return supabase.from('student_answer').update({
+                is_correct: verdict === 'correct',
+                needs_review: false,
+                ai_feedback: null,
+              }).eq('id', a.id)
+            }
+          }
           return supabase.from('student_answer').update({
             needs_review: true,
             ai_feedback: '모범답안/기준 변경 — 채점 페이지에서 다시 저장해주세요',

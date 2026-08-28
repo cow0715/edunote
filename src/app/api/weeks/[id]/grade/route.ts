@@ -1,6 +1,8 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeSubjectiveAnswers, SubjectiveStudentAnswer } from '@/lib/anthropic'
-import { recalcReadingCorrect, gradeOX, gradeMultiSelect } from '@/lib/grade-utils'
+import { recalcReadingCorrect, gradeMultiSelect } from '@/lib/grade-utils'
+import { gradeOX, parseOXStudentInput } from '@/lib/ox-grading'
+import { assignFindErrorAnswers, type FindErrorAssignment } from '@/lib/find-error-grading'
 import { gradeObjective } from '@/lib/objective-grading'
 import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
 
@@ -225,6 +227,26 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     processedScoreIds.push(score.id)
 
     if (row.answers.length > 0) {
+      // find_error: 같은 문항의 소문항들을 모아 순서 무관 집합 매칭으로 코드 선채점.
+      // 확정 정오는 여기서 끝나고, 의미 비교가 필요한 답('ai')만 AI 배치로 넘어간다.
+      const findErrorVerdicts = new Map<string, FindErrorAssignment>()
+      {
+        const byQuestion = new Map<number, { id: string; text: string }[]>()
+        for (const a of row.answers) {
+          const q = questionMap.get(a.exam_question_id)
+          if (q?.question_style !== 'find_error' || a.teacher_confirmed) continue
+          const arr = byQuestion.get(q.question_number) ?? []
+          arr.push({ id: a.exam_question_id, text: a.student_answer_text ?? '' })
+          byQuestion.set(q.question_number, arr)
+        }
+        for (const items of byQuestion.values()) {
+          const keyRows = items.map(({ id }) => ({ id, correctAnswerText: questionMap.get(id)?.correct_answer_text ?? null }))
+          for (const assignment of assignFindErrorAnswers(keyRows, items.map((i) => i.text))) {
+            findErrorVerdicts.set(assignment.id, assignment)
+          }
+        }
+      }
+
       const answersToUpsert = row.answers.map((a) => {
         const q = questionMap.get(a.exam_question_id)
         const style = q?.question_style ?? 'objective'
@@ -245,13 +267,8 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         }
 
         if (style === 'ox') {
-          // UI 포맷("O", "X 수정어") → ox_selection + student_answer_text(수정어만) 분리
-          const raw = (a.student_answer_text ?? '').trim()
-          const upper = raw.toUpperCase()
-          const oxSelection = upper === 'O' ? 'O' : raw !== '' ? 'X' : null
-          const correction = upper.startsWith('X ') ? raw.slice(2).trim() || null
-            : (upper === 'O' || upper === 'X' || raw === '') ? null
-            : raw || null  // 구형 포맷(수정어만 저장된 경우) 그대로
+          // UI 포맷("O"/"X 수정어"/"T"/"F") → ox_selection + student_answer_text(수정어만) 분리
+          const { oxSelection, correction } = parseOXStudentInput(a.student_answer_text)
           const is_correct = q?.correct_answer_text ? gradeOX(q.correct_answer_text, oxSelection, correction ?? '') : false
           return {
             week_score_id: score.id,
@@ -275,6 +292,28 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         if (style === 'objective') {
           // 복수정답(extra_correct_answers)·전원정답(all_correct)은 문항 편집 API 의 재채점과 같은 규칙
           is_correct = q ? (gradeObjective(q, a.student_answer) ?? false) : false
+        } else if (style === 'find_error') {
+          const assignment = findErrorVerdicts.get(a.exam_question_id)
+          if (assignment?.verdict === 'ai' && skipAI) {
+            // draft 저장: AI 미확정 답은 기존 채점 결과 보존
+            is_correct = a.is_correct ?? false
+            needs_review = a.needs_review ?? false
+            ai_feedback = a.ai_feedback ?? null
+          } else {
+            is_correct = assignment?.verdict === 'correct'
+          }
+          // 집합 매칭이 답을 제 정답 행으로 재배열했을 수 있다 → 배정된 텍스트로 저장
+          return {
+            week_score_id: score.id,
+            exam_question_id: a.exam_question_id,
+            student_answer: null,
+            student_answer_text: assignment?.text || null,
+            ox_selection: null,
+            is_correct,
+            needs_review,
+            teacher_confirmed: false,
+            ai_feedback,
+          }
         } else if (style === 'multi_select') {
           is_correct = q?.correct_answer_text ? gradeMultiSelect(q.correct_answer_text, a.student_answer_text ?? '') : false
         } else if (isSubjective && skipAI) {
@@ -308,19 +347,23 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         return err(answerError.message, 500)
       }
 
-      // subjective/find_error 채점용 수집 — 모두 AI 배치 채점
+      // AI 배치 채점 수집 — subjective 전부 + find_error 중 코드가 확정 못한 것('ai')만
       for (const a of row.answers) {
         if (a.teacher_confirmed) continue  // 선생님 확정 답안은 재채점 스킵
         const q = questionMap.get(a.exam_question_id)
         if (q?.question_style !== 'subjective' && q?.question_style !== 'find_error') continue
-        if (!(a.student_answer_text ?? '').trim()) continue
+        // find_error: 코드가 정오를 확정한 답은 AI 로 보내지 않는다. 텍스트도 배정된 것 사용.
+        const assignment = q.question_style === 'find_error' ? findErrorVerdicts.get(a.exam_question_id) : undefined
+        if (q.question_style === 'find_error' && assignment?.verdict !== 'ai') continue
+        const textForGrading = (assignment?.text ?? a.student_answer_text ?? '').trim()
+        if (!textForGrading) continue
         subjectiveForGrading.push({
           week_score_id: score.id,
           exam_question_id: a.exam_question_id,
           question_number: q.question_number,
           sub_label: q.sub_label ?? null,
           student_name: row.student_name,
-          student_answer_text: a.student_answer_text?.trim() ?? '',
+          student_answer_text: textForGrading,
         })
       }
     }

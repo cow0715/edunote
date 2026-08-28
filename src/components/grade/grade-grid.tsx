@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useGradeData, useSaveGrade, useSaveGradeDraft, useSaveWeekScore, GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
+import { formatOXStudentInput, oxNotation } from '@/lib/ox-grading'
 import { cn } from '@/lib/utils'
 import { VocabSheetContent, VocabAnswerRow } from './vocab-sheet-content'
 import { ExamSheetContent } from './exam-sheet-content'
@@ -109,8 +110,9 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
             const saved = score?.student_answer?.find((a) => a.exam_question_id === q.id)
             let answerText = ''
             if (q.question_style === 'ox' && saved) {
-              if (saved.ox_selection === 'O') answerText = 'O'
-              else if (saved.ox_selection === 'X') answerText = saved.student_answer_text ? `X ${saved.student_answer_text}` : 'X'
+              answerText = formatOXStudentInput(
+                saved.ox_selection, saved.student_answer_text, oxNotation(q.correct_answer_text),
+              )
             } else {
               answerText = saved?.student_answer_text ?? ''
             }
