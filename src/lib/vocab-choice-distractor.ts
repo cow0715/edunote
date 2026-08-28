@@ -49,7 +49,9 @@ export function normalizePos(value: string | null | undefined) {
  * 선택형 [ 정답 / 오답 ] 의 오답 후보 — AI 없이 같은 단어장에서 고른다.
  * 반의어일 필요는 없다. "비슷하게 생겼지만 다른 단어" 를 우선한다:
  *   같은 품사(문장에 넣어도 문법이 안 깨지게) > 첫 글자·길이·앞부분이 비슷 > 나머지.
- * 정답의 유의어·파생어·반의어·자기 자신은 제외 (유의어면 둘 다 정답이 되고, 반의어는 뜻으로 바로 갈리므로).
+ * 정답의 유의어·반의어·자기 자신은 제외 (유의어면 둘 다 정답이 되고, 반의어는 뜻으로 바로 갈리므로).
+ * 파생어는 제외하지 않는다 — 같은 어근의 다른 형태(impressive/impress)는 실제 시험에 흔한
+ * "어형 변화형" 오답이고, 문장에 넣으면 문법이 깨져 어형을 아는 학생만 걸러낼 수 있다.
  * 후보가 없을 때만 antonyms 필드 → null 순으로 폴백.
  */
 export function choiceDistractor(word: VocabEntry, fallbackWords: VocabEntry[] = []): string | null {
@@ -57,8 +59,13 @@ export function choiceDistractor(word: VocabEntry, fallbackWords: VocabEntry[] =
   const related = new Set([
     ...(word.synonyms ?? []), ...(word.antonyms ?? []),
     ...(word.variants ?? []).map((v) => v.word),
-    ...(word.derivatives ?? '').split(/[,/]+/),
   ].map((s) => normalizePromptCandidate(s).toLocaleLowerCase('en-US')).filter(Boolean))
+
+  // 파생어 = 어형 변화형(B) 오답 후보. 예문에 이미 있으면 답이 드러나므로 그때만 뺀다.
+  const derivatives = (word.derivatives ?? '')
+    .split(/[,/]+/)
+    .map((s) => normalizePromptCandidate(s))
+    .filter((s) => s && s.toLocaleLowerCase('en-US') !== self)
   const sentence = (word.example_sentence ?? '').toLocaleLowerCase('en-US')
   const pos = normalizePos(word.part_of_speech)
 
@@ -91,11 +98,20 @@ export function choiceDistractor(word: VocabEntry, fallbackWords: VocabEntry[] =
     })
     .sort((a, b) => b.score - a.score)
 
+  // 어형 변화형(B): 예문에 없는 파생어. 단어별 고정 해시로 일부만 B 를 쓴다 —
+  // 전부 B 로 가면 문맥을 안 봐도 어형만으로 풀려 예문 선택형의 취지가 죽는다.
+  const usableDerivatives = derivatives.filter((d) => !sentence.includes(d.toLocaleLowerCase('en-US')))
+  if (usableDerivatives.length > 0 && stableUnit(`deriv|${self}`) < 0.35) {
+    return usableDerivatives[Math.floor(stableUnit(self) * usableDerivatives.length)]
+  }
+
   if (candidates.length > 0) {
     // 상위 3개 중 하나 (단어별로 고정) — 매번 1등만 뽑히면 오답이 몇 개로 몰린다
     const top = candidates.slice(0, 3)
     return top[Math.floor(stableUnit(self) * top.length)].w
   }
+  // 의미 대립형 후보가 없으면 파생어라도 쓴다 (아예 못 내는 것보단 낫다)
+  if (usableDerivatives.length > 0) return usableDerivatives[0]
   const antonym = (word.antonyms ?? []).map((a) => normalizePromptCandidate(a)).find(Boolean)
   return antonym ?? null
 }

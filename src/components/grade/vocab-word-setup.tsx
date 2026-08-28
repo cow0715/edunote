@@ -144,6 +144,9 @@ function promptLabel(source: VocabTestPromptSource | null | undefined) {
   if (source === 'derivative') return '파생어'
   if (source === 'example_meaning') return '예문뜻'
   if (source === 'example') return '예문빈칸'
+  // example_choice 가 빠져 있어 선택형 문항이 '원본'으로 표시되던 버그가 있었다.
+  // 새 유형을 추가할 때 여기를 빠뜨리면 조용히 '원본'으로 보이므로 ratioSourceLabel 과 같은 목록을 쓴다.
+  if (source === 'example_choice') return '예문선택'
   return '원본'
 }
 
