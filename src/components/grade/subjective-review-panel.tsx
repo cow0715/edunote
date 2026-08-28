@@ -39,17 +39,27 @@ export function SubjectiveReviewPanel({
     (q) => q.question_style === 'subjective' || q.question_style === 'find_error'
   )
 
+  const subjectiveIds = new Set(subjectiveQuestions.map((q) => q.id))
+  const needsReviewTotal = rows.reduce(
+    (n, r) => n + r.answers.filter((a) => a.needs_review && subjectiveIds.has(a.exam_question_id)).length, 0,
+  )
+  // 검토 대기 건이 있으면 그것만 모아 보여주는 게 기본 — 전체는 칩으로 전환
+  const [filterChoice, setFilterChoice] = useState<'review' | 'all' | null>(null)
+  const onlyReview = (filterChoice ?? (needsReviewTotal > 0 ? 'review' : 'all')) === 'review'
+
   function getKey(studentId: string, questionId: string) {
     return `${studentId}_${questionId}`
   }
 
-  function toggle(studentId: string, questionId: string, currentIsCorrect: boolean | undefined) {
+  // 정답/오답을 명시적으로 지정한다. 예전 토글(첫 클릭 = 무조건 정답)은
+  // ⚠️ 를 치우다 OCR 깨진 답까지 전부 정답 확정되는 사고가 있어 버튼을 분리했다.
+  function setVerdict(studentId: string, questionId: string, isCorrect: boolean) {
     const key = getKey(studentId, questionId)
     setOverrides((prev) => {
       const next = new Map(prev)
-      // ⚠️ 또는 미확정: 첫 클릭 → 정답, 재클릭 → 오답 반복
-      const newIsCorrect = currentIsCorrect === true ? false : true
-      next.set(key, { student_id: studentId, exam_question_id: questionId, is_correct: newIsCorrect })
+      const existing = next.get(key)
+      if (existing && existing.is_correct === isCorrect) next.delete(key) // 같은 버튼 재클릭 → 지정 해제
+      else next.set(key, { student_id: studentId, exam_question_id: questionId, is_correct: isCorrect })
       return next
     })
   }
@@ -81,6 +91,35 @@ export function SubjectiveReviewPanel({
 
   return (
     <div className="space-y-5">
+      {/* 헤더: 검토 대기 배지 + 필터 칩 */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-gray-800">서술형 검토</span>
+          {needsReviewTotal > 0 && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
+              검토 대기 {needsReviewTotal}건
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {([['review', `검토 필요${needsReviewTotal > 0 ? ` ${needsReviewTotal}` : ''}`], ['all', '전체']] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setFilterChoice(value)}
+              className={cn(
+                'rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                (onlyReview ? 'review' : 'all') === value
+                  ? 'bg-gray-900 text-white'
+                  : 'text-gray-500 hover:bg-gray-100'
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {subjectiveQuestions.map((q) => {
         const studentRows = rows
           .filter((r) => r.present && r.reading_present)
@@ -90,7 +129,8 @@ export function SubjectiveReviewPanel({
             const override = overrides.get(key)
             const isOverridden = !!override
             const isCorrect = isOverridden ? override.is_correct : answer?.is_correct
-            const needsReview = isOverridden ? false : (answer?.needs_review ?? false)
+            const originalNeedsReview = answer?.needs_review ?? false
+            const needsReview = isOverridden ? false : originalNeedsReview
             return {
               student_id: r.student_id,
               student_name: r.student_name,
@@ -101,11 +141,16 @@ export function SubjectiveReviewPanel({
               teacher_confirmed: isOverridden || (answer?.teacher_confirmed ?? false),
               ai_feedback: answer?.ai_feedback ?? '',
               isOverridden,
+              originalNeedsReview,
             }
           })
+          // "검토 필요만" 필터 — 저장 전 원본 needs_review 기준이라 판정을 내려도 목록에 남는다
+          .filter((sr) => !onlyReview || sr.originalNeedsReview)
           .sort((a, b) => sortPriority(a) - sortPriority(b))
 
         const qLabel = `${q.question_number}번${q.sub_label ? ` (${q.sub_label})` : ''}`
+
+        if (studentRows.length === 0) return null
 
         return (
           <div key={q.id} className="rounded-lg border overflow-hidden">
@@ -154,32 +199,42 @@ export function SubjectiveReviewPanel({
                     <td className="px-4 py-2.5 text-center">
                       {!sr.answered ? (
                         <span className="text-gray-300 text-xs">—</span>
-                      ) : sr.is_correct === undefined ? (
-                        <span className="text-xs text-gray-300">미채점</span>
                       ) : (
-                        <button
-                          type="button"
-                          title="클릭해서 정답/오답 전환"
-                          onClick={() => toggle(sr.student_id, q.id, sr.is_correct)}
-                          className={cn(
-                            'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors',
-                            sr.isOverridden
-                              ? sr.is_correct
-                                ? 'bg-green-600 text-white hover:bg-green-700'
-                                : 'bg-red-500 text-white hover:bg-red-600'
-                              : sr.needs_review
-                                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                                : sr.is_correct
-                                  ? 'bg-green-50 text-green-700 hover:bg-green-100'
-                                  : 'bg-red-50 text-red-500 hover:bg-red-100'
+                        <div className="inline-flex items-center gap-1.5">
+                          {sr.needs_review && !sr.isOverridden && (
+                            <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700">⚠️ 검토</span>
                           )}
-                        >
-                          {sr.needs_review && !sr.isOverridden
-                            ? '⚠️ 검토'
-                            : sr.is_correct
-                              ? '✓ 정답'
-                              : '✗ 오답'}
-                        </button>
+                          <button
+                            type="button"
+                            title="정답으로 확정"
+                            onClick={() => setVerdict(sr.student_id, q.id, true)}
+                            className={cn(
+                              'rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                              sr.isOverridden && sr.is_correct
+                                ? 'bg-green-600 text-white hover:bg-green-700'
+                                : !sr.isOverridden && !sr.needs_review && sr.is_correct === true
+                                  ? 'bg-green-50 text-green-700 hover:bg-green-100'
+                                  : 'bg-gray-50 text-gray-400 hover:bg-green-50 hover:text-green-600'
+                            )}
+                          >
+                            ✓ 정답
+                          </button>
+                          <button
+                            type="button"
+                            title="오답으로 확정"
+                            onClick={() => setVerdict(sr.student_id, q.id, false)}
+                            className={cn(
+                              'rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                              sr.isOverridden && !sr.is_correct
+                                ? 'bg-red-500 text-white hover:bg-red-600'
+                                : !sr.isOverridden && !sr.needs_review && sr.is_correct === false
+                                  ? 'bg-red-50 text-red-500 hover:bg-red-100'
+                                  : 'bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-500'
+                            )}
+                          >
+                            ✗ 오답
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>

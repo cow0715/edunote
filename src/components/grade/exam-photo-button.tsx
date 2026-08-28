@@ -12,9 +12,8 @@ export type ExamOcrResult = {
   student_answer_text?: string
 }
 
-export function ExamPhotoButton({ weekId, side, disabled, onResult }: {
+export function ExamPhotoButton({ weekId, disabled, onResult }: {
   weekId: string
-  side: 'front' | 'back'
   disabled: boolean
   onResult: (results: ExamOcrResult[]) => void
 }) {
@@ -68,7 +67,7 @@ export function ExamPhotoButton({ weekId, side, disabled, onResult }: {
         )}
       >
         {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
-        {loading ? 'OCR 중...' : `${side === 'front' ? '앞면' : '뒷면'} 촬영`}
+        {loading ? 'OCR 중...' : '답안지 촬영'}
       </button>
       {error && <span className="text-xs text-red-400">{error}</span>}
     </>

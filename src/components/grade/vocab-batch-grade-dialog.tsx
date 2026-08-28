@@ -2,7 +2,7 @@
 
 // 일괄 사진 채점 — 학생 수만큼 사진을 한 번에 넣고, 이름 자동 매칭을 확인한 뒤, 병렬로 채점한다.
 //
-// 흐름:  파일 드롭/선택 → (이름란 판독, 동시 3) → 매칭 표에서 확인·수정 → 채점 시작 (동시 3) → 진행/결과
+// 흐름:  파일 드롭/선택 → (이름란 판독, 병렬) → 매칭 표에서 확인·수정 → 채점 시작 (병렬) → 진행/결과
 // 설계 메모:
 // - 채점은 학생당 별도 요청. Vercel Hobby 60초 제한(요청당)을 피하고, 하나 실패해도 나머지는 계속.
 // - 이름 매칭은 잘못 매칭보다 미매칭이 낫다 — 자동 매칭은 확신도와 함께 보여주고 반드시 강사가 확인.
@@ -37,7 +37,9 @@ type Item = {
   result?: { vocab_correct: number; vocab_total: number }
 }
 
-const CONCURRENCY = 3
+// 반 정원이 15명 이하라 전 학생 동시 실행 — 학생당 별도 서버 요청이라 서로 안 막힌다.
+// LLM 요청 한도에 걸려 개별 실패하면 항목별 오류 + 재시도 버튼으로 복구.
+const CONCURRENCY = 15
 
 /** 동시 실행 수를 제한하며 순서대로 작업을 돌린다 */
 async function runPool<T>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>) {
@@ -104,7 +106,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
     setItems((prev) => [...prev, ...fresh])
     setPhase('matching')
 
-    // base64 인코딩 + 이름 판독 (동시 3)
+    // base64 인코딩 + 이름 판독 (병렬)
     await runPool(fresh, CONCURRENCY, async (it) => {
       patch(it.id, { status: 'reading' })
       await runOrReport(async () => {

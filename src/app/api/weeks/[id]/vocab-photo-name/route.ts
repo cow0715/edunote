@@ -39,12 +39,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   try {
     const result = await readVocabSheetName(fileData, mimeType, candidates.map((c) => c.name))
-    const matched = result.name ? candidates.find((c) => c.name === result.name) : null
+    const sameName = result.name ? candidates.filter((c) => c.name === result.name) : []
+    // 동명이인이면 자동 매칭이 틀릴 수 있다 — 미매칭으로 돌려 강사가 직접 고르게 한다
+    const matched = sameName.length === 1 ? sameName[0] : null
     return ok({
       studentId: matched?.studentId ?? null,
       name: result.name,
       rawName: result.rawName,
       confidence: matched ? result.confidence : 'none',
+      duplicate: sameName.length > 1,
     })
   } catch (e) {
     console.error('[vocab-photo-name] 이름 판독 실패', e)

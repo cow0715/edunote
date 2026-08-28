@@ -256,13 +256,6 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, updateR
           />
           <ExamPhotoButton
             weekId={weekId}
-            side="front"
-            disabled={!row.present}
-            onResult={applyOcrResults}
-          />
-          <ExamPhotoButton
-            weekId={weekId}
-            side="back"
             disabled={!row.present}
             onResult={applyOcrResults}
           />

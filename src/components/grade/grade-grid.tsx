@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, ChevronLeft, ChevronRight, Images, X } from 'lucide-react'
+import { Camera, CheckCircle2, ChevronLeft, ChevronRight, Images, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useGradeData, useSaveGrade, useSaveGradeDraft, useSaveWeekScore, GradeRow } from '@/hooks/use-grade'
@@ -13,6 +13,8 @@ import { VocabSheetContent, VocabAnswerRow } from './vocab-sheet-content'
 import { ExamSheetContent } from './exam-sheet-content'
 import { SubjectiveReviewPanel } from './subjective-review-panel'
 import { VocabBatchGradeDialog } from './vocab-batch-grade-dialog'
+import { ExamBatchGradeDialog } from './exam-batch-grade-dialog'
+import type { ExamOcrResult } from './exam-photo-button'
 
 // 빈 배열 상수 — 매 렌더마다 새 참조 생성 방지 (useEffect 의존성 안정화)
 const EMPTY_VOCAB: VocabAnswerRow[] = []
@@ -38,6 +40,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
   const [sheetView, setSheetView] = useState<{ type: 'vocab' | 'exam'; studentIndex: number } | null>(null)
   const [showReviewPanel, setShowReviewPanel] = useState(false)
   const [batchOpen, setBatchOpen] = useState(false)
+  const [examBatchOpen, setExamBatchOpen] = useState(false)
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -212,6 +215,41 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     )
   }, [])
 
+  const rowsRef = useRef<GradeRow[]>([])
+  useEffect(() => { rowsRef.current = rows }, [rows])
+
+  /** 일괄 판독 결과를 해당 학생 행에 채우고 임시저장. 반영된 문항 수를 돌려준다. */
+  const applyExamOcr = useCallback((studentId: string, results: ExamOcrResult[]) => {
+    const questionByKey = new Map<string, ExamQuestion>(
+      (data?.questions ?? []).map((q: ExamQuestion) => [`${q.question_number}__${q.sub_label ?? ''}`, q] as const),
+    )
+    let applied = 0
+    const merged = rowsRef.current.map((r) => {
+      if (r.student_id !== studentId) return r
+      const answers = r.answers.map((a) => ({ ...a }))
+      const byQid = new Map(answers.map((a) => [a.exam_question_id, a]))
+      for (const res of results) {
+        const q = questionByKey.get(`${res.question_number}__${res.sub_label ?? ''}`)
+        const a = q ? byQid.get(q.id) : undefined
+        if (!a) continue
+        if (res.student_answer !== undefined) {
+          a.student_answer = res.student_answer
+          applied += 1
+        } else if (res.student_answer_text !== undefined) {
+          a.student_answer_text = res.student_answer_text
+          a.teacher_confirmed = false
+          applied += 1
+        }
+      }
+      return { ...r, answers }
+    })
+    rowsRef.current = merged
+    setRows(merged)
+    const target = merged.find((r) => r.student_id === studentId)
+    if (target) saveDraft.mutate([target])
+    return applied
+  }, [data?.questions, saveDraft])
+
   const sheetRow = sheetView !== null ? rows[sheetView.studentIndex] ?? null : null
 
   useEffect(() => {
@@ -270,9 +308,20 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
         </p>
       )}
 
-      {/* 단어 일괄 채점 */}
-      {showVocab && (
-        <div className="flex items-center justify-end">
+      {/* 일괄 사진 처리 */}
+      {(showVocab || questions.length > 0) && (
+        <div className="flex items-center justify-end gap-2">
+          {questions.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setExamBatchOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-1.5 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-100"
+            >
+              <Camera className="h-3.5 w-3.5" />
+              답안지 일괄 판독
+            </button>
+          )}
+          {showVocab && (
           <button
             type="button"
             onClick={() => setBatchOpen(true)}
@@ -281,6 +330,20 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
             <Images className="h-3.5 w-3.5" />
             단어 시험지 일괄 채점
           </button>
+          )}
+          <ExamBatchGradeDialog
+            open={examBatchOpen}
+            onOpenChange={setExamBatchOpen}
+            weekId={weekId}
+            questionCount={activeQuestions.length}
+            students={rows.map((r) => ({
+              student_id: r.student_id,
+              student_name: r.student_name,
+              present: r.present,
+              hasExisting: r.answers.some((a) => a.student_answer !== null || !!a.student_answer_text),
+            }))}
+            onApplied={applyExamOcr}
+          />
           <VocabBatchGradeDialog
             open={batchOpen}
             onOpenChange={setBatchOpen}
