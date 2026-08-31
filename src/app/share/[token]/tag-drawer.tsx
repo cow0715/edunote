@@ -5,6 +5,7 @@
 
 import { X } from 'lucide-react'
 import { StudentAnswer } from './share-types'
+import { groupAnswersByQuestion } from './share-utils'
 import { WrongAnswerCard } from './wrong-answer-card'
 
 export type DrawerTag = { id: string; name: string; weekId?: string | null }
@@ -62,12 +63,12 @@ export function TagDrawer({
             <p className="py-10 text-center text-sm text-gray-400">오답 데이터가 없습니다</p>
           ) : (
             <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
-              {answers.map((a) => (
+              {groupAnswersByQuestion(answers).map((group) => (
                 <WrongAnswerCard
-                  key={a.id}
-                  answer={a}
+                  key={group[0].id}
+                  answers={group}
                   token={token}
-                  weekLabel={weekLabelByWeekId.get(a.exam_question?.week_id ?? '') ?? undefined}
+                  weekLabel={weekLabelByWeekId.get(group[0].exam_question?.week_id ?? '') ?? undefined}
                 />
               ))}
             </div>

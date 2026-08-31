@@ -206,7 +206,7 @@ describe('RetakeActionRow', () => {
 // ── 독해 오답 카드: 해설/첨삭 분기 (개발 DB 에 해설이 없어 미실행이던 경로) ──
 describe('WrongAnswerCard', () => {
   it('문항번호 · 유형 · 내 답 · 정답을 보여준다', () => {
-    render(<WrongAnswerCard answer={makeStudentAnswer()} token="tok" />)
+    render(<WrongAnswerCard answers={[makeStudentAnswer()]} token="tok" />)
     expect(screen.getByText(/18번/)).toBeTruthy()
     expect(screen.getByText('글의 목적 파악')).toBeTruthy()
     expect(screen.getByText('③')).toBeTruthy()
@@ -215,7 +215,7 @@ describe('WrongAnswerCard', () => {
 
   it('해설과 첨삭이 있으면 라벨을 붙여 보여준다', () => {
     render(<WrongAnswerCard
-      answer={makeStudentAnswer({ explanation: '글의 마지막 문단이 요청을 담고 있다.' }, { ai_feedback: '지문 전체 흐름을 먼저 잡아보세요.' })}
+      answers={[makeStudentAnswer({ explanation: '글의 마지막 문단이 요청을 담고 있다.' }, { ai_feedback: '지문 전체 흐름을 먼저 잡아보세요.' })]}
       token="tok"
     />)
     expect(screen.getByText('해설')).toBeTruthy()
@@ -225,17 +225,17 @@ describe('WrongAnswerCard', () => {
   })
 
   it('해설·첨삭이 없으면 빈 라벨을 그리지 않는다', () => {
-    render(<WrongAnswerCard answer={makeStudentAnswer()} token="tok" />)
+    render(<WrongAnswerCard answers={[makeStudentAnswer()]} token="tok" />)
     expect(screen.queryByText('해설')).toBeNull()
     expect(screen.queryByText('첨삭')).toBeNull()
   })
 
   it('서술형은 학생이 쓴 문장을 그대로 보여준다', () => {
     render(<WrongAnswerCard
-      answer={makeStudentAnswer(
+      answers={[makeStudentAnswer(
         { question_style: 'subjective', correct_answer: null, correct_answer_text: 'to request a refund' },
         { student_answer: null, student_answer_text: 'to complain' },
-      )}
+      )]}
       token="tok"
     />)
     expect(screen.getByText('to complain')).toBeTruthy()
@@ -243,7 +243,7 @@ describe('WrongAnswerCard', () => {
   })
 
   it('주차 라벨을 넘기면 문항번호 앞에 붙인다 (분석 탭 드로어용)', () => {
-    render(<WrongAnswerCard answer={makeStudentAnswer()} token="tok" weekLabel="9주차" />)
+    render(<WrongAnswerCard answers={[makeStudentAnswer()]} token="tok" weekLabel="9주차" />)
     expect(screen.getByText('9주차')).toBeTruthy()
   })
 })
@@ -338,5 +338,87 @@ describe('WrongNoteTab', () => {
   it('접힌 주차의 문항은 그리지 않는다', () => {
     renderTab({ expandedReadingWeekIds: new Set() })
     expect(screen.queryByText('글의 목적 파악')).toBeNull()
+  })
+})
+
+// ── 소문항 묶음 ─────────────────────────────────────────────────────────────
+//
+// 내신은 한 지문에 소문항이 여러 개 달린다 (운영에 요약문 빈칸 7개짜리가 있다).
+// 소문항마다 카드를 그리면 같은 지문이 7번 반복되므로 묶어서 그린다.
+describe('WrongAnswerCard — 소문항 묶음', () => {
+  const sub = (label: string, over: Partial<StudentAnswer['exam_question']> = {}, top: Partial<StudentAnswer> = {}) =>
+    makeStudentAnswer(
+      { sub_label: label, question_number: 8, question_text: '다음 글을 아래와 같이 요약할 때…', ...over },
+      { id: `a-${label}`, ...top },
+    )
+
+  it('지문을 한 번만 그린다', () => {
+    render(<WrongAnswerCard answers={[sub('a'), sub('b')]} token="tok" />)
+    expect(screen.getAllByText(/다음 글을 아래와 같이 요약할 때/)).toHaveLength(1)
+  })
+
+  it('소문항이 여러 개면 개수를 알려준다', () => {
+    render(<WrongAnswerCard answers={[sub('a'), sub('b'), sub('c')]} token="tok" />)
+    expect(screen.getByText('소문항 3개')).toBeTruthy()
+  })
+
+  it('소문항 하나면 개수 표시를 붙이지 않는다', () => {
+    render(<WrongAnswerCard answers={[sub('a')]} token="tok" />)
+    expect(screen.queryByText(/소문항 \d+개/)).toBeNull()
+  })
+
+  it('답이 소문항마다 다르면 각각 (a) (b) 로 나열한다', () => {
+    render(<WrongAnswerCard answers={[
+      sub('a', { correct_answer: 2 }, { student_answer: 1 }),
+      sub('b', { correct_answer: 4 }, { student_answer: 3 }),
+    ]} token="tok" />)
+    expect(screen.getByText('(a)')).toBeTruthy()
+    expect(screen.getByText('(b)')).toBeTruthy()
+    expect(screen.getAllByText('내 답')).toHaveLength(2)
+  })
+
+  it('답이 전부 같으면 한 줄만 그린다 — 조합 선택형 오분리 레거시', () => {
+    // 8번(a)/8번(b) 가 둘 다 "내 답 ① 정답 ②" 인 실제 데이터 모양
+    render(<WrongAnswerCard answers={[
+      sub('a', { correct_answer: 2 }, { student_answer: 1 }),
+      sub('b', { correct_answer: 2 }, { student_answer: 1 }),
+    ]} token="tok" />)
+    expect(screen.getAllByText('내 답')).toHaveLength(1)
+    expect(screen.queryByText('(a)')).toBeNull()
+  })
+
+  it('소문항 태그가 다르면 모두 보여준다 (어법 문항)', () => {
+    render(<WrongAnswerCard answers={[
+      sub('a', { correct_answer: 2, exam_question_tag: [{ concept_tag: { id: 't-a', name: '관계사', category_id: null, category_name: null } }] }, { student_answer: 1 }),
+      sub('b', { correct_answer: 4, exam_question_tag: [{ concept_tag: { id: 't-b', name: '분사', category_id: null, category_name: null } }] }, { student_answer: 3 }),
+    ]} token="tok" />)
+    expect(screen.getByText('관계사')).toBeTruthy()
+    expect(screen.getByText('분사')).toBeTruthy()
+  })
+
+  it('같은 태그가 복제돼 있으면 칩을 한 번만 그린다', () => {
+    render(<WrongAnswerCard answers={[sub('a'), sub('b')]} token="tok" />)
+    expect(screen.getAllByText('글의 목적 파악')).toHaveLength(1)
+  })
+
+  it('해설은 소문항별로 다르면 모두, 같으면 한 번만 그린다', () => {
+    render(<WrongAnswerCard answers={[
+      sub('a', { explanation: '(A)는 exchange 가 적절' }),
+      sub('b', { explanation: '(B)는 withstand 가 적절' }),
+    ]} token="tok" />)
+    expect(screen.getByText('(A)는 exchange 가 적절')).toBeTruthy()
+    expect(screen.getByText('(B)는 withstand 가 적절')).toBeTruthy()
+
+    cleanup()
+    render(<WrongAnswerCard answers={[
+      sub('a', { explanation: '같은 해설' }),
+      sub('b', { explanation: '같은 해설' }),
+    ]} token="tok" />)
+    expect(screen.getAllByText('같은 해설')).toHaveLength(1)
+  })
+
+  it('빈 배열이면 아무것도 그리지 않는다', () => {
+    const { container } = render(<WrongAnswerCard answers={[]} token="tok" />)
+    expect(container.innerHTML).toBe('')
   })
 })

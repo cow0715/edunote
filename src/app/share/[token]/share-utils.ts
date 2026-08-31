@@ -129,3 +129,25 @@ export const ATT_LABEL: Record<string, string> = { present: '출석', late: '지
 
 /** sticky 헤더(약 57px) + 여백. scroll-mt-* 유틸과 값을 맞춘다 */
 export const SCROLL_OFFSET_CLASS = 'scroll-mt-[69px]'
+
+/**
+ * 오답을 문항 번호로 묶는다.
+ *
+ * 내신 문제는 한 지문에 소문항이 여러 개 달리는 경우가 많다 (요약문 빈칸 7개 등).
+ * 소문항마다 카드를 그리면 같은 지문이 그 횟수만큼 반복돼서, 화면에서는 묶어 그린다.
+ * 채점·통계 단위는 그대로 소문항이다 — 그리는 방식만 바꾼다.
+ */
+export function groupAnswersByQuestion(answers: StudentAnswer[]): StudentAnswer[][] {
+  const groups = new Map<string, StudentAnswer[]>()
+  for (const answer of answers) {
+    const q = answer.exam_question
+    if (!q) continue
+    const key = `${q.week_id}|${q.question_number}`
+    const list = groups.get(key) ?? []
+    list.push(answer)
+    groups.set(key, list)
+  }
+  return [...groups.values()].map((list) =>
+    list.slice().sort((a, b) => (a.exam_question!.sub_label ?? '').localeCompare(b.exam_question!.sub_label ?? ''))
+  )
+}

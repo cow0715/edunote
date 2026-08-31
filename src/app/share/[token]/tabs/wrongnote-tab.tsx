@@ -12,7 +12,7 @@
 import { LibraryBig } from 'lucide-react'
 import { Card } from '../share-components'
 import { ShareModel } from '../use-share-model'
-import { SCROLL_OFFSET_CLASS, VocabStudyMode, fmtShortDate, getWeekLabel } from '../share-utils'
+import { SCROLL_OFFSET_CLASS, VocabStudyMode, fmtShortDate, getWeekLabel, groupAnswersByQuestion } from '../share-utils'
 import { RetakeActionRow, WeekAccordionHeader, WrongAnswerCard, WrongVocabRow } from '../wrong-answer-card'
 
 export type WrongNoteSubTab = 'reading' | 'vocab'
@@ -128,8 +128,8 @@ export function WrongNoteTab({
                     />
                     {isOpen && (
                       <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-white/[0.06] dark:border-white/[0.08]">
-                        {answers.map((a) => (
-                          <WrongAnswerCard key={a.id} answer={a} token={token} />
+                        {groupAnswersByQuestion(answers).map((group) => (
+                          <WrongAnswerCard key={group[0].id} answers={group} token={token} />
                         ))}
                       </div>
                     )}

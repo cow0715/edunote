@@ -41,19 +41,58 @@ function AnswerLine({ mine, correct }: { mine: string; correct: string }) {
 }
 
 // ── 독해(진단평가) 오답 문항 ────────────────────────────────────────────────
+/**
+ * 한 문항(소문항 포함)을 카드 하나로 그린다.
+ *
+ * 내신은 한 지문에 소문항이 여러 개 달린다 (요약문 빈칸 7개짜리도 있다).
+ * 소문항마다 카드를 그리면 같은 지문이 그 횟수만큼 반복돼서, 지문·유형칩은 한 번만 그리고
+ * 답만 소문항별로 나열한다. 채점·통계 단위는 그대로 소문항이다 — 그리는 방식만 바꾼다.
+ *
+ * 소문항 답이 전부 같으면 답 줄도 한 번만 그린다. 조합 선택형((A)(B) 를 ①~⑤ 중 하나로
+ * 고르는 문항)이 소문항으로 잘못 쪼개져 저장된 과거 데이터가 그렇다 — 같은 답이 복제돼
+ * 있을 뿐이라 두 번 보여줄 이유가 없다.
+ */
 export function WrongAnswerCard({
-  answer,
+  answers,
   token,
   weekLabel,
 }: {
-  answer: StudentAnswer
+  /** 같은 문항 번호의 오답들 (소문항 순 정렬) */
+  answers: StudentAnswer[]
   token: string
   /** 드로어처럼 여러 주차가 섞여 나올 때만 넘긴다 */
   weekLabel?: string
 }) {
-  const q = answer.exam_question!
-  const tags = q.exam_question_tag.map((t) => t.concept_tag).filter(Boolean)
-  const questionText = buildQuestionDisplayText(q)
+  const first = answers[0]
+  if (!first?.exam_question) return null
+  const q = first.exam_question
+
+  // 유형칩 — 소문항끼리 태그가 다르면(어법 문항) 전부 보여준다
+  const tagMap = new Map<string, string>()
+  answers.forEach((a) => a.exam_question?.exam_question_tag.forEach((t) => {
+    if (t.concept_tag) tagMap.set(t.concept_tag.id, t.concept_tag.name)
+  }))
+
+  // 지문은 소문항마다 복제돼 있다. 가장 긴 것을 한 번만 그린다
+  const questionText = answers
+    .map((a) => buildQuestionDisplayText(a.exam_question!))
+    .filter(Boolean)
+    .sort((x, y) => y.length - x.length)[0] ?? ''
+
+  const rows = answers.map((a) => ({
+    key: a.id,
+    sub: a.exam_question!.sub_label,
+    mine: formatMyAnswer(a),
+    correct: formatCorrectAnswer(a.exam_question!),
+  }))
+  const uniform = rows.every((r) => r.mine === rows[0].mine && r.correct === rows[0].correct)
+
+  // 소문항마다 같은 해설이 복사돼 있는 경우가 있어 같은 문장은 한 번만
+  const notes = answers.flatMap((a) => [
+    a.ai_feedback ? { label: '첨삭', text: a.ai_feedback } : null,
+    a.exam_question?.explanation ? { label: '해설', text: a.exam_question.explanation } : null,
+  ]).filter((n): n is { label: string; text: string } => n !== null)
+  const uniqueNotes = notes.filter((n, i) => notes.findIndex((m) => m.text === n.text) === i)
 
   return (
     // 자리표시자 높이는 375px 폭에서 실측한 중앙값(773px)을 쓴다. 너무 작게 잡으면
@@ -62,11 +101,16 @@ export function WrongAnswerCard({
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 text-sm font-bold text-gray-900 dark:text-white">
           {weekLabel && <span className="mr-1.5 font-semibold text-gray-400 dark:text-gray-500">{weekLabel}</span>}
-          {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
+          {q.question_number}번
+          {answers.length > 1 && (
+            <span className="ml-1.5 text-xs font-semibold text-gray-400 dark:text-gray-500">
+              소문항 {answers.length}개
+            </span>
+          )}
         </p>
-        {tags.length > 0 && (
+        {tagMap.size > 0 && (
           <div className="flex flex-wrap justify-end gap-1">
-            {tags.map((tag) => <ConceptChip key={tag!.id} name={tag!.name} />)}
+            {[...tagMap].map(([id, name]) => <ConceptChip key={id} name={name} />)}
           </div>
         )}
       </div>
@@ -88,14 +132,22 @@ export function WrongAnswerCard({
         signedUrlEndpoint={`/api/share/${token}/source-image-url`}
       />
 
-      <div className="mt-2.5">
-        <AnswerLine mine={formatMyAnswer(answer)} correct={formatCorrectAnswer(q)} />
+      <div className="mt-2.5 space-y-1">
+        {(uniform ? rows.slice(0, 1) : rows).map((row) => (
+          <div key={row.key} className="flex items-baseline gap-2">
+            {!uniform && row.sub && (
+              <span className="w-6 shrink-0 text-xs font-bold text-gray-400 dark:text-gray-500">({row.sub})</span>
+            )}
+            <AnswerLine mine={row.mine} correct={row.correct} />
+          </div>
+        ))}
       </div>
 
-      {(answer.ai_feedback || q.explanation) && (
+      {uniqueNotes.length > 0 && (
         <div className="mt-2.5 space-y-1.5">
-          {answer.ai_feedback && <NoteBlock label="첨삭">{answer.ai_feedback}</NoteBlock>}
-          {q.explanation && <NoteBlock label="해설">{q.explanation}</NoteBlock>}
+          {uniqueNotes.map((note, index) => (
+            <NoteBlock key={index} label={note.label}>{note.text}</NoteBlock>
+          ))}
         </div>
       )}
     </article>
