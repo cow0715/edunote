@@ -1,7 +1,7 @@
 import { createServiceClient } from '@/lib/supabase/server'
 import { buildWeekDisplayMap, isWeekInPeriod, type ClassPeriod, type WeekForPeriod } from '@/lib/class-periods'
 import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
-import { SHARE_CLOSED_ERROR, loadShareAccess } from '@/lib/share-access'
+import { SHARE_CLOSED_ERROR, SHARE_EXPIRED_ERROR, SHARE_NOT_FOUND_ERROR, loadShareAccess, resolveShareToken } from '@/lib/share-access'
 import { NextResponse } from 'next/server'
 
 type ClassRow = {
@@ -20,6 +20,14 @@ type EnrollmentRow = {
   class_id: string
   joined_at: string | null
   left_at: string | null
+}
+
+type StudentRow = {
+  id: string
+  teacher_id: string
+  name: string
+  school: string | null
+  grade: string | null
 }
 
 type ExamQuestionRow = {
@@ -101,13 +109,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const { token } = await params
   const periodId = new URL(request.url).searchParams.get('periodId')
 
-  const { data: student } = await supabase
-    .from('student')
-    .select('*')
-    .eq('share_token', token)
-    .single()
-
-  if (!student) return NextResponse.json({ error: '학생을 찾을 수 없습니다' }, { status: 404 })
+  // 회전 후 유예 중인 직전 토큰도 받아준다. 유예가 끝난 옛 토큰은 404 가 아니라
+  // 410 로 구분해서, 학부모가 "고장" 이 아니라 "새 문자 확인" 으로 읽게 한다.
+  const found = await resolveShareToken<StudentRow>(supabase, token, '*')
+  if (found.status === 'expired') return NextResponse.json({ error: SHARE_EXPIRED_ERROR }, { status: 410 })
+  if (found.status !== 'ok') return NextResponse.json({ error: SHARE_NOT_FOUND_ERROR }, { status: 404 })
+  const student = found.student
 
   // 퇴원하면 링크가 즉시 죽는다. 단 데이터 범위는 퇴원한 반까지 포함한다 —
   // 정규반에 다니면서 지난 특강반 기록을 보는 경우가 정상이므로.

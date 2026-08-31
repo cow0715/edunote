@@ -1,5 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/server'
-import { SHARE_CLOSED_ERROR, canViewShareByStudentId } from '@/lib/share-access'
+import { SHARE_CLOSED_ERROR, SHARE_EXPIRED_ERROR, SHARE_NOT_FOUND_ERROR, canViewShareByStudentId, resolveShareToken } from '@/lib/share-access'
 import { NextResponse } from 'next/server'
 import { gradeVocabItems } from '@/lib/anthropic'
 import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
@@ -76,12 +76,10 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
   const supabase = createServiceClient()
   const { token, weekId } = await params
 
-  const { data: student } = await supabase
-    .from('student')
-    .select('id, name')
-    .eq('share_token', token)
-    .single()
-  if (!student) return NextResponse.json({ error: '학생을 찾을 수 없습니다' }, { status: 404 })
+  const found = await resolveShareToken<{ id: string; name: string }>(supabase, token, 'id, name')
+  if (found.status === 'expired') return NextResponse.json({ error: SHARE_EXPIRED_ERROR }, { status: 410 })
+  if (found.status !== 'ok') return NextResponse.json({ error: SHARE_NOT_FOUND_ERROR }, { status: 404 })
+  const student = found.student
   if (!await canViewShareByStudentId(supabase, student.id)) {
     return NextResponse.json({ error: SHARE_CLOSED_ERROR }, { status: 403 })
   }
@@ -192,12 +190,10 @@ export async function POST(request: Request, { params }: { params: Promise<Param
   const supabase = createServiceClient()
   const { token, weekId } = await params
 
-  const { data: student } = await supabase
-    .from('student')
-    .select('id')
-    .eq('share_token', token)
-    .single()
-  if (!student) return NextResponse.json({ error: '학생을 찾을 수 없습니다' }, { status: 404 })
+  const found = await resolveShareToken<{ id: string }>(supabase, token, 'id')
+  if (found.status === 'expired') return NextResponse.json({ error: SHARE_EXPIRED_ERROR }, { status: 410 })
+  if (found.status !== 'ok') return NextResponse.json({ error: SHARE_NOT_FOUND_ERROR }, { status: 404 })
+  const student = found.student
   if (!await canViewShareByStudentId(supabase, student.id)) {
     return NextResponse.json({ error: SHARE_CLOSED_ERROR }, { status: 403 })
   }

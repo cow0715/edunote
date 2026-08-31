@@ -1,5 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/server'
-import { SHARE_CLOSED_ERROR, canViewShareByStudentId } from '@/lib/share-access'
+import { SHARE_CLOSED_ERROR, SHARE_EXPIRED_ERROR, canViewShareByStudentId, resolveShareToken } from '@/lib/share-access'
 import { NextResponse } from 'next/server'
 
 function one<T>(value: T | T[] | null | undefined): T | null {
@@ -22,13 +22,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     return NextResponse.json({ error: '허용되지 않은 경로입니다.' }, { status: 403 })
   }
 
-  const { data: student } = await supabase
-    .from('student')
-    .select('id')
-    .eq('share_token', token)
-    .single()
-
-  if (!student) return NextResponse.json({ error: '공유 링크를 찾을 수 없습니다.' }, { status: 404 })
+  const found = await resolveShareToken<{ id: string }>(supabase, token, 'id')
+  if (found.status === 'expired') return NextResponse.json({ error: SHARE_EXPIRED_ERROR }, { status: 410 })
+  if (found.status !== 'ok') return NextResponse.json({ error: '공유 링크를 찾을 수 없습니다.' }, { status: 404 })
+  const student = found.student
   if (!await canViewShareByStudentId(supabase, student.id)) {
     return NextResponse.json({ error: SHARE_CLOSED_ERROR }, { status: 403 })
   }

@@ -32,16 +32,43 @@ const TABS = [
   { id: 'wrongnote' as TabId, label: '오답', Icon: BookX },
 ]
 
+/** 상태 코드를 살려둬야 "만료된 링크"와 "없는 링크"를 다르게 안내할 수 있다 */
+class ShareError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message)
+  }
+}
+
 function useShareData(token: string, periodId: string | null) {
-  return useQuery<ShareData>({
+  return useQuery<ShareData, ShareError>({
     queryKey: ['share', token, periodId],
     queryFn: async () => {
       const query = periodId ? `?periodId=${encodeURIComponent(periodId)}` : ''
       const res = await fetch(`/api/share/${token}${query}`)
-      if (!res.ok) throw new Error('데이터를 불러올 수 없습니다')
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new ShareError(res.status, body?.error ?? '데이터를 불러올 수 없습니다')
+      }
       return res.json()
     },
+    retry: false,
   })
+}
+
+/** 링크가 안 열릴 때 학부모가 다음에 뭘 해야 할지까지 알려준다 */
+function shareErrorMessage(status: number | undefined): { title: string; hint: string } {
+  if (status === 410) return {
+    title: '링크가 만료되었습니다',
+    hint: '가장 최근에 받으신 문자의 링크로 접속해 주세요.',
+  }
+  if (status === 403) return {
+    title: '공유가 종료되었습니다',
+    hint: '자세한 내용은 선생님께 문의해 주세요.',
+  }
+  return {
+    title: '학생 정보를 찾을 수 없습니다',
+    hint: '링크가 잘못되었을 수 있습니다. 문자의 링크를 다시 확인해 주세요.',
+  }
 }
 
 /** Set 토글 — 주차 아코디언용 */
@@ -145,13 +172,19 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
       </div>
     </div>
   )
-  if (error || !data) return (
-    <div className={themeReady && isDark ? 'dark' : ''}>
-      <div className="flex min-h-screen items-center justify-center bg-[#F8F9FB] text-sm text-[#8B95A1] dark:bg-[#0F0F0F] dark:text-gray-500">
-        학생 정보를 찾을 수 없습니다
+  if (error || !data) {
+    const { title, hint } = shareErrorMessage(error?.status)
+    return (
+      <div className={themeReady && isDark ? 'dark' : ''}>
+        <div className="flex min-h-screen items-center justify-center bg-[#F8F9FB] px-8 dark:bg-[#0F0F0F]">
+          <div className="max-w-xs text-center">
+            <p className="text-base font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">{title}</p>
+            <p className="mt-2 text-sm leading-relaxed text-[#8B95A1] dark:text-gray-500">{hint}</p>
+          </div>
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   const { student, currentPeriod } = data
   const selectedPeriod = selectedPeriodId ? periodOptions.find((p) => p.id === selectedPeriodId) : null

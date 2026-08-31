@@ -1,6 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/server'
 import { callClaudeText, MODELS, parseJsonObjectResponse } from '@/lib/llm/client'
-import { SHARE_CLOSED_ERROR, canViewShareByStudentId } from '@/lib/share-access'
+import { SHARE_CLOSED_ERROR, SHARE_EXPIRED_ERROR, canViewShareByStudentId, resolveShareToken } from '@/lib/share-access'
 import { NextResponse } from 'next/server'
 
 
@@ -8,9 +8,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
   const supabase = createServiceClient()
   const { token } = await params
 
-  const { data: student } = await supabase
-    .from('student').select('id').eq('share_token', token).single()
-  if (!student) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  const found = await resolveShareToken<{ id: string }>(supabase, token, 'id')
+  if (found.status === 'expired') return NextResponse.json({ error: SHARE_EXPIRED_ERROR }, { status: 410 })
+  if (found.status !== 'ok') return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  const student = found.student
   if (!await canViewShareByStudentId(supabase, student.id)) {
     return NextResponse.json({ error: SHARE_CLOSED_ERROR }, { status: 403 })
   }
