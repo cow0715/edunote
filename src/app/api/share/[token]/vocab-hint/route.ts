@@ -1,27 +1,8 @@
 import { createServiceClient } from '@/lib/supabase/server'
 import { callClaudeText, MODELS, parseJsonObjectResponse } from '@/lib/llm/client'
+import { SHARE_CLOSED_ERROR, canViewShareByStudentId } from '@/lib/share-access'
 import { NextResponse } from 'next/server'
 
-async function hasAnyActiveEnrollment(supabase: ReturnType<typeof createServiceClient>, studentId: string) {
-  const { data: enrollments } = await supabase
-    .from('class_student')
-    .select('class_id')
-    .eq('student_id', studentId)
-    .is('left_at', null)
-
-  const classIds = (enrollments ?? []).map((enrollment) => enrollment.class_id).filter(Boolean)
-  if (classIds.length === 0) return false
-
-  const { data: activeClass } = await supabase
-    .from('class')
-    .select('id')
-    .in('id', classIds)
-    .is('archived_at', null)
-    .limit(1)
-    .maybeSingle()
-
-  return !!activeClass
-}
 
 export async function GET(req: Request, { params }: { params: Promise<{ token: string }> }) {
   const supabase = createServiceClient()
@@ -30,8 +11,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
   const { data: student } = await supabase
     .from('student').select('id').eq('share_token', token).single()
   if (!student) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  if (!await hasAnyActiveEnrollment(supabase, student.id)) {
-    return NextResponse.json({ error: '공유가 종료되었습니다' }, { status: 403 })
+  if (!await canViewShareByStudentId(supabase, student.id)) {
+    return NextResponse.json({ error: SHARE_CLOSED_ERROR }, { status: 403 })
   }
 
   const word = new URL(req.url).searchParams.get('word')

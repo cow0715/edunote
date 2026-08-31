@@ -1,4 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/server'
+import { SHARE_CLOSED_ERROR, canViewShareByStudentId } from '@/lib/share-access'
 import { NextResponse } from 'next/server'
 import { gradeVocabItems } from '@/lib/anthropic'
 import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
@@ -81,6 +82,9 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
     .eq('share_token', token)
     .single()
   if (!student) return NextResponse.json({ error: '학생을 찾을 수 없습니다' }, { status: 404 })
+  if (!await canViewShareByStudentId(supabase, student.id)) {
+    return NextResponse.json({ error: SHARE_CLOSED_ERROR }, { status: 403 })
+  }
 
   const { data: score } = await supabase
     .from('week_score')
@@ -194,6 +198,9 @@ export async function POST(request: Request, { params }: { params: Promise<Param
     .eq('share_token', token)
     .single()
   if (!student) return NextResponse.json({ error: '학생을 찾을 수 없습니다' }, { status: 404 })
+  if (!await canViewShareByStudentId(supabase, student.id)) {
+    return NextResponse.json({ error: SHARE_CLOSED_ERROR }, { status: 403 })
+  }
 
   const { data: score } = await supabase
     .from('week_score')

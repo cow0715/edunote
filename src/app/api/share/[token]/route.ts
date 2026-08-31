@@ -1,6 +1,7 @@
 import { createServiceClient } from '@/lib/supabase/server'
 import { buildWeekDisplayMap, isWeekInPeriod, type ClassPeriod, type WeekForPeriod } from '@/lib/class-periods'
 import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
+import { SHARE_CLOSED_ERROR, loadShareAccess } from '@/lib/share-access'
 import { NextResponse } from 'next/server'
 
 type ClassRow = {
@@ -108,16 +109,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
 
   if (!student) return NextResponse.json({ error: '학생을 찾을 수 없습니다' }, { status: 404 })
 
-  const { data: classStudents } = await supabase
-    .from('class_student')
-    .select('class_id, joined_at, left_at')
-    .eq('student_id', student.id)
-
-  const enrollments = (classStudents ?? []) as EnrollmentRow[]
-  const allClassIds = [...new Set(enrollments.map((cs) => cs.class_id).filter(Boolean))]
-  if (allClassIds.length === 0) {
-    return NextResponse.json({ error: '공유가 종료되었습니다' }, { status: 403 })
+  // 퇴원하면 링크가 즉시 죽는다. 단 데이터 범위는 퇴원한 반까지 포함한다 —
+  // 정규반에 다니면서 지난 특강반 기록을 보는 경우가 정상이므로.
+  const access = await loadShareAccess(supabase, student.id)
+  if (!access.canView) {
+    return NextResponse.json({ error: SHARE_CLOSED_ERROR }, { status: 403 })
   }
+
+  const enrollments = access.enrollments as EnrollmentRow[]
+  const allClassIds = [...new Set(enrollments.map((cs) => cs.class_id).filter(Boolean))]
 
   // 반 정보와 기간은 서로 무관 — 같이 던진다
   const [{ data: allClassRows }, { data: allPeriodsData }] = await Promise.all([
