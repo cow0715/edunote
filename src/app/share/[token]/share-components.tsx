@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Moon, Sun, TrendingUp, TrendingDown, Minus, Info, ChevronRight, ChevronLeft } from 'lucide-react'
 import { AttendanceRecord, ClinicAttendanceRecord } from './share-types'
+import { CHART_VISIBLE_COUNT, SCROLL_OFFSET_CLASS } from './share-utils'
 
 // ── 공통 카드 ──────────────────────────────────────────────────────────────
 export function Card({ title, subtitle, info, infoNode, children, noPad, id }: {
@@ -13,7 +14,7 @@ export function Card({ title, subtitle, info, infoNode, children, noPad, id }: {
   const hasInfo = !!(info || infoNode)
 
   return (
-    <div id={id} className="rounded-3xl bg-white dark:bg-[#1E293B] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none">
+    <div id={id} className={`rounded-3xl bg-white dark:bg-[#1E293B] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none ${SCROLL_OFFSET_CLASS}`}>
       {title && (
         <div className="px-5 pt-5 pb-3">
           <div className="flex items-center gap-1.5">
@@ -198,5 +199,49 @@ export function ThemeToggle({ isDark, onToggle }: { isDark: boolean; onToggle: (
       </button>
       <Moon className="h-3.5 w-3.5 text-gray-400 dark:text-[#3B82F6] transition-colors" />
     </div>
+  )
+}
+
+// ── 가로 스와이프 차트 카드 ─────────────────────────────────────────────────
+export function SwipeChartCard({
+  id,
+  title,
+  subtitle,
+  itemCount,
+  children,
+  scrollBody = true,
+}: {
+  id?: string
+  title: string
+  subtitle: string
+  itemCount: number
+  children: ReactNode
+  scrollBody?: boolean
+}) {
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const width = itemCount > CHART_VISIBLE_COUNT ? `${(itemCount / CHART_VISIBLE_COUNT) * 100}%` : '100%'
+
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el || !scrollBody) return
+    const frame = window.requestAnimationFrame(() => {
+      el.scrollLeft = el.scrollWidth - el.clientWidth
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [itemCount, scrollBody])
+
+  return (
+    <Card id={id} title={title} subtitle={subtitle}>
+      {scrollBody ? (
+        <div
+          ref={scrollerRef}
+          className="-mx-1 overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          <div style={{ width, minWidth: '100%' }}>
+            {children}
+          </div>
+        </div>
+      ) : children}
+    </Card>
   )
 }
