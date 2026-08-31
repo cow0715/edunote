@@ -3,6 +3,7 @@ import type { SupabaseServerClient } from '@/lib/api'
 import { recalcReadingCorrect, gradeMultiSelect } from '@/lib/grade-utils'
 import { gradeOX } from '@/lib/ox-grading'
 import { gradeFindErrorRow } from '@/lib/find-error-grading'
+import { resolveQuestionFlags } from '@/lib/objective-grading'
 
 // 비객관식 문항 재채점 (OX/multi_select는 코드로 즉시, subjective/find_error는 needs_review 플래그)
 // - is_void/all_correct 고정 상태는 건너뜀 (해제 시에만 호출됨)
@@ -156,7 +157,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     // 소유 확인
     const { data: q } = await supabase
       .from('exam_question')
-      .select('id, question_style, correct_answer, correct_answer_text, extra_correct_answers')
+      .select('id, question_style, correct_answer, correct_answer_text, extra_correct_answers, is_void, all_correct')
       .eq('id', id)
       .eq('week_id', weekId)
       .single()
@@ -179,8 +180,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         .select('id, student_answer, week_score_id')
         .eq('exam_question_id', id)
 
-      const effectiveIsVoid = is_void ?? false
-      const effectiveAllCorrect = all_correct ?? false
+      // 안 보낸 플래그는 DB 현재값을 유지한다 (false 로 떨어지면 다른 플래그가 조용히 풀린다)
+      const { isVoid: effectiveIsVoid, allCorrect: effectiveAllCorrect } =
+        resolveQuestionFlags({ is_void, all_correct }, q)
 
       if (effectiveIsVoid) {
         // 무효: is_correct = null
