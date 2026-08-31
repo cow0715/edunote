@@ -34,6 +34,10 @@ export type ReadingImportOutcome = {
   questions_parsed: number
   students_regraded: number
   subjective_grading_failed?: boolean
+  /** 재파싱에서 사라졌지만 학생 답안이 있어 지우지 않고 무효 처리한 문항 수 */
+  questions_voided?: number
+  /** 답안이 없어 실제로 지운 문항 수 */
+  questions_deleted?: number
 }
 
 export type ProblemSheetUploadInput = {
@@ -784,6 +788,8 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
     regradeExistingAnswers = true,
   } = params
   const persistErrors: string[] = []
+  let voidedCount = 0
+  let deletedCount = 0
 
   const { data: existingQuestions } = await supabase
     .from('exam_question')
@@ -889,9 +895,34 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
     )
     if (removedQuestions.length > 0) {
       const removedIds = removedQuestions.map((question) => question.id)
-      await supabase.from('student_answer').delete().in('exam_question_id', removedIds)
-      await supabase.from('exam_question_tag').delete().in('exam_question_id', removedIds)
-      await supabase.from('exam_question').delete().in('id', removedIds)
+
+      // 채점 결과가 달린 문항은 지우지 않는다.
+      // 예전에는 student_answer 를 그대로 delete 했는데, 재파싱 결과가 조금만 달라져도
+      // (문항 병합·소문항 재분리 등) 이미 채점한 학생 답안이 경고 없이 사라졌다.
+      // is_void 로 내리면 총점·통계에서는 빠지면서 답안은 남는다.
+      //
+      // 한계: 나중에 같은 문항이 다시 파싱돼도 is_void 를 자동으로 풀지 않는다.
+      // 푸는 쪽이 더 위험해서다 — 사람이 의도적으로 무효 처리한 문항까지 되살아난다.
+      // 대신 questions_voided 가 파싱 응답에 실려 나가니 그 자리에서 확인할 수 있다.
+      const { data: answered } = await supabase
+        .from('student_answer')
+        .select('exam_question_id')
+        .in('exam_question_id', removedIds)
+      const answeredIds = new Set((answered ?? []).map((row) => row.exam_question_id as string))
+
+      const voidIds = removedIds.filter((id) => answeredIds.has(id))
+      const deleteIds = removedIds.filter((id) => !answeredIds.has(id))
+
+      if (voidIds.length > 0) {
+        await supabase.from('exam_question').update({ is_void: true }).in('id', voidIds)
+        console.warn(`[week-reading-import] 답안이 있어 삭제 대신 무효 처리: ${voidIds.length}문항`)
+      }
+      if (deleteIds.length > 0) {
+        await supabase.from('exam_question_tag').delete().in('exam_question_id', deleteIds)
+        await supabase.from('exam_question').delete().in('id', deleteIds)
+      }
+      voidedCount = voidIds.length
+      deletedCount = deleteIds.length
     }
   }
 
@@ -923,7 +954,7 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
   await supabase.from('week').update({ reading_total: qCount ?? parsedAnswers.length }).eq('id', weekId)
 
   if (!regradeExistingAnswers) {
-    return { questions_parsed: questions.length, students_regraded: 0 }
+    return { questions_parsed: questions.length, students_regraded: 0, questions_voided: voidedCount, questions_deleted: deletedCount }
   }
 
   const { data: weekScores } = await supabase
@@ -932,7 +963,7 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
     .eq('week_id', weekId)
 
   if (!weekScores?.length) {
-    return { questions_parsed: questions.length, students_regraded: 0 }
+    return { questions_parsed: questions.length, students_regraded: 0, questions_voided: voidedCount, questions_deleted: deletedCount }
   }
 
   const studentIds = weekScores.map((score) => score.student_id)
@@ -1063,6 +1094,8 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
           questions_parsed: questions.length,
           students_regraded: weekScores.length,
           subjective_grading_failed: true,
+          questions_voided: voidedCount,
+          questions_deleted: deletedCount,
         }
       }
     }
@@ -1073,6 +1106,8 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
   return {
     questions_parsed: questions.length,
     students_regraded: weekScores.length,
+    questions_voided: voidedCount,
+    questions_deleted: deletedCount,
   }
 }
 
