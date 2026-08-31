@@ -1,7 +1,12 @@
 // 시험 데이터 정합성 점검 결과를 읽고 사람이 볼 형태로 요약한다.
 //
 // 판정 규칙은 전부 DB 뷰(exam_integrity_issue)에 있다. 여기서는 "무엇이 얼마나 심각한가" 만 정한다.
-// 뷰가 아직 없는 환경(마이그레이션 전)에서도 cleanup cron 이 죽지 않도록 실패를 흡수한다.
+//
+// 지금은 자동 호출하는 곳이 없다 — 과거 잔재 50건이 매일 로그에 찍혀 새 결함을 묻어버려서
+// cleanup cron 에서 뺐다. 뷰와 함수는 DB 에 그대로 있으니 필요할 때 직접 보면 된다:
+//   select * from exam_integrity_summary();
+//   select * from exam_integrity_issue;
+// 다시 자동 감시로 돌리려면 잔재를 정리하거나 기준선(확인 처리)을 먼저 잡아야 한다.
 
 import { createServiceClient } from '@/lib/supabase/server'
 
