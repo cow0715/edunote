@@ -27,6 +27,36 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const body = await request.json()
     const { mimeType, fileName } = body
+
+    // 채점된 주차를 다시 파싱하면, 새 파싱에서 사라진 문항의 학생 답안이 삭제된다.
+    // 학생이 쓴 답은 PDF 에 없어서 다시 만들 수 없으므로(강사 입력·OCR 산물) 먼저 막는다.
+    // 파싱은 최대 300초·유료 호출이라 파싱 "전에" 검사한다 — 확인받고 다시 부르게 하려면
+    // 비싼 작업을 두 번 하지 않는 게 중요하다.
+    if (body.discardAnswers !== true) {
+      const serviceClient = createServiceClient()
+      const { data: weekQuestions } = await serviceClient
+        .from('exam_question')
+        .select('id')
+        .eq('week_id', weekId)
+        .eq('exam_type', 'reading')
+      const questionIds = (weekQuestions ?? []).map((question) => question.id)
+
+      if (questionIds.length > 0) {
+        const { count } = await serviceClient
+          .from('student_answer')
+          .select('id', { count: 'exact', head: true })
+          .in('exam_question_id', questionIds)
+
+        if ((count ?? 0) > 0) {
+          return ok({
+            error: '이미 채점한 시험입니다. 다시 파싱하면 새 파싱에서 빠진 문항의 학생 답안이 삭제됩니다.',
+            code: 'ANSWERS_EXIST',
+            answer_count: count ?? 0,
+            question_count: questionIds.length,
+          }, { status: 409 })
+        }
+      }
+    }
     let fileData = body.fileData as string | undefined
     const requestedMode = (body.parseMode === 'answer_sheet' || body.parseMode === 'problem_sheet' || body.parseMode === 'auto'
       ? body.parseMode

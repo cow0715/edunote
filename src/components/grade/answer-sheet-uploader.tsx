@@ -258,7 +258,9 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
       const response = await fetch(`/api/weeks/${weekId}/parse-answers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(uploaded),
+        // 이 함수는 두 경로 모두 동의 후에만 호출된다 (답안 없음 / 경고 다이얼로그 확인).
+        // 서버는 동의 없이는 409 로 막으므로 여기서 명시적으로 넘긴다.
+        body: JSON.stringify({ ...uploaded, discardAnswers: true }),
       })
 
       const raw = await response.text()
@@ -274,6 +276,12 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
       const skippedQuestions = Array.isArray(data.skipped_questions) ? data.skipped_questions as number[] : []
       resetQueries()
       toast.success(`${questionsParsed}문항을 반영했습니다.`)
+      // 경고는 업로드 전에 "삭제될 수 있다" 로만 알렸다. 실제로 지워진 게 있으면 결과도 알린다 —
+      // 그래야 강사가 어느 문항을 다시 입력해야 하는지 그 자리에서 안다.
+      const answersDeleted = Number(data.answers_deleted ?? 0)
+      if (answersDeleted > 0) {
+        toast.warning(`새 파일에서 빠진 ${Number(data.questions_deleted ?? 0)}문항의 학생 답안 ${answersDeleted}개가 삭제됐습니다 — 해당 문항은 다시 입력해 주세요.`)
+      }
       if (skippedQuestions.length > 0) {
         toast.warning(`${skippedQuestions.join(', ')}번 문항은 인식하지 못했습니다 — 직접 추가하거나 파일을 다시 올려주세요.`)
       }

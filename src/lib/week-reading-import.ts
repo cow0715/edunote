@@ -34,10 +34,10 @@ export type ReadingImportOutcome = {
   questions_parsed: number
   students_regraded: number
   subjective_grading_failed?: boolean
-  /** 재파싱에서 사라졌지만 학생 답안이 있어 지우지 않고 무효 처리한 문항 수 */
-  questions_voided?: number
-  /** 답안이 없어 실제로 지운 문항 수 */
+  /** 재파싱 결과에서 사라져 지운 문항 수 */
   questions_deleted?: number
+  /** 그와 함께 지워진 학생 답안 수 */
+  answers_deleted?: number
 }
 
 export type ProblemSheetUploadInput = {
@@ -828,8 +828,8 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
     regradeExistingAnswers = true,
   } = params
   const persistErrors: string[] = []
-  let voidedCount = 0
   let deletedCount = 0
+  let deletedAnswerCount = 0
 
   const { data: existingQuestions } = await supabase
     .from('exam_question')
@@ -936,33 +936,29 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
     if (removedQuestions.length > 0) {
       const removedIds = removedQuestions.map((question) => question.id)
 
-      // 채점 결과가 달린 문항은 지우지 않는다.
-      // 예전에는 student_answer 를 그대로 delete 했는데, 재파싱 결과가 조금만 달라져도
-      // (문항 병합·소문항 재분리 등) 이미 채점한 학생 답안이 경고 없이 사라졌다.
-      // is_void 로 내리면 총점·통계에서는 빠지면서 답안은 남는다.
+      // 사라진 문항의 학생 답안도 함께 지운다.
       //
-      // 한계: 나중에 같은 문항이 다시 파싱돼도 is_void 를 자동으로 풀지 않는다.
-      // 푸는 쪽이 더 위험해서다 — 사람이 의도적으로 무효 처리한 문항까지 되살아난다.
-      // 대신 questions_voided 가 파싱 응답에 실려 나가니 그 자리에서 확인할 수 있다.
-      const { data: answered } = await supabase
+      // 예전에는 이걸 조용히 했고, 그래서 재파싱 한 번에 채점 결과가 말없이 날아갔다.
+      // 지금은 라우트가 먼저 막는다 — 답안이 있는 주차를 재파싱하려면 discardAnswers 로
+      // 명시적으로 동의해야 여기까지 온다.
+      //
+      // 답안을 남기는(is_void) 쪽도 해봤는데 더 나빴다. 무효 행에 답안이 매달린 채
+      // 새 문항은 빈 상태가 되어, 강사가 눈치채지 못하면 점수가 조용히 내려갔다.
+      // 조용히 틀린 점수보다 명백히 빈 상태가 낫다.
+      const { count } = await supabase
         .from('student_answer')
-        .select('exam_question_id')
+        .select('id', { count: 'exact', head: true })
         .in('exam_question_id', removedIds)
-      const answeredIds = new Set((answered ?? []).map((row) => row.exam_question_id as string))
 
-      const voidIds = removedIds.filter((id) => answeredIds.has(id))
-      const deleteIds = removedIds.filter((id) => !answeredIds.has(id))
+      await supabase.from('student_answer').delete().in('exam_question_id', removedIds)
+      await supabase.from('exam_question_tag').delete().in('exam_question_id', removedIds)
+      await supabase.from('exam_question').delete().in('id', removedIds)
 
-      if (voidIds.length > 0) {
-        await supabase.from('exam_question').update({ is_void: true }).in('id', voidIds)
-        console.warn(`[week-reading-import] 답안이 있어 삭제 대신 무효 처리: ${voidIds.length}문항`)
+      deletedCount = removedIds.length
+      deletedAnswerCount = count ?? 0
+      if (deletedAnswerCount > 0) {
+        console.warn(`[week-reading-import] 사라진 ${deletedCount}문항과 학생 답안 ${deletedAnswerCount}개 삭제`)
       }
-      if (deleteIds.length > 0) {
-        await supabase.from('exam_question_tag').delete().in('exam_question_id', deleteIds)
-        await supabase.from('exam_question').delete().in('id', deleteIds)
-      }
-      voidedCount = voidIds.length
-      deletedCount = deleteIds.length
     }
   }
 
@@ -994,7 +990,7 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
   await supabase.from('week').update({ reading_total: qCount ?? parsedAnswers.length }).eq('id', weekId)
 
   if (!regradeExistingAnswers) {
-    return { questions_parsed: questions.length, students_regraded: 0, questions_voided: voidedCount, questions_deleted: deletedCount }
+    return { questions_parsed: questions.length, students_regraded: 0, questions_deleted: deletedCount, answers_deleted: deletedAnswerCount }
   }
 
   const { data: weekScores } = await supabase
@@ -1003,7 +999,7 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
     .eq('week_id', weekId)
 
   if (!weekScores?.length) {
-    return { questions_parsed: questions.length, students_regraded: 0, questions_voided: voidedCount, questions_deleted: deletedCount }
+    return { questions_parsed: questions.length, students_regraded: 0, questions_deleted: deletedCount, answers_deleted: deletedAnswerCount }
   }
 
   const studentIds = weekScores.map((score) => score.student_id)
@@ -1134,8 +1130,8 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
           questions_parsed: questions.length,
           students_regraded: weekScores.length,
           subjective_grading_failed: true,
-          questions_voided: voidedCount,
           questions_deleted: deletedCount,
+          answers_deleted: deletedAnswerCount,
         }
       }
     }
@@ -1146,8 +1142,8 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
   return {
     questions_parsed: questions.length,
     students_regraded: weekScores.length,
-    questions_voided: voidedCount,
     questions_deleted: deletedCount,
+    answers_deleted: deletedAnswerCount,
   }
 }
 
