@@ -357,8 +357,48 @@ export function normalizeParsedAnswers(parsedAnswers: ParsedAnswer[]): ParsedAns
   return normalized
 }
 
+/** 여러 행을 한 행으로 합칠 때, 비어 있는 칸을 형제 행에서 채운다 */
+function mergeSplitRows(group: ParsedAnswer[]): ParsedAnswer {
+  const len = (v: string | null | undefined) => (v ?? '').length
+  // 지문이 가장 긴 행을 뼈대로 — 조합 선택형은 한쪽에만 지문이 실리는 경우가 많다
+  const base = [...group].sort((a, b) => len(b.question_text) - len(a.question_text))[0]
+  const firstOf = <K extends keyof ParsedAnswer>(key: K): ParsedAnswer[K] =>
+    (group.find((row) => {
+      const v = row[key]
+      return typeof v === 'string' ? v.trim().length > 0 : v !== null && v !== undefined
+    })?.[key] ?? base[key])
+
+  return {
+    ...base,
+    sub_label: null,
+    question_type: firstOf('question_type'),
+    explanation: firstOf('explanation'),
+    question_stem: firstOf('question_stem'),
+    passage: firstOf('passage'),
+  }
+}
+
 function collapseSplitObjectiveQuestion(group: ParsedAnswer[]): ParsedAnswer | null {
   if (group.length < 2) return null
+
+  // ── 조합 선택형(요약문 (A)(B), 보기 묶음형)을 소문항으로 쪼갠 경우 ──────────
+  //
+  // 판정: 전부 objective 인데 정답 번호가 한 종류뿐.
+  // 학생은 ①~⑤ 중 하나만 고르므로 **독립된 소문항 둘이 같은 번호를 정답으로 가질 수 없다.**
+  // 논리적으로 불가능한 상태라 휴리스틱이 아니라 확정이다.
+  // (진짜 어법 'n개 고르' 는 정답이 ②④ 처럼 서로 다르므로 여기 안 걸린다)
+  //
+  // 아래 기존 분기처럼 텍스트 모양(looksLikeSummaryBlankObjective)을 보지 않는다.
+  // 모양을 가정한 방어는 실제 LLM 출력과 어긋나면 그대로 무력화된다 —
+  // 아래 분기가 'objective 1개 + subjective 몇 개' 만 상정하는 바람에
+  // 실제로 나온 'objective 2개' 형태를 몇 달간 놓쳤다.
+  const allObjective = group.every(
+    (answer) => answer.question_style === 'objective' && answer.correct_answer >= 1 && answer.correct_answer <= 5,
+  )
+  if (allObjective) {
+    const distinct = new Set(group.map((answer) => answer.correct_answer))
+    return distinct.size === 1 ? mergeSplitRows(group) : null
+  }
 
   const objectiveAnswers = group.filter(
     (answer) => answer.question_style === 'objective' && answer.correct_answer >= 1 && answer.correct_answer <= 5,

@@ -164,8 +164,10 @@ question_style은 문항 유형 이름이 아니라 답안 형식만 보고 결�
    ※ 개별 빈칸 각각에 ①~⑤ 선택지가 따로 있는 경우(독립 선택형)는 ③에 따라 sub_label 분리
 
 [분리 O — 분리X 아닌 경우]
-③ (A)(B)(C)(D) 등 복수 빈칸
-   한 줄 나열이어도 반드시 분리
+③ (A)(B)(C)(D) 등 복수 빈칸 — 단, 조합 선택형(②)이면 분리하지 않는다
+   판단 기준: 정답이 ①~⑤ 번호 **1개**면 조합 선택형 → sub_label = null
+             각 칸마다 답이 따로 있으면(텍스트) 복수 빈칸 → 분리
+   한 줄 나열이어도 (조합 선택형이 아니면) 반드시 분리
    예) "[정답] : (A) enough (B) greenhouse (C) crowdfunding campaign (D) reward"
    → sub_label a: "enough" / b: "greenhouse" / c: "crowdfunding campaign" / d: "reward"
 
