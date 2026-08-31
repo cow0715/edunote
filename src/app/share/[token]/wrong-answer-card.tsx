@@ -79,20 +79,24 @@ export function WrongAnswerCard({
     .filter(Boolean)
     .sort((x, y) => y.length - x.length)[0] ?? ''
 
-  const rows = answers.map((a) => ({
+  // 소문항별로 [답 + 그 소문항의 첨삭·해설] 을 한 덩어리로 묶는다.
+  // 답을 7줄 몰아놓고 해설 14개를 뒤에 붙이면 어느 해설이 어느 빈칸 것인지 알 수 없다.
+  const items = answers.map((a) => ({
     key: a.id,
     sub: a.exam_question!.sub_label,
     mine: formatMyAnswer(a),
     correct: formatCorrectAnswer(a.exam_question!),
+    notes: [
+      a.ai_feedback ? { label: '첨삭', text: a.ai_feedback } : null,
+      a.exam_question?.explanation ? { label: '해설', text: a.exam_question.explanation } : null,
+    ].filter((n): n is { label: string; text: string } => n !== null),
   }))
-  const uniform = rows.every((r) => r.mine === rows[0].mine && r.correct === rows[0].correct)
+  const uniform = items.every((r) => r.mine === items[0].mine && r.correct === items[0].correct)
 
-  // 소문항마다 같은 해설이 복사돼 있는 경우가 있어 같은 문장은 한 번만
-  const notes = answers.flatMap((a) => [
-    a.ai_feedback ? { label: '첨삭', text: a.ai_feedback } : null,
-    a.exam_question?.explanation ? { label: '해설', text: a.exam_question.explanation } : null,
-  ]).filter((n): n is { label: string; text: string } => n !== null)
-  const uniqueNotes = notes.filter((n, i) => notes.findIndex((m) => m.text === n.text) === i)
+  // 답이 전부 같으면(오분리 레거시) 답은 한 줄만 쓰고 해설은 모아서 붙인다.
+  // 이때 소문항마다 같은 해설이 복제돼 있으면 한 번만.
+  const mergedNotes = items.flatMap((i) => i.notes)
+  const uniqueNotes = mergedNotes.filter((n, i) => mergedNotes.findIndex((m) => m.text === n.text) === i)
 
   return (
     // 자리표시자 높이는 375px 폭에서 실측한 중앙값(773px)을 쓴다. 너무 작게 잡으면
@@ -132,21 +136,38 @@ export function WrongAnswerCard({
         signedUrlEndpoint={`/api/share/${token}/source-image-url`}
       />
 
-      <div className="mt-2.5 space-y-1">
-        {(uniform ? rows.slice(0, 1) : rows).map((row) => (
-          <div key={row.key} className="flex items-baseline gap-2">
-            {!uniform && row.sub && (
-              <span className="w-6 shrink-0 text-xs font-bold text-gray-400 dark:text-gray-500">({row.sub})</span>
-            )}
-            <AnswerLine mine={row.mine} correct={row.correct} />
+      {uniform ? (
+        <>
+          <div className="mt-2.5">
+            <AnswerLine mine={items[0].mine} correct={items[0].correct} />
           </div>
-        ))}
-      </div>
-
-      {uniqueNotes.length > 0 && (
-        <div className="mt-2.5 space-y-1.5">
-          {uniqueNotes.map((note, index) => (
-            <NoteBlock key={index} label={note.label}>{note.text}</NoteBlock>
+          {uniqueNotes.length > 0 && (
+            <div className="mt-2.5 space-y-1.5">
+              {uniqueNotes.map((note, index) => (
+                <NoteBlock key={index} label={note.label}>{note.text}</NoteBlock>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="mt-2.5 space-y-3">
+          {items.map((item) => (
+            <div key={item.key}>
+              <div className="flex items-baseline gap-2">
+                {item.sub && (
+                  <span className="w-6 shrink-0 text-xs font-bold text-gray-400 dark:text-gray-500">({item.sub})</span>
+                )}
+                <AnswerLine mine={item.mine} correct={item.correct} />
+              </div>
+              {item.notes.length > 0 && (
+                // 답 줄의 라벨 폭(w-6 + gap-2)만큼 들여써서 어느 소문항 것인지 보이게
+                <div className="mt-1.5 space-y-1.5 pl-8">
+                  {item.notes.map((note, index) => (
+                    <NoteBlock key={index} label={note.label}>{note.text}</NoteBlock>
+                  ))}
+                </div>
+              )}
+            </div>
           ))}
         </div>
       )}

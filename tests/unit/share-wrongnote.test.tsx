@@ -422,3 +422,57 @@ describe('WrongAnswerCard — 소문항 묶음', () => {
     expect(container.innerHTML).toBe('')
   })
 })
+
+// ── 소문항별 해설 배치 ──────────────────────────────────────────────────────
+//
+// 답 7줄 몰아놓고 해설 14개를 뒤에 붙이면 어느 해설이 어느 빈칸 것인지 알 수 없다.
+// 소문항마다 [답 → 그 소문항 해설] 로 묶어 그린다.
+describe('WrongAnswerCard — 소문항별 해설 배치', () => {
+  const sub = (label: string, over: Partial<StudentAnswer['exam_question']> = {}, top: Partial<StudentAnswer> = {}) =>
+    makeStudentAnswer(
+      { sub_label: label, question_number: 3, question_text: '요약문 빈칸을 채우시오', ...over },
+      { id: `a-${label}`, ...top },
+    )
+
+  it('각 소문항 해설이 그 소문항 답 바로 뒤에 온다', () => {
+    const { container } = render(<WrongAnswerCard answers={[
+      sub('a', { correct_answer: 1, explanation: 'a 해설' }, { student_answer: 2 }),
+      sub('b', { correct_answer: 3, explanation: 'b 해설' }, { student_answer: 4 }),
+    ]} token="tok" />)
+    const text = container.textContent ?? ''
+    expect(text.indexOf('(a)')).toBeLessThan(text.indexOf('a 해설'))
+    expect(text.indexOf('a 해설')).toBeLessThan(text.indexOf('(b)'))
+    expect(text.indexOf('(b)')).toBeLessThan(text.indexOf('b 해설'))
+  })
+
+  it('첨삭도 같은 소문항 묶음 안에 들어간다', () => {
+    const { container } = render(<WrongAnswerCard answers={[
+      sub('a', { correct_answer: 1, explanation: 'a 해설' }, { student_answer: 2, ai_feedback: 'a 첨삭' }),
+      sub('b', { correct_answer: 3 }, { student_answer: 4 }),
+    ]} token="tok" />)
+    const text = container.textContent ?? ''
+    expect(text.indexOf('a 첨삭')).toBeLessThan(text.indexOf('(b)'))
+    expect(text.indexOf('a 해설')).toBeLessThan(text.indexOf('(b)'))
+  })
+
+  it('해설 없는 소문항은 답만 그린다', () => {
+    render(<WrongAnswerCard answers={[
+      sub('a', { correct_answer: 1 }, { student_answer: 2 }),
+      sub('b', { correct_answer: 3, explanation: 'b 해설' }, { student_answer: 4 }),
+    ]} token="tok" />)
+    expect(screen.getAllByText('해설')).toHaveLength(1)
+    expect(screen.getByText('b 해설')).toBeTruthy()
+  })
+
+  it('답이 전부 같으면(오분리) 답 한 줄 뒤에 해설을 모아 붙인다', () => {
+    const { container } = render(<WrongAnswerCard answers={[
+      sub('a', { correct_answer: 2, explanation: '(A)는 exchange' }, { student_answer: 1 }),
+      sub('b', { correct_answer: 2, explanation: '(B)는 withstand' }, { student_answer: 1 }),
+    ]} token="tok" />)
+    expect(screen.queryByText('(a)')).toBeNull()
+    expect(screen.getAllByText('내 답')).toHaveLength(1)
+    const text = container.textContent ?? ''
+    expect(text.indexOf('내 답')).toBeLessThan(text.indexOf('(A)는 exchange'))
+    expect(screen.getByText('(B)는 withstand')).toBeTruthy()
+  })
+})
