@@ -2,9 +2,10 @@
 //
 // 학부모 공유 화면의 오답노트 경로 테스트.
 //
-// 이 테스트가 있는 이유: 개발 DB 에 vocab_answer 가 0건이라 단어 오답 · 재시험 ·
-// 단어장 링크 쪽 코드가 브라우저에서 한 번도 실행된 적이 없다. tsc/next build 는
-// 이 경로를 실행하지 않으므로 널 참조나 prop 오배선을 못 잡는다. 여기서 실행시킨다.
+// tsc 도 next build 도 이 경로를 "실행" 하지는 않는다. 널 참조나 prop 오배선은
+// 렌더해봐야 드러나므로 여기서 태운다.
+//
+// 특히 예문 유형(빈칸·선택)은 실데이터에서만 나오는 조합이 많아 픽스처로 고정해둔다.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'

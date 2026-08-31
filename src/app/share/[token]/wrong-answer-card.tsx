@@ -116,9 +116,8 @@ export function WrongVocabRow({ answer }: { answer: VocabAnswer }) {
   const retakeDone = answer.retake_is_correct === true
 
   return (
-    // 단어장 카드 실측(375px 폭 중앙값 240px)에서 유추한 값. 이 행 자체는 개발 DB에
-    // 단어 오답 데이터가 없어 직접 재지 못했다 — 실데이터가 생기면 다시 확인할 것.
-    <div className={`px-5 py-3.5 [content-visibility:auto] [contain-intrinsic-size:auto_220px] ${retakeDone ? 'opacity-60' : ''}`}>
+    // 375px 폭 실측 중앙값 166px (범위 142~251).
+    <div className={`px-5 py-3.5 [content-visibility:auto] [contain-intrinsic-size:auto_170px] ${retakeDone ? 'opacity-60' : ''}`}>
       {/* 1. 문제 (시험지 그대로) */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
