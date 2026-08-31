@@ -8,12 +8,15 @@ import Link from 'next/link'
 const ModelCompare = dynamic(() => import('@/components/dev/model-compare'), { ssr: false })
 const OcrTest = dynamic(() => import('@/components/dev/ocr-test'), { ssr: false })
 const PdfImportCompare = dynamic(() => import('@/components/dev/pdf-import-compare'), { ssr: false })
+const RadarCompare = dynamic(() => import('@/components/dev/radar-compare'), { ssr: false })
+// 단독 라우트(/dev/vocab-print-preview)와 같은 컴포넌트 — 그쪽은 headless 캡처용으로 남겨둔다.
+const VocabPrintPreview = dynamic(() => import('@/app/dev/vocab-print-preview/preview'), { ssr: false })
 
 const ScoreTrendChart  = dynamic(() => import('@/components/share/score-trend-chart').then((m) => m.ScoreTrendChart),  { ssr: false })
 const WeeklyBarChart   = dynamic(() => import('@/components/share/weekly-bar-chart').then((m) => m.WeeklyBarChart),    { ssr: false })
 const HomeworkBarChart = dynamic(() => import('@/components/share/homework-bar-chart').then((m) => m.HomeworkBarChart), { ssr: false })
 const ConceptWeakChart = dynamic(() => import('@/components/share/concept-weak-chart').then((m) => m.ConceptWeakChart), { ssr: false })
-const WrongTypePieChart = dynamic(() => import('@/components/share/wrong-type-pie-chart').then((m) => m.WrongTypePieChart), { ssr: false })
+const WrongTypeChart = dynamic(() => import('@/components/share/wrong-type-chart').then((m) => m.WrongTypeChart), { ssr: false })
 const ConceptRadarChart = dynamic(() => import('@/components/share/concept-radar-chart').then((m) => m.ConceptRadarChart), { ssr: false })
 
 // ── 샘플 데이터 ──────────────────────────────────────────────────────────
@@ -104,7 +107,7 @@ function Badge({ children, color }: { children: React.ReactNode; color: 'green' 
   return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{children}</span>
 }
 
-const TABS = ['개발 도구', '모델 비교', 'OCR 테스트', 'PDF Import 비교'] as const
+const TABS = ['개발 도구', '모델 비교', 'OCR 테스트', 'PDF Import 비교', '단어 화면', '차트 비교'] as const
 type Tab = (typeof TABS)[number]
 
 export default function DevPage() {
@@ -125,10 +128,9 @@ export default function DevPage() {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold">⚙ 개발자 도구</h1>
-            <p className="text-xs text-muted-foreground">개발/운영 환경 확인 · 차트 미리보기 · Share 테스트</p>
+            <p className="text-xs text-muted-foreground">환경 확인 · 모델/OCR 테스트 · 단어 화면 · 차트 비교 · Share 테스트</p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/dev/radar-compare" className="rounded-lg border border-border px-3 py-1.5 text-xs hover:bg-muted">차트 비교 →</Link>
             <button
               onClick={() => setIsDark(!isDark)}
               className="rounded-lg border border-border px-3 py-1.5 text-xs hover:bg-muted"
@@ -158,6 +160,8 @@ export default function DevPage() {
         {tab === '모델 비교' && <ModelCompare />}
         {tab === 'OCR 테스트' && <OcrTest />}
         {tab === 'PDF Import 비교' && <PdfImportCompare />}
+        {tab === '단어 화면' && <VocabPrintPreview embedded />}
+        {tab === '차트 비교' && <RadarCompare isDark={isDark} />}
 
         {tab === '개발 도구' && <div className="grid gap-5 lg:grid-cols-2">
 
@@ -253,8 +257,8 @@ export default function DevPage() {
           </Section>
 
           {/* 오답 파이 */}
-          <Section title="🥧 오답 유형 (WrongTypePieChart)">
-            <WrongTypePieChart data={PIE_DATA} isDark={isDark} />
+          <Section title="📊 유형별 오답률 (WrongTypeChart)">
+            <WrongTypeChart data={PIE_DATA} />
           </Section>
 
           {/* 취약 유형 */}
