@@ -20,7 +20,7 @@ export const INTEGRITY_SEVERITY: Record<string, 'score' | 'data'> = {
   objective_판정_불일치: 'score',
   점수합_불일치: 'score',
   중복답안: 'score',
-  objective_정답번호_이탈: 'data',
+  objective_정답키_없음: 'data',
   objective_정답텍스트_혼입: 'data',
   소문항_단독: 'data',
 }

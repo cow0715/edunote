@@ -51,7 +51,7 @@ describe('summarizeIntegrity', () => {
   it('뷰의 모든 kind 가 심각도 표에 등록돼 있다', () => {
     // 뷰에 항목을 늘리면 여기도 같이 늘려야 한다는 걸 잊지 않게
     expect(Object.keys(INTEGRITY_SEVERITY).sort()).toEqual([
-      'objective_정답번호_이탈',
+      'objective_정답키_없음',
       'objective_정답텍스트_혼입',
       'objective_판정_불일치',
       '점수합_불일치',
