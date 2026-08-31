@@ -41,9 +41,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# claude code (에이전트 작업용 worktree / 훅 실행 락)
+# claude code (에이전트 작업용 worktree / 훅 실행 락 · 재실행 표시)
 .claude/worktrees/
 .claude/hooks/.check.lock/
+.claude/hooks/.check.rerun
 
 # supabase cli 임시 파일
 supabase/.temp/
