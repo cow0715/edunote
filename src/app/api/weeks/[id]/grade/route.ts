@@ -1,7 +1,7 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeSubjectiveAnswers, SubjectiveStudentAnswer } from '@/lib/anthropic'
 import { recalcReadingCorrect, gradeMultiSelect } from '@/lib/grade-utils'
-import { gradeOX, parseOXStudentInput } from '@/lib/ox-grading'
+import { gradeOXAnswer, parseOXStudentInput } from '@/lib/ox-grading'
 import { assignFindErrorAnswers, type FindErrorAssignment } from '@/lib/find-error-grading'
 import { gradeObjective } from '@/lib/objective-grading'
 import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
@@ -269,7 +269,9 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         if (style === 'ox') {
           // UI 포맷("O"/"X 수정어"/"T"/"F") → ox_selection + student_answer_text(수정어만) 분리
           const { oxSelection, correction } = parseOXStudentInput(a.student_answer_text)
-          const is_correct = q?.correct_answer_text ? gradeOX(q.correct_answer_text, oxSelection, correction ?? '') : false
+          // 판정은 채점지 UI 와 같은 함수로 — 규칙이 두 군데로 갈라지지 않게 한다.
+          // 미체크(빈칸)도 오답이다.
+          const is_correct = gradeOXAnswer(q ?? {}, a.student_answer_text)
           return {
             week_score_id: score.id,
             exam_question_id: a.exam_question_id,

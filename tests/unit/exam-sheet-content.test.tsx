@@ -85,7 +85,7 @@ describe('ExamSheetContent — 객관식 압축 정오표', () => {
     ])
     expect(screen.getByText('2정')).toBeTruthy()
     expect(screen.getByText('1오')).toBeTruthy()
-    expect(screen.getByText(/3\/3개 입력/)).toBeTruthy() // 무효 문항은 분모에서도 제외
+    expect(screen.queryByText(/미작성/)).toBeNull() // 빈칸이 없으면 표기 자체를 숨긴다
     expect(screen.getByText('무효')).toBeTruthy()
   })
 
@@ -168,5 +168,75 @@ describe('ExamSheetContent — 객관식 압축 정오표', () => {
       />,
     )
     expect(within(document.body).getByText('진단평가')).toBeTruthy()
+  })
+})
+
+// 채점 UI 가 ox 미체크를 "아직 안 본 칸" 으로 취급해 정·오 어느 쪽에도 안 잡히던 회귀.
+// 서버(grade route)는 같은 입력을 오답으로 저장하고 있었다 — 화면만 어긋나 있었다.
+describe('ExamSheetContent — O/X·T/F 미체크는 오답', () => {
+  const tf = (id: string, n: number, key: string) =>
+    q({ id, question_number: n, question_style: 'ox', correct_answer: 0, correct_answer_text: key })
+
+  it('미체크 T/F 는 오답으로 세되 "입력 수" 에는 넣지 않는다', () => {
+    renderSheet(
+      [tf('q1', 1, 'T'), tf('q2', 2, 'F'), tf('q3', 3, 'T')],
+      [
+        { exam_question_id: 'q1', student_answer: null, student_answer_text: 'T' },  // 정답
+        { exam_question_id: 'q2', student_answer: null, student_answer_text: 'T' },  // 오답
+        { exam_question_id: 'q3', student_answer: null, student_answer_text: '' },   // 미체크 → 오답
+      ],
+    )
+    expect(screen.getByText('1정')).toBeTruthy()
+    expect(screen.getByText('2오')).toBeTruthy()
+    expect(screen.getByText(/미작성 1/)).toBeTruthy()
+  })
+
+  it('미체크 칸에도 ✗ 를 보여준다 — 표시를 숨기면 채점 안 한 칸처럼 보인다', () => {
+    renderSheet([tf('q1', 1, 'T')], [{ exam_question_id: 'q1', student_answer: null, student_answer_text: '' }])
+    expect(screen.getByText('✗')).toBeTruthy()
+  })
+
+  it('저장된 is_correct 가 낡아도 현재 규칙으로 판정한다 (8/25 오채점 13건 형태)', () => {
+    // 정답키 T + 학생 O 인데 is_correct=false 로 저장돼 있던 행
+    renderSheet(
+      [tf('q1', 1, 'T')],
+      [{ exam_question_id: 'q1', student_answer: null, student_answer_text: 'T', is_correct: false }],
+    )
+    expect(screen.getByText('✓')).toBeTruthy()
+    expect(screen.getByText('1정')).toBeTruthy()
+  })
+})
+
+// 미입력을 유형과 무관하게 오답으로 통일 (서버가 이미 전 유형에서 false 를 저장하고 있었다)
+describe('ExamSheetContent — 미작성은 유형 무관 오답', () => {
+  it('객관식 미입력도 오답으로 세고 미작성 수에 넣는다', () => {
+    renderSheet(
+      [
+        q({ id: 'q1', question_number: 1, correct_answer: 3 }),
+        q({ id: 'q2', question_number: 2, correct_answer: 1 }),
+      ],
+      [{ exam_question_id: 'q1', student_answer: 3 }, { exam_question_id: 'q2', student_answer: null }],
+    )
+    expect(screen.getByText('1정')).toBeTruthy()
+    expect(screen.getByText('1오')).toBeTruthy()
+    expect(screen.getByText(/미작성 1/)).toBeTruthy()
+  })
+
+  it('서술형: 빈칸은 오답 칩, 답을 썼는데 AI 판정 전이면 칩을 숨긴다', () => {
+    renderSheet(
+      [
+        q({ id: 'q1', question_number: 1, question_style: 'subjective', correct_answer_text: 'answer' }),
+        q({ id: 'q2', question_number: 2, question_style: 'subjective', correct_answer_text: 'answer' }),
+      ],
+      [
+        { exam_question_id: 'q1', student_answer: null, student_answer_text: '' },
+        { exam_question_id: 'q2', student_answer: null, student_answer_text: '뭔가 씀' }, // is_correct 없음
+      ],
+    )
+    // 빈칸 1개만 오답 칩 — AI 대기 중인 q2 는 판정 보류
+    expect(screen.getAllByText('✗ 오답')).toHaveLength(1)
+    expect(screen.getByText('0정')).toBeTruthy()
+    expect(screen.getByText('1오')).toBeTruthy()
+    expect(screen.getByText(/미작성 1/)).toBeTruthy()
   })
 })

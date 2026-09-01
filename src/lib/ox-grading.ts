@@ -106,3 +106,21 @@ export function gradeOX(correctAnswerText: string, oxSelection: string | null, c
   const student = correctionText.trim().toLowerCase()
   return key.corrections.some((alt) => student === alt)
 }
+
+/**
+ * 채점 UI 한 칸("O" / "X 수정어" / "T" / "F" / 빈칸) 을 그대로 받아 정오를 낸다.
+ *
+ * 서버(grade route)가 저장 직전에 하는 계산과 같다 — 채점지가 저장값(is_correct)을 읽지 않고
+ * 이걸 부르면 화면과 DB 가 어긋날 수 없다. 객관식의 gradeObjective 와 같은 역할.
+ *
+ * 미체크(빈칸)는 **오답**이다. 고를 게 둘뿐이라 빈칸이 곧 오답이고, undefined(미판정)로 두면
+ * 채점지 요약에서 정·오 어느 쪽에도 안 잡혀 "아직 안 본 칸" 처럼 보인다.
+ */
+export function gradeOXAnswer(
+  question: { correct_answer_text?: string | null },
+  studentInput: string | null | undefined,
+): boolean {
+  if (!question.correct_answer_text) return false
+  const { oxSelection, correction } = parseOXStudentInput(studentInput)
+  return gradeOX(question.correct_answer_text, oxSelection, correction ?? '')
+}

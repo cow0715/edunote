@@ -9,7 +9,7 @@ import { GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { acceptedObjectiveAnswers, gradeObjective } from '@/lib/objective-grading'
-import { oxNotation } from '@/lib/ox-grading'
+import { gradeOXAnswer, oxNotation } from '@/lib/ox-grading'
 import { ScoreToggleField } from './score-toggle-field'
 import { AnswerKey, CorrectChip, OXInput } from './question-inputs'
 import { SourceImagePreview } from './source-image-preview'
@@ -36,7 +36,9 @@ function ObjectiveMarks({ q, answer, disabled, onChange }: {
   const value = answer?.student_answer ?? null
   const accepted = acceptedObjectiveAnswers(q)
   const hasKey = accepted.size > 0 || q.all_correct
-  const result = q.is_void ? undefined : hasKey ? gradeObjective(q, value) : undefined
+  // 미입력도 오답 — 서버가 저장하는 값(`gradeObjective(...) ?? false`)과 같은 규칙.
+  // 정답키가 없거나 무효 문항일 때만 판정을 보류한다.
+  const result = q.is_void ? undefined : hasKey ? (gradeObjective(q, value) ?? false) : undefined
 
   return (
     <div className="flex items-center gap-1">
@@ -109,7 +111,8 @@ function TextAnswerCell({ q, answer, disabled, onChangeText }: {
         className="min-h-8 text-sm resize-none py-1"
       />
       <div className="flex flex-wrap items-center gap-2">
-        {hasAnswer && <CorrectChip isCorrect={answer?.is_correct} needsReview={answer?.needs_review === true} feedback={answer?.ai_feedback} />}
+        {/* 빈칸은 오답. 답을 쓴 뒤 AI 판정 대기 중(undefined)일 때만 칩을 숨긴다 */}
+        <CorrectChip isCorrect={hasAnswer ? answer?.is_correct : false} needsReview={answer?.needs_review === true} feedback={answer?.ai_feedback} />
         <AnswerKey q={q} />
       </div>
     </div>
@@ -128,6 +131,7 @@ function AnswerCell({ q, answer, disabled, onChangeAnswer, onChangeText }: {
   }
   if (q.question_style === 'ox') {
     const savedText = answer?.student_answer_text?.trim() ?? ''
+    const isCorrect = gradeOXAnswer(q, savedText) === true
     return (
       <div className="flex flex-wrap items-center gap-2">
         <OXInput
@@ -136,11 +140,10 @@ function AnswerCell({ q, answer, disabled, onChangeAnswer, onChangeText }: {
           disabled={disabled}
           notation={oxNotation(q.correct_answer_text)}
         />
-        {savedText && (
-          <span className={cn('text-xs font-bold', answer?.is_correct ? 'text-green-500' : 'text-red-400')}>
-            {answer?.is_correct ? '✓' : '✗'}
-          </span>
-        )}
+        {/* 미체크도 오답이라 표시를 숨기지 않는다 — 숨기면 아직 안 본 칸처럼 보인다 */}
+        <span className={cn('text-xs font-bold', isCorrect ? 'text-green-500' : 'text-red-400')}>
+          {isCorrect ? '✓' : '✗'}
+        </span>
         <AnswerKey q={q} />
       </div>
     )
@@ -156,7 +159,7 @@ function AnswerCell({ q, answer, disabled, onChangeAnswer, onChangeText }: {
           placeholder={`예: ${q.correct_answer_text ?? '1,3'}`}
           className="h-7 w-28 text-sm"
         />
-        {hasAnswer && <CorrectChip isCorrect={answer?.is_correct} />}
+        <CorrectChip isCorrect={hasAnswer ? answer?.is_correct : false} />
         <AnswerKey q={q} />
       </div>
     )
@@ -264,18 +267,32 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
   const gradable = questions.filter((q) => !q.is_void)
   let correctCount = 0
   let wrongCount = 0
-  let answeredCount = 0
+  let blankCount = 0
   for (const q of gradable) {
     const a = answerOf(q)
+    const hasInput = q.question_style === 'objective'
+      ? a?.student_answer !== null && a?.student_answer !== undefined
+      : !!a?.student_answer_text?.trim()
+
+    // 빈칸은 유형과 무관하게 오답이다 — 서버(grade route)도 전 유형에서 false 를 저장하고,
+    // 학부모 오답노트에도 "미작성" 오답 카드로 나간다. 여기서만 미판정으로 빼면
+    // 화면 규칙과 저장 규칙이 갈라진다 (8/25 T/F 오채점이 그 구조였다).
+    // 단 "입력했는데 아직 판정 없음"(서술형 AI 대기)은 그대로 미판정으로 둔다 —
+    // 답을 쓴 서술형까지 AI 채점 전에 오답으로 찍으면 안 된다.
     let result: boolean | undefined
-    if (q.question_style === 'objective') {
+    if (!hasInput) {
+      blankCount += 1
+      result = false
+    } else if (q.question_style === 'objective') {
       result = gradeObjective(q, a?.student_answer)
+    } else if (q.question_style === 'ox') {
+      // 저장값 대신 서버와 같은 함수로 직접 판정 — 저장된 is_correct 가 낡아도 화면은 맞는다
+      result = gradeOXAnswer(q, a?.student_answer_text)
     } else {
-      const hasText = !!a?.student_answer_text?.trim()
-      result = hasText ? a?.is_correct : undefined
+      result = a?.is_correct
     }
+
     if (result === undefined) continue
-    answeredCount += 1
     if (result) correctCount += 1
     else wrongCount += 1
   }
@@ -376,7 +393,7 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
               <span className="text-green-600 font-medium">{correctCount}정</span>
               &nbsp;/&nbsp;
               <span className="text-red-400 font-medium">{wrongCount}오</span>
-              &nbsp;/ {answeredCount}/{gradable.length}개 입력
+              {blankCount > 0 && <>&nbsp;/ 미작성 {blankCount}</>}
             </p>
             <p className="text-[11px] text-gray-300">
               <span className="inline-block h-2.5 w-2.5 rounded-full ring-1 ring-inset ring-emerald-400 align-[-1px] mr-1" />정답
