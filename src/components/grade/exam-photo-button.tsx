@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { Camera, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { runWithLoading } from '@/lib/async-ui'
+import { compressImageForUpload } from '@/lib/image-compress'
 
 export type ExamOcrResult = {
   question_number: number
@@ -29,15 +30,13 @@ export function ExamPhotoButton({ weekId, studentId, disabled, onResult }: {
     e.target.value = ''
     setError(null)
     await runWithLoading(setLoading, async () => {
-      const b64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve((reader.result as string).split(',')[1])
-        reader.readAsDataURL(file)
-      })
+      // 원본(폰 사진 3~6MB)을 그대로 보내면 exam-photos 에 그대로 쌓이고 요청 본문도 4/3 로 커진다 —
+      // 일괄 판독 다이얼로그와 같은 압축을 태운다.
+      const { base64: b64, mimeType } = await compressImageForUpload(file)
       const resp = await fetch(`/api/weeks/${weekId}/ocr-exam-photo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileData: b64, mimeType: file.type, studentId }),
+        body: JSON.stringify({ fileData: b64, mimeType, studentId }),
       })
       const data = await resp.json()
       if (data.ok) {
