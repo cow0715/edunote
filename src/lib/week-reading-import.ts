@@ -167,6 +167,38 @@ export function applyUnderlineMarkupToQuestionText(questionText: string): string
     .join('\n')
 }
 
+/**
+ * 위 안전망의 구조화 필드(question_stem/passage)판.
+ * 해설지형도 이제 조각 필드를 채우고, 화면은 조각이 있으면 그쪽을 우선해서 그린다.
+ * question_text 에만 밑줄을 붙이면 화면에서는 밑줄이 사라진다 — 같은 규칙을 조각에도 적용한다.
+ */
+export function applyUnderlineMarkupToParts<T extends {
+  question_text?: string | null
+  question_stem?: string | null
+  passage?: string | null
+  choices?: string[] | null
+}>(answer: T): T {
+  if (!answer.question_stem?.trim() && !answer.passage?.trim()) return answer
+
+  const asksUnderlinedWord = /밑줄\s*친|낱말의\s*쓰임|문맥상\s*낱말/.test(
+    answer.question_stem ?? answer.question_text ?? ''
+  )
+  if (!asksUnderlinedWord) return answer
+
+  const choices = (answer.choices ?? []).filter((choice) => choice.trim())
+  if (choices.length < 2) return answer
+
+  const mark = (text: string) => text.split('\n')
+    .map((line) => (isCircledChoiceLine(line) ? line : underlinePassageChoices(line, choices)))
+    .join('\n')
+
+  return {
+    ...answer,
+    question_stem: answer.question_stem ? mark(answer.question_stem) : answer.question_stem,
+    passage: answer.passage ? mark(answer.passage) : answer.passage,
+  }
+}
+
 function normalizeQuestionVisualMarkup(question: {
   question_text: string
   passage: string
@@ -499,9 +531,9 @@ async function parseAnswerSheetWhole(
       })),
     // 소문항 라벨·요약문 오분할 복구는 해설지형 고유 규칙(normalizeParsedAnswers)에 있음
     postProcess: [normalizeParsedAnswers],
-    finalize: (answers) => answers.map((answer) => answer.question_text
+    finalize: (answers) => answers.map((answer) => applyUnderlineMarkupToParts(answer.question_text
       ? { ...answer, question_text: applyUnderlineMarkupToQuestionText(answer.question_text) }
-      : answer),
+      : answer)),
   }, toPipelineFiles(files))
   return { answers: items, skipped }
 }
@@ -531,9 +563,9 @@ export async function parseAnswerSheetDocumentRanged(
       source_image_reason: answer.source_image_reason ?? null,
     }))
   answers = normalizeParsedAnswers(answers)
-    .map((answer) => answer.question_text
+    .map((answer) => applyUnderlineMarkupToParts(answer.question_text
       ? { ...answer, question_text: applyUnderlineMarkupToQuestionText(answer.question_text) }
-      : answer)
+      : answer))
   return { answers, discoveredNumbers: result.discoveredNumbers, skippedNumbers: result.skippedNumbers }
 }
 

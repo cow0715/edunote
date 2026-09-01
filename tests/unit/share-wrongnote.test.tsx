@@ -12,7 +12,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { RetakeActionRow, WrongAnswerCard, WrongVocabRow } from '@/app/share/[token]/wrong-answer-card'
 import { WrongNoteTab } from '@/app/share/[token]/tabs/wrongnote-tab'
 import type { ShareModel } from '@/app/share/[token]/use-share-model'
-import { splitCommonQuestionText } from '@/app/share/[token]/share-utils'
+import { splitCommonQuestionText, splitQuestionTexts } from '@/app/share/[token]/share-utils'
 import type { StudentAnswer, VocabAnswer, VocabWord, Week, WeekScore } from '@/app/share/[token]/share-types'
 
 afterEach(cleanup)
@@ -516,6 +516,88 @@ describe('splitCommonQuestionText', () => {
   it('소문항이 하나면 그대로 지문으로 쓴다', () => {
     const r = splitCommonQuestionText(['문제 하나뿐'])
     expect(r).toEqual({ shared: '문제 하나뿐', tails: [''] })
+  })
+})
+
+// 파싱이 passage 를 채워주면 휴리스틱을 쓰지 않는다 (2026-09-01 프롬프트 변경)
+describe('splitQuestionTexts', () => {
+  const PASSAGE = 'John was born in London in 1990. He studied engineering and moved to Seoul.'
+
+  it('소문항이 같은 passage 를 들고 있으면 그대로 공통 지문으로 쓴다', () => {
+    const r = splitQuestionTexts([
+      { passage: PASSAGE, question_stem: 'Choose True or False. (1) John moved to Seoul in 1990.' },
+      { passage: PASSAGE, question_stem: 'Choose True or False. (2) John studied engineering.' },
+    ])
+    // 공통 발문 + 지문이 한 덩어리로 올라간다
+    expect(r.shared).toContain('Choose True or False.')
+    expect(r.shared).toContain(PASSAGE)
+    expect(r.tails[0]).toContain('(1) John moved to Seoul')
+    expect(r.tails[1]).toContain('(2) John studied engineering')
+    // 지문이 꼬리에 복제되면 소문항 수만큼 반복 출력된다
+    expect(r.tails.join('')).not.toContain('born in London')
+  })
+
+  it('선지가 있으면 꼬리에 번호 기호를 붙여 담는다', () => {
+    const r = splitQuestionTexts([
+      { passage: PASSAGE, question_stem: '(1) 빈칸에 알맞은 것은?', choices: ['However', 'Therefore'] },
+      { passage: PASSAGE, question_stem: '(2) 빈칸에 알맞은 것은?', choices: ['Thus', 'Moreover'] },
+    ])
+    expect(r.shared).toContain(PASSAGE)
+    expect(r.tails[0]).toContain('① However')
+  })
+
+  it('passage 가 비어 있으면 예전처럼 question_text 통짜에서 잘라낸다', () => {
+    const r = splitQuestionTexts([
+      { question_text: '다음 글을 읽고 T/F 를 고르시오. 본문이 길게 이어진다. (1) 첫 번째 문장' },
+      { question_text: '다음 글을 읽고 T/F 를 고르시오. 본문이 길게 이어진다. (2) 두 번째 문장' },
+    ])
+    expect(r.shared).toContain('본문이 길게 이어진다')
+    expect(r.tails).toEqual(['(1) 첫 번째 문장', '(2) 두 번째 문장'])
+  })
+
+  it('지문을 첫 소문항에만 실어도 공통 지문으로 인식한다 (출력 길이 때문에 이게 기본형)', () => {
+    const r = splitQuestionTexts([
+      { passage: PASSAGE, question_stem: '(1) John moved to Seoul in 1990.' },
+      { passage: null, question_stem: '(2) John studied engineering.' },
+    ])
+    expect(r.shared).toContain(PASSAGE)
+    expect(r.tails).toEqual(['(1) John moved to Seoul in 1990.', '(2) John studied engineering.'])
+  })
+
+  it('공통 발문은 소문항마다 반복돼 와도 지문과 함께 한 번만 그린다', () => {
+    // 8/25 T/F 문항 실제 형태: 발문(70자) + 지문(1100자) + (N) 문장(90자)
+    const 발문 = 'Choose True or False (T/F) based on the content of the following text.'
+    const r = splitQuestionTexts([
+      { passage: PASSAGE, question_stem: `${발문} (1) The police used social media to find clues.` },
+      { passage: null, question_stem: `${발문} (2) Ben Kuo is a professional satellite image analyst.` },
+    ])
+    expect(r.shared).toContain(발문)
+    expect(r.shared).toContain('born in London')
+    // 발문이 꼬리에 남으면 소문항 수만큼 반복 출력된다
+    expect(r.tails[0]).toBe('(1) The police used social media to find clues.')
+    expect(r.tails[1]).toBe('(2) Ben Kuo is a professional satellite image analyst.')
+  })
+
+  it('소문항 문장이 길어도 발문을 뽑아낸다 (비율 가드가 구조화 경로를 막지 않는다)', () => {
+    // 통짜 경로의 0.3 비율 기준을 그대로 쓰면 문장이 길수록 발문이 안 뽑힌다
+    const 발문 = 'Choose True or False.'
+    const 긴문장 = (n: number) => `(${n}) ` + 'a'.repeat(300)
+    const r = splitQuestionTexts([
+      { passage: PASSAGE, question_stem: `${발문} ${긴문장(1)}` },
+      { passage: null, question_stem: `${발문} ${긴문장(2)}` },
+    ])
+    expect(r.shared).toContain(발문)
+    expect(r.tails[0]).toBe(긴문장(1))
+  })
+
+  it('소문항 문장(question_stem)이 하나라도 비면 휴리스틱으로 폴백한다', () => {
+    // stem 이 비면 그 소문항 문장이 화면에서 통째로 사라진다 — 추측이라도 하는 편이 낫다
+    const r = splitQuestionTexts([
+      { passage: PASSAGE, question_stem: '(1) 문장', question_text: `${PASSAGE} (1) 문장` },
+      { passage: null, question_stem: '', question_text: `${PASSAGE} (2) 문장` },
+    ])
+    expect(r.shared).toContain('born in London')
+    expect(r.tails[1]).toContain('(2) 문장')
   })
 })
 

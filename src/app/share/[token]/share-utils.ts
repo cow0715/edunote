@@ -2,6 +2,11 @@
 // 렌더 밖에서만 쓰는 계산은 전부 여기로 모아 탭 컴포넌트들이 서로를 import 하지 않게 한다.
 
 import { formatOXStudentInput, oxNotation } from '@/lib/ox-grading'
+import {
+  buildQuestionDisplayText,
+  buildQuestionTextFromParts,
+  type StructuredQuestionParts,
+} from '@/lib/question-structure'
 import { CIRCLE_NUM, ShareData, StudentAnswer, VocabAnswer, VocabWord, Week } from './share-types'
 
 export const CHART_VISIBLE_COUNT = 8
@@ -169,8 +174,16 @@ export function groupAnswersByQuestion(answers: StudentAnswer[]): StudentAnswer[
  * 그래서 공통 지문은 한 번만 그리고, 각 소문항 문장은 자기 답 옆에 붙인다.
  *
  * 공통부가 너무 짧으면(우연히 몇 글자만 겹친 경우) 묶지 않고 각자 전문을 쓴다.
+ *
+ * minRatio 는 "공통부가 최소 이만큼은 돼야 한다" 는 비율 기준이다. 통짜 question_text 를
+ * 넘길 때는 지문이 통째로 겹치는 게 정상이라 0.3 을 요구하지만, 이미 지문을 걷어낸
+ * 발문끼리 비교할 때는 0 으로 낮춘다 — 같은 문항의 소문항인 게 이미 확정이라
+ * 우연히 겹칠 걱정이 없고, 비율로 재면 소문항 문장이 길수록 발문이 안 뽑힌다.
  */
-export function splitCommonQuestionText(texts: string[]): { shared: string; tails: string[] } {
+export function splitCommonQuestionText(
+  texts: string[],
+  { minRatio = MIN_SHARED_RATIO }: { minRatio?: number } = {},
+): { shared: string; tails: string[] } {
   if (texts.length === 0) return { shared: '', tails: [] }
   if (texts.length === 1) return { shared: texts[0].trim(), tails: [''] }
 
@@ -191,7 +204,7 @@ export function splitCommonQuestionText(texts: string[]): { shared: string; tail
   const shared = first.slice(0, cut).trim()
   // 우연히 몇 글자 겹친 정도면 공통 지문으로 치지 않는다.
   // 절대 길이로 재면 짧은 지문이 통째로 버려져서 최소 비율로 판단한다.
-  if (shared.length < Math.max(MIN_SHARED_CHARS, shortest * MIN_SHARED_RATIO)) {
+  if (shared.length < Math.max(MIN_SHARED_CHARS, shortest * minRatio)) {
     return { shared: '', tails: texts.map((t) => t.trim()) }
   }
   return { shared, tails: texts.map((t) => t.slice(cut).trim()) }
@@ -199,3 +212,49 @@ export function splitCommonQuestionText(texts: string[]): { shared: string; tail
 
 const MIN_SHARED_CHARS = 12
 const MIN_SHARED_RATIO = 0.3
+
+/**
+ * 한 문항의 소문항들을 [공통 지문 + 각자 꼬리] 로 나눈다.
+ *
+ * 파싱이 passage 를 채워준 문항은 추측할 게 없다 — 그대로 쓴다.
+ * 지문은 출력 길이 때문에 첫 소문항에만 싣게 돼 있지만(prompts.ts),
+ * 소문항마다 복제돼 와도 같은 값이면 똑같이 처리한다 — LLM 출력에 여유를 둔다.
+ *
+ * passage 가 아예 없는 예전 데이터만 question_text 통짜에서 공통부를 잘라내는
+ * splitCommonQuestionText 휴리스틱으로 넘긴다.
+ */
+export function splitQuestionTexts(questions: StructuredQuestionParts[]): { shared: string; tails: string[] } {
+  const passages = questions.map((q) => q.passage?.trim() ?? '')
+  const filled = passages.filter(Boolean)
+  const stems = questions.map((q) => q.question_stem?.trim() ?? '')
+
+  // 지문이 하나라도 있고 서로 어긋나지 않으며, 소문항 문장이 하나도 빠지지 않았을 때만 쓴다.
+  // stem 이 비면 그 소문항 문장이 화면에서 통째로 사라지므로 그럴 땐 휴리스틱이 낫다.
+  const usableStructure = questions.length > 1
+    && filled.length > 0
+    && filled.every((p) => p === filled[0])
+    && stems.every(Boolean)
+
+  if (usableStructure) {
+    // 지문을 뺀 나머지 = 발문 + 그 소문항 문장 + 선지.
+    // 발문("Choose True or False…")도 소문항마다 반복되므로 한 번 더 공통부를 걷어낸다.
+    // 안 그러면 지문은 한 번인데 발문만 소문항 수만큼 찍힌다.
+    const stemBlocks = questions.map((q) => buildQuestionTextFromParts({
+      questionStem: q.question_stem,
+      choices: q.choices,
+    }) ?? '')
+    const { shared: commonStem, tails } = splitCommonQuestionText(stemBlocks, { minRatio: 0 })
+
+    return {
+      shared: [commonStem, filled[0]].filter(Boolean).join('\n\n'),
+      tails,
+    }
+  }
+
+  // 폴백은 공통 문자열을 앞에서부터 맞춰보는 방식이라 표현이 문항마다 달라지면 안 된다.
+  // 조각이 반쯤 채워진 문항과 통짜 문항이 섞이면 buildQuestionDisplayText 가
+  // 서로 다른 조립 결과(구분 줄바꿈 수)를 내놔 공통부가 사라진다 — 통짜 쪽으로 통일한다.
+  return splitCommonQuestionText(
+    questions.map((q) => q.question_text?.trim() || buildQuestionDisplayText(q))
+  )
+}

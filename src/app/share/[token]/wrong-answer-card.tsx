@@ -17,9 +17,8 @@ import {
   isExampleSourceValue,
 } from '@/components/grade/vocab-example-inline'
 import { parseChoiceOptions } from '@/lib/vocab-example-blank'
-import { buildQuestionDisplayText } from '@/lib/question-structure'
 import { StudentAnswer, VocabAnswer } from './share-types'
-import { formatCorrectAnswer, formatMyAnswer, splitCommonQuestionText } from './share-utils'
+import { formatCorrectAnswer, formatMyAnswer, splitQuestionTexts } from './share-utils'
 import { ConceptChip, ExampleBox, NoteBlock, WordRelationChips } from './share-word-parts'
 
 const LABEL_CLASS = 'mr-1 text-[11px] text-gray-400 dark:text-gray-500'
@@ -76,9 +75,7 @@ export function WrongAnswerCard({
   // 지문은 소문항마다 "같은 본문 + 자기 문장" 형태로 복제돼 있다.
   // 아무거나 하나만 그리면 나머지 소문항 문장이 사라진다 (T/F 5문장 중 1개만 보이던 버그).
   // 공통 본문은 한 번만, 각자 문장은 자기 답 옆에 붙인다.
-  const { shared: questionText, tails } = splitCommonQuestionText(
-    answers.map((a) => buildQuestionDisplayText(a.exam_question!) ?? '')
-  )
+  const { shared: questionText, tails } = splitQuestionTexts(answers.map((a) => a.exam_question!))
 
   // 소문항별로 [문장 + 답 + 그 소문항의 첨삭·해설] 을 한 덩어리로 묶는다.
   // 답을 7줄 몰아놓고 해설 14개를 뒤에 붙이면 어느 해설이 어느 빈칸 것인지 알 수 없다.

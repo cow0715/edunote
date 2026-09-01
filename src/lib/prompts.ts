@@ -242,6 +242,25 @@ question_style은 문항 유형 이름이 아니라 답안 형식만 보고 결�
     - [핵심] 문자열 내 큰따옴표(") 처리: 반드시 \" 로 이스케이프하거나 작은따옴표(')로 대체
       예: "To grow..." → 'To grow...' 또는 \"To grow...\"
       예: we ______________.\" (닫는 따옴표도 반드시 이스케이프)
+- question_stem / passage / choices: question_text 를 세 조각으로 나눈 것.
+  question_text 와 **함께** 채운다 (통짜만 내거나 조각만 내지 말 것 — 둘 다 필요하다).
+  · question_stem: 발문(지시문). 소문항이면 그 소문항이 묻는 문장까지 포함.
+  · passage: 발문·선지를 뺀 본문 지문 전체. 지문이 없는 문항이면 null.
+  · choices: 객관식 선지 배열(문자열). 번호 기호(①②③) 없이 내용만. 선지가 없으면 null.
+  · [핵심] 소문항이 지문을 공유하면 passage 는 **그 문항의 첫 소문항에만** 싣고,
+    나머지 소문항의 passage 는 null 로 둔다. 각 소문항 고유의 문장은 question_stem 에 넣는다.
+    예) 6(a) passage="John was born in London..."(본문 전체)
+             question_stem="Choose True or False.\\n(1) John moved to Seoul in 1990."
+        6(b) passage=null
+             question_stem="Choose True or False.\\n(2) John studied engineering."
+    이유① 화면은 공유 지문을 한 번만 그리고 소문항 문장만 각자 붙인다.
+          지문을 question_stem 쪽에 섞으면 같은 지문이 소문항 수만큼 반복 출력된다.
+    이유② 소문항마다 지문을 복제하면 출력이 길어져 응답이 잘리고 문항이 통째로 유실된다.
+  · 소문항은 question_stem 을 **빠짐없이** 채운다 — 비면 그 소문항 문장이 화면에서 사라진다.
+    공통 발문("Choose True or False." 등)은 소문항마다 똑같이 반복해서 넣는다.
+    발문은 짧아서 출력이 길어질 걱정이 없고, 화면이 반복된 발문을 알아서 한 번만 그린다.
+    passage 와 달리 여기서 생략하면 그 소문항이 무엇을 묻는지 알 수 없어진다.
+  · question_text 는 지금까지처럼 문항 전체를 그대로(지문 포함) 재현한다 — 조각을 낸다고 줄이지 말 것.
 - ※ 문항을 절대 건너뛰지 마세요. 정답 형식이 불명확해도 최대한 추론해서 추출하세요.
 
 ━━━ 영어 전문 지식으로 보강 ━━━
