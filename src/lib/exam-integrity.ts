@@ -23,11 +23,13 @@ export const INTEGRITY_SEVERITY: Record<string, 'score' | 'data'> = {
   조합선택형_오분리: 'score',        // 문항이 2개로 세어져 분모가 부푼다
   미작성_정답처리: 'score',
   objective_판정_불일치: 'score',
+  ox_판정_불일치: 'score',           // 채점 로직을 고쳐도 저장된 is_correct 는 안 고쳐진다
   점수합_불일치: 'score',
   중복답안: 'score',
   objective_정답키_없음: 'data',
   objective_정답텍스트_혼입: 'data',
   소문항_단독: 'data',
+  소문항_지문_없음: 'data',          // 공통 지문이 소문항 수만큼 반복 출력된다
 }
 
 export type IntegritySummary = {
