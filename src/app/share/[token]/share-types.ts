@@ -15,6 +15,8 @@ export type ConceptTag = { id: string; name: string; category_id: string | null;
 export type StudentAnswer = {
   id: string; week_score_id: string; is_correct: boolean
   student_answer: number | null; student_answer_text: string | null; ai_feedback: string | null
+  /** ox(T/F) 문항의 학생 선택 — 이 유형은 답이 student_answer_text 가 아니라 여기 들어온다 */
+  ox_selection?: string | null
   exam_question: {
     id: string; week_id: string; question_number: number; sub_label: string | null
     exam_type: 'reading' | 'vocab' | null; question_style: string

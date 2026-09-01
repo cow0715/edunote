@@ -282,7 +282,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
         .from('student_answer')
         .select(`
           id, week_score_id, is_correct,
-          student_answer, student_answer_text, ai_feedback,
+          student_answer, student_answer_text, ox_selection, ai_feedback,
           exam_question(
             id, week_id, question_number, sub_label,
             exam_type, question_style,

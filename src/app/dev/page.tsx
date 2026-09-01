@@ -258,7 +258,7 @@ export default function DevPage() {
 
           {/* 오답 파이 */}
           <Section title="📊 유형별 오답률 (WrongTypeChart)">
-            <WrongTypeChart data={PIE_DATA} />
+            <WrongTypeChart data={PIE_DATA} isDark={isDark} />
           </Section>
 
           {/* 취약 유형 */}

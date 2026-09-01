@@ -12,6 +12,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { RetakeActionRow, WrongAnswerCard, WrongVocabRow } from '@/app/share/[token]/wrong-answer-card'
 import { WrongNoteTab } from '@/app/share/[token]/tabs/wrongnote-tab'
 import type { ShareModel } from '@/app/share/[token]/use-share-model'
+import { splitCommonQuestionText } from '@/app/share/[token]/share-utils'
 import type { StudentAnswer, VocabAnswer, VocabWord, Week, WeekScore } from '@/app/share/[token]/share-types'
 
 afterEach(cleanup)
@@ -474,5 +475,89 @@ describe('WrongAnswerCard — 소문항별 해설 배치', () => {
     const text = container.textContent ?? ''
     expect(text.indexOf('내 답')).toBeLessThan(text.indexOf('(A)는 exchange'))
     expect(screen.getByText('(B)는 withstand')).toBeTruthy()
+  })
+})
+
+// ── 공통 지문 분리 (T/F 5문장 중 1개만 보이던 회귀) ─────────────────────────
+describe('splitCommonQuestionText', () => {
+  it('공통 본문과 각자 꼬리를 나눈다', () => {
+    const r = splitCommonQuestionText([
+      '다음 글을 읽고 T/F 를 고르시오. 본문이 길게 이어진다. (1) 첫 번째 문장',
+      '다음 글을 읽고 T/F 를 고르시오. 본문이 길게 이어진다. (2) 두 번째 문장',
+    ])
+    expect(r.shared).toContain('본문이 길게 이어진다')
+    expect(r.shared).not.toContain('(1)')
+    expect(r.tails).toEqual(['(1) 첫 번째 문장', '(2) 두 번째 문장'])
+  })
+
+  it('전부 같은 지문이면 꼬리가 비어 한 번만 그린다', () => {
+    const same = '다음 글의 요약문을 완성하시오. 본문이 여기 길게 들어간다.'
+    const r = splitCommonQuestionText([same, same])
+    expect(r.shared).toBe(same)
+    expect(r.tails).toEqual(['', ''])
+  })
+
+  it('공통부가 거의 없으면 각자 전문을 쓴다', () => {
+    const r = splitCommonQuestionText(['서로 완전히 다른 문제 하나입니다', '전혀 다른 두 번째 문제입니다'])
+    expect(r.shared).toBe('')
+    expect(r.tails).toHaveLength(2)
+    expect(r.tails[0]).toContain('서로 완전히')
+  })
+
+  it('단어 중간에서 자르지 않는다', () => {
+    const r = splitCommonQuestionText([
+      '공통으로 아주 길게 이어지는 앞부분 문장입니다 alpha 뒤',
+      '공통으로 아주 길게 이어지는 앞부분 문장입니다 alphabet 뒤',
+    ])
+    expect(r.shared.endsWith('문장입니다')).toBe(true)
+    expect(r.tails[0]).toBe('alpha 뒤')
+  })
+
+  it('소문항이 하나면 그대로 지문으로 쓴다', () => {
+    const r = splitCommonQuestionText(['문제 하나뿐'])
+    expect(r).toEqual({ shared: '문제 하나뿐', tails: [''] })
+  })
+})
+
+describe('WrongAnswerCard — 소문항 문장이 사라지지 않는다', () => {
+  const tf = (label: string, n: number, correct: string) =>
+    makeStudentAnswer(
+      {
+        sub_label: label, question_number: 1, question_style: 'ox',
+        correct_answer: 0, correct_answer_text: correct,
+        question_text: `Choose True or False based on the text. 본문이 아주 길게 이어지는 부분입니다. (${n}) 문장 ${n}`,
+      },
+      { id: `tf-${label}`, student_answer: null, ox_selection: n % 2 === 0 ? 'X' : 'O' },
+    )
+
+  it('T/F 5문항이면 (1)~(5) 문장이 모두 보인다', () => {
+    render(<WrongAnswerCard
+      answers={[tf('a', 1, 'T'), tf('b', 2, 'F'), tf('c', 3, 'T'), tf('d', 4, 'F'), tf('e', 5, 'F')]}
+      token="tok"
+    />)
+    for (const n of [1, 2, 3, 4, 5]) {
+      expect(screen.getByText(`(${n}) 문장 ${n}`)).toBeTruthy()
+    }
+  })
+
+  it('공통 본문은 한 번만 그린다', () => {
+    render(<WrongAnswerCard answers={[tf('a', 1, 'T'), tf('b', 2, 'F')]} token="tok" />)
+    expect(screen.getAllByText(/본문이 아주 길게 이어지는 부분입니다/)).toHaveLength(1)
+  })
+
+  it('ox 답은 ox_selection 을 정답키 표기(T/F)로 보여준다', () => {
+    render(<WrongAnswerCard answers={[tf('a', 1, 'T')]} token="tok" />)
+    expect(screen.queryByText('미작성')).toBeNull()
+    // 내 답 T · 정답 T 둘 다 T 라서 두 개 잡힌다
+    expect(screen.getAllByText('T')).toHaveLength(2)
+  })
+
+  it('ox 인데 아무것도 안 골랐으면 미작성', () => {
+    const blank = makeStudentAnswer(
+      { sub_label: null, question_style: 'ox', correct_answer: 0, correct_answer_text: 'F' },
+      { student_answer: null, ox_selection: null },
+    )
+    render(<WrongAnswerCard answers={[blank]} token="tok" />)
+    expect(screen.getByText('미작성')).toBeTruthy()
   })
 })

@@ -69,7 +69,7 @@ export function AnalysisTab({
 
       {typeData.length > 0 && (
         <Card title="유형별 오답률" subtitle="전체 누적 · 탭하면 문제 확인" info="유형마다 출제 수가 달라서, 출제가 적은 유형은 오답률이 100% 여도 아직 판단하기 이릅니다. 순서는 출제 수를 함께 반영해 정합니다.">
-          <WrongTypeChart data={typeData} onTagClick={onTagClick} />
+          <WrongTypeChart data={typeData} onTagClick={onTagClick} isDark={isDark} />
         </Card>
       )}
 

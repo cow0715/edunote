@@ -1,6 +1,7 @@
 // share 화면 공용 순수 헬퍼 / 타입.
 // 렌더 밖에서만 쓰는 계산은 전부 여기로 모아 탭 컴포넌트들이 서로를 import 하지 않게 한다.
 
+import { formatOXStudentInput, oxNotation } from '@/lib/ox-grading'
 import { CIRCLE_NUM, ShareData, StudentAnswer, VocabAnswer, VocabWord, Week } from './share-types'
 
 export const CHART_VISIBLE_COUNT = 8
@@ -66,6 +67,12 @@ export function formatMyAnswer(a: StudentAnswer): string {
   const q = a.exam_question!
   if (q.question_style === 'objective') {
     return a.student_answer !== null ? (CIRCLE_NUM[a.student_answer - 1] ?? String(a.student_answer)) : '미작성'
+  }
+  // ox(T/F) 는 학생 답이 student_answer_text 가 아니라 ox_selection 에 있다.
+  // 이걸 안 보면 답을 쓴 학생도 전부 "미작성" 으로 보였다.
+  if (q.question_style === 'ox') {
+    const shown = formatOXStudentInput(a.ox_selection, a.student_answer_text, oxNotation(q.correct_answer_text))
+    return shown || '미작성'
   }
   return a.student_answer_text?.trim() || '미작성'
 }
@@ -151,3 +158,44 @@ export function groupAnswersByQuestion(answers: StudentAnswer[]): StudentAnswer[
     list.slice().sort((a, b) => (a.exam_question!.sub_label ?? '').localeCompare(b.exam_question!.sub_label ?? ''))
   )
 }
+
+/**
+ * 소문항들의 문제 지문에서 공통 부분과 각자의 꼬리를 분리한다.
+ *
+ * 내신 T/F·요약문 문항은 소문항마다 "같은 지문 + 자기 문장" 을 통째로 들고 있다:
+ *   (a) …지문… (1) The police used social media…
+ *   (b) …지문… (2) Ben Kuo is a professional…
+ * 한 카드로 묶을 때 아무거나 하나만 그리면 나머지 문장이 사라진다.
+ * 그래서 공통 지문은 한 번만 그리고, 각 소문항 문장은 자기 답 옆에 붙인다.
+ *
+ * 공통부가 너무 짧으면(우연히 몇 글자만 겹친 경우) 묶지 않고 각자 전문을 쓴다.
+ */
+export function splitCommonQuestionText(texts: string[]): { shared: string; tails: string[] } {
+  if (texts.length === 0) return { shared: '', tails: [] }
+  if (texts.length === 1) return { shared: texts[0].trim(), tails: [''] }
+
+  // 전부 같은 지문이면 길이와 무관하게 통째로 공통 — 소문항이 답만 다른 경우다
+  if (texts.every((t) => t === texts[0])) {
+    return { shared: texts[0].trim(), tails: texts.map(() => '') }
+  }
+
+  const first = texts[0]
+  const shortest = Math.min(...texts.map((t) => t.length))
+  let i = 0
+  while (i < shortest && texts.every((t) => t[i] === first[i])) i += 1
+
+  // 단어 중간에서 자르지 않도록 마지막 공백까지 되돌린다
+  let cut = i
+  while (cut > 0 && !/\s/.test(first[cut - 1])) cut -= 1
+
+  const shared = first.slice(0, cut).trim()
+  // 우연히 몇 글자 겹친 정도면 공통 지문으로 치지 않는다.
+  // 절대 길이로 재면 짧은 지문이 통째로 버려져서 최소 비율로 판단한다.
+  if (shared.length < Math.max(MIN_SHARED_CHARS, shortest * MIN_SHARED_RATIO)) {
+    return { shared: '', tails: texts.map((t) => t.trim()) }
+  }
+  return { shared, tails: texts.map((t) => t.slice(cut).trim()) }
+}
+
+const MIN_SHARED_CHARS = 12
+const MIN_SHARED_RATIO = 0.3

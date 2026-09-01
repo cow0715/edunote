@@ -19,7 +19,7 @@ import {
 import { parseChoiceOptions } from '@/lib/vocab-example-blank'
 import { buildQuestionDisplayText } from '@/lib/question-structure'
 import { StudentAnswer, VocabAnswer } from './share-types'
-import { formatCorrectAnswer, formatMyAnswer } from './share-utils'
+import { formatCorrectAnswer, formatMyAnswer, splitCommonQuestionText } from './share-utils'
 import { ConceptChip, ExampleBox, NoteBlock, WordRelationChips } from './share-word-parts'
 
 const LABEL_CLASS = 'mr-1 text-[11px] text-gray-400 dark:text-gray-500'
@@ -73,17 +73,19 @@ export function WrongAnswerCard({
     if (t.concept_tag) tagMap.set(t.concept_tag.id, t.concept_tag.name)
   }))
 
-  // 지문은 소문항마다 복제돼 있다. 가장 긴 것을 한 번만 그린다
-  const questionText = answers
-    .map((a) => buildQuestionDisplayText(a.exam_question!))
-    .filter(Boolean)
-    .sort((x, y) => y.length - x.length)[0] ?? ''
+  // 지문은 소문항마다 "같은 본문 + 자기 문장" 형태로 복제돼 있다.
+  // 아무거나 하나만 그리면 나머지 소문항 문장이 사라진다 (T/F 5문장 중 1개만 보이던 버그).
+  // 공통 본문은 한 번만, 각자 문장은 자기 답 옆에 붙인다.
+  const { shared: questionText, tails } = splitCommonQuestionText(
+    answers.map((a) => buildQuestionDisplayText(a.exam_question!) ?? '')
+  )
 
-  // 소문항별로 [답 + 그 소문항의 첨삭·해설] 을 한 덩어리로 묶는다.
+  // 소문항별로 [문장 + 답 + 그 소문항의 첨삭·해설] 을 한 덩어리로 묶는다.
   // 답을 7줄 몰아놓고 해설 14개를 뒤에 붙이면 어느 해설이 어느 빈칸 것인지 알 수 없다.
-  const items = answers.map((a) => ({
+  const items = answers.map((a, index) => ({
     key: a.id,
     sub: a.exam_question!.sub_label,
+    tail: tails[index] ?? '',
     mine: formatMyAnswer(a),
     correct: formatCorrectAnswer(a.exam_question!),
     notes: [
@@ -91,7 +93,7 @@ export function WrongAnswerCard({
       a.exam_question?.explanation ? { label: '해설', text: a.exam_question.explanation } : null,
     ].filter((n): n is { label: string; text: string } => n !== null),
   }))
-  const uniform = items.every((r) => r.mine === items[0].mine && r.correct === items[0].correct)
+  const uniform = items.every((r) => r.mine === items[0].mine && r.correct === items[0].correct && !r.tail)
 
   // 답이 전부 같으면(오분리 레거시) 답은 한 줄만 쓰고 해설은 모아서 붙인다.
   // 이때 소문항마다 같은 해설이 복제돼 있으면 한 번만.
@@ -153,6 +155,12 @@ export function WrongAnswerCard({
         <div className="mt-2.5 space-y-3">
           {items.map((item) => (
             <div key={item.key}>
+              {item.tail && (
+                <FormattedQuestionText
+                  text={item.tail}
+                  className="mb-1 border-l-2 border-gray-200 pl-3 text-xs leading-relaxed text-gray-600 dark:border-white/[0.12] dark:text-gray-400 text-justify"
+                />
+              )}
               <div className="flex items-baseline gap-2">
                 {item.sub && (
                   <span className="w-6 shrink-0 text-xs font-bold text-gray-400 dark:text-gray-500">({item.sub})</span>
