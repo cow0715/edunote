@@ -53,7 +53,9 @@ export function HomeworkBarChart({ data, isDark }: { data: HomeworkItem[]; isDar
         <XAxis dataKey="label" tick={{ fontSize: 11, fill: tick }} axisLine={false} tickLine={false} />
         <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: tick }} unit="%" axisLine={false} tickLine={false} />
         <ChartTooltip content={<CustomTooltip isDark={isDark} />} />
-        <Bar dataKey="rate" radius={[5, 5, 0, 0]} maxBarSize={40}>
+        {/* 다크 테마는 마운트 다음 프레임에 적용돼 차트가 애니메이션 도중 재렌더된다.
+            recharts 는 그때 막대 높이를 첫 프레임(약 8px)에 멈춰 두므로 진입 애니메이션을 끈다. */}
+        <Bar dataKey="rate" radius={[5, 5, 0, 0]} maxBarSize={40} isAnimationActive={false}>
           {data.map((_, i) => (
             <Cell key={i} fill="url(#hw-grad)" />
           ))}
