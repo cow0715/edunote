@@ -361,9 +361,12 @@ export function useShareModel(data: ShareData | undefined) {
         label: `${a.exam_question!.question_number}번${a.exam_question!.sub_label ?? ''}`,
         detail: a.exam_question!.exam_question_tag.find((t) => t.concept_tag)?.concept_tag?.name ?? null,
       })),
+      // 반의어·동의어·파생어 시험은 문제 단어(test_word)가 원본 단어와 다르고, 정답 뜻은
+      // 문제 단어 기준이다. 원본 단어를 앞세우면 "various — 동일한" 처럼 뜻이 어긋나 보인다.
+      // 오답노트(WrongVocabRow)와 같은 순서: test_word 우선.
       ...wrongVocabAnswers.map((va): WrongPreviewItem => ({
         kind: 'vocab',
-        label: va.vocab_word?.english_word ?? va.test_word ?? '?',
+        label: va.test_word ?? va.vocab_word?.english_word ?? '?',
         detail: va.vocab_word?.correct_answer ?? null,
       })),
     ].slice(0, 3)
