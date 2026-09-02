@@ -3,40 +3,51 @@
 // 홈 탭 — "이번 주 한 장 리포트".
 //
 // 설계 원칙 (design.md §0, §4):
-//   · 대시보드가 아니다. 학부모가 읽는 순서대로: 이번 주 한 문장 → 지표 3줄 → 오답 → 흐름 → 출결.
+//   · 대시보드가 아니다. 학부모가 읽는 순서대로:
+//     이번 주 한 문장 → 지표 3줄 → 잘한 점/챙길 점 → 오답 미리보기 → 반복 약점 → 흐름 → 과제 → 출결.
 //   · 큰 숫자·색 타일·이모지 칩 없음. 색은 accent 하나(진행 막대·링크)만 쓴다.
 //   · 선생님 코멘트가 있으면 헤드라인 바로 아래에 둔다 — 숫자보다 먼저 읽힌다.
-//   · 차트는 성적 탭 몫이다. 홈은 스파크라인 이상을 그리지 않는다.
+//   · 밀도는 기존 화면 수준으로 유지한다. 절제는 위계로 만들고, 내용을 빼서 만들지 않는다.
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react'
-import { AttendanceCalendar, Card, EmptyState } from '../share-components'
-import { ShareModel, WeeklyReport } from '../use-share-model'
+import { AttendanceCalendar, Card, EmptyState, SURFACE_CLASS, SwipeChartCard } from '../share-components'
+import { ShareModel, TrendStat, WeeklyReport } from '../use-share-model'
 import { ShareData } from '../share-types'
-import { WeeklyMetric, avg, fmtDelta, fmtShortDate, getWeekLabel } from '../share-utils'
+import { WeeklyMetric, fmtCount, fmtDelta, fmtShortDate, getWeekLabel } from '../share-utils'
+
+const HomeworkBarChart = dynamic(
+  () => import('@/components/share/homework-bar-chart').then((m) => m.HomeworkBarChart),
+  { ssr: false }
+)
 
 const INK = 'text-[#1A1C1E] dark:text-[#F1F5F9]'
 const BODY = 'text-[#3F4650] dark:text-[#CBD5E1]'
 const MUTED = 'text-[#8B95A1]'
 const ACCENT = 'text-[#2463EB] dark:text-[#3B82F6]'
 const HAIRLINE = 'border-[#EEF0F3] dark:border-white/[0.06]'
+const DIVIDE = 'divide-[#EEF0F3] dark:divide-white/[0.06]'
 
 export function HomeTab({
   student,
   model,
+  isDark,
   onOpenWrongNote,
   onGoScoreSection,
+  onGoAnalysis,
 }: {
   student: ShareData['student']
   model: ShareModel
+  isDark: boolean
   onOpenWrongNote: (kind: 'reading' | 'vocab') => void
   onGoScoreSection: (id: string) => void
+  onGoAnalysis: () => void
 }) {
   const {
-    classes, latestReport, scoredWeeks,
-    readingRates, vocabRates, homeworkRates,
+    classes, latestReport, recentTrend, topWeakness, homeworkData,
     attendance, clinicAttendance,
-    totalAtt, presentAtt, totalClinicAtt, presentClinicAtt,
+    totalAtt, presentAtt, attRate, totalClinicAtt, presentClinicAtt, clinicAttRate,
     commentFeed,
   } = model
 
@@ -59,24 +70,43 @@ export function HomeTab({
         ? <WeeklyReportCard report={latestReport} onOpenWrongNote={onOpenWrongNote} />
         : <EmptyState>아직 시험 결과가 없어요.</EmptyState>}
 
-      {scoredWeeks.length >= 2 && (
-        <Card title="최근 흐름" subtitle={`${scoredWeeks.length}주 평균`}>
-          <div className={`grid grid-cols-3 divide-x ${HAIRLINE.replace('border-', 'divide-')}`}>
-            <TrendCell label="시험" rates={readingRates} onClick={() => onGoScoreSection('section-reading-chart')} />
-            <TrendCell label="단어" rates={vocabRates} onClick={() => onGoScoreSection('section-vocab-chart')} />
-            <TrendCell label="과제" rates={homeworkRates} onClick={() => onGoScoreSection('section-homework')} />
+      {topWeakness && (
+        <button
+          type="button"
+          onClick={onGoAnalysis}
+          className={`${SURFACE_CLASS} flex w-full items-center justify-between gap-3 px-5 py-4 text-left active:opacity-70`}
+        >
+          <span className="min-w-0">
+            <span className={`block text-[12px] ${MUTED}`}>반복해서 틀리는 유형</span>
+            <span className={`mt-0.5 block text-[15px] font-semibold ${INK}`}>{topWeakness.name}</span>
+            <span className={`mt-0.5 block text-[13px] ${BODY}`}>{topWeakness.text}</span>
+          </span>
+          <ChevronRight className={`h-4 w-4 shrink-0 ${MUTED}`} />
+        </button>
+      )}
+
+      {recentTrend.weekCount >= 2 && (
+        <Card title="최근 흐름" subtitle={`최근 ${recentTrend.weekCount}주 · 탭하면 추이 그래프`}>
+          <div className={`grid grid-cols-3 divide-x ${DIVIDE}`}>
+            <TrendCell label="시험" stat={recentTrend.reading} onClick={() => onGoScoreSection('section-reading-chart')} />
+            <TrendCell label="단어" stat={recentTrend.vocab} onClick={() => onGoScoreSection('section-vocab-chart')} />
+            <TrendCell label="과제" stat={recentTrend.homework} onClick={() => onGoScoreSection('section-homework')} />
           </div>
         </Card>
+      )}
+
+      {homeworkData.length >= 1 && (
+        <SwipeChartCard id="section-homework" title="과제 제출률" subtitle="주차별 (%)" itemCount={homeworkData.length}>
+          <HomeworkBarChart data={homeworkData} isDark={isDark} />
+        </SwipeChartCard>
       )}
 
       {hasAttendanceData && (
         <AttendanceSection
           attendance={attendance}
           clinicAttendance={clinicAttendance}
-          summary={[
-            totalAtt > 0 ? `정규수업 ${presentAtt}/${totalAtt}회` : null,
-            totalClinicAtt > 0 ? `클리닉 ${presentClinicAtt}/${totalClinicAtt}회` : null,
-          ].filter(Boolean).join(' · ')}
+          regular={{ present: presentAtt, total: totalAtt, rate: attRate }}
+          clinic={{ present: presentClinicAtt, total: totalClinicAtt, rate: clinicAttRate }}
         />
       )}
 
@@ -90,8 +120,9 @@ function WeeklyReportCard({ report, onOpenWrongNote }: {
   report: WeeklyReport
   onOpenWrongNote: (kind: 'reading' | 'vocab') => void
 }) {
-  const { week, headline, memo, reading, vocab, homework, wrongReading, wrongVocab } = report
+  const { week, headline, memo, reading, vocab, homework, wrongReading, wrongVocab, notes, wrongPreview } = report
   const wrongTotal = wrongReading + wrongVocab
+  const hasNotes = notes.good.length > 0 || notes.watch.length > 0
 
   return (
     <Card noPad>
@@ -108,11 +139,33 @@ function WeeklyReportCard({ report, onOpenWrongNote }: {
         )}
       </div>
 
-      <div className={`mt-4 divide-y border-t ${HAIRLINE} ${HAIRLINE.replace('border-', 'divide-')}`}>
+      <div className={`mt-4 divide-y border-t ${HAIRLINE} ${DIVIDE}`}>
         {reading && <MetricRow label="시험" metric={reading} onClick={wrongReading > 0 ? () => onOpenWrongNote('reading') : undefined} />}
         {vocab && <MetricRow label="단어" metric={vocab} onClick={wrongVocab > 0 ? () => onOpenWrongNote('vocab') : undefined} />}
         {homework && <MetricRow label="과제" metric={homework} />}
       </div>
+
+      {hasNotes && (
+        <div className={`space-y-2 border-t px-5 py-4 ${HAIRLINE}`}>
+          {notes.good.length > 0 && <NoteLine label="잘한 점" items={notes.good} />}
+          {notes.watch.length > 0 && <NoteLine label="챙길 점" items={notes.watch} />}
+        </div>
+      )}
+
+      {wrongPreview.length > 0 && (
+        <div className={`border-t px-5 pt-4 pb-2 ${HAIRLINE}`}>
+          <p className={`text-[12px] font-medium ${MUTED}`}>이번 주 오답</p>
+          <ul className={`mt-1 divide-y ${DIVIDE}`}>
+            {wrongPreview.map((item, i) => (
+              <li key={i} className="flex items-baseline gap-2.5 py-2">
+                <span className={`w-7 shrink-0 text-[11px] ${MUTED}`}>{item.kind === 'reading' ? '시험' : '단어'}</span>
+                <span className={`text-[14px] font-semibold ${INK}`}>{item.label}</span>
+                {item.detail && <span className={`min-w-0 truncate text-[13px] ${BODY}`}>{item.detail}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {wrongTotal > 0 && (
         <button
@@ -120,11 +173,21 @@ function WeeklyReportCard({ report, onOpenWrongNote }: {
           onClick={() => onOpenWrongNote(wrongReading > 0 ? 'reading' : 'vocab')}
           className={`flex w-full items-center justify-between border-t px-5 py-3.5 text-[14px] font-semibold active:opacity-70 ${HAIRLINE} ${ACCENT}`}
         >
-          <span>오답 {wrongTotal}문항 다시 보기</span>
+          <span>오답 {wrongTotal}문항 모두 보기</span>
           <ChevronRight className="h-4 w-4" />
         </button>
       )}
     </Card>
+  )
+}
+
+/** "잘한 점  시험 만점 · 5회 연속 출석" */
+function NoteLine({ label, items }: { label: string; items: string[] }) {
+  return (
+    <p className="flex gap-3 text-[13px] leading-relaxed">
+      <span className={`w-11 shrink-0 ${MUTED}`}>{label}</span>
+      <span className={BODY}>{items.join(' · ')}</span>
+    </p>
   )
 }
 
@@ -136,9 +199,10 @@ function MetricRow({ label, metric, onClick }: { label: string; metric: WeeklyMe
       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#EEF0F3] dark:bg-white/[0.08]">
         <div className="h-full rounded-full bg-[#2463EB] dark:bg-[#3B82F6]" style={{ width: `${metric.rate}%` }} />
       </div>
-      <span className={`w-[76px] shrink-0 text-right text-[14px] font-semibold tabular-nums ${INK}`}>
-        {metric.correct}/{metric.total}
-        <span className={`ml-1 text-[12px] font-medium ${MUTED}`}>{metric.rate}%</span>
+      <span className={`w-[92px] shrink-0 text-right tabular-nums ${INK}`}>
+        <span className="text-[17px] font-bold">{fmtCount(metric.correct)}</span>
+        <span className={`text-[13px] font-medium ${MUTED}`}>/{metric.total}</span>
+        <span className={`ml-1.5 text-[12px] font-medium ${MUTED}`}>{metric.rate}%</span>
       </span>
       <span className={`w-11 shrink-0 text-right text-[12px] tabular-nums ${MUTED}`}>
         {metric.delta !== null ? fmtDelta(metric.delta) : ''}
@@ -152,13 +216,15 @@ function MetricRow({ label, metric, onClick }: { label: string; metric: WeeklyMe
 }
 
 // ── 최근 흐름 ───────────────────────────────────────────────────────────────
-function TrendCell({ label, rates, onClick }: { label: string; rates: number[]; onClick: () => void }) {
-  const mean = avg(rates)
+function TrendCell({ label, stat, onClick }: { label: string; stat: TrendStat; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="flex flex-col items-start gap-1.5 px-3 py-1 text-left first:pl-0 last:pr-0 active:opacity-70">
+    <button type="button" onClick={onClick} className="flex flex-col items-start gap-1 px-3 py-1 text-left first:pl-0 last:pr-0 active:opacity-70">
       <span className={`text-[12px] ${MUTED}`}>{label}</span>
-      <span className={`text-[17px] font-semibold tabular-nums ${INK}`}>{mean !== null ? `${mean}%` : '–'}</span>
-      <Sparkline values={rates.slice(-8)} />
+      <span className={`text-[20px] font-bold tabular-nums ${INK}`}>{stat.mean !== null ? `${stat.mean}%` : '–'}</span>
+      <Sparkline values={stat.rates} />
+      <span className={`text-[11px] tabular-nums ${MUTED}`}>
+        {stat.classDiff !== null ? `반 평균 ${fmtDelta(stat.classDiff)}` : ' '}
+      </span>
     </button>
   )
 }
@@ -182,10 +248,13 @@ function Sparkline({ values }: { values: number[] }) {
 }
 
 // ── 출결 ────────────────────────────────────────────────────────────────────
-function AttendanceSection({ attendance, clinicAttendance, summary }: {
+type AttStat = { present: number; total: number; rate: number | null }
+
+function AttendanceSection({ attendance, clinicAttendance, regular, clinic }: {
   attendance: ShareModel['attendance']
   clinicAttendance: ShareModel['clinicAttendance']
-  summary: string
+  regular: AttStat
+  clinic: AttStat
 }) {
   const [view, setView] = useState<'regular' | 'clinic'>('regular')
   const both = attendance.length > 0 && clinicAttendance.length > 0
@@ -194,7 +263,12 @@ function AttendanceSection({ attendance, clinicAttendance, summary }: {
     : (attendance.length > 0 ? 'regular' : 'clinic')
 
   return (
-    <Card id="section-attendance" title="출결" subtitle={summary}>
+    <Card id="section-attendance" title="출결">
+      {/* 정규·클리닉 숫자를 먼저 — 학부모가 실제로 챙기는 건 클리닉 결석이다 */}
+      <div className={`mb-4 grid grid-cols-2 divide-x ${DIVIDE}`}>
+        <AttStatCell label="정규수업" stat={regular} />
+        <AttStatCell label="클리닉" stat={clinic} />
+      </div>
       {both && (
         <div className={`mb-3 flex gap-4 border-b ${HAIRLINE}`}>
           {([['regular', '정규수업'], ['clinic', '클리닉']] as const).map(([id, label]) => (
@@ -217,13 +291,30 @@ function AttendanceSection({ attendance, clinicAttendance, summary }: {
   )
 }
 
+function AttStatCell({ label, stat }: { label: string; stat: AttStat }) {
+  return (
+    <div className="px-3 first:pl-0 last:pr-0">
+      <p className={`text-[12px] ${MUTED}`}>{label}</p>
+      {stat.total > 0 ? (
+        <p className={`mt-0.5 tabular-nums ${INK}`}>
+          <span className="text-[20px] font-bold">{stat.present}</span>
+          <span className={`text-[13px] font-medium ${MUTED}`}>/{stat.total}회</span>
+          {stat.rate !== null && <span className={`ml-1.5 text-[12px] font-medium ${MUTED}`}>{stat.rate}%</span>}
+        </p>
+      ) : (
+        <p className={`mt-0.5 text-[14px] ${MUTED}`}>기록 없음</p>
+      )}
+    </div>
+  )
+}
+
 // ── 선생님 코멘트 기록 ──────────────────────────────────────────────────────
 function CommentHistory({ comments }: { comments: ShareModel['commentFeed'] }) {
   const [expanded, setExpanded] = useState(false)
   const shown = expanded ? comments : comments.slice(0, 2)
   return (
     <Card title="선생님 코멘트" subtitle="지난 주차 기록">
-      <ul className={`divide-y ${HAIRLINE.replace('border-', 'divide-')}`}>
+      <ul className={`divide-y ${DIVIDE}`}>
         {shown.map(({ week, memo, className }) => (
           <li key={week.id} className="py-3 first:pt-0 last:pb-0">
             <p className={`text-[12px] ${MUTED}`}>

@@ -231,8 +231,10 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
             <HomeTab
               student={student}
               model={model}
+              isDark={isDark}
               onOpenWrongNote={(kind) => openWrongNote(kind)}
               onGoScoreSection={(id) => { setActiveTab('score'); scrollTo(id, 120) }}
+              onGoAnalysis={() => { setActiveTab('analysis'); window.scrollTo({ top: 0 }) }}
             />
           )}
 

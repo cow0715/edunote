@@ -16,10 +16,16 @@ import {
   ScoreField,
   VocabStudyItem,
   WeeklyMetric,
+  avg,
   buildWeeklyHeadline,
+  buildWeeklyNotes,
   fmtWeekLabel,
   getWeekLabel,
+  isComparableTotal,
 } from './share-utils'
+
+/** 홈 "이번 주 오답" 미리보기 한 줄 */
+export type WrongPreviewItem = { kind: 'reading' | 'vocab'; label: string; detail: string | null }
 
 /** 홈 탭 "이번 주" 카드 한 장에 필요한 것 전부 */
 export type WeeklyReport = {
@@ -32,7 +38,12 @@ export type WeeklyReport = {
   wrongVocab: number
   memo: string | null
   headline: string
+  notes: { good: string[]; watch: string[] }
+  wrongPreview: WrongPreviewItem[]
 }
+
+/** 최근 N주 한 지표의 흐름 */
+export type TrendStat = { rates: number[]; mean: number | null; classDiff: number | null }
 
 export function useShareModel(data: ShareData | undefined) {
   const classes = data?.classes ?? EMPTY_LIST
@@ -101,12 +112,12 @@ export function useShareModel(data: ShareData | undefined) {
       scoreByWeek, answersByScore, weekNumberByWeekId, weekLabelByWeekId,
       scoredWeeks, visibleWeeks, weekRate,
       readingRates, vocabRates, homeworkRates,
-      latestW, latestS, deltas, latestRates,
+      latestW, latestS, prevW, deltas, latestRates,
     }
   }, [weeks, weekScores, studentAnswers])
 
   const {
-    scoreByWeek, answersByScore, weekNumberByWeekId, scoredWeeks, visibleWeeks, weekRate, deltas, latestRates,
+    scoreByWeek, answersByScore, weekNumberByWeekId, scoredWeeks, visibleWeeks, weekRate, deltas,
   } = scoreModel
 
   // ── 출결 통계 ─────────────────────────────────────────────────────────────
@@ -118,7 +129,13 @@ export function useShareModel(data: ShareData | undefined) {
     const presentClinicAtt = clinicAttendance.filter((a) => a.status !== 'absent').length
     const clinicAttRate = totalClinicAtt > 0 ? Math.round(presentClinicAtt / totalClinicAtt * 100) : null
     const attByDate = new Map(attendance.map((a) => [a.date, a]))
-    return { totalAtt, presentAtt, attRate, totalClinicAtt, presentClinicAtt, clinicAttRate, attByDate }
+    // 최근부터 결석 없이 이어진 회수 — "N회 연속 출석" 은 학부모 리포트의 관습적 칭찬거리다
+    let attendanceStreak = 0
+    for (const a of [...attendance].sort((x, y) => y.date.localeCompare(x.date))) {
+      if (a.status === 'absent') break
+      attendanceStreak++
+    }
+    return { totalAtt, presentAtt, attRate, totalClinicAtt, presentClinicAtt, clinicAttRate, attByDate, attendanceStreak }
   }, [attendance, clinicAttendance])
 
   // ── 차트 데이터 ────────────────────────────────────────────────────────────
@@ -309,25 +326,53 @@ export function useShareModel(data: ShareData | undefined) {
 
   // ── 홈: 이번 주 리포트 ───────────────────────────────────────────────────
   // 홈은 최신 주차 하나를 "리포트" 로 읽어준다. 헤드라인 문장 규칙은 share-utils 에 있다.
-  const { latestW, latestS } = scoreModel
+  const { latestW, latestS, prevW } = scoreModel
+  const attendanceStreak = attendanceStats.attendanceStreak
   const latestReport = useMemo((): WeeklyReport | null => {
     if (!latestW || !latestS) return null
     const ca = classAverages[latestW.id]
+    const prevTotal = (field: ScoreField) =>
+      prevW ? (field === 'reading' ? prevW.reading_total : field === 'vocab' ? prevW.vocab_total : prevW.homework_total) : 0
     const metric = (field: ScoreField, correct: number | null, total: number, classAvg: number | null | undefined): WeeklyMetric | null => {
       const rate = weekRate(latestS, latestW, field)
       if (rate === null || correct === null) return null
       return {
         rate, correct, total,
-        delta: deltas[field],
+        // 시험 종류가 바뀐 주(문항 수가 크게 다름)의 델타는 실력 변화가 아니라서 숨긴다
+        delta: isComparableTotal(total, prevTotal(field)) ? deltas[field] : null,
         classDiff: classAvg !== null && classAvg !== undefined ? rate - classAvg : null,
       }
     }
     const reading = metric('reading', latestS.reading_correct, latestW.reading_total, ca?.readingRate)
     const vocab = metric('vocab', latestS.vocab_correct, latestW.vocab_total, ca?.vocabRate)
     const homework = metric('homework', latestS.homework_done, latestW.homework_total, null)
-    const wrongReading = (answersByScore.get(latestS.id) ?? [])
-      .filter((a) => !a.is_correct && a.exam_question?.exam_type === 'reading').length
-    const wrongVocab = vocabWrong.vocabWrongGroups.find((g) => g.week.id === latestW.id)?.answers.length ?? 0
+
+    const wrongReadingAnswers = (answersByScore.get(latestS.id) ?? [])
+      .filter((a) => !a.is_correct && a.exam_question?.exam_type === 'reading')
+      .sort((a, b) => a.exam_question!.question_number - b.exam_question!.question_number)
+    const wrongVocabAnswers = vocabWrong.vocabWrongGroups.find((g) => g.week.id === latestW.id)?.answers ?? []
+    const wrongReading = wrongReadingAnswers.length
+    const wrongVocab = wrongVocabAnswers.length
+
+    // 홈에서 바로 보이는 오답 3개 — 독해 문항 먼저, 나머지는 단어로 채운다
+    const wrongPreview: WrongPreviewItem[] = [
+      ...wrongReadingAnswers.map((a): WrongPreviewItem => ({
+        kind: 'reading',
+        label: `${a.exam_question!.question_number}번${a.exam_question!.sub_label ?? ''}`,
+        detail: a.exam_question!.exam_question_tag.find((t) => t.concept_tag)?.concept_tag?.name ?? null,
+      })),
+      ...wrongVocabAnswers.map((va): WrongPreviewItem => ({
+        kind: 'vocab',
+        label: va.vocab_word?.english_word ?? va.test_word ?? '?',
+        detail: va.vocab_word?.correct_answer ?? null,
+      })),
+    ].slice(0, 3)
+
+    const retakeTaken = latestS.vocab_retake_correct !== null
+    const retakePending = latestS.vocab_correct !== null
+      ? Math.max(0, latestW.vocab_total - latestS.vocab_correct - (latestS.vocab_retake_correct ?? 0))
+      : 0
+
     return {
       week: latestW,
       className: classes.find((c) => c.id === latestW.class_id)?.name ?? '',
@@ -335,8 +380,45 @@ export function useShareModel(data: ShareData | undefined) {
       wrongReading, wrongVocab,
       memo: latestS.memo?.trim() || null,
       headline: buildWeeklyHeadline({ reading, vocab, homework }),
+      notes: buildWeeklyNotes({ reading, vocab, homework, wrongReading, wrongVocab, retakePending, retakeTaken, attendanceStreak }),
+      wrongPreview,
     }
-  }, [latestW, latestS, classAverages, weekRate, deltas, answersByScore, vocabWrong.vocabWrongGroups, classes])
+  }, [latestW, latestS, prevW, classAverages, weekRate, deltas, answersByScore, vocabWrong.vocabWrongGroups, classes, attendanceStreak])
+
+  // ── 홈: 최근 흐름 (최근 8주) ──────────────────────────────────────────────
+  // 기간 전체 평균은 이번 주와 무관한 숫자가 되기 쉬워서 창을 최근 8주로 자른다.
+  const recentTrend = useMemo(() => {
+    const recent = scoredWeeks.slice(-8)
+    const stat = (field: ScoreField, classKey: 'readingRate' | 'vocabRate' | null): TrendStat => {
+      const rates: number[] = []
+      const diffs: number[] = []
+      for (const w of recent) {
+        const r = weekRate(scoreByWeek.get(w.id)!, w, field)
+        if (r === null) continue
+        rates.push(r)
+        const ca = classKey ? classAverages[w.id]?.[classKey] : null
+        if (ca !== null && ca !== undefined) diffs.push(r - ca)
+      }
+      return { rates, mean: avg(rates), classDiff: avg(diffs) }
+    }
+    return {
+      weekCount: recent.length,
+      reading: stat('reading', 'readingRate'),
+      vocab: stat('vocab', 'vocabRate'),
+      homework: stat('homework', null),
+    }
+  }, [scoredWeeks, scoreByWeek, weekRate, classAverages])
+
+  // ── 홈: 반복 약점 한 줄 ───────────────────────────────────────────────────
+  // 분석 탭의 패턴 중 고착·악화 상위 1개만 쉬운 말로. 분석 탭으로 가는 미리보기다.
+  const topWeakness = useMemo(() => {
+    const p = analysis.repeatPatterns.find((x) => x.patternType === 'persistent' || x.patternType === 'deteriorating')
+    if (!p) return null
+    const text = p.patternType === 'persistent'
+      ? `${p.weekCount}회 출제 중 ${p.wrongWeekCount}회 절반 이상 틀렸어요`
+      : `최근 정답률 ${p.recentAccuracy}% · 갈수록 낮아지고 있어요`
+    return { id: p.id, name: p.name, text }
+  }, [analysis.repeatPatterns])
 
   // ── 오답노트 요약 (탭 상단 카운트) ────────────────────────────────────────
   const wrongNoteSummary = useMemo(() => {
@@ -360,6 +442,8 @@ export function useShareModel(data: ShareData | undefined) {
     ...chartData,
     ...analysis,
     latestReport,
+    recentTrend,
+    topWeakness,
     wrongNoteGroups,
     ...vocabWrong,
     ...vocabStudy,

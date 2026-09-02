@@ -10,10 +10,6 @@ const ScoreTrendChart = dynamic(
   () => import('@/components/share/score-trend-chart').then((m) => m.ScoreTrendChart),
   { ssr: false }
 )
-const HomeworkBarChart = dynamic(
-  () => import('@/components/share/homework-bar-chart').then((m) => m.HomeworkBarChart),
-  { ssr: false }
-)
 
 /** 반 평균 대비 차이 */
 function ClassDiff({ mine, classAvg }: { mine: number | null; classAvg: number | null | undefined }) {
@@ -38,7 +34,7 @@ export function ScoreTab({
   onOpenWrongNoteWeek: (kind: 'reading' | 'vocab', weekId: string) => void
 }) {
   const {
-    readingTrendData, vocabTrendData, homeworkData, visibleWeeks, scoreByWeek,
+    readingTrendData, vocabTrendData, visibleWeeks, scoreByWeek,
     classes, attByDate, classAverages, weekRate, weekScores,
   } = model
 
@@ -65,12 +61,6 @@ export function ScoreTab({
           scrollBody={false}
         >
           <ScoreTrendChart data={vocabTrendData} isDark={isDark} series="vocab" />
-        </SwipeChartCard>
-      )}
-
-      {homeworkData.length >= 1 && (
-        <SwipeChartCard id="section-homework" title="과제 제출률" subtitle="주차별 (%)" itemCount={homeworkData.length}>
-          <HomeworkBarChart data={homeworkData} isDark={isDark} />
         </SwipeChartCard>
       )}
 

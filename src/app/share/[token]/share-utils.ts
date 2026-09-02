@@ -332,3 +332,70 @@ export function buildWeeklyHeadline(r: WeeklyReportInput): string {
 
 /** "+8%p" / "-3%p" / "0%p" — 리포트 안에서 델타를 한 형식으로 쓴다 */
 export const fmtDelta = (delta: number) => `${delta > 0 ? '+' : ''}${delta}%p`
+
+/** 2.5 처럼 소수점 제출 기록이 있어서, 정수면 그대로, 아니면 한 자리 */
+export const fmtCount = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1))
+
+/**
+ * 두 주차의 문항 수가 비교 가능한가.
+ * 10문항 시험 → 17문항 시험처럼 시험 종류가 바뀐 주는 정답률 차이가 실력 변화가 아니다.
+ * 이런 델타를 헤드라인에 올리면 "70%p 올랐어요" 같은 오해를 만든다.
+ */
+export function isComparableTotal(a: number, b: number) {
+  if (a <= 0 || b <= 0) return false
+  return Math.min(a, b) / Math.max(a, b) >= 0.5
+}
+
+export type WeeklyNotesInput = WeeklyReportInput & {
+  wrongReading: number
+  wrongVocab: number
+  /** 재시험을 봤는데도 아직 못 맞힌 단어 수 (재시험 안 봤으면 의미 없음) */
+  retakePending: number
+  retakeTaken: boolean
+  /** 최근부터 연속 출석 회수 */
+  attendanceStreak: number
+}
+
+/**
+ * 이번 주 "잘한 점 / 챙길 점" 각 최대 2줄.
+ * 이모지 칩 대신 문장 조각 — 학부모 리포트에서 긍정 피드백은 관습이고,
+ * 챙길 점은 홈에서 "뭐가 문제였나" 를 답하는 유일한 자리다.
+ */
+export function buildWeeklyNotes(i: WeeklyNotesInput): { good: string[]; watch: string[] } {
+  const good: string[] = []
+  const watch: string[] = []
+  const scored = (['reading', 'vocab'] as const).flatMap((k) => (i[k] ? [[k, i[k]!] as const] : []))
+
+  // 잘한 점: 만점·고득점 > 상승 > 과제 완료 > 반 평균 상회 > 연속 출석
+  for (const [k, m] of scored) {
+    if (m.total > 0 && m.correct === m.total) good.push(`${METRIC_LABEL[k]} 만점`)
+    else if (m.rate >= 90) good.push(`${METRIC_LABEL[k]} 정답률 ${m.rate}%`)
+  }
+  for (const [k, m] of scored) {
+    if (m.delta !== null && m.delta >= 10) good.push(`${METRIC_LABEL[k]} 지난주보다 ${fmtDelta(m.delta)}`)
+  }
+  if (i.homework && i.homework.correct >= i.homework.total) good.push('과제 전부 제출')
+  for (const [k, m] of scored) {
+    if (m.classDiff !== null && m.classDiff >= 10) good.push(`${METRIC_LABEL[k]} 반 평균보다 ${fmtDelta(m.classDiff)}`)
+  }
+  if (i.attendanceStreak >= 4) good.push(`${i.attendanceStreak}회 연속 출석`)
+
+  // 챙길 점: 하락 > 오답 수 > 과제 미제출 > 반 평균 하회
+  for (const [k, m] of scored) {
+    if (m.delta !== null && m.delta <= -10) watch.push(`${METRIC_LABEL[k]} 지난주보다 ${fmtDelta(m.delta)}`)
+  }
+  if (i.wrongVocab > 0) {
+    watch.push(i.retakeTaken && i.retakePending > 0
+      ? `단어 ${i.wrongVocab}개 오답 · 재시험 ${i.retakePending}개 남음`
+      : `단어 ${i.wrongVocab}개 오답`)
+  }
+  if (i.wrongReading > 0) watch.push(`시험 ${i.wrongReading}문항 오답`)
+  if (i.homework && i.homework.correct < i.homework.total) {
+    watch.push(`과제 ${fmtCount(i.homework.total - i.homework.correct)}개 미제출`)
+  }
+  for (const [k, m] of scored) {
+    if (m.classDiff !== null && m.classDiff <= -10) watch.push(`${METRIC_LABEL[k]} 반 평균보다 ${fmtDelta(m.classDiff)}`)
+  }
+
+  return { good: good.slice(0, 2), watch: watch.slice(0, 2) }
+}
