@@ -1,9 +1,21 @@
 'use client'
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Moon, Sun, TrendingUp, TrendingDown, Minus, Info, ChevronRight, ChevronLeft } from 'lucide-react'
+import { Moon, Sun, Info, ChevronRight, ChevronLeft } from 'lucide-react'
 import { AttendanceRecord, ClinicAttendanceRecord } from './share-types'
 import { CHART_VISIBLE_COUNT, SCROLL_OFFSET_CLASS } from './share-utils'
+
+// ── 공통 표면 ──────────────────────────────────────────────────────────────
+// design.md §3: 16px 라운드 + 1px hairline, 그림자 없음. 탭 파일은 이 상수/컴포넌트만 쓴다.
+export const SURFACE_CLASS = 'rounded-2xl border border-[#E9EBEF] bg-white dark:border-white/[0.06] dark:bg-[#151B26]'
+
+export function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <div className={`${SURFACE_CLASS} px-6 py-10 text-center text-sm text-[#8B95A1]`}>
+      {children}
+    </div>
+  )
+}
 
 // ── 공통 카드 ──────────────────────────────────────────────────────────────
 export function Card({ title, subtitle, info, infoNode, children, noPad, id }: {
@@ -14,11 +26,11 @@ export function Card({ title, subtitle, info, infoNode, children, noPad, id }: {
   const hasInfo = !!(info || infoNode)
 
   return (
-    <div id={id} className={`rounded-3xl bg-white dark:bg-[#1E293B] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none ${SCROLL_OFFSET_CLASS}`}>
+    <div id={id} className={`${SURFACE_CLASS} ${SCROLL_OFFSET_CLASS}`}>
       {title && (
         <div className="px-5 pt-5 pb-3">
           <div className="flex items-center gap-1.5">
-            <h2 className="text-[15px] font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">{title}</h2>
+            <h2 className="text-[15px] font-bold text-[#1A1C1E] dark:text-[#F1F5F9]">{title}</h2>
             {hasInfo && (
               <button
                 type="button"
@@ -32,49 +44,12 @@ export function Card({ title, subtitle, info, infoNode, children, noPad, id }: {
           {subtitle && <p className="mt-0.5 text-xs text-[#8B95A1] dark:text-[#94A3B8]">{subtitle}</p>}
           {infoOpen && (
             info
-              ? <p className="mt-2 text-xs leading-relaxed text-[#2463EB] dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 rounded-xl px-3 py-2">{info}</p>
+              ? <p className="mt-2 rounded-xl bg-[#F5F6F8] px-3 py-2 text-xs leading-relaxed text-[#3F4650] dark:bg-white/[0.04] dark:text-[#CBD5E1]">{info}</p>
               : <div className="mt-2">{infoNode}</div>
           )}
         </div>
       )}
       <div className={noPad ? '' : 'px-5 pb-5'}>{children}</div>
-    </div>
-  )
-}
-
-// ── 스탯 카드 ──────────────────────────────────────────────────────────────
-export function StatCard({ label, value, delta, color, onClick }: {
-  label: string; value: string | null; delta: number | null
-  icon?: React.ReactNode; color: 'indigo' | 'emerald' | 'amber' | 'blue'
-  onClick?: () => void
-}) {
-  const accent = {
-    indigo:  'text-[#2463EB] dark:text-blue-400',
-    emerald: 'text-emerald-600 dark:text-emerald-400',
-    amber:   'text-amber-500 dark:text-amber-400',
-    blue:    'text-[#2463EB] dark:text-blue-400',
-  }[color]
-
-  return (
-    <div
-      className={`relative rounded-2xl bg-white dark:bg-[#1E293B] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none px-3.5 py-4 ${onClick ? 'cursor-pointer active:scale-95 transition-all' : ''}`}
-      onClick={onClick}
-    >
-      <p className={`text-[22px] font-black leading-none ${value ? accent : 'text-[#1A1C1E] dark:text-[#F8FAFC]'}`}>
-        {value ?? '-'}
-      </p>
-      <p className="mt-1.5 text-[11px] text-[#8B95A1] dark:text-[#94A3B8] leading-tight">{label}</p>
-      {delta !== null && (
-        <div className={`mt-1.5 flex items-center gap-0.5 text-[11px] font-semibold ${
-          delta > 0 ? 'text-[#2463EB] dark:text-blue-400' : delta < 0 ? 'text-rose-500 dark:text-rose-400' : 'text-[#8B95A1] dark:text-gray-500'
-        }`}>
-          {delta > 0 ? <TrendingUp className="h-3 w-3" /> : delta < 0 ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
-          <span>{delta > 0 ? '+' : ''}{delta}%</span>
-        </div>
-      )}
-      {onClick && (
-        <ChevronRight className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-200 dark:text-gray-600" />
-      )}
     </div>
   )
 }
@@ -101,11 +76,11 @@ export function AttendanceCalendar({
   const STATUS_COLOR: Record<string, string> = {
     present: 'bg-[#2463EB] text-white',
     late:    'bg-amber-400 text-white',
-    absent:  'bg-rose-400 text-white',
+    absent:  'bg-[#E5484D] text-white dark:bg-[#F87171]',
   }
   const legend = variant === 'clinic'
-    ? [['bg-[#2463EB]', '출석'], ['bg-rose-400', '결석']]
-    : [['bg-[#2463EB]', '출석'], ['bg-amber-400', '지각'], ['bg-rose-400', '결석']]
+    ? [['bg-[#2463EB]', '출석'], ['bg-[#E5484D]', '결석']]
+    : [['bg-[#2463EB]', '출석'], ['bg-amber-400', '지각'], ['bg-[#E5484D]', '결석']]
 
   // selectedMonth가 null이거나 목록에 없으면 가장 최신 월
   const monthStr = (selectedMonth && months.includes(selectedMonth)) ? selectedMonth : months[months.length - 1]
@@ -192,7 +167,7 @@ export function ThemeToggle({ isDark, onToggle }: { isDark: boolean; onToggle: (
         }`}
       >
         <span
-          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white dark:bg-[#1E293B] shadow-md transition-transform duration-300 ${
+          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white dark:bg-[#151B26] shadow-md transition-transform duration-300 ${
             isDark ? 'translate-x-5' : 'translate-x-0'
           }`}
         />

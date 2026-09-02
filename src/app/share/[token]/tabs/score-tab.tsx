@@ -2,12 +2,16 @@
 
 import dynamic from 'next/dynamic'
 import { BookOpen, BookText, ClipboardCheck, RotateCcw } from 'lucide-react'
-import { Card, SwipeChartCard } from '../share-components'
+import { Card, EmptyState, SwipeChartCard } from '../share-components'
 import { ShareModel } from '../use-share-model'
 import { ATT_LABEL, ATT_STYLE, fmtShortDate, getWeekLabel, scoreColor } from '../share-utils'
 
 const ScoreTrendChart = dynamic(
   () => import('@/components/share/score-trend-chart').then((m) => m.ScoreTrendChart),
+  { ssr: false }
+)
+const HomeworkBarChart = dynamic(
+  () => import('@/components/share/homework-bar-chart').then((m) => m.HomeworkBarChart),
   { ssr: false }
 )
 
@@ -34,7 +38,7 @@ export function ScoreTab({
   onOpenWrongNoteWeek: (kind: 'reading' | 'vocab', weekId: string) => void
 }) {
   const {
-    readingTrendData, vocabTrendData, visibleWeeks, scoreByWeek,
+    readingTrendData, vocabTrendData, homeworkData, visibleWeeks, scoreByWeek,
     classes, attByDate, classAverages, weekRate, weekScores,
   } = model
 
@@ -61,6 +65,12 @@ export function ScoreTab({
           scrollBody={false}
         >
           <ScoreTrendChart data={vocabTrendData} isDark={isDark} series="vocab" />
+        </SwipeChartCard>
+      )}
+
+      {homeworkData.length >= 1 && (
+        <SwipeChartCard id="section-homework" title="과제 제출률" subtitle="주차별 (%)" itemCount={homeworkData.length}>
+          <HomeworkBarChart data={homeworkData} isDark={isDark} />
         </SwipeChartCard>
       )}
 
@@ -95,9 +105,9 @@ export function ScoreTab({
                           <button
                             type="button"
                             onClick={() => onOpenWrongNoteWeek('reading', w.id)}
-                            className="flex items-center gap-1.5 rounded-lg bg-blue-50 px-2 py-1 text-xs transition-colors hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/50"
+                            className="flex items-center gap-1.5 rounded-lg bg-[#F5F6F8] px-2 py-1 text-xs transition-colors active:opacity-70 dark:bg-white/[0.05]"
                           >
-                            <BookOpen className="h-3 w-3 text-[#2463EB] dark:text-blue-500" />
+                            <BookOpen className="h-3 w-3 text-[#8B95A1]" />
                             <span className="text-gray-600 dark:text-gray-300">시험</span>
                             <strong className={`ml-0.5 ${scoreColor(score.reading_correct ?? 0, w.reading_total)}`}>
                               {score.reading_correct ?? 0}/{w.reading_total}
@@ -110,9 +120,9 @@ export function ScoreTab({
                             <button
                               type="button"
                               onClick={() => onOpenWrongNoteWeek('vocab', w.id)}
-                              className="flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2 py-1 text-xs transition-colors hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50"
+                              className="flex items-center gap-1.5 rounded-lg bg-[#F5F6F8] px-2 py-1 text-xs transition-colors active:opacity-70 dark:bg-white/[0.05]"
                             >
-                              <BookText className="h-3 w-3 text-emerald-500 dark:text-emerald-600" />
+                              <BookText className="h-3 w-3 text-[#8B95A1]" />
                               <span className="text-gray-600 dark:text-gray-300">단어</span>
                               <strong className={`ml-0.5 ${scoreColor(score.vocab_correct, w.vocab_total)}`}>
                                 {score.vocab_correct}/{w.vocab_total}
@@ -120,8 +130,8 @@ export function ScoreTab({
                               <ClassDiff mine={weekRate(score, w, 'vocab')} classAvg={classAverages[w.id]?.vocabRate} />
                             </button>
                             {score.vocab_correct < w.vocab_total && score.vocab_retake_correct !== null && (
-                              <span className="flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-1 text-xs dark:bg-blue-950/40">
-                                <RotateCcw className="h-3 w-3 text-[#2463EB] dark:text-blue-500" />
+                              <span className="flex items-center gap-1 rounded-lg bg-[#F5F6F8] px-2 py-1 text-xs dark:bg-white/[0.05]">
+                                <RotateCcw className="h-3 w-3 text-[#8B95A1]" />
                                 <span className="text-gray-500 dark:text-gray-400">재시험</span>
                                 <strong className={`ml-0.5 ${scoreColor(score.vocab_retake_correct, w.vocab_total - score.vocab_correct)}`}>
                                   {score.vocab_retake_correct}/{w.vocab_total - score.vocab_correct}
@@ -131,8 +141,8 @@ export function ScoreTab({
                           </div>
                         )}
                         {w.homework_total > 0 && score.homework_done !== null && (
-                          <span className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-2 py-1 text-xs dark:bg-amber-950/40">
-                            <ClipboardCheck className="h-3 w-3 text-amber-500 dark:text-amber-600" />
+                          <span className="flex items-center gap-1.5 rounded-lg bg-[#F5F6F8] px-2 py-1 text-xs dark:bg-white/[0.05]">
+                            <ClipboardCheck className="h-3 w-3 text-[#8B95A1]" />
                             <span className="text-gray-600 dark:text-gray-300">과제</span>
                             <strong className={`ml-0.5 ${scoreColor(score.homework_done, w.homework_total)}`}>
                               {score.homework_done}/{w.homework_total}
@@ -141,10 +151,10 @@ export function ScoreTab({
                         )}
                       </div>
                       {score.memo && (
-                        <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 dark:border-blue-800/40 dark:bg-blue-950/40">
-                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#2463EB] dark:text-blue-500">추쌤 코멘트 💬</p>
-                          <p className="text-sm leading-relaxed text-[#1A1C1E] dark:text-blue-300">{score.memo}</p>
-                        </div>
+                        <blockquote className="mt-3 border-l-2 border-[#2463EB]/40 pl-3 dark:border-[#3B82F6]/50">
+                          <p className="text-sm leading-relaxed text-[#3F4650] dark:text-[#CBD5E1]">{score.memo}</p>
+                          <footer className="mt-1 text-[12px] text-[#8B95A1]">선생님 코멘트</footer>
+                        </blockquote>
                       )}
                     </>
                   ) : (
@@ -158,9 +168,7 @@ export function ScoreTab({
       )}
 
       {weekScores.length === 0 && (
-        <div className="rounded-3xl bg-white p-10 text-center text-sm text-[#8B95A1] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:bg-[#1E293B] dark:text-[#94A3B8] dark:shadow-none">
-          아직 시험 결과가 없습니다
-        </div>
+        <EmptyState>아직 시험 결과가 없습니다</EmptyState>
       )}
     </>
   )

@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { statusColor } from '@/lib/chart-colors'
-import { Card } from '../share-components'
+import { Card, EmptyState } from '../share-components'
 import { PatternCard } from '../share-pattern'
 import { ShareModel } from '../use-share-model'
 
@@ -101,9 +101,7 @@ export function AnalysisTab({
       )}
 
       {typeData.length === 0 && repeatPatterns.length === 0 && (
-        <div className="rounded-3xl bg-white p-10 text-center text-sm text-[#8B95A1] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:bg-[#1E293B] dark:text-[#94A3B8] dark:shadow-none">
-          분석 데이터가 없습니다
-        </div>
+        <EmptyState>분석 데이터가 없습니다</EmptyState>
       )}
     </>
   )

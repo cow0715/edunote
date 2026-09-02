@@ -10,20 +10,13 @@
 //   · 목록 탐색(검색·필터)은 단어장 탭이 담당한다. 여기서는 링크로 넘긴다.
 
 import { LibraryBig } from 'lucide-react'
-import { Card } from '../share-components'
+import { Card, EmptyState as EmptyCard } from '../share-components'
 import { ShareModel } from '../use-share-model'
 import { SCROLL_OFFSET_CLASS, VocabStudyMode, fmtShortDate, getWeekLabel, groupAnswersByQuestion } from '../share-utils'
 import { RetakeActionRow, WeekAccordionHeader, WrongAnswerCard, WrongVocabRow } from '../wrong-answer-card'
 
 export type WrongNoteSubTab = 'reading' | 'vocab'
 
-function EmptyCard({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-3xl bg-white p-10 text-center text-sm text-[#8B95A1] shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:bg-[#1E293B] dark:text-[#94A3B8] dark:shadow-none">
-      {children}
-    </div>
-  )
-}
 
 export function WrongNoteTab({
   token,
@@ -62,7 +55,7 @@ export function WrongNoteTab({
       {/* 진단평가 / 단어 — 개수를 같이 보여줘 어디에 오답이 있는지 먼저 알린다 */}
       {/* role="tablist" 을 쓰려면 화살표 키 이동·roving tabindex·tabpanel 연결까지 있어야 한다.
           여기선 두 갈래 필터 토글이라 aria-pressed 로 충분하고, 반만 구현한 tab 의미론보다 정확하다. */}
-      <div className="flex rounded-2xl bg-white p-1 shadow-[0_2px_12px_rgba(0,0,0,0.05)] dark:bg-[#1E293B] dark:shadow-none">
+      <div className="flex rounded-2xl border border-[#E9EBEF] bg-white p-1 dark:border-white/[0.06] dark:bg-[#151B26]">
         {segments.map(({ id, label, count }) => {
           const active = subTab === id
           return (

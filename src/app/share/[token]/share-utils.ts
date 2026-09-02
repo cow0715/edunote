@@ -258,3 +258,77 @@ export function splitQuestionTexts(questions: StructuredQuestionParts[]): { shar
     questions.map((q) => q.question_text?.trim() || buildQuestionDisplayText(q))
   )
 }
+
+// ── 홈 탭: 이번 주 리포트 ───────────────────────────────────────────────────
+//
+// 홈은 대시보드가 아니라 "이번 주 한 장 리포트" 다. 숫자를 나열하기 전에 한 문장으로
+// 이번 주가 어땠는지 먼저 말한다. 문장은 학부모가 읽으므로 평가 어조를 피하고
+// 사실만 적는다 (올랐어요/낮아졌어요, 모두 맞혔어요).
+
+export type WeeklyMetric = {
+  /** 정답률(%) */
+  rate: number
+  correct: number
+  total: number
+  /** 지난주 대비 %p. 지난주 기록이 없으면 null */
+  delta: number | null
+  /** 반 평균 대비 %p. 반 평균이 없으면 null */
+  classDiff: number | null
+}
+
+export type WeeklyReportInput = {
+  reading: WeeklyMetric | null
+  vocab: WeeklyMetric | null
+  homework: WeeklyMetric | null
+}
+
+const METRIC_LABEL = { reading: '시험', vocab: '단어', homework: '과제' } as const
+type MetricKey = keyof typeof METRIC_LABEL
+
+/** 이번 주 헤드라인 한 문장. 가장 눈에 띄는 사실 하나만 고른다 */
+export function buildWeeklyHeadline(r: WeeklyReportInput): string {
+  const scored: [MetricKey, WeeklyMetric][] = (['reading', 'vocab'] as const)
+    .flatMap((k) => (r[k] ? [[k, r[k]!] as [MetricKey, WeeklyMetric]] : []))
+
+  if (scored.length === 0) {
+    if (r.homework) return `이번 주는 과제 ${r.homework.total}개 중 ${r.homework.correct}개를 제출했어요.`
+    return '이번 주 기록이 아직 없어요.'
+  }
+
+  // 1. 지난주 대비 크게 움직인 게 있으면 그걸 먼저 말한다
+  const moved = scored
+    .filter(([, m]) => m.delta !== null && Math.abs(m.delta) >= 5)
+    .sort((a, b) => Math.abs(b[1].delta!) - Math.abs(a[1].delta!))[0]
+  if (moved) {
+    const [k, m] = moved
+    const dir = m.delta! > 0 ? '올랐어요' : '낮아졌어요'
+    return `${METRIC_LABEL[k]} 정답률이 지난주보다 ${Math.abs(m.delta!)}%p ${dir}.`
+  }
+
+  // 2. 만점
+  const perfect = scored.find(([, m]) => m.total > 0 && m.correct === m.total)
+  if (perfect) {
+    const [k, m] = perfect
+    return `${METRIC_LABEL[k]} ${m.total}문항을 모두 맞혔어요.`
+  }
+
+  // 3. 반 평균과 차이가 있으면
+  const vsClass = scored
+    .filter(([, m]) => m.classDiff !== null && Math.abs(m.classDiff) >= 5)
+    .sort((a, b) => Math.abs(b[1].classDiff!) - Math.abs(a[1].classDiff!))[0]
+  if (vsClass) {
+    const [k, m] = vsClass
+    const dir = m.classDiff! > 0 ? '높았어요' : '낮았어요'
+    return `${METRIC_LABEL[k]}은 반 평균보다 ${Math.abs(m.classDiff!)}%p ${dir}.`
+  }
+
+  // 4. 별다른 변화 없음 — 점수만 담담하게
+  const parts = scored.map(([k, m]) => `${METRIC_LABEL[k]} ${m.correct}/${m.total}`)
+  const hasPrev = scored.some(([, m]) => m.delta !== null)
+  return hasPrev
+    ? `${parts.join(', ')}로 지난주와 비슷했어요.`
+    : `${parts.join(', ')}를 맞혔어요.`
+}
+
+/** "+8%p" / "-3%p" / "0%p" — 리포트 안에서 델타를 한 형식으로 쓴다 */
+export const fmtDelta = (delta: number) => `${delta > 0 ? '+' : ''}${delta}%p`

@@ -1,262 +1,251 @@
 'use client'
 
-import { useState } from 'react'
-import dynamic from 'next/dynamic'
-import { ChevronDown, ChevronUp, MessageSquare } from 'lucide-react'
-import { AttendanceCalendar, Card, StatCard, SwipeChartCard } from '../share-components'
-import { ShareModel } from '../use-share-model'
-import { ShareData } from '../share-types'
-import { avg, fmtShortDate, fmtWeekLabel, getWeekLabel } from '../share-utils'
+// 홈 탭 — "이번 주 한 장 리포트".
+//
+// 설계 원칙 (design.md §0, §4):
+//   · 대시보드가 아니다. 학부모가 읽는 순서대로: 이번 주 한 문장 → 지표 3줄 → 오답 → 흐름 → 출결.
+//   · 큰 숫자·색 타일·이모지 칩 없음. 색은 accent 하나(진행 막대·링크)만 쓴다.
+//   · 선생님 코멘트가 있으면 헤드라인 바로 아래에 둔다 — 숫자보다 먼저 읽힌다.
+//   · 차트는 성적 탭 몫이다. 홈은 스파크라인 이상을 그리지 않는다.
 
-const HomeworkBarChart = dynamic(
-  () => import('@/components/share/homework-bar-chart').then((m) => m.HomeworkBarChart),
-  { ssr: false }
-)
+import { useState } from 'react'
+import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react'
+import { AttendanceCalendar, Card, EmptyState } from '../share-components'
+import { ShareModel, WeeklyReport } from '../use-share-model'
+import { ShareData } from '../share-types'
+import { WeeklyMetric, avg, fmtDelta, fmtShortDate, getWeekLabel } from '../share-utils'
+
+const INK = 'text-[#1A1C1E] dark:text-[#F1F5F9]'
+const BODY = 'text-[#3F4650] dark:text-[#CBD5E1]'
+const MUTED = 'text-[#8B95A1]'
+const ACCENT = 'text-[#2463EB] dark:text-[#3B82F6]'
+const HAIRLINE = 'border-[#EEF0F3] dark:border-white/[0.06]'
 
 export function HomeTab({
   student,
   model,
-  isDark,
   onOpenWrongNote,
-  onScrollTo,
   onGoScoreSection,
 }: {
   student: ShareData['student']
   model: ShareModel
-  isDark: boolean
   onOpenWrongNote: (kind: 'reading' | 'vocab') => void
-  onScrollTo: (id: string, delay?: number) => void
   onGoScoreSection: (id: string) => void
 }) {
-  const [attendanceView, setAttendanceView] = useState<'regular' | 'clinic'>('regular')
-  const [commentExpanded, setCommentExpanded] = useState(false)
-
   const {
-    weekScores, latestW, latestS, weekRate, deltas,
+    classes, latestReport, scoredWeeks,
     readingRates, vocabRates, homeworkRates,
-    attendance, clinicAttendance, attRate, clinicAttRate,
+    attendance, clinicAttendance,
     totalAtt, presentAtt, totalClinicAtt, presentClinicAtt,
-    highlights, homeworkData, commentFeed,
+    commentFeed,
   } = model
 
+  const className = latestReport?.className || classes[0]?.name || ''
   const hasAttendanceData = attendance.length > 0 || clinicAttendance.length > 0
-  const primaryAttRate = attRate ?? clinicAttRate
-  const visibleAttendanceView = attendanceView === 'clinic'
+  // 이번 주 코멘트는 리포트 카드가 보여주므로 기록에서는 뺀다
+  const pastComments = commentFeed.filter((c) => c.week.id !== latestReport?.week.id)
+
+  return (
+    <>
+      {/* 학생 헤더 — 카드 없이 텍스트만 */}
+      <div className="px-1 pt-1">
+        <p className={`text-[13px] ${MUTED}`}>
+          {[student.grade, student.school, className].filter(Boolean).join(' · ') || '학습 리포트'}
+        </p>
+        <h1 className={`mt-0.5 text-[22px] font-bold tracking-tight ${INK}`}>{student.name}</h1>
+      </div>
+
+      {latestReport
+        ? <WeeklyReportCard report={latestReport} onOpenWrongNote={onOpenWrongNote} />
+        : <EmptyState>아직 시험 결과가 없어요.</EmptyState>}
+
+      {scoredWeeks.length >= 2 && (
+        <Card title="최근 흐름" subtitle={`${scoredWeeks.length}주 평균`}>
+          <div className={`grid grid-cols-3 divide-x ${HAIRLINE.replace('border-', 'divide-')}`}>
+            <TrendCell label="시험" rates={readingRates} onClick={() => onGoScoreSection('section-reading-chart')} />
+            <TrendCell label="단어" rates={vocabRates} onClick={() => onGoScoreSection('section-vocab-chart')} />
+            <TrendCell label="과제" rates={homeworkRates} onClick={() => onGoScoreSection('section-homework')} />
+          </div>
+        </Card>
+      )}
+
+      {hasAttendanceData && (
+        <AttendanceSection
+          attendance={attendance}
+          clinicAttendance={clinicAttendance}
+          summary={[
+            totalAtt > 0 ? `정규수업 ${presentAtt}/${totalAtt}회` : null,
+            totalClinicAtt > 0 ? `클리닉 ${presentClinicAtt}/${totalClinicAtt}회` : null,
+          ].filter(Boolean).join(' · ')}
+        />
+      )}
+
+      {pastComments.length > 0 && <CommentHistory comments={pastComments} />}
+    </>
+  )
+}
+
+// ── 이번 주 리포트 ──────────────────────────────────────────────────────────
+function WeeklyReportCard({ report, onOpenWrongNote }: {
+  report: WeeklyReport
+  onOpenWrongNote: (kind: 'reading' | 'vocab') => void
+}) {
+  const { week, headline, memo, reading, vocab, homework, wrongReading, wrongVocab } = report
+  const wrongTotal = wrongReading + wrongVocab
+
+  return (
+    <Card noPad>
+      <div className="px-5 pt-5">
+        <p className={`text-[12px] font-medium ${MUTED}`}>
+          이번 주 · {getWeekLabel(week)}{week.start_date && ` · ${fmtShortDate(week.start_date)}`}
+        </p>
+        <p className={`mt-1.5 text-[17px] font-semibold leading-snug ${INK}`}>{headline}</p>
+        {memo && (
+          <blockquote className="mt-3 border-l-2 border-[#2463EB]/40 pl-3 dark:border-[#3B82F6]/50">
+            <p className={`text-[14px] leading-relaxed ${BODY}`}>{memo}</p>
+            <footer className={`mt-1 text-[12px] ${MUTED}`}>선생님 코멘트</footer>
+          </blockquote>
+        )}
+      </div>
+
+      <div className={`mt-4 divide-y border-t ${HAIRLINE} ${HAIRLINE.replace('border-', 'divide-')}`}>
+        {reading && <MetricRow label="시험" metric={reading} onClick={wrongReading > 0 ? () => onOpenWrongNote('reading') : undefined} />}
+        {vocab && <MetricRow label="단어" metric={vocab} onClick={wrongVocab > 0 ? () => onOpenWrongNote('vocab') : undefined} />}
+        {homework && <MetricRow label="과제" metric={homework} />}
+      </div>
+
+      {wrongTotal > 0 && (
+        <button
+          type="button"
+          onClick={() => onOpenWrongNote(wrongReading > 0 ? 'reading' : 'vocab')}
+          className={`flex w-full items-center justify-between border-t px-5 py-3.5 text-[14px] font-semibold active:opacity-70 ${HAIRLINE} ${ACCENT}`}
+        >
+          <span>오답 {wrongTotal}문항 다시 보기</span>
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      )}
+    </Card>
+  )
+}
+
+/** 라벨 | 진행 막대 | 맞힌 수 · % | 지난주 대비 — 한 줄에 한 지표 */
+function MetricRow({ label, metric, onClick }: { label: string; metric: WeeklyMetric; onClick?: () => void }) {
+  const content = (
+    <>
+      <span className={`w-7 shrink-0 text-[13px] ${MUTED}`}>{label}</span>
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#EEF0F3] dark:bg-white/[0.08]">
+        <div className="h-full rounded-full bg-[#2463EB] dark:bg-[#3B82F6]" style={{ width: `${metric.rate}%` }} />
+      </div>
+      <span className={`w-[76px] shrink-0 text-right text-[14px] font-semibold tabular-nums ${INK}`}>
+        {metric.correct}/{metric.total}
+        <span className={`ml-1 text-[12px] font-medium ${MUTED}`}>{metric.rate}%</span>
+      </span>
+      <span className={`w-11 shrink-0 text-right text-[12px] tabular-nums ${MUTED}`}>
+        {metric.delta !== null ? fmtDelta(metric.delta) : ''}
+      </span>
+    </>
+  )
+  const cls = 'flex w-full items-center gap-3 px-5 py-3 text-left'
+  return onClick
+    ? <button type="button" onClick={onClick} className={`${cls} active:opacity-70`}>{content}</button>
+    : <div className={cls}>{content}</div>
+}
+
+// ── 최근 흐름 ───────────────────────────────────────────────────────────────
+function TrendCell({ label, rates, onClick }: { label: string; rates: number[]; onClick: () => void }) {
+  const mean = avg(rates)
+  return (
+    <button type="button" onClick={onClick} className="flex flex-col items-start gap-1.5 px-3 py-1 text-left first:pl-0 last:pr-0 active:opacity-70">
+      <span className={`text-[12px] ${MUTED}`}>{label}</span>
+      <span className={`text-[17px] font-semibold tabular-nums ${INK}`}>{mean !== null ? `${mean}%` : '–'}</span>
+      <Sparkline values={rates.slice(-8)} />
+    </button>
+  )
+}
+
+/** 64×20 폴리라인. 축·라벨 없음 — 방향만 보인다 */
+function Sparkline({ values }: { values: number[] }) {
+  const W = 64, H = 20
+  if (values.length < 2) return <div className="h-5" />
+  const pts = values.map((v, i) => [
+    1 + (i / (values.length - 1)) * (W - 2),
+    H - 1 - (Math.max(0, Math.min(100, v)) / 100) * (H - 2),
+  ])
+  const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ')
+  const [lx, ly] = pts[pts.length - 1]
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden className={ACCENT}>
+      <path d={d} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={lx} cy={ly} r="2" fill="currentColor" />
+    </svg>
+  )
+}
+
+// ── 출결 ────────────────────────────────────────────────────────────────────
+function AttendanceSection({ attendance, clinicAttendance, summary }: {
+  attendance: ShareModel['attendance']
+  clinicAttendance: ShareModel['clinicAttendance']
+  summary: string
+}) {
+  const [view, setView] = useState<'regular' | 'clinic'>('regular')
+  const both = attendance.length > 0 && clinicAttendance.length > 0
+  const visible = view === 'clinic'
     ? (clinicAttendance.length > 0 ? 'clinic' : 'regular')
     : (attendance.length > 0 ? 'regular' : 'clinic')
 
   return (
-    <>
-      {/* 히어로 카드 */}
-      <div className="rounded-3xl bg-white px-8 py-8 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:bg-[#1E293B] dark:shadow-none dark:ring-1 dark:ring-white/[0.06]">
-        <div className="mb-8">
-          <p className="mb-2 text-sm text-[#8B95A1] dark:text-[#94A3B8]">
-            {[student.grade, student.school].filter(Boolean).join(' · ') || '학습 현황'}
-          </p>
-          <h1 className="text-2xl font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">{student.name}</h1>
+    <Card id="section-attendance" title="출결" subtitle={summary}>
+      {both && (
+        <div className={`mb-3 flex gap-4 border-b ${HAIRLINE}`}>
+          {([['regular', '정규수업'], ['clinic', '클리닉']] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={visible === id}
+              onClick={() => setView(id)}
+              className={`-mb-px border-b-2 pb-2 text-[13px] font-semibold transition-colors ${
+                visible === id ? `border-[#2463EB] dark:border-[#3B82F6] ${INK}` : `border-transparent ${MUTED}`
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
+      )}
+      <AttendanceCalendar attendance={visible === 'clinic' ? clinicAttendance : attendance} variant={visible} />
+    </Card>
+  )
+}
 
-        {weekScores.length > 0 && latestW && latestS ? (
-          <div>
-            <p className="mb-4 text-sm text-[#8B95A1] dark:text-[#94A3B8]">
-              최근 시험 · {fmtWeekLabel(latestW)}
+// ── 선생님 코멘트 기록 ──────────────────────────────────────────────────────
+function CommentHistory({ comments }: { comments: ShareModel['commentFeed'] }) {
+  const [expanded, setExpanded] = useState(false)
+  const shown = expanded ? comments : comments.slice(0, 2)
+  return (
+    <Card title="선생님 코멘트" subtitle="지난 주차 기록">
+      <ul className={`divide-y ${HAIRLINE.replace('border-', 'divide-')}`}>
+        {shown.map(({ week, memo, className }) => (
+          <li key={week.id} className="py-3 first:pt-0 last:pb-0">
+            <p className={`text-[12px] ${MUTED}`}>
+              {[className, getWeekLabel(week)].filter(Boolean).join(' ')}
+              {week.start_date && ` · ${fmtShortDate(week.start_date)}`}
             </p>
-            <div className="flex gap-4">
-              <button
-                type="button"
-                className="flex-1 rounded-2xl bg-blue-50 px-4 py-3 text-left transition-transform active:scale-[0.98] dark:bg-blue-950/40"
-                onClick={() => onOpenWrongNote('reading')}
-              >
-                <p className="mb-1 text-xs font-semibold text-[#2463EB] dark:text-blue-400">시험</p>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-[40px] font-black leading-none text-[#2463EB] dark:text-blue-300">
-                    {weekRate(latestS, latestW, 'reading') ?? '-'}
-                  </span>
-                  {weekRate(latestS, latestW, 'reading') !== null && (
-                    <span className="text-lg font-bold text-[#2463EB]/60 dark:text-blue-400/60">%</span>
-                  )}
-                </div>
-                {deltas.reading !== null && (
-                  <p className={`mt-1 text-xs font-semibold ${deltas.reading > 0 ? 'text-[#2463EB] dark:text-blue-400' : deltas.reading < 0 ? 'text-rose-500' : 'text-[#8B95A1]'}`}>
-                    {deltas.reading > 0 ? '+' : ''}{deltas.reading}%p
-                  </p>
-                )}
-              </button>
-
-              <button
-                type="button"
-                className="flex-1 rounded-2xl bg-emerald-50 px-4 py-3 text-left transition-transform active:scale-[0.98] dark:bg-emerald-950/40"
-                onClick={() => onOpenWrongNote('vocab')}
-              >
-                <p className="mb-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">단어</p>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-[40px] font-black leading-none text-emerald-600 dark:text-emerald-400">
-                    {weekRate(latestS, latestW, 'vocab') ?? '-'}
-                  </span>
-                  {weekRate(latestS, latestW, 'vocab') !== null && (
-                    <span className="text-lg font-bold text-emerald-600/60 dark:text-emerald-400/60">%</span>
-                  )}
-                </div>
-                {deltas.vocab !== null && (
-                  <p className={`mt-1 text-xs font-semibold ${deltas.vocab > 0 ? 'text-emerald-600 dark:text-emerald-400' : deltas.vocab < 0 ? 'text-rose-500' : 'text-[#8B95A1]'}`}>
-                    {deltas.vocab > 0 ? '+' : ''}{deltas.vocab}%p
-                  </p>
-                )}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            <p className="mb-3 text-sm text-[#8B95A1] dark:text-[#94A3B8]">최근 시험 점수</p>
-            <span className="text-[56px] font-black leading-none text-[#8B95A1] dark:text-gray-600">-</span>
-            <p className="mt-4 text-sm text-[#8B95A1] dark:text-gray-500">아직 시험 결과가 없습니다</p>
-          </div>
-        )}
-      </div>
-
-      {/* 스탯 카드 */}
-      {weekScores.length > 0 && (() => {
-        const avgReading = avg(readingRates)
-        const avgVocab = avg(vocabRates)
-        const avgHomework = avg(homeworkRates)
-        const latestReading = latestW && latestS ? weekRate(latestS, latestW, 'reading') : null
-        const latestVocab = latestW && latestS ? weekRate(latestS, latestW, 'vocab') : null
-        const latestHomework = latestW && latestS ? weekRate(latestS, latestW, 'homework') : null
-        const vsAvgReading = latestReading !== null && avgReading !== null ? latestReading - avgReading : null
-        const vsAvgVocab = latestVocab !== null && avgVocab !== null ? latestVocab - avgVocab : null
-        const vsAvgHomework = latestHomework !== null && avgHomework !== null ? latestHomework - avgHomework : null
-        return (
-          <div className="grid grid-cols-4 gap-2">
-            <StatCard label="시험 평균" color="indigo"
-              value={avgReading !== null ? `${avgReading}%` : null} delta={vsAvgReading}
-              onClick={() => onGoScoreSection('section-reading-chart')} />
-            <StatCard label="단어 평균" color="emerald"
-              value={avgVocab !== null ? `${avgVocab}%` : null} delta={vsAvgVocab}
-              onClick={() => onGoScoreSection('section-vocab-chart')} />
-            <StatCard label="과제 평균" color="amber"
-              value={avgHomework !== null ? `${avgHomework}%` : null} delta={vsAvgHomework}
-              onClick={() => onScrollTo('section-homework')} />
-            <StatCard label="출결 현황" color="blue"
-              value={primaryAttRate !== null ? `${primaryAttRate}%` : null} delta={null}
-              onClick={() => onScrollTo('section-attendance')} />
-          </div>
-        )
-      })()}
-
-      {/* 성장 하이라이트 */}
-      {highlights.length > 0 && (
-        <div className="rounded-3xl bg-white px-5 py-4 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:bg-[#1E293B] dark:shadow-none dark:ring-1 dark:ring-white/[0.06]">
-          <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-[#8B95A1] dark:text-[#94A3B8]">이번 주 잘한 것</p>
-          <div className="flex flex-wrap gap-2">
-            {highlights.map((h, i) => (
-              <span key={i} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold ${h.color}`}>
-                <span>{h.emoji}</span>
-                {h.label}
-              </span>
-            ))}
-          </div>
-        </div>
+            <p className={`mt-1 text-[14px] leading-relaxed ${BODY}`}>{memo}</p>
+          </li>
+        ))}
+      </ul>
+      {comments.length > 2 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className={`mt-3 flex items-center gap-1 text-[13px] font-semibold active:opacity-70 ${ACCENT}`}
+        >
+          {expanded
+            ? <><ChevronUp className="h-3.5 w-3.5" /> 접기</>
+            : <><ChevronDown className="h-3.5 w-3.5" /> 이전 코멘트 {comments.length - 2}개 더 보기</>}
+        </button>
       )}
-
-      {/* 과제 제출률 */}
-      {homeworkData.length >= 1 && (
-        <SwipeChartCard id="section-homework" title="과제 제출률" subtitle="주차별 (%)" itemCount={homeworkData.length}>
-          <HomeworkBarChart data={homeworkData} isDark={isDark} />
-        </SwipeChartCard>
-      )}
-
-      {/* 출석 현황 */}
-      {hasAttendanceData && (
-        <Card id="section-attendance" title="출결 현황">
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-2xl bg-blue-50 px-3.5 py-3 dark:bg-blue-950/30">
-                <p className="text-[11px] font-semibold text-[#8B95A1] dark:text-[#94A3B8]">정규수업</p>
-                <p className="mt-1 text-2xl font-black text-[#2463EB] dark:text-[#3B82F6]">
-                  {attRate !== null ? `${attRate}%` : '-'}
-                </p>
-                <p className="mt-0.5 text-[11px] text-[#8B95A1] dark:text-[#94A3B8]">
-                  {totalAtt > 0 ? `${presentAtt}/${totalAtt}회 출석` : '기록 없음'}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 px-3.5 py-3 dark:bg-slate-900/50">
-                <p className="text-[11px] font-semibold text-[#8B95A1] dark:text-[#94A3B8]">클리닉</p>
-                <p className="mt-1 text-2xl font-black text-[#1A1C1E] dark:text-[#F8FAFC]">
-                  {clinicAttRate !== null ? `${clinicAttRate}%` : '-'}
-                </p>
-                <p className="mt-0.5 text-[11px] text-[#8B95A1] dark:text-[#94A3B8]">
-                  {totalClinicAtt > 0 ? `${presentClinicAtt}/${totalClinicAtt}회 출석` : '기록 없음'}
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 rounded-full bg-slate-100 p-1 dark:bg-slate-900/70">
-              {[
-                { id: 'regular' as const, label: '정규수업', disabled: attendance.length === 0 },
-                { id: 'clinic' as const, label: '클리닉', disabled: clinicAttendance.length === 0 },
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setAttendanceView(item.id)}
-                  disabled={item.disabled}
-                  className={`rounded-full px-3 py-2 text-xs font-bold transition-all disabled:opacity-40 ${
-                    visibleAttendanceView === item.id
-                      ? 'bg-white text-[#2463EB] shadow-sm dark:bg-[#1E293B] dark:text-[#3B82F6]'
-                      : 'text-[#8B95A1] dark:text-[#94A3B8]'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-
-            <AttendanceCalendar
-              attendance={visibleAttendanceView === 'clinic' ? clinicAttendance : attendance}
-              variant={visibleAttendanceView}
-            />
-          </div>
-        </Card>
-      )}
-
-      {/* 강사 코멘트 */}
-      {commentFeed.length > 0 && (
-        <Card title="추쌤 코멘트 💬" subtitle="최근 수업 피드백">
-          <div className="space-y-3">
-            {(commentExpanded ? commentFeed : commentFeed.slice(0, 1)).map(({ week, memo, className }, idx, arr) => (
-              <div key={week.id} className="flex gap-3">
-                <div className="flex flex-col items-center">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-900/30">
-                    <MessageSquare className="h-3.5 w-3.5 text-[#2463EB] dark:text-blue-300" />
-                  </div>
-                  {(commentExpanded || idx < arr.length - 1) && (
-                    <div className="mt-1 w-px flex-1 bg-gray-100 dark:bg-white/[0.12]" />
-                  )}
-                </div>
-                <div className="min-w-0 pb-3">
-                  <p className="mb-1 text-[11px] text-gray-500 dark:text-gray-400">
-                    {className} {getWeekLabel(week)}
-                    {week.start_date && <span className="ml-1.5">{fmtShortDate(week.start_date)}</span>}
-                  </p>
-                  <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{memo}</p>
-                </div>
-              </div>
-            ))}
-            {commentFeed.length > 1 && (
-              <button
-                type="button"
-                onClick={() => setCommentExpanded((v) => !v)}
-                aria-expanded={commentExpanded}
-                className="flex items-center gap-1 text-xs text-[#2463EB] hover:underline dark:text-blue-400"
-              >
-                {commentExpanded
-                  ? <><ChevronUp className="h-3.5 w-3.5" /> 접기</>
-                  : <><ChevronDown className="h-3.5 w-3.5" /> 이전 코멘트 {commentFeed.length - 1}개 더 보기</>}
-              </button>
-            )}
-          </div>
-        </Card>
-      )}
-    </>
+    </Card>
   )
 }

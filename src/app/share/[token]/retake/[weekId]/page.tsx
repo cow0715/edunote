@@ -288,7 +288,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
   if (phase === 'loading') return (
     <div className={dark}>
-      <div className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617] flex items-center justify-center">
+      <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0B0F17] flex items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
       </div>
     </div>
@@ -296,7 +296,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
   if (phase === 'error' || !data) return (
     <div className={dark}>
-      <div className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617] flex flex-col items-center justify-center gap-3 px-6 text-center">
+      <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0B0F17] flex flex-col items-center justify-center gap-3 px-6 text-center">
         <XCircle className="h-12 w-12 text-rose-300" />
         <p className="text-sm text-gray-500 dark:text-gray-400">{error ?? '알 수 없는 오류'}</p>
         <button onClick={() => router.back()} className="mt-2 text-sm text-violet-500 underline">돌아가기</button>
@@ -306,7 +306,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
   if (phase === 'grading') return (
     <div className={dark}>
-      <div className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617] flex flex-col items-center justify-center gap-5">
+      <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0B0F17] flex flex-col items-center justify-center gap-5">
         <div className="relative h-14 w-14">
           <div className="absolute inset-0 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
           <div className="absolute inset-2 animate-spin rounded-full border-2 border-violet-300 border-b-transparent"
@@ -324,7 +324,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
     return (
       <div className={dark}>
-        <div className="min-h-[100dvh] bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617] flex flex-col select-none">
+        <div className="min-h-[100dvh] bg-[#F5F6F8] dark:bg-[#0B0F17] flex flex-col select-none">
 
           {/* 상단 상태바 */}
           <div className="shrink-0 bg-white dark:bg-[#1E293B] border-b border-gray-100 dark:border-white/[0.07] px-5 pt-4 pb-3">
@@ -514,7 +514,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
     if (phase === 'done' && !results) {
       return (
         <div className={dark}>
-          <div className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617] flex flex-col items-center justify-center px-5 gap-6">
+          <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0B0F17] flex flex-col items-center justify-center px-5 gap-6">
             <div className="text-5xl">🎉</div>
             <div className="text-center">
               <p className="text-xl font-black text-gray-900 dark:text-white mb-1">모든 단어 완료!</p>
@@ -545,7 +545,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
     return (
       <div className={dark}>
-        <div className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617] pb-40">
+        <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0B0F17] pb-40">
           <div className="max-w-lg mx-auto px-4 pt-5 space-y-3.5">
 
             {/* 점수 카드 */}

@@ -8,8 +8,8 @@ import { use, useCallback, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import {
-  GraduationCap, X, Home, BarChart2, PieChart, BookX,
-  History, CalendarDays, LibraryBig,
+  X, Home, BarChart2, PieChart, BookX,
+  ChevronDown, CalendarDays, LibraryBig,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { ShareData, TabId } from './share-types'
@@ -167,7 +167,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
   if (isLoading) return (
     <div className={themeReady && isDark ? 'dark' : ''}>
-      <div className="flex min-h-screen items-center justify-center bg-[#F8F9FB] dark:bg-[#0F0F0F]">
+      <div className="flex min-h-screen items-center justify-center bg-[#F5F6F8] dark:bg-[#0B0F17]">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2463EB] border-t-transparent" />
       </div>
     </div>
@@ -176,9 +176,9 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     const { title, hint } = shareErrorMessage(error?.status)
     return (
       <div className={themeReady && isDark ? 'dark' : ''}>
-        <div className="flex min-h-screen items-center justify-center bg-[#F8F9FB] px-8 dark:bg-[#0F0F0F]">
+        <div className="flex min-h-screen items-center justify-center bg-[#F5F6F8] px-8 dark:bg-[#0B0F17]">
           <div className="max-w-xs text-center">
-            <p className="text-base font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">{title}</p>
+            <p className="text-base font-bold text-[#1A1C1E] dark:text-[#F1F5F9]">{title}</p>
             <p className="mt-2 text-sm leading-relaxed text-[#8B95A1] dark:text-gray-500">{hint}</p>
           </div>
         </div>
@@ -196,41 +196,34 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
   return (
     <div className={themeReady && isDark ? 'dark' : ''}>
-      <div className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-[#FFFFFF] dark:bg-gradient-to-b dark:from-[#0F172A] dark:to-[#020617]">
+      <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0B0F17]">
 
         {/* ── 헤더 ──────────────────────────────────────────────────── */}
-        <header className="sticky top-0 z-20 bg-white/80 px-4 py-3.5 backdrop-blur-md dark:bg-[#0F172A]/90">
+        <header className="sticky top-0 z-20 border-b border-[#E9EBEF] bg-[#F5F6F8]/90 px-4 py-3 backdrop-blur-md dark:border-white/[0.06] dark:bg-[#0B0F17]/90">
           <div className="mx-auto flex max-w-lg items-center justify-between">
-            <div className="flex items-center gap-2">
-              <GraduationCap className="h-4 w-4 text-[#2463EB] dark:text-[#3B82F6]" />
-              <span className="text-sm font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">학습 현황</span>
-            </div>
+            <span className="text-sm font-bold text-[#1A1C1E] dark:text-[#F1F5F9]">학습 리포트</span>
             <ThemeToggle isDark={isDark} onToggle={toggleTheme} />
           </div>
         </header>
 
         {/* ── 탭 콘텐츠 ─────────────────────────────────────────────── */}
-        <main className="mx-auto max-w-lg space-y-4 px-4 pt-6 pb-28">
+        <main className="mx-auto max-w-lg space-y-3 px-4 pt-4 pb-28">
           {periodOptions.length > 0 && (
-            <div className="rounded-2xl bg-white/90 px-4 py-3 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:bg-[#1E293B]/90 dark:shadow-none dark:ring-1 dark:ring-white/[0.06]">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-medium text-[#8B95A1] dark:text-[#94A3B8]">
-                    {selectedPeriod
-                      ? selectedPeriod.is_active_class && selectedPeriod.is_current ? '선택한 반' : '지난 기록 보기'
-                      : '현재 기간'}
-                  </p>
-                  <p className="truncate text-sm font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">{currentViewLabel}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setHistoryOpen(true)}
-                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-[#2463EB] px-3 text-xs font-bold text-white transition-transform active:scale-95 dark:bg-[#3B82F6]"
-                >
-                  <History className="h-3.5 w-3.5" />
-                  반·기간 선택
-                </button>
-              </div>
+            <div className="flex items-center justify-between gap-3 px-1">
+              <p className="min-w-0 truncate text-[13px] text-[#8B95A1]">
+                {selectedPeriod
+                  ? selectedPeriod.is_active_class && selectedPeriod.is_current ? '선택한 반' : '지난 기록'
+                  : '현재 기간'}
+                <span className="ml-1.5 font-semibold text-[#3F4650] dark:text-[#CBD5E1]">{currentViewLabel}</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(true)}
+                className="inline-flex shrink-0 items-center gap-0.5 text-[13px] font-semibold text-[#2463EB] active:opacity-70 dark:text-[#3B82F6]"
+              >
+                반·기간 선택
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
             </div>
           )}
 
@@ -238,9 +231,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
             <HomeTab
               student={student}
               model={model}
-              isDark={isDark}
               onOpenWrongNote={(kind) => openWrongNote(kind)}
-              onScrollTo={scrollTo}
               onGoScoreSection={(id) => { setActiveTab('score'); scrollTo(id, 120) }}
             />
           )}
@@ -283,7 +274,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
         </main>
 
         {/* ── 하단 탭바 ─────────────────────────────────────────────── */}
-        <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-gray-100/60 bg-white/95 backdrop-blur-md dark:border-white/[0.06] dark:bg-[#1E293B]/95">
+        <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-[#E9EBEF] bg-white/95 backdrop-blur-md dark:border-white/[0.06] dark:bg-[#151B26]/95">
           <div className="mx-auto flex max-w-lg pb-safe">
             {TABS.map(({ id, label, Icon }) => {
               const active = activeTab === id
@@ -300,7 +291,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                   {active && (
                     <span className="absolute top-0 left-1/2 h-0.5 w-8 -translate-x-1/2 rounded-full bg-[#2463EB] dark:bg-blue-400" />
                   )}
-                  <Icon className={`h-5 w-5 transition-transform ${active ? 'scale-110' : ''}`} />
+                  <Icon className="h-5 w-5" />
                   <span className={`text-[10px] ${active ? 'font-bold' : 'font-medium'}`}>{label}</span>
                 </button>
               )
@@ -310,12 +301,12 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
         {/* ── 반·기간 선택 시트 ─────────────────────────────────────── */}
         <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
-          <SheetContent side="bottom" className="mx-auto max-h-[82vh] w-full max-w-lg rounded-t-3xl border-0 bg-white p-0 dark:bg-[#1E293B]" showCloseButton={false}>
+          <SheetContent side="bottom" className="mx-auto max-h-[82vh] w-full max-w-lg rounded-t-3xl border-0 bg-white p-0 dark:bg-[#151B26]" showCloseButton={false}>
             <SheetHeader className="px-5 pt-5 pb-3">
               <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-gray-200 dark:bg-white/20" />
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <SheetTitle className="text-base font-bold text-[#1A1C1E] dark:text-[#F8FAFC]">반·기간 선택</SheetTitle>
+                  <SheetTitle className="text-base font-bold text-[#1A1C1E] dark:text-[#F1F5F9]">반·기간 선택</SheetTitle>
                   <p className="mt-1 text-xs text-[#8B95A1] dark:text-[#94A3B8]">반과 기간을 선택하면 해당 범위로 다시 계산됩니다</p>
                 </div>
                 <button

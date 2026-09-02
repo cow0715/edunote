@@ -15,9 +15,24 @@ import {
   EMPTY_LIST,
   ScoreField,
   VocabStudyItem,
+  WeeklyMetric,
+  buildWeeklyHeadline,
   fmtWeekLabel,
   getWeekLabel,
 } from './share-utils'
+
+/** 홈 탭 "이번 주" 카드 한 장에 필요한 것 전부 */
+export type WeeklyReport = {
+  week: Week
+  className: string
+  reading: WeeklyMetric | null
+  vocab: WeeklyMetric | null
+  homework: WeeklyMetric | null
+  wrongReading: number
+  wrongVocab: number
+  memo: string | null
+  headline: string
+}
 
 export function useShareModel(data: ShareData | undefined) {
   const classes = data?.classes ?? EMPTY_LIST
@@ -190,28 +205,6 @@ export function useShareModel(data: ShareData | undefined) {
     return { typeData, expandToDomains, radarData, radarLegend, repeatPatterns }
   }, [studentAnswers, weekNumberByWeekId])
 
-  // ── 성장 하이라이트 ───────────────────────────────────────────────────────
-  const attRate = attendanceStats.attRate
-  const repeatPatterns = analysis.repeatPatterns
-  const highlights = useMemo(() => {
-    const list: { emoji: string; label: string; color: string }[] = []
-    const { reading: dReading, vocab: dVocab, homework: dHw } = deltas
-    if (dReading !== null && dReading > 0)
-      list.push({ emoji: '📈', label: `시험 ${dReading}%↑`, color: 'bg-blue-50 dark:bg-blue-950/40 text-[#2463EB] dark:text-blue-300 border-blue-100 dark:border-blue-800/40' })
-    if (dVocab !== null && dVocab > 0)
-      list.push({ emoji: '✏️', label: `단어 ${dVocab}%↑`, color: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-100 dark:border-emerald-800/40' })
-    if (dHw !== null && dHw > 0)
-      list.push({ emoji: '📝', label: `과제 ${dHw}%↑`, color: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-100 dark:border-amber-800/40' })
-    if (latestRates.homework === 100)
-      list.push({ emoji: '🎯', label: '과제 완벽 제출', color: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-100 dark:border-amber-800/40' })
-    if (attRate !== null && attRate >= 90)
-      list.push({ emoji: '🏃', label: `출석 ${attRate}%`, color: 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-100 dark:border-blue-800/40' })
-    const improvingTags = repeatPatterns.filter((p) => p.patternType === 'improving')
-    if (improvingTags.length > 0)
-      list.push({ emoji: '🌱', label: `${improvingTags[0].name} 개선 중`, color: 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border-teal-100 dark:border-teal-800/40' })
-    return list
-  }, [deltas, latestRates, attRate, repeatPatterns])
-
   // ── 오답노트: 독해 ────────────────────────────────────────────────────────
   const wrongNoteGroups = useMemo(() => visibleWeeks
     .map((w) => {
@@ -314,6 +307,37 @@ export function useShareModel(data: ShareData | undefined) {
       className: classes.find((c) => c.id === w.class_id)?.name ?? '',
     })), [visibleWeeks, scoreByWeek, classes])
 
+  // ── 홈: 이번 주 리포트 ───────────────────────────────────────────────────
+  // 홈은 최신 주차 하나를 "리포트" 로 읽어준다. 헤드라인 문장 규칙은 share-utils 에 있다.
+  const { latestW, latestS } = scoreModel
+  const latestReport = useMemo((): WeeklyReport | null => {
+    if (!latestW || !latestS) return null
+    const ca = classAverages[latestW.id]
+    const metric = (field: ScoreField, correct: number | null, total: number, classAvg: number | null | undefined): WeeklyMetric | null => {
+      const rate = weekRate(latestS, latestW, field)
+      if (rate === null || correct === null) return null
+      return {
+        rate, correct, total,
+        delta: deltas[field],
+        classDiff: classAvg !== null && classAvg !== undefined ? rate - classAvg : null,
+      }
+    }
+    const reading = metric('reading', latestS.reading_correct, latestW.reading_total, ca?.readingRate)
+    const vocab = metric('vocab', latestS.vocab_correct, latestW.vocab_total, ca?.vocabRate)
+    const homework = metric('homework', latestS.homework_done, latestW.homework_total, null)
+    const wrongReading = (answersByScore.get(latestS.id) ?? [])
+      .filter((a) => !a.is_correct && a.exam_question?.exam_type === 'reading').length
+    const wrongVocab = vocabWrong.vocabWrongGroups.find((g) => g.week.id === latestW.id)?.answers.length ?? 0
+    return {
+      week: latestW,
+      className: classes.find((c) => c.id === latestW.class_id)?.name ?? '',
+      reading, vocab, homework,
+      wrongReading, wrongVocab,
+      memo: latestS.memo?.trim() || null,
+      headline: buildWeeklyHeadline({ reading, vocab, homework }),
+    }
+  }, [latestW, latestS, classAverages, weekRate, deltas, answersByScore, vocabWrong.vocabWrongGroups, classes])
+
   // ── 오답노트 요약 (탭 상단 카운트) ────────────────────────────────────────
   const wrongNoteSummary = useMemo(() => {
     const readingCount = wrongNoteGroups.reduce((sum, g) => sum + g.answers.length, 0)
@@ -335,7 +359,7 @@ export function useShareModel(data: ShareData | undefined) {
     ...attendanceStats,
     ...chartData,
     ...analysis,
-    highlights,
+    latestReport,
     wrongNoteGroups,
     ...vocabWrong,
     ...vocabStudy,
