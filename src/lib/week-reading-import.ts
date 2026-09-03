@@ -406,6 +406,9 @@ function mergeSplitRows(group: ParsedAnswer[]): ParsedAnswer {
     question_type: firstOf('question_type'),
     explanation: firstOf('explanation'),
     question_stem: firstOf('question_stem'),
+    // 선지도 형제 행에서 채운다 — base 는 "지문이 가장 긴 행" 이라 선지가 다른 행에 실려 있으면
+    // ...base 만으로는 통째로 유실된다 (조합 선택형에서 지문·선지가 갈려 오는 경우)
+    choices: firstOf('choices'),
     passage: firstOf('passage'),
   }
 }
