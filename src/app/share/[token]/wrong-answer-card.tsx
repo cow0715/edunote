@@ -3,25 +3,26 @@
 // 오답 카드의 원본. 오답노트 탭과 분석 탭 태그 드로어가 같은 컴포넌트를 쓴다.
 // (예전에는 두 곳이 각자 그려서 해설 박스가 blue / indigo 로 갈렸다.)
 //
-// 규칙 — vocab-example-inline.tsx 와 같은 원칙:
-//   1. 색은 정오(rose·emerald)에만 쓴다. 태그·해설·첨삭은 무채색으로 눌러 답이 먼저 읽히게.
+// 규칙 (design_handoff_share_report/README.md "4. 오답"):
+//   1. 색은 정오에만 — 내 답 빨강 취소선 / 정답 잉크. 태그·해설·첨삭은 무채색.
 //   2. 상자를 겹치지 않는다. 카드 안에 또 배경 상자를 넣는 대신 구분선·들여쓰기로 나눈다.
 
-import { ChevronDown, RotateCcw } from 'lucide-react'
+import { RotateCcw } from 'lucide-react'
 import { FormattedQuestionText } from '@/components/grade/formatted-question-text'
 import { SourceImagePreview } from '@/components/grade/source-image-preview'
-import {
-  ExampleSentenceInline,
-  ANSWER_RIGHT_CLASS,
-  ANSWER_WRONG_CLASS,
-  isExampleSourceValue,
-} from '@/components/grade/vocab-example-inline'
+import { ExampleSentenceInline, isExampleSourceValue } from '@/components/grade/vocab-example-inline'
 import { parseChoiceOptions } from '@/lib/vocab-example-blank'
 import { StudentAnswer, VocabAnswer } from './share-types'
 import { formatCorrectAnswer, formatMyAnswer, splitQuestionTexts } from './share-utils'
-import { ConceptChip, ExampleBox, NoteBlock, WordRelationChips } from './share-word-parts'
+import {
+  ConceptChip, ExampleBox, NoteBlock, WordRelationChips,
+  SHARE_RIGHT_CLASS as ANSWER_RIGHT_CLASS,
+  SHARE_WRONG_CLASS as ANSWER_WRONG_CLASS,
+} from './share-word-parts'
+import { Chevron } from './share-ui'
+import { PRESS_ROW, PRESS_STRONG, T } from './share-tokens'
 
-const LABEL_CLASS = 'mr-1 text-[11px] text-gray-400 dark:text-gray-500'
+const LABEL_CLASS = 'mr-1 text-[11px] text-[#8B95A1]'
 
 /** 내 답 · 정답 한 줄 — 라벨을 위에 쌓지 않고 인라인으로 붙인다 */
 function AnswerLine({ mine, correct }: { mine: string; correct: string }) {
@@ -102,11 +103,11 @@ export function WrongAnswerCard({
     // 첫 스크롤에서 카드가 펼쳐지며 페이지가 튄다 (실측 범위 625~1230px).
     <article className="px-5 py-4 [content-visibility:auto] [contain-intrinsic-size:auto_780px]">
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 text-sm font-bold text-gray-900 dark:text-white">
-          {weekLabel && <span className="mr-1.5 font-semibold text-gray-400 dark:text-gray-500">{weekLabel}</span>}
+        <p className="min-w-0 text-[12px] font-bold text-[#3182F6]">
+          {weekLabel && <span className="mr-1.5 font-semibold text-[#8B95A1]">{weekLabel}</span>}
           {q.question_number}번
           {answers.length > 1 && (
-            <span className="ml-1.5 text-xs font-semibold text-gray-400 dark:text-gray-500">
+            <span className="ml-1.5 text-[11px] font-semibold text-[#8B95A1]">
               소문항 {answers.length}개
             </span>
           )}
@@ -121,7 +122,7 @@ export function WrongAnswerCard({
       {questionText && (
         <FormattedQuestionText
           text={questionText}
-          className="mt-2.5 border-l-2 border-gray-200 pl-3 text-xs leading-relaxed text-gray-600 dark:border-white/[0.12] dark:text-gray-400 text-justify"
+          className="mt-2.5 text-[13.5px] font-semibold leading-relaxed text-[#333D4B] text-justify"
         />
       )}
 
@@ -155,12 +156,12 @@ export function WrongAnswerCard({
               {item.tail && (
                 <FormattedQuestionText
                   text={item.tail}
-                  className="mb-1 border-l-2 border-gray-200 pl-3 text-xs leading-relaxed text-gray-600 dark:border-white/[0.12] dark:text-gray-400 text-justify"
+                  className="mb-1 text-[13.5px] font-semibold leading-relaxed text-[#333D4B] text-justify"
                 />
               )}
               <div className="flex items-baseline gap-2">
                 {item.sub && (
-                  <span className="w-6 shrink-0 text-xs font-bold text-gray-400 dark:text-gray-500">({item.sub})</span>
+                  <span className="w-6 shrink-0 text-[11px] font-bold text-[#8B95A1]">({item.sub})</span>
                 )}
                 <AnswerLine mine={item.mine} correct={item.correct} />
               </div>
@@ -210,27 +211,28 @@ export function WrongVocabRow({ answer }: { answer: VocabAnswer }) {
                 fill="student"
               />
               {vw.example_translation && (
-                <p className="mt-0.5 text-[11px] leading-4 text-gray-400 dark:text-gray-500">{vw.example_translation}</p>
+                <p className="mt-0.5 text-[11px] leading-4 text-[#8B95A1]">{vw.example_translation}</p>
               )}
             </>
           ) : (
-            <span className="text-sm font-bold text-gray-900 dark:text-white">{answer.test_word ?? vw.english_word}</span>
+            <span className="text-[15px] font-extrabold">{answer.test_word ?? vw.english_word}</span>
           )}
           {answer.test_word && answer.test_word !== vw.english_word && !exampleSource && (
-            <span className="ml-2 text-[10px] font-medium text-gray-400 dark:text-gray-500">원본 {vw.english_word}</span>
+            <span className="ml-2 text-[10px] font-medium text-[#8B95A1]">원본 {vw.english_word}</span>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {answer.retake_is_correct !== null && (
-            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-              retakeDone
-                ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400'
-                : 'bg-rose-50 text-rose-500 dark:bg-rose-950/50 dark:text-rose-400'
-            }`}>
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-bold"
+              style={retakeDone
+                ? { color: T.blue, background: T.blueBg }
+                : { color: T.muted, background: T.box }}
+            >
               재시험 {retakeDone ? '✓' : '✗'}
             </span>
           )}
-          <span className="text-xs text-gray-400 dark:text-gray-500">#{answer.test_number ?? vw.number}</span>
+          <span className="text-[11px] text-[#8B95A1] tabular-nums">#{answer.test_number ?? vw.number}</span>
         </div>
       </div>
 
@@ -254,8 +256,8 @@ export function WrongVocabRow({ answer }: { answer: VocabAnswer }) {
               const isPicked = !isAnswer && option.toLowerCase() === pickedLower
               return (
                 <span key={index}>
-                  <span className={isAnswer ? ANSWER_RIGHT_CLASS : isPicked ? ANSWER_WRONG_CLASS : 'font-semibold text-gray-700 dark:text-gray-300'}>{option}</span>
-                  <span className="ml-1 text-gray-500 dark:text-gray-400">{answer.choice_meanings?.[index] ?? ''}</span>
+                  <span className={isAnswer ? ANSWER_RIGHT_CLASS : isPicked ? ANSWER_WRONG_CLASS : 'font-semibold text-[#4E5968]'}>{option}</span>
+                  <span className="ml-1 text-[#6B7684]">{answer.choice_meanings?.[index] ?? ''}</span>
                 </span>
               )
             })
@@ -268,7 +270,7 @@ export function WrongVocabRow({ answer }: { answer: VocabAnswer }) {
             </span>
             {/* 예문 유형은 단어의 뜻도 참고로 */}
             {exampleSource && (
-              <span className="text-gray-500 dark:text-gray-400">
+              <span className="text-[#6B7684]">
                 <span className={LABEL_CLASS}>{vw.english_word}</span>
                 {vw.correct_answer}
               </span>
@@ -308,21 +310,37 @@ export function WeekAccordionHeader({
       type="button"
       onClick={onToggle}
       aria-expanded={isOpen}
-      className={`flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors ${
-        isOpen ? 'bg-gray-50 dark:bg-white/[0.04]' : 'hover:bg-gray-50 dark:hover:bg-white/[0.04]'
-      }`}
+      className={`${PRESS_ROW} flex w-full items-center justify-between gap-3 px-[18px] py-3.5 text-left`}
     >
       <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="truncate text-sm font-bold text-gray-900 dark:text-white">{title}</span>
-        {date && <span className="text-xs text-gray-400 dark:text-gray-500">{date}</span>}
-        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-bold text-gray-500 dark:bg-white/[0.08] dark:text-gray-300">
+        <span className="truncate text-[15px] font-extrabold">{title}</span>
+        {date && <span className="text-[12px] text-[#8B95A1]">{date}</span>}
+        <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-[#6B7684] tabular-nums">
           {count}{countLabel}
         </span>
       </span>
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-gray-400 shadow-sm dark:bg-white/[0.08] dark:text-gray-300">
-        <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
-      </span>
+      <Chevron open={isOpen} />
     </button>
+  )
+}
+
+/**
+ * 진단평가 오답 주차의 "다시 풀기" 행.
+ * 단어의 RetakeActionRow 와 같은 자리·같은 모양이다 — 두 오답이 같은 문법으로 읽히게.
+ */
+export function ReviewActionRow({ count, onStart }: { count: number; onStart: () => void }) {
+  return (
+    <div className="px-[18px] py-2.5">
+      <button
+        type="button"
+        onClick={onStart}
+        className={`${PRESS_STRONG} flex w-full items-center justify-center gap-1.5 rounded-[14px] px-4 py-2.5 text-[13px] font-bold text-white`}
+        style={{ background: T.blue }}
+      >
+        <RotateCcw className="h-3.5 w-3.5" />
+        이 회차 {count}문항 다시 풀기
+      </button>
+    </div>
   )
 }
 
@@ -343,20 +361,21 @@ export function RetakeActionRow({
 
   if (remaining <= 0) {
     return (
-      <div className="flex items-center gap-1.5 px-5 py-2.5 text-xs text-gray-500 dark:text-gray-400">
-        <RotateCcw className="h-3 w-3 text-emerald-500 dark:text-emerald-400" />
+      <div className="flex items-center gap-1.5 px-[18px] py-2.5 text-[12px] text-[#6B7684]">
+        <RotateCcw className="h-3 w-3" style={{ color: T.blue }} />
         재시험 완료
-        <strong className="text-emerald-600 dark:text-emerald-400">{mastered}/{originalWrong}</strong>
+        <strong className="tabular-nums" style={{ color: T.blue }}>{mastered}/{originalWrong}</strong>
       </div>
     )
   }
 
   return (
-    <div className="px-5 py-2.5">
+    <div className="px-[18px] py-2.5">
       <button
         type="button"
         onClick={onStart}
-        className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#2463EB] px-4 py-2.5 text-xs font-bold text-white transition-transform active:scale-[0.98] dark:bg-[#3B82F6]"
+        className={`${PRESS_STRONG} flex w-full items-center justify-center gap-1.5 rounded-[14px] px-4 py-2.5 text-[13px] font-bold text-white`}
+        style={{ background: T.blue }}
       >
         <RotateCcw className="h-3.5 w-3.5" />
         재시험 보기 · {remaining}개{started ? ' 남음' : ''}

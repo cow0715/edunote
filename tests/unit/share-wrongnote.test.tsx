@@ -257,6 +257,9 @@ function makeModel(over: Partial<ShareModel> = {}): ShareModel {
     vocabWrongGroups: [{ week, answers: [makeVocabAnswer()], className: '고1반' }],
     wrongNoteSummary: { readingCount: 1, vocabCount: 1, retakeRemaining: 6 },
     scoreByWeek: new Map([['wk1', makeScore()]]),
+    // 진단평가 빈 상태를 3종으로 가르는 데 쓰인다 (시험 없음 / 만점 / 문항 데이터 없음)
+    scoredWeeks: [week],
+    studentAnswers: [makeStudentAnswer()],
     ...over,
   } as unknown as ShareModel
 }
@@ -300,14 +303,15 @@ describe('WrongNoteTab', () => {
     expect(header.getAttribute('aria-expanded')).toBe('true')
   })
 
-  it('재시험이 남았으면 요약 줄을 띄우고, 누르면 단어장의 "재시험 남은 단어"로 보낸다', () => {
-    const h = renderTab()
+  // 재시험 CTA 는 단어 서브탭 최상단(다크 카드)에만 있다 — 진단평가 쪽엔 다시 풀기 CTA 가 온다
+  it('단어 탭에서 재시험이 남았으면 CTA 를 띄우고, 누르면 단어장의 "재시험 남은 단어"로 보낸다', () => {
+    const h = renderTab({ subTab: 'vocab' })
     fireEvent.click(screen.getByText('재시험 6개 남음'))
     expect(h.onOpenVocabList).toHaveBeenCalledWith(null, 'retake_pending')
   })
 
-  it('재시험이 없으면 요약 줄을 띄우지 않는다', () => {
-    renderTab({ model: makeModel({ wrongNoteSummary: { readingCount: 1, vocabCount: 1, retakeRemaining: 0 } as ShareModel['wrongNoteSummary'] }) })
+  it('재시험이 없으면 CTA 를 띄우지 않는다', () => {
+    renderTab({ subTab: 'vocab', model: makeModel({ wrongNoteSummary: { readingCount: 1, vocabCount: 1, retakeRemaining: 0 } as ShareModel['wrongNoteSummary'] }) })
     expect(screen.queryByText(/재시험 .*남음/)).toBeNull()
   })
 
@@ -331,9 +335,26 @@ describe('WrongNoteTab', () => {
     expect(screen.queryByText(/재시험 보기/)).toBeNull()
   })
 
-  it('오답이 없으면 빈 상태를 보여준다', () => {
+  // "오답이 없다" 는 세 가지 뜻이라 문구를 나눈다 — 기록 누락을 칭찬으로 오해하지 않게
+  it('오답이 없고 문항 데이터가 있으면 "전부 정답"으로 읽어준다', () => {
     renderTab({ model: makeModel({ wrongNoteGroups: [] as ShareModel['wrongNoteGroups'] }) })
-    expect(screen.getByText('진단평가 오답 데이터가 없습니다')).toBeTruthy()
+    expect(screen.getByText('진단평가 오답이 없어요')).toBeTruthy()
+  })
+
+  it('시험 자체가 없는 기간과 점수만 있는 기간을 구분해 안내한다', () => {
+    const noExamWeek = { ...makeWeek(), reading_total: 0 }
+    renderTab({ model: makeModel({
+      wrongNoteGroups: [] as ShareModel['wrongNoteGroups'],
+      scoredWeeks: [noExamWeek] as ShareModel['scoredWeeks'],
+    }) })
+    expect(screen.getByText('이 기간엔 진단평가가 없어요')).toBeTruthy()
+
+    cleanup()
+    renderTab({ model: makeModel({
+      wrongNoteGroups: [] as ShareModel['wrongNoteGroups'],
+      studentAnswers: [] as ShareModel['studentAnswers'],
+    }) })
+    expect(screen.getByText('문항별 오답 기록이 없어요')).toBeTruthy()
   })
 
   it('접힌 주차의 문항은 그리지 않는다', () => {
