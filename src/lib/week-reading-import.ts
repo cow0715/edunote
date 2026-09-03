@@ -1,5 +1,6 @@
 import type { SupabaseServerClient } from '@/lib/api'
 import { buildQuestionTextFromParts, ensureChoiceMarker } from '@/lib/question-structure'
+import { normalizeParsedAnswerShape } from '@/lib/parsed-answer-normalize'
 import {
   gradeSubjectiveAnswers,
   parseAnswerSheet,
@@ -10,7 +11,6 @@ import type {
   SourceBBox,
   SubjectiveStudentAnswer,
   TagCategory,
-  WeekProblemSheetQuestion,
 } from '@/lib/anthropic'
 import { recalcReadingCorrect, gradeMultiSelect } from '@/lib/grade-utils'
 import { gradeOX } from '@/lib/ox-grading'
@@ -97,7 +97,7 @@ function normalizeSourceBBox(value: unknown): SourceBBox | null {
   }
 }
 
-function shouldStoreSourceImage(question: Pick<WeekProblemSheetQuestion, 'needs_source_image' | 'source_image_reason'>): boolean {
+function shouldStoreSourceImage(question: Pick<ParsedAnswer, 'needs_source_image' | 'source_image_reason'>): boolean {
   const reason = question.source_image_reason?.toLowerCase() ?? ''
   return question.needs_source_image === true &&
     ['table', 'chart', 'diagram', 'layout', 'image'].includes(reason)
@@ -348,13 +348,15 @@ export function normalizeParsedAnswers(parsedAnswers: ParsedAnswer[]): ParsedAns
         ? normalizeFindErrorKeyText(answer.correct_answer_text) ?? answer.correct_answer_text
         : answer.correct_answer_text
 
-      return {
+      // 번호·소문항·find_error 키를 먼저 잡고, 그 위에서 형태(빈 값·선지 기호·정답키 표기)를
+      // canonical form 으로 맞춘다 — 프롬프트 편차는 여기서 끝나고 컬럼엔 한 형태만 들어간다.
+      return normalizeParsedAnswerShape({
         ...answer,
         question_number: questionNumber,
         correct_answer: coerceCorrectAnswer(answer.correct_answer),
         correct_answer_text: correctAnswerText,
         sub_label: answer.sub_label ? String(answer.sub_label).trim() || null : null,
-      }
+      })
     })
     .filter((answer): answer is ParsedAnswer => answer !== null)
 
