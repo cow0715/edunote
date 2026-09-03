@@ -1,0 +1,116 @@
+[
+  {
+    "key": "1|",
+    "question_number": 1,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "제목 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "History of Music in Terms of Genre",
+      "Authorship: Motivation for Innovations",
+      "Greatest Composers of 14th Century Music",
+      "The Innovative Invention of Musical Instruments",
+      "Musical Notation: Its Invention and Contributions"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "2|",
+    "question_number": 2,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "빈칸 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "use empirically proven theories to reflect locals'input",
+      "do stress cultural values rather than utilitarian ones",
+      "may be free from the inequalities of policymaking",
+      "can reinforce unequal and unjust relationships",
+      "reveal objective solutions to social problems"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "3|",
+    "question_number": 3,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "문맥상 낱말 쓰임(어휘)",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "respective",
+      "lack",
+      "caused",
+      "absence",
+      "agreements"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "4|",
+    "question_number": 4,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "글의 순서",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "(A) – (C) – (B)",
+      "(B) – (A) – (C)",
+      "(B) – (C) – (A)",
+      "(C) – (A) – (B)",
+      "(C) – (B) – (A)"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "5|",
+    "question_number": 5,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 2,
+    "correct_answer_text": null,
+    "question_type": "문장 삽입",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "①",
+      "②",
+      "③",
+      "④",
+      "⑤"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "6|",
+    "question_number": 6,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "요약문 완성",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "successive … unique",
+      "successive … valuable",
+      "controlled … valuable",
+      "incidental … influential",
+      "incidental … unique"
+    ],
+    "has_explanation": true
+  }
+]

@@ -1,0 +1,534 @@
+[
+  {
+    "key": "18|",
+    "question_number": 18,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "목적 파악",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "도서관 주말 운영 시간 연장을 건의하려고",
+      "도서관 보유 장서 관리 방법 개선을 제안하려고",
+      "도서관 정기 이용자 모임 가입 방법을 안내하려고",
+      "도서관 주말 은퇴자 교육 프로그램 참가를 신청하려고",
+      "도서관 무료 도서 나눔 행사 도서 기증 방법을 문의하려고"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "19|",
+    "question_number": 19,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "심경 변화",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "terrified → determined",
+      "thrilled → indifferent",
+      "bored → expectant",
+      "angry → embarrassed",
+      "confident → frightened"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "20|",
+    "question_number": 20,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 2,
+    "correct_answer_text": null,
+    "question_type": "주장",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "학생이 경제적 성공을 경험하도록 실생활과 연계된 경제 교육을 강화해야 한다.",
+      "학생이 원하는 보상을 주고 성공 경험을 쌓도록 도와 학습 동기를 높여야 한다.",
+      "성적이 저조한 학생에게는 개별화된 학습 프로그램을 충분하게 제공해야 한다.",
+      "학생 스스로 탐색하여 자신에게 맞는 진로를 선택하도록 동기를 부여해야 한다.",
+      "학습에 대한 흥미를 높일 수 있도록 다양한 새로운 교수법을 시도해야 한다."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "21|",
+    "question_number": 21,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "밑줄 의미 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "accumulating seemingly harmless contributions to information pollution",
+      "enhancing the public good at the expense of individual interests",
+      "minimizing the impact of the spread of false information on society",
+      "diminishing the importance of linguistic literacy in the digital age",
+      "boosting collective efforts to construct a reliable informative environment"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "22|",
+    "question_number": 22,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "요지",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "과도한 목표 달성 압박은 조직에 위기를 초래할 문제마저 은폐하게 만든다.",
+      "조직으로부터의 압박이 강할수록 조직의 구성원은 유능하게 성장할 수 있다.",
+      "조직의 관리자는 외부의 상황 변화에 대해 면밀하게 파악하는 것이 중요하다.",
+      "상급자와 하급자 사이의 활발한 의사소통은 조직 내 갈등 완화의 첫 단추이다.",
+      "직원의 잦은 실수에 대해 관용적인 조직 문화는 조직의 목표 달성을 저해한다."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "23|",
+    "question_number": 23,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 2,
+    "correct_answer_text": null,
+    "question_type": "주제 파악",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "challenges writers face in developing ideas for novels",
+      "general social tolerance for common arithmetical errors",
+      "effective methods for overcoming arithmetical challenges",
+      "critical attitudes towards arithmetical mistakes in education",
+      "benefits of strong calculation skills in elementary education"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "24|",
+    "question_number": 24,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "제목",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "Archaeological Targets: Beyond Material to Social Aspects of Culture",
+      "The Contributions of Multidisciplinary Approaches to Archaeology",
+      "Beyond Artifacts: How Society Constructs Cultural Heritage",
+      "Technological Innovations Transforming Archaeological Excavations",
+      "Archaeology: Exploring the Origins of Civilization Through Material Culture"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "25|",
+    "question_number": 25,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "도표 일치",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "Overall, domestic trips were more frequent than international trips, with the largest gap between the two being among Baby Boomers.",
+      "Millennials were the most active travelers, taking an average of 2.7 domestic trips and 2.3 international trips.",
+      "Among the four generations, Baby Boomers took the fewest trips overall, averaging 3.4 trips, including 2.3 domestic trips and 1.1 international trips.",
+      "Gen Z travelers averaged 2.3 domestic trips and 2.1 international trips, showing the smallest gap between the average numbers of domestic and international trips among all the age groups surveyed.",
+      "Gen X took fewer domestic trips than all the other generations, but their combined average of domestic and international trips still exceeded 4."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "26|",
+    "question_number": 26,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "내용 불일치",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "Odessa에서 기자로서의 경력을 시작했다.",
+      "런던에서 외신 특파원으로 근무했다.",
+      "시인 Aleksandr Blok에 대한 글을 썼다.",
+      "러시아 혁명 이후 소비에트 연방에서 탈출했다.",
+      "옥스퍼드 대학교에서 명예박사 학위를 받았다."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "27|",
+    "question_number": 27,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "내용 일치",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "이번 주말 동안 Magic Square Mall에서 진행한다.",
+      "30달러 구매 영수증을 식물 화분으로 교환할 수 있다.",
+      "플라스틱 병뚜껑 10개로 할인 쿠폰을 받을 수 있다.",
+      "8월 9일 오후 3시에 모자 만들기 워크숍이 있다.",
+      "워크숍은 선착순으로 마감된다."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "28|",
+    "question_number": 28,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "안내문 내용 일치",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "한 시간 동안 진행되는 프로그램이다.",
+      "14세 학생부터 참여가 가능하다.",
+      "모든 참가자는 사진 촬영에 협조해야 한다.",
+      "이메일로만 등록할 수 있다.",
+      "적어도 현장 학습 일주일 전에 등록을 완료해야 한다."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "29|",
+    "question_number": 29,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "어법",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "are",
+      "to visualize",
+      "how",
+      "crystallizing",
+      "it"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "30|",
+    "question_number": 30,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 3,
+    "correct_answer_text": null,
+    "question_type": "낱말의 쓰임(문맥상 어휘)",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "direct",
+      "concerned",
+      "comforting",
+      "provide",
+      "justifiable"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "31|",
+    "question_number": 31,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "빈칸 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "entire",
+      "raw",
+      "reliable",
+      "unique",
+      "exclusive"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "32|",
+    "question_number": 32,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 3,
+    "correct_answer_text": null,
+    "question_type": "빈칸 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "a core aspect of our memory",
+      "an integral part of our cultural identity",
+      "a very personal experience for each of us",
+      "an effective tool for concentration training",
+      "an opportunity to explore the world around us"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "33|",
+    "question_number": 33,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 2,
+    "correct_answer_text": null,
+    "question_type": "빈칸추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "can serve as a principle agreed upon by all parties involved",
+      "cannot be automatically transferred to radical designs",
+      "can adapt flexibly to groundbreaking design changes",
+      "can benefit from the integration with radical designs",
+      "cannot be part of the discourse on future design development"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "34|",
+    "question_number": 34,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "빈칸 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "extreme levels of exercise are either harmful or additionally healthy",
+      "not doing much exercise is just as healthy as exercising regularly",
+      "ordinary nonathletes benefit equally from higher doses of exercise",
+      "moderate doses of exercise have clear and proven health benefits",
+      "the effects of extreme exercise depend on genetic advantages"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "35|",
+    "question_number": 35,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 3,
+    "correct_answer_text": null,
+    "question_type": "무관한 문장 찾기",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "An immune cell can't stop you from drinking a soda, filter your water, turn off the stress-inducing notifications on your phone, prevent you from eating hormone-disrupting pesticides and microplastics, or get you to go to sleep earlier.",
+      "So the immune cell will use the tools at its disposal: it will recruit more immune cells, send out more inflammatory signals, and just keep fighting until things resolve.",
+      "Other immune system problems happen when your immune system does not work correctly.",
+      "But the problems don't resolve, because the damaging environmental inputs never resolve.",
+      "This is the root of chronic inflammation."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "36|",
+    "question_number": 36,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "글의 순서",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "(A)-(C)-(B)",
+      "(B)-(A)-(C)",
+      "(B)-(C)-(A)",
+      "(C)-(A)-(B)",
+      "(C)-(B)-(A)"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "37|",
+    "question_number": 37,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "글의 순서",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "(A)-(C)-(B)",
+      "(B)-(A)-(C)",
+      "(B)-(C)-(A)",
+      "(C)-(A)-(B)",
+      "(C)-(B)-(A)"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "38|",
+    "question_number": 38,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "문장 삽입",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "①",
+      "②",
+      "③",
+      "④",
+      "⑤"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "39|",
+    "question_number": 39,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "문장 삽입",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "①",
+      "②",
+      "③",
+      "④",
+      "⑤"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "40|",
+    "question_number": 40,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "요약문 완성 (빈칸 추론)",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "(A) harmful (B) mirror",
+      "(A) harmful (B) mask",
+      "(A) risky (B) distort",
+      "(A) specific (B) ignore",
+      "(A) specific (B) correct"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "41|",
+    "question_number": 41,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "제목 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "Clear Destinations: What Drives You Forward",
+      "Life-changing Choices That Shape Your Future",
+      "How Automatic Responses Contribute to Success",
+      "The Significance of Control of the Self in Human Behavior",
+      "Steering Without Purpose: Finding Direction in Uncertainty"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "42|",
+    "question_number": 42,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "어휘 문맥 파악",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "exerts",
+      "influenced",
+      "disproportionately",
+      "automatic",
+      "decrease"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "43|",
+    "question_number": 43,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "글의 순서",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "(B)-(D)-(C)",
+      "(C)-(B)-(D)",
+      "(C)-(D)-(B)",
+      "(D)-(B)-(C)",
+      "(D)-(C)-(B)"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "44|",
+    "question_number": 44,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 3,
+    "correct_answer_text": null,
+    "question_type": "지칭 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "Mr. Grumbles (He)",
+      "Mr. Grumbles (He)",
+      "Tom (he)",
+      "Mr. Grumbles (him)",
+      "Mr. Grumbles (he)"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "45|",
+    "question_number": 45,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 2,
+    "correct_answer_text": null,
+    "question_type": "내용 일치",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "Mr. Grumbles의 사과나무에는 아름다운 황금빛 사과가 있었다.",
+      "판사는 Tom에게 어제 버린 종이 조각을 모두 주워 오라고 했다.",
+      "화가 난 Tom은 Mr. Grumbles를 고소했다.",
+      "Mr. Grumbles는 자신의 황금빛 사과가 없어진 것을 알아차렸다.",
+      "보안관이 와서 Tom을 체포했다."
+    ],
+    "has_explanation": true
+  }
+]

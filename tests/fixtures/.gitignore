@@ -1,0 +1,6 @@
+# 실제 시험지 PDF 는 커밋하지 않는다 (학교 자료). golden JSON 만 커밋.
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.log

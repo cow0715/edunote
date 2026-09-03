@@ -1,0 +1,477 @@
+[
+  {
+    "key": "1|",
+    "question_number": 1,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "어법",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "These tasks were designed to challenge us to go out of our comfort zones and to explore new aspects of our identities.",
+      "The fundamental requirement was the pursuit of what we had never tried before. By completing these challenges and sharing the results with our classmates,",
+      "Going to the theater alone was something I had never tried before, so I decided to make it my first challenge.",
+      "It made it unnecessary to worry about anyone else's preferences.",
+      "I saw it as a great opportunity to watch something different, so I chose a historical drama that I had been curious."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "2|",
+    "question_number": 2,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 3,
+    "correct_answer_text": null,
+    "question_type": "빈칸 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "focus on improving my relationships with those around me",
+      "avoid trying new things that might make me feel awkward",
+      "be more independent in my choices and embrace solitary activities",
+      "prioritize the importance of reflecting on my past personal experiences",
+      "find ways to minimize the time spent on activities that require focused attention"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "3|",
+    "question_number": 3,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "글의 순서 배열",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "However, I eventually persuaded myself to consult a professional stylist, who helped me find a shorter style that suited me perfectly.",
+      "Feeling more confident after the preceding challenge, I moved on to the most challenging task: changing my hairstyle. For years, I had kept the same look because my large forehead made me worried, as I was reluctant to let others notice it.",
+      "My interest was stimulated when I came across a social media clip of my cousin surfing at an indoor pool. It looked fun, and I particularly liked the fact that it took place in a shallow pool rather than the open ocean, which made me feel much more secure.",
+      "Although I initially struggled to even stand on the board, the instructor's guidance finally enabled me to balance and even surf a few waves. This thrilling experience didn't just provide a rush of excitement; it helped me to discover a new sense of adventure.",
+      "To my surprise, the positive reactions from my classmates made it easier for me to embrace my new look, which significantly boosted my self-confidence."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "4|",
+    "question_number": 4,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "주제 파악",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "social expectations that shape one's behavior",
+      "benefits of making judgments for safety and survival",
+      "negative effects of criticism on personal lifestyles",
+      "importance of understanding others' lifestyles in modern society",
+      "necessity of self-awareness to protect oneself from blind criticism"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "5|",
+    "question_number": 5,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 3,
+    "correct_answer_text": null,
+    "question_type": "주제 파악",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "what sweat glands and electrical conductivity can and cannot reveal",
+      "the influence of conscious thought on subconscious sweat gland activity",
+      "the objective measurement of emotions through changes in skin conductivity",
+      "the gap between the subjectivity of human emotions and scientific objectivity",
+      "a method of diagnosing and treating various diseases in the human body using sweat"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "6|",
+    "question_number": 6,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "무관한 문장 찾기",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "Squirrels collecting nuts in autumn might take different routes due to food availability and seasonal changes in their natural habitat.",
+      "Factors such as food sources, predators, weather conditions, or human disturbances cannot be fully understood within a laboratory.",
+      "While computer simulations can help forecast behavior patterns, they may not be able to explain why these changes occur to the full extent.",
+      "Advances in computer technology have made it easier to simulate complex biological systems in animals' natural habitat.",
+      "To gain a real understanding of animal behavior, observing them in their natural environment is necessary, which can only be accomplished through field studies."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "7|",
+    "question_number": 7,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "제목 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "Why Higher Prices Fail to Reduce Consumption",
+      "How Taxes Secretly Work in the Cigarette Industry",
+      "Governments and Markets: A Battle Over Tax Policy",
+      "The Strategy behind Price Changes in Modern Economies",
+      "The Visible Target, the Invisible Weight: Who Really Pays Taxes"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "8|",
+    "question_number": 8,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "제목 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "Avoidance: An Effective Emotional Strategy",
+      "The Stages and Skills of Language Acquisition",
+      "Why We Should Spend Time Practicing Asking Good Questions",
+      "The Drawbacks of Asking Questions in Helping Children Express Emotions",
+      "The Distinctive Features of Students Who Have Trouble Sharing Their Emotions in Public"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "9|",
+    "question_number": 9,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 2,
+    "correct_answer_text": null,
+    "question_type": "요약문 완성",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "development ··· indifference ··· burden",
+      "spread ··· awareness ··· accountability",
+      "popularity ··· decline ··· profit",
+      "adaptation ··· concerns ··· clarity",
+      "expansion ··· understanding ··· sustainability"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "10|",
+    "question_number": 10,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "문맥상 어휘 적절성",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "stimulate",
+      "productive",
+      "invaluable",
+      "concentration",
+      "waste"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "11|",
+    "question_number": 11,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "어휘 (문맥상 낱말 쓰임)",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "dual",
+      "facilitative",
+      "reduced",
+      "modulate",
+      "avoid"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "12|",
+    "question_number": 12,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 3,
+    "correct_answer_text": null,
+    "question_type": "어휘 (문맥상 낱말 쓰임)",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "activates",
+      "disrupt",
+      "engaged",
+      "skipping",
+      "ultimately"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "13|",
+    "question_number": 13,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 2,
+    "correct_answer_text": null,
+    "question_type": "어법(동명사)",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "make",
+      "spend",
+      "releasing",
+      "them",
+      "which"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "14|",
+    "question_number": 14,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "빈칸 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "prioritize definitive truths over alternative theories",
+      "reinforce particular viewpoints and eliminate new interpretations",
+      "simplify complex theories instead of questioning existing assumptions",
+      "provide measurable evidence to enhance credibility of the research",
+      "highlight other ways of understanding instead of providing absolute truths"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "15|",
+    "question_number": 15,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 2,
+    "correct_answer_text": null,
+    "question_type": "빈칸추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "no matter how small they thought the violation was",
+      "but only when the violator belonged to their ingroup",
+      "as if they had expected all along that their outgroup would do so",
+      "when it was the puppets with foreign accents that caused problems",
+      "because they thought the ones with native accents were beyond punishment"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "16|",
+    "question_number": 16,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "빈칸 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "visually explaining information in detail",
+      "ensuring user-friendly explanations for users",
+      "directly accessing conceptual models on digital devices",
+      "completely understanding how systems actually operate",
+      "concealing the complexity of underlying mechanisms"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "17|",
+    "question_number": 17,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "글의 순서 배열",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "(A) - (C) - (B)",
+      "(B) - (A) - (C)",
+      "(B) - (C) - (A)",
+      "(C) - (A) - (B)",
+      "(C) - (B) - (A)"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "18|",
+    "question_number": 18,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "글의 순서 배열",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "(A)-(B)-(D)-(C)",
+      "(B)-(A)-(C)-(D)",
+      "(B)-(C)-(D)-(A)",
+      "(C)-(A)-(B)-(D)",
+      "(C)-(B)-(A)-(D)"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "19|",
+    "question_number": 19,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 3,
+    "correct_answer_text": null,
+    "question_type": "문장 삽입",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "①",
+      "②",
+      "③",
+      "④",
+      "⑤"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "20|",
+    "question_number": 20,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "문장 삽입",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "①",
+      "②",
+      "③",
+      "④",
+      "⑤"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "21|",
+    "question_number": 21,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 2,
+    "correct_answer_text": null,
+    "question_type": "지칭 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "ⓐ : something you find beautiful",
+      "ⓑ : an image of something more fundamental",
+      "ⓒ : the Form of Beauty",
+      "ⓓ : the idea of a triangle",
+      "ⓔ : the principle that an abstract concept exists within each of its individual instances"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "22|a",
+    "question_number": 22,
+    "sub_label": "a",
+    "question_style": "objective",
+    "correct_answer": 2,
+    "correct_answer_text": null,
+    "question_type": "수의 일치(주어-동사 일치)",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "(a)",
+      "(b)",
+      "(c)",
+      "(d)",
+      "(e)"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "22|b",
+    "question_number": 22,
+    "sub_label": "b",
+    "question_style": "objective",
+    "correct_answer": 3,
+    "correct_answer_text": null,
+    "question_type": "도치(부정어 도치)",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "(a)",
+      "(b)",
+      "(c)",
+      "(d)",
+      "(e)"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "23|",
+    "question_number": 23,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "빈칸 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "visible",
+      "minimal",
+      "incomplete",
+      "inseparable",
+      "unspecified"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "24|",
+    "question_number": 24,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "어휘 선택(문맥)",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "resides … manipulative … why",
+      "resides … mandatory … because",
+      "resides … manipulative … because",
+      "recedes … mandatory … because",
+      "recedes … manipulative … why"
+    ],
+    "has_explanation": true
+  }
+]

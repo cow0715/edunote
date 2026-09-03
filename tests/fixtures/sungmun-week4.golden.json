@@ -1,0 +1,295 @@
+[
+  {
+    "key": "1|a",
+    "question_number": 1,
+    "sub_label": "a",
+    "question_style": "subjective",
+    "correct_answer": 0,
+    "correct_answer_text": "made",
+    "question_type": "분사(수동 관계)",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": null,
+    "has_explanation": true
+  },
+  {
+    "key": "1|b",
+    "question_number": 1,
+    "sub_label": "b",
+    "question_style": "subjective",
+    "correct_answer": 0,
+    "correct_answer_text": "come",
+    "question_type": "주어-동사 수일치",
+    "has_stem": true,
+    "has_passage": false,
+    "choices": null,
+    "has_explanation": true
+  },
+  {
+    "key": "1|c",
+    "question_number": 1,
+    "sub_label": "c",
+    "question_style": "subjective",
+    "correct_answer": 0,
+    "correct_answer_text": "have",
+    "question_type": "주어-동사 수일치",
+    "has_stem": true,
+    "has_passage": false,
+    "choices": null,
+    "has_explanation": true
+  },
+  {
+    "key": "2|b",
+    "question_number": 2,
+    "sub_label": "b",
+    "question_style": "find_error",
+    "correct_answer": 0,
+    "correct_answer_text": "b:struggle",
+    "question_type": "어휘",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": null,
+    "has_explanation": true
+  },
+  {
+    "key": "3|",
+    "question_number": 3,
+    "sub_label": null,
+    "question_style": "subjective",
+    "correct_answer": 0,
+    "correct_answer_text": "I could help heal their wounded hearts by supporting them",
+    "question_type": "영작 (어순 배열)",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": null,
+    "has_explanation": true
+  },
+  {
+    "key": "4|",
+    "question_number": 4,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 3,
+    "correct_answer_text": null,
+    "question_type": "어휘",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "streaming",
+      "worry",
+      "serious",
+      "absorbed",
+      "distract"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "5|",
+    "question_number": 5,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "내용 일치",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "People can benefit from therapy sessions to address emotional challenges.",
+      "The sessions are available for everyone regardless of their financial situation.",
+      "The elderly women belong to the local group where the sessions are held.",
+      "The women spend time with the patients in a formal setting.",
+      "The women play a supportive role, providing emotional encouragement."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "6|",
+    "question_number": 6,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "주제/내용 일치",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "Patients join community support groups after sessions.",
+      "A community support group at school helps students with academic challenges.",
+      "The program discourages online counseling options.",
+      "Patients do not receive community support after sessions.",
+      "The vision for the future includes more green spaces in urban areas."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "7|",
+    "question_number": 7,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 4,
+    "correct_answer_text": null,
+    "question_type": "글의 순서",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "(A) - (B) - (C)",
+      "(B) - (A) - (C)",
+      "(B) - (C) - (A)",
+      "(C) - (A) - (B)",
+      "(C) - (B) - (A)"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "8|",
+    "question_number": 8,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "함축 의미 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "Take action to help those struggling with mental health issues",
+      "Observe the situation without getting directly involved",
+      "Wait for professionals to solve the problem",
+      "Assume that mental health concerns will resolve on their own",
+      "Avoid engaging with people experiencing emotional difficulties"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "9|",
+    "question_number": 9,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 2,
+    "correct_answer_text": null,
+    "question_type": "심경 변화",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "fascinated → envious",
+      "terrified → confident",
+      "frightened → determinded",
+      "grateful → curious",
+      "arrogant → overwhelmed"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "10|",
+    "question_number": 10,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "함축 의미 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "The writer had long been confident in their appearance and sought only minor changes.",
+      "The writer had always believed that staying within their comfort zone was the best way to grow.",
+      "The writer had previously believed that trying something new would likely result in embarrassment.",
+      "The writer already expected that others would praise their new hairstyle and boost their self-esteem.",
+      "The writer was surprised that a simple external change could influence their internal sense of confidence."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "11|",
+    "question_number": 11,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 1,
+    "correct_answer_text": null,
+    "question_type": "심경 변화",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "sympathetic → confident",
+      "overwhelmed → embarrassed",
+      "solitary → encouraged",
+      "indifferent → frustrated",
+      "desolate → concerned"
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "12|",
+    "question_number": 12,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 3,
+    "correct_answer_text": null,
+    "question_type": "내용 일치",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "One way to step out of our comfort zone is by learning the literature of other countries.",
+      "My classmates and I chose a comfortable life over challenging ourselves.",
+      "Trying new things is so beneficial and exciting that we decided to continue doing it.",
+      "While working on the assignment, we were more focused on completing it than enjoying the process.",
+      "Our new abilities rarely emerge unless we take on new challenges."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "13|",
+    "question_number": 13,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 2,
+    "correct_answer_text": null,
+    "question_type": "내용 일치",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "Standing on the board was easy from the start.",
+      "It was challenging to balance on the surfboard initially.",
+      "The waves crashed gently on the shore during the morning walk.",
+      "I felt comfortable doing water activities.",
+      "The child was afraid of the dark room but entered nonetheless."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "14|",
+    "question_number": 14,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 2,
+    "correct_answer_text": null,
+    "question_type": "함축 의미 추론",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "I will hesitate before deciding things for myself.",
+      "I want to take greater control of my decisions.",
+      "I will avoid making choices alone.",
+      "I plan to follow trends rather than personal preferences.",
+      "I will rely more on others' opinions in the future."
+    ],
+    "has_explanation": true
+  },
+  {
+    "key": "15|",
+    "question_number": 15,
+    "sub_label": null,
+    "question_style": "objective",
+    "correct_answer": 5,
+    "correct_answer_text": null,
+    "question_type": "문장 삽입",
+    "has_stem": true,
+    "has_passage": true,
+    "choices": [
+      "①",
+      "②",
+      "③",
+      "④",
+      "⑤"
+    ],
+    "has_explanation": true
+  }
+]
