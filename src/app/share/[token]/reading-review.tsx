@@ -112,9 +112,13 @@ export function buildReviewQuestions(answers: StudentAnswer[]): ReviewQuestion[]
       }
 
       // 선지 목록이 없어도 지문에 밑줄 기호가 있으면 번호만으로 고를 수 있다.
-      // 정답 번호가 기호 수를 넘으면 밑줄 문항이 아니라 선지가 유실된 것이니 제외한다.
-      const markerCount = countUnderlineMarkers(`${base.passage ?? ''}
-${q.question_text ?? ''}`)
+      //
+      // 반드시 passage 만 본다. 구조화 이전(question_stem 이 없는) 데이터는 지문·발문·선지가
+      // question_text 에 통짜로 들어 있어서, 거기서 기호를 세면 "내용과 일치하지 않는 것" 같은
+      // 평범한 객관식까지 밑줄 유형으로 오인한다. 그런 문항은 선지가 발문 자리에 그대로
+      // 쏟아지고 그 아래 번호 버튼이 또 붙어 화면이 두 번 겹친다.
+      if (!q.question_stem?.trim()) return null
+      const markerCount = countUnderlineMarkers(base.passage ?? '')
       if (markerCount < 2 || q.correct_answer > markerCount) return null
       return {
         ...base,

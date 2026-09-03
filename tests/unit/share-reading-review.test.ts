@@ -164,6 +164,24 @@ describe('buildReviewQuestions', () => {
     })])).toEqual([])
   })
 
+  // 구조화 이전 데이터는 지문·발문·선지가 question_text 에 통짜로 들어 있다.
+  // 거기서 기호를 세면 평범한 객관식이 밑줄 유형으로 오인돼 화면이 겹친다.
+  it('question_stem 이 없는 구 데이터는 밑줄 유형으로 보지 않는다', () => {
+    expect(buildReviewQuestions([answer({}, {
+      question_style: 'objective', choices: null, correct_answer: 3,
+      question_stem: null, passage: null,
+      question_text: '다음 글의 내용과 일치하지 않는 것은? 지문... ① 하나 ② 둘 ③ 셋 ④ 넷 ⑤ 다섯',
+    })])).toEqual([])
+  })
+
+  it('기호가 passage 밖(통짜 본문)에만 있으면 세지 않는다', () => {
+    expect(buildReviewQuestions([answer({}, {
+      question_style: 'objective', choices: null, correct_answer: 2,
+      question_stem: '다음 글의 내용과 일치하지 않는 것은?', passage: '기호 없는 지문',
+      question_text: '① 하나 ② 둘 ③ 셋',
+    })])).toEqual([])
+  })
+
   it('문항 번호 순으로 정렬한다', () => {
     const list = buildReviewQuestions([
       answer({ id: 'b' }, { question_number: 30 }),
