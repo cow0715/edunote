@@ -1,10 +1,13 @@
 'use client'
 
-import { use, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { use, useCallback, useEffect, useRef, useState } from 'react'
 import { runOrReport } from '@/lib/async-ui'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Sparkles, Timer, XCircle } from 'lucide-react'
-import { ExampleSentenceInline, ANSWER_RIGHT_CLASS, ANSWER_WRONG_CLASS, type ExampleSource } from '@/components/grade/vocab-example-inline'
+import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ExampleSentenceInline, type ExampleSource } from '@/components/grade/vocab-example-inline'
+import { PRESS, PRESS_STRONG, T } from '../../share-tokens'
+import { Chevron, CountUp } from '../../share-ui'
+import { SHARE_RIGHT_CLASS, SHARE_WRONG_CLASS } from '../../share-word-parts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -70,30 +73,11 @@ type Phase = 'loading' | 'playing' | 'grading' | 'revealing' | 'done' | 'error'
 
 const SECS_PER_WORD = 10
 
-// ── 테마 ──────────────────────────────────────────────────────────────────────
-// 이 페이지에는 테마 토글이 없다. 저장된 값(공유 페이지에서 고른 값)이나 OS 설정을 읽기만 한다.
-// localStorage 는 외부 스토어라 useSyncExternalStore 가 정석 — SSR 스냅샷도 안전하게 준다.
-
-function subscribeToTheme(onChange: () => void) {
-  const media = window.matchMedia('(prefers-color-scheme: dark)')
-  window.addEventListener('storage', onChange)
-  media.addEventListener('change', onChange)
-  return () => {
-    window.removeEventListener('storage', onChange)
-    media.removeEventListener('change', onChange)
-  }
-}
-
-function getIsDarkSnapshot() {
-  const saved = localStorage.getItem('share-theme')
-  if (saved) return saved === 'dark'
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
-}
-
-// 서버에서는 항상 라이트로 그린다 (기존 useState(false) 초기값과 같다).
-function getIsDarkServerSnapshot() {
-  return false
-}
+// ── Component ─────────────────────────────────────────────────────────────────
+//
+// 단어 재시험은 "집중 모드" 다 — 리포트와 달리 헤더·단어 카드를 다크 패널(#191F28)로
+// 두고, 그 위에서 타이머와 정답 여부만 파랑/빨강으로 말한다.
+// (design_handoff_share_report/README.md "단어 재시험 플로우")
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -101,7 +85,6 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
   const { token, weekId } = use(params)
   const router = useRouter()
 
-  const isDark = useSyncExternalStore(subscribeToTheme, getIsDarkSnapshot, getIsDarkServerSnapshot)
   const [data, setData] = useState<RetakeData | null>(null)
   const [phase, setPhase] = useState<Phase>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -279,229 +262,227 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
   const words = data?.words ?? []
   const totalTime = words.length * SECS_PER_WORD
   const timerPct = totalTime > 0 ? timeLeft / totalTime : 0
-  const timerText = timerPct > 0.5 ? 'text-emerald-500' : timerPct > 0.2 ? 'text-amber-500' : 'text-rose-500'
-  const timerBg   = timerPct > 0.5 ? 'bg-emerald-500'   : timerPct > 0.2 ? 'bg-amber-400'   : 'bg-rose-500'
-
-  const dark = isDark ? 'dark' : ''
+  // 남은 시간이 20초 밑으로 떨어지면 빨강 — 색은 "지금 서둘러야 한다" 한 가지 뜻으로만 쓴다
+  const timerColor = timeLeft <= 20 ? T.red : T.blue
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
   if (phase === 'loading') return (
-    <div className={dark}>
-      <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0B0F17] flex items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
-      </div>
-    </div>
+    <CenterScreen>
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#3182F6] border-t-transparent" />
+    </CenterScreen>
   )
 
   if (phase === 'error' || !data) return (
-    <div className={dark}>
-      <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0B0F17] flex flex-col items-center justify-center gap-3 px-6 text-center">
-        <XCircle className="h-12 w-12 text-rose-300" />
-        <p className="text-sm text-gray-500 dark:text-gray-400">{error ?? '알 수 없는 오류'}</p>
-        <button onClick={() => router.back()} className="mt-2 text-sm text-violet-500 underline">돌아가기</button>
-      </div>
-    </div>
+    <CenterScreen>
+      <p className="text-[15px] font-bold text-[#191F28]">{error ?? '알 수 없는 오류'}</p>
+      <button
+        type="button"
+        onClick={() => router.back()}
+        className={`${PRESS} mt-4 rounded-full bg-[#F2F4F6] px-5 py-2.5 text-[13px] font-bold text-[#4E5968]`}
+      >
+        돌아가기
+      </button>
+    </CenterScreen>
   )
 
   if (phase === 'grading') return (
-    <div className={dark}>
-      <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0B0F17] flex flex-col items-center justify-center gap-5">
-        <div className="relative h-14 w-14">
-          <div className="absolute inset-0 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
-          <div className="absolute inset-2 animate-spin rounded-full border-2 border-violet-300 border-b-transparent"
-            style={{ animationDirection: 'reverse', animationDuration: '0.7s' }} />
-        </div>
-        <p className="text-sm font-semibold text-gray-500 dark:text-gray-400 tracking-wide">AI 채점 중...</p>
-      </div>
-    </div>
+    <CenterScreen>
+      <div className="h-9 w-9 animate-spin rounded-full border-2 border-[#3182F6] border-t-transparent" />
+      <p className="mt-4 text-[13px] font-bold text-[#8B95A1]">채점 중...</p>
+    </CenterScreen>
   )
 
   // ── Playing ───────────────────────────────────────────────────────────────────
 
   if (phase === 'playing') {
     const currentWord = words[currentIndex]
+    const isLast = currentIndex >= words.length - 1
+    const kicker = currentWord?.kind && currentWord.kind !== 'meaning'
+      ? KIND_LABEL[currentWord.kind]
+      : currentWord?.prompt_text
+        ? '괄호 단어의 뜻'
+        : `NO. ${currentWord?.number}`
 
     return (
-      <div className={dark}>
-        <div className="min-h-[100dvh] bg-[#F5F6F8] dark:bg-[#0B0F17] flex flex-col select-none">
+      <div className="mx-auto flex min-h-[100dvh] max-w-[430px] flex-col bg-white text-[#191F28] select-none">
 
-          {/* 상단 상태바 */}
-          <div className="shrink-0 bg-white dark:bg-[#1E293B] border-b border-gray-100 dark:border-white/[0.07] px-5 pt-4 pb-3">
-            <div className="flex items-center justify-between mb-2.5">
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => router.back()}
-                  className="flex items-center justify-center h-8 w-8 rounded-full bg-gray-100 dark:bg-white/[0.08] text-gray-500 dark:text-gray-400 active:scale-95 transition-transform"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </button>
-                <div className="flex items-center gap-2">
-                  <Timer className={`h-4 w-4 shrink-0 ${timerText}`} />
-                  <span className={`text-2xl font-black tabular-nums leading-none ${timerText}`}>
-                    {formatTime(timeLeft)}
-                  </span>
-                  <span className="text-xs text-gray-300 dark:text-gray-600 font-medium">
-                    / {formatTime(totalTime)}
-                  </span>
-                </div>
-              </div>
-              <span className="text-sm font-medium text-gray-400 dark:text-gray-500 tabular-nums">
-                <strong className="text-gray-900 dark:text-white">{currentIndex + 1}</strong>
-                <span className="mx-1 text-gray-300 dark:text-gray-600">/</span>
-                {words.length}
-              </span>
-            </div>
-            <div className="h-1.5 bg-gray-100 dark:bg-white/10 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full transition-all duration-1000 ${timerBg}`}
-                style={{ width: `${timerPct * 100}%` }} />
-            </div>
-          </div>
-
-          {/* 카드 영역 */}
-          <div className="flex-1 flex flex-col items-center justify-center px-5 gap-7 py-8">
-
-            {/* 진행 도트 */}
-            <div className="flex gap-2 flex-wrap justify-center"
-              style={{ maxWidth: Math.min(words.length * 20 + (words.length - 1) * 8, 300) }}>
-              {words.map((w, i) => (
-                <div key={w.answer_id} className={`rounded-full transition-all duration-200 ${
-                  i < currentIndex
-                    ? answers[words[i].answer_id]?.trim()
-                      ? 'h-2 w-2 bg-emerald-400'
-                      : 'h-2 w-2 bg-gray-300 dark:bg-gray-600'
-                    : i === currentIndex
-                    ? 'h-2.5 w-2.5 bg-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900'
-                    : 'h-2 w-2 bg-gray-200 dark:bg-white/10'
-                }`} />
-              ))}
-            </div>
-
-            {/* 단어 카드 (스와이프 + 아이콘 네비게이션) */}
-            <div
-              className={`w-full max-w-sm px-3 transition-all duration-150 ${
-                cardVisible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-95'
-              }`}
-              onTouchStart={handleTouchStart}
-              onTouchEnd={handleTouchEnd}
+        {/* 상단 다크 헤더 — 집중 모드에서만 쓰는 패널 */}
+        <div className="shrink-0" style={{ background: T.panel }}>
+          <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-3">
+            <button
+              type="button"
+              onClick={() => router.back()}
+              aria-label="나가기"
+              className={`${PRESS} flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white`}
             >
-              <div className="relative bg-white dark:bg-[#1E293B] rounded-3xl shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:shadow-none dark:ring-1 dark:ring-white/[0.08] px-12 py-10 text-center min-h-[160px] flex flex-col items-center justify-center">
-
-                {/* 이전 아이콘 */}
-                <button
-                  type="button"
-                  onClick={goPrev}
-                  disabled={currentIndex === 0}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-200 dark:text-white/15 disabled:opacity-0 transition-opacity active:text-gray-400 dark:active:text-white/40"
-                >
-                  <ChevronLeft className="h-6 w-6" />
-                </button>
-
-                <p className="text-[11px] font-bold text-gray-300 dark:text-gray-600 uppercase tracking-widest mb-4">
-                  No. {currentWord?.number}
-                  {currentWord?.kind && currentWord.kind !== 'meaning' && (
-                    <span className="ml-2 normal-case tracking-normal text-indigo-400 dark:text-indigo-300">· {KIND_LABEL[currentWord.kind]}</span>
-                  )}
-                  {currentWord?.kind === 'meaning' && currentWord.prompt_text && (
-                    <span className="ml-2 normal-case tracking-normal text-indigo-400 dark:text-indigo-300">· 괄호 단어의 뜻</span>
-                  )}
-                </p>
-                {currentWord?.kind === 'blank' && currentWord.prompt_text ? (
-                  // 빈칸: 문장 속 빈칸 자리에 학생이 입력 중인 답을 실시간 표시
-                  <p className="text-lg font-semibold text-gray-900 dark:text-white break-words leading-relaxed w-full">
-                    {(() => {
-                      const parts = splitBlank(currentWord.prompt_text)
-                      const typed = answers[currentWord.answer_id]?.trim()
-                      if (!parts) return currentWord.prompt_text
-                      return (
-                        <>
-                          {parts[0]}
-                          <span className={`inline-block min-w-[72px] border-b-2 px-1 text-center ${typed ? 'border-indigo-400 text-indigo-600 dark:text-indigo-300' : 'border-gray-300 dark:border-gray-600'}`}>
-                            {typed || ' '}
-                          </span>
-                          {parts[1]}
-                        </>
-                      )
-                    })()}
-                  </p>
-                ) : currentWord?.kind === 'choice' && currentWord.prompt_text ? (
-                  <p className="text-lg font-semibold text-gray-900 dark:text-white break-words leading-relaxed w-full">
-                    {currentWord.prompt_text.replace(/\[\s*[^\]]+\]/, '[ ? ]')}
-                  </p>
-                ) : currentWord?.prompt_text ? (
-                  // 예문 뜻쓰기: 괄호 문장을 보여주고 괄호 단어를 크게
-                  <>
-                    <p className="text-base font-medium text-gray-700 dark:text-gray-300 break-words leading-relaxed w-full mb-3">
-                      {currentWord.prompt_text}
-                    </p>
-                    <p className="text-2xl font-black text-gray-900 dark:text-white tracking-wide break-words leading-snug w-full">
-                      {currentWord.english_word}
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-3xl font-black text-gray-900 dark:text-white tracking-wide break-words leading-snug w-full">
-                    {currentWord?.english_word}
-                  </p>
-                )}
-
-                {/* 다음/제출 아이콘 */}
-                <button
-                  type="button"
-                  onClick={goNext}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-200 dark:text-white/15 transition-opacity active:text-gray-400 dark:active:text-white/40"
-                  title={currentIndex >= words.length - 1 ? '제출' : '다음'}
-                >
-                  <ChevronRight className="h-6 w-6" />
-                </button>
-              </div>
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-[20px] font-black tabular-nums" style={{ color: timerColor }}>
+                {formatTime(timeLeft)}
+              </span>
+              <span className="text-[12px] font-medium tabular-nums text-white/40">/ {formatTime(totalTime)}</span>
             </div>
+            <span className="text-[13px] font-bold tabular-nums text-white/50">
+              <strong className="text-white">{currentIndex + 1}</strong> / {words.length}
+            </span>
+          </div>
+          {/* 1초 틱과 맞춰 선형으로 줄어든다 */}
+          <div className="h-1 bg-white/10">
+            <div
+              className="h-full transition-[width] duration-1000 ease-linear"
+              style={{ width: `${timerPct * 100}%`, background: timerColor }}
+            />
+          </div>
+        </div>
 
-            {/* 입력 — 유형별 */}
-            <div className={`w-full max-w-sm transition-all duration-150 delay-[60ms] ${
-              cardVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-            }`}>
-              {currentWord?.kind === 'choice' && currentWord.choice_options ? (
-                // 선택형: 후보 2개 중 탭. 종이의 동그라미 대신 버튼이라 판독 문제가 없다
-                <div className="grid grid-cols-2 gap-3">
-                  {currentWord.choice_options.map((option) => {
-                    const selected = answers[currentWord.answer_id] === option
+        <div className="flex flex-1 flex-col items-center justify-center gap-7 px-5 py-8">
+
+          {/* 진행 점 */}
+          <div
+            className="flex flex-wrap justify-center gap-2"
+            style={{ maxWidth: Math.min(words.length * 20 + (words.length - 1) * 8, 300) }}
+          >
+            {words.map((w, i) => (
+              <span
+                key={w.answer_id}
+                className={`rounded-full transition-all duration-200 ${i === currentIndex ? 'h-2.5 w-2.5' : 'h-2 w-2'}`}
+                style={{
+                  background: i === currentIndex
+                    ? T.ink
+                    : i < currentIndex && answers[w.answer_id]?.trim()
+                      ? T.blue
+                      : T.disabled2,
+                }}
+              />
+            ))}
+          </div>
+
+          {/* 단어 카드 — 다크 */}
+          <div
+            className={`w-full max-w-sm transition-all duration-150 ${cardVisible ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-4 scale-95 opacity-0'}`}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
+            <div
+              className="relative flex min-h-[168px] flex-col items-center justify-center rounded-[20px] px-12 py-10 text-center"
+              style={{ background: T.panel }}
+            >
+              <button
+                type="button"
+                onClick={goPrev}
+                disabled={currentIndex === 0}
+                aria-label="이전 단어"
+                className="absolute top-1/2 left-3 -translate-y-1/2 text-white/20 transition-opacity disabled:opacity-0"
+              >
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+
+              <p className="mb-4 text-[11px] font-bold tracking-widest text-white/40">{kicker}</p>
+
+              {currentWord?.kind === 'blank' && currentWord.prompt_text ? (
+                // 빈칸: 문장 속 빈칸 자리에 입력 중인 답을 실시간으로 보여준다
+                <p className="w-full text-[18px] leading-relaxed font-semibold break-words text-white">
+                  {(() => {
+                    const parts = splitBlank(currentWord.prompt_text)
+                    const typed = answers[currentWord.answer_id]?.trim()
+                    if (!parts) return currentWord.prompt_text
                     return (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() => setAnswers(p => ({ ...p, [currentWord.answer_id]: option }))}
-                        className={`rounded-2xl border-2 px-4 py-4 text-lg font-bold transition-all active:scale-[0.98] ${
-                          selected
-                            ? 'border-indigo-500 bg-indigo-500 text-white dark:border-indigo-400 dark:bg-indigo-500'
-                            : 'border-gray-200 bg-white text-gray-800 dark:border-white/[0.1] dark:bg-[#1E293B] dark:text-gray-100'
-                        }`}
-                      >
-                        {option}
-                      </button>
+                      <>
+                        {parts[0]}
+                        <span
+                          className="inline-block min-w-[72px] border-b-2 px-1 text-center"
+                          style={{
+                            borderColor: typed ? T.blue : 'rgba(255,255,255,0.3)',
+                            color: typed ? '#8CC0FF' : undefined,
+                          }}
+                        >
+                          {typed || ' '}
+                        </span>
+                        {parts[1]}
+                      </>
                     )
-                  })}
-                </div>
+                  })()}
+                </p>
+              ) : currentWord?.kind === 'choice' && currentWord.prompt_text ? (
+                <p className="w-full text-[18px] leading-relaxed font-semibold break-words text-white">
+                  {currentWord.prompt_text.replace(/\[\s*[^\]]+\]/, '[ ? ]')}
+                </p>
+              ) : currentWord?.prompt_text ? (
+                <>
+                  <p className="mb-3 w-full text-[15px] leading-relaxed font-medium break-words text-white/70">
+                    {currentWord.prompt_text}
+                  </p>
+                  <p className="w-full text-[26px] leading-snug font-extrabold break-words text-white">
+                    {currentWord.english_word}
+                  </p>
+                </>
               ) : (
-                <input
-                  ref={inputRef}
-                  type="text"
-                  inputMode="text"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize={currentWord?.kind === 'blank' ? 'none' : undefined}
-                  spellCheck={false}
-                  placeholder={currentWord?.kind === 'blank' ? '영어 단어를 입력하세요' : '한글 뜻을 입력하세요'}
-                  value={answers[currentWord?.answer_id ?? ''] ?? ''}
-                  onChange={e => setAnswers(p => ({ ...p, [currentWord.answer_id]: e.target.value }))}
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); goNext() } }}
-                  className="w-full rounded-2xl border-2 border-gray-200 dark:border-white/[0.1] bg-white dark:bg-[#1E293B] px-5 py-4 text-xl text-gray-900 dark:text-white placeholder:text-gray-300 dark:placeholder:text-gray-600 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-all text-center font-semibold"
-                />
+                <p className="w-full text-[34px] leading-snug font-extrabold break-words text-white">
+                  {currentWord?.english_word}
+                </p>
               )}
+
+              <button
+                type="button"
+                onClick={goNext}
+                aria-label={isLast ? '제출' : '다음 단어'}
+                className="absolute top-1/2 right-3 -translate-y-1/2 text-white/20 transition-opacity"
+              >
+                <ChevronRight className="h-6 w-6" />
+              </button>
             </div>
           </div>
 
+          {/* 입력 — 유형별 */}
+          <div className={`w-full max-w-sm transition-all delay-[60ms] duration-150 ${cardVisible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}`}>
+            {currentWord?.kind === 'choice' && currentWord.choice_options ? (
+              // 선택형: 후보 2개 중 탭. 종이의 동그라미 대신 버튼이라 판독 문제가 없다
+              <div className="grid grid-cols-2 gap-3">
+                {currentWord.choice_options.map((option) => {
+                  const selected = answers[currentWord.answer_id] === option
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setAnswers(p => ({ ...p, [currentWord.answer_id]: option }))}
+                      className={`${PRESS_STRONG} rounded-[18px] border-2 px-4 py-4 text-[17px] font-bold`}
+                      style={selected
+                        ? { borderColor: T.blue, background: T.blue, color: '#FFFFFF' }
+                        : { borderColor: 'transparent', background: T.box, color: T.body }}
+                    >
+                      {option}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <input
+                ref={inputRef}
+                type="text"
+                inputMode="text"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize={currentWord?.kind === 'blank' ? 'none' : undefined}
+                spellCheck={false}
+                placeholder={currentWord?.kind === 'blank' ? '영어 단어를 입력하세요' : '한글 뜻을 입력하세요'}
+                value={answers[currentWord?.answer_id ?? ''] ?? ''}
+                onChange={e => setAnswers(p => ({ ...p, [currentWord.answer_id]: e.target.value }))}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); goNext() } }}
+                className="w-full rounded-[22px] bg-[#F2F4F6] px-5 py-4 text-center text-[17px] font-semibold text-[#191F28] outline-none placeholder:text-[#B0B8C1]"
+              />
+            )}
 
+            <button
+              type="button"
+              onClick={goNext}
+              className={`${PRESS_STRONG} mt-3 w-full rounded-full py-3.5 text-[15px] font-extrabold text-white`}
+              style={{ background: T.blue }}
+            >
+              {isLast ? '제출 →' : '다음 →'}
+            </button>
+          </div>
         </div>
       </div>
     )
@@ -510,248 +491,218 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
   // ── Revealing + Done ──────────────────────────────────────────────────────────
 
   if (phase === 'revealing' || phase === 'done') {
-    // 모든 단어 완료 (results 없음 = 처음 접속부터 완료 상태)
+    // results 가 없으면 처음 접속부터 이미 완료 상태였던 경우다
     if (phase === 'done' && !results) {
       return (
-        <div className={dark}>
-          <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0B0F17] flex flex-col items-center justify-center px-5 gap-6">
-            <div className="text-5xl">🎉</div>
-            <div className="text-center">
-              <p className="text-xl font-black text-gray-900 dark:text-white mb-1">모든 단어 완료!</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {data.week.class_name} {data.week.display_label ?? `${data.week.week_number}주차`} 단어를 모두 학습했어요
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => router.back()}
-              className="w-full max-w-xs rounded-2xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-bold py-4 text-base active:scale-[0.98] transition-all"
-            >
-              대시보드로 돌아가기
-            </button>
-          </div>
-        </div>
+        <CenterScreen>
+          <p className="text-[20px] font-extrabold text-[#191F28]">모든 단어 완료!</p>
+          <p className="mt-1.5 text-[13px] text-[#8B95A1]">
+            {data.week.class_name} {data.week.display_label ?? `${data.week.week_number}주차`} 단어를 모두 학습했어요
+          </p>
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className={`${PRESS_STRONG} mt-6 w-full max-w-xs rounded-full py-3.5 text-[15px] font-extrabold text-white`}
+            style={{ background: T.blue }}
+          >
+            오답노트로
+          </button>
+        </CenterScreen>
       )
     }
 
     const roundResults = results ?? []
     const pct = retakeScore ? Math.round((retakeScore.correct / retakeScore.total) * 100) : 0
-    const allCorrectThisRound = retakeScore?.correct === retakeScore?.total
     const allDone = remaining === 0
 
-    const scoreFrom = allCorrectThisRound ? 'from-emerald-500 to-teal-500'
-                    : pct >= 60 ? 'from-amber-400 to-orange-500'
-                    : 'from-rose-500 to-pink-500'
-
     return (
-      <div className={dark}>
-        <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0B0F17] pb-40">
-          <div className="max-w-lg mx-auto px-4 pt-5 space-y-3.5">
+      <div className="mx-auto min-h-screen max-w-[430px] bg-white pb-40 text-[#191F28]">
+        <div className="flex flex-col gap-3 px-4 pt-5">
 
-            {/* 점수 카드 */}
-            {phase === 'done' ? (
-              <div className={`rounded-3xl bg-gradient-to-br ${scoreFrom} p-6 text-white text-center`}>
-                {allDone && (
-                  <p className="text-sm font-bold mb-1 opacity-90">🎉 모든 단어 완료!</p>
-                )}
-                <p className="text-xs font-semibold uppercase tracking-widest opacity-70 mb-2">
-                  이번 라운드
-                </p>
-                <p className="text-6xl font-black leading-none mb-2">{pct}%</p>
-                <p className="text-sm opacity-90">
-                  {retakeScore?.total}개 중 <strong>{retakeScore?.correct}개</strong> 정답
-                </p>
-                {!allDone && remaining !== null && remaining > 0 && (
-                  <p className="text-xs opacity-75 mt-1.5">아직 {remaining}개 남았어요</p>
-                )}
-              </div>
-            ) : (
-              <div className="rounded-3xl bg-gray-100 dark:bg-white/5 h-44 animate-pulse" />
-            )}
+          {/* 점수 카드 — 다크 */}
+          {phase === 'done' ? (
+            <div className="rounded-[20px] px-6 py-8 text-center" style={{ background: T.panel }}>
+              <p className="text-[11px] font-bold tracking-widest text-white/40">이번 재시험</p>
+              <p className="mt-2 text-[56px] leading-none font-black tabular-nums" style={{ color: T.blue }}>
+                <CountUp value={pct} suffix="%" />
+              </p>
+              <p className="mt-2 text-[14px] tabular-nums text-white/70">
+                {retakeScore?.total}개 중 <strong className="text-white">{retakeScore?.correct}개</strong> 정답
+              </p>
+              {!allDone && remaining !== null && remaining > 0 && (
+                <p className="mt-1.5 text-[12px] text-white/40">아직 {remaining}개 남았어요</p>
+              )}
+            </div>
+          ) : (
+            <div className="h-44 animate-pulse rounded-[20px] bg-[#F2F4F6]" />
+          )}
 
-            {/* 결과 카드 목록 */}
-            <div className="space-y-2">
-              {roundResults.slice(0, revealCount).map((r) => {
-                const word = data?.words.find(w => w.answer_id === r.answer_id)
-                const isExpanded = expandedId === r.answer_id
-                // 예문 유형은 문장이 카드 본문에 이미 있으므로 상세의 예문 박스는 유의어/반의어만
-                const showExampleDetail = !!word?.example_sentence && !word?.prompt_text
-                const hasDetail = !r.is_correct && (word?.synonyms?.length || word?.antonyms?.length || showExampleDetail)
+          {/* 결과 목록 */}
+          <div className="flex flex-col gap-2">
+            {roundResults.slice(0, revealCount).map((r) => {
+              const word = data?.words.find(w => w.answer_id === r.answer_id)
+              const isExpanded = expandedId === r.answer_id
+              // 예문 유형은 문장이 카드 본문에 이미 있으므로 상세의 예문 박스는 유의어/반의어만
+              const showExampleDetail = !!word?.example_sentence && !word?.prompt_text
+              const hasDetail = !r.is_correct && !!(word?.synonyms?.length || word?.antonyms?.length || showExampleDetail)
 
-                return (
-                  <div key={r.answer_id} className={`rounded-2xl overflow-hidden ring-1 bg-white dark:bg-[#1E293B] ${
-                    r.is_correct
-                      ? 'ring-gray-100 dark:ring-white/[0.07]'
-                      : 'ring-rose-100 dark:ring-rose-500/15'
-                  }`}>
-                    <button
-                      type="button"
-                      onClick={() => hasDetail && toggleExpand(r.answer_id)}
-                      className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${
-                        hasDetail ? 'active:bg-gray-50 dark:active:bg-white/5' : 'cursor-default'
-                      }`}
-                    >
-                      <div className="shrink-0">
-                        {r.is_correct
-                          ? <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                          : <XCircle className="h-5 w-5 text-rose-400" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        {/* 학부모 오답 카드와 같은 뼈대: [문제 그대로] → 내 답 · 정답 */}
-                        {word?.prompt_text && (word.kind === 'blank' || word.kind === 'choice') && word.test_source ? (
-                          <>
-                            {/* 빈칸/선택: 문장 속 문제 자리에 내 답을 채워서 (맞으면 초록, 틀리면 빨강 취소선) */}
-                            <ExampleSentenceInline
-                              source={word.test_source as ExampleSource}
-                              promptText={word.prompt_text}
-                              answer={word.example_answer}
-                              studentAnswer={r.retake_answer}
-                              isCorrect={r.is_correct}
-                              fill="student"
-                            />
-                            {word.example_translation && (
-                              <p className="mt-0.5 text-[11px] leading-4 text-gray-400 dark:text-gray-500">{word.example_translation}</p>
-                            )}
-                            {!r.is_correct && (
-                              <p className="mt-1 text-sm">
-                                {word.kind === 'choice' && word.choice_options ? (
-                                  word.choice_options.map((option, index) => {
-                                    const isAnswer = option.toLowerCase() === (word.example_answer ?? '').toLowerCase()
-                                    const isPicked = !isAnswer && option.toLowerCase() === (r.retake_answer ?? '').toLowerCase()
-                                    return (
-                                      <span key={index} className={index === 1 ? 'ml-3' : ''}>
-                                        <span className={isAnswer ? ANSWER_RIGHT_CLASS : isPicked ? ANSWER_WRONG_CLASS : 'font-semibold text-gray-700 dark:text-gray-300'}>{option}</span>
-                                      </span>
-                                    )
-                                  })
-                                ) : (
-                                  <><span className="mr-1 text-[11px] text-gray-400 dark:text-gray-500">정답</span><span className={ANSWER_RIGHT_CLASS}>{word.example_answer}</span></>
-                                )}
-                                <span className="ml-3 text-gray-500 dark:text-gray-400"><span className="mr-1 text-[11px] text-gray-400 dark:text-gray-500">{r.english_word}</span>{word.correct_answer}</span>
-                              </p>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            {/* 뜻쓰기 / 예문뜻: 문제(문장 또는 단어) → 내 답 · 정답 */}
-                            {word?.prompt_text && word.test_source ? (
-                              <>
-                                <ExampleSentenceInline source={word.test_source as ExampleSource} promptText={word.prompt_text} />
-                                {word.example_translation && (
-                                  <p className="mt-0.5 text-[11px] leading-4 text-gray-400 dark:text-gray-500">{word.example_translation}</p>
-                                )}
-                              </>
-                            ) : (
-                              <p className="text-sm font-semibold text-gray-900 dark:text-white leading-tight">{r.english_word}</p>
-                            )}
-                            <p className="mt-1 text-sm">
-                              <span className="mr-1 text-[11px] text-gray-400 dark:text-gray-500">내 답</span>
-                              <span className={r.is_correct ? ANSWER_RIGHT_CLASS : ANSWER_WRONG_CLASS}>{r.retake_answer || '미작성'}</span>
-                              {!r.is_correct && word?.correct_answer && (
-                                <><span className="ml-3 mr-1 text-[11px] text-gray-400 dark:text-gray-500">정답</span><span className={ANSWER_RIGHT_CLASS}>{word.correct_answer}</span></>
+              return (
+                <div key={r.answer_id} className="overflow-hidden rounded-[18px] bg-[#F9FAFB]">
+                  <button
+                    type="button"
+                    onClick={() => hasDetail && toggleExpand(r.answer_id)}
+                    className={`flex w-full items-center gap-3 px-4 py-3.5 text-left ${hasDetail ? PRESS : 'cursor-default'}`}
+                  >
+                    <span className="shrink-0 text-[15px] font-black" style={{ color: r.is_correct ? T.blue : T.red }}>
+                      {r.is_correct ? '✓' : '✕'}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      {/* 오답 카드와 같은 뼈대: [문제 그대로] → 내 답 · 정답 */}
+                      {word?.prompt_text && (word.kind === 'blank' || word.kind === 'choice') && word.test_source ? (
+                        <>
+                          <ExampleSentenceInline
+                            source={word.test_source as ExampleSource}
+                            promptText={word.prompt_text}
+                            answer={word.example_answer}
+                            studentAnswer={r.retake_answer}
+                            isCorrect={r.is_correct}
+                            fill="student"
+                          />
+                          {word.example_translation && (
+                            <p className="mt-0.5 text-[11px] leading-4 text-[#8B95A1]">{word.example_translation}</p>
+                          )}
+                          {!r.is_correct && (
+                            <p className="mt-1 text-[13px]">
+                              {word.kind === 'choice' && word.choice_options ? (
+                                word.choice_options.map((option, index) => {
+                                  const isAnswer = option.toLowerCase() === (word.example_answer ?? '').toLowerCase()
+                                  const isPicked = !isAnswer && option.toLowerCase() === (r.retake_answer ?? '').toLowerCase()
+                                  return (
+                                    <span key={index} className={index === 1 ? 'ml-3' : ''}>
+                                      <span className={isAnswer ? SHARE_RIGHT_CLASS : isPicked ? SHARE_WRONG_CLASS : 'font-semibold text-[#4E5968]'}>{option}</span>
+                                    </span>
+                                  )
+                                })
+                              ) : (
+                                <><span className="mr-1 text-[11px] text-[#8B95A1]">정답</span><span className={SHARE_RIGHT_CLASS}>{word.example_answer}</span></>
                               )}
-                              {word?.prompt_text && (
-                                <span className="ml-3 text-[11px] text-gray-400 dark:text-gray-500">{r.english_word}</span>
-                              )}
+                              <span className="ml-3 text-[#6B7684]"><span className="mr-1 text-[11px] text-[#8B95A1]">{r.english_word}</span>{word.correct_answer}</span>
                             </p>
-                          </>
-                        )}
-                      </div>
-                      {hasDetail && (
-                        <ChevronDown className={`h-4 w-4 text-gray-300 dark:text-gray-600 shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {/* 뜻쓰기 / 예문뜻: 문제(문장 또는 단어) → 내 답 · 정답 */}
+                          {word?.prompt_text && word.test_source ? (
+                            <>
+                              <ExampleSentenceInline source={word.test_source as ExampleSource} promptText={word.prompt_text} />
+                              {word.example_translation && (
+                                <p className="mt-0.5 text-[11px] leading-4 text-[#8B95A1]">{word.example_translation}</p>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-[15px] leading-tight font-extrabold">{r.english_word}</p>
+                          )}
+                          <p className="mt-1 text-[13px]">
+                            <span className="mr-1 text-[11px] text-[#8B95A1]">내 답</span>
+                            <span className={r.is_correct ? SHARE_RIGHT_CLASS : SHARE_WRONG_CLASS}>{r.retake_answer || '미작성'}</span>
+                            {!r.is_correct && word?.correct_answer && (
+                              <><span className="mr-1 ml-3 text-[11px] text-[#8B95A1]">정답</span><span className={SHARE_RIGHT_CLASS}>{word.correct_answer}</span></>
+                            )}
+                            {word?.prompt_text && (
+                              <span className="ml-3 text-[11px] text-[#8B95A1]">{r.english_word}</span>
+                            )}
+                          </p>
+                        </>
                       )}
-                    </button>
+                    </div>
+                    {hasDetail && <Chevron open={isExpanded} />}
+                  </button>
 
-                    {/* 오답 상세 */}
-                    {!r.is_correct && (
-                      <div className={`grid transition-all duration-300 ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
-                        <div className="overflow-hidden">
-                          <div className="px-4 pt-1 pb-4 space-y-3 border-t border-rose-50 dark:border-rose-500/10">
-                            {(word?.synonyms?.length ?? 0) > 0 && (
-                              <div>
-                                <p className="text-[10px] font-bold text-violet-400 uppercase tracking-widest mb-1.5">유의어</p>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {word!.synonyms!.map(s => (
-                                    <span key={s} className="px-2.5 py-1 rounded-full bg-violet-50 dark:bg-violet-950/50 text-violet-700 dark:text-violet-300 text-xs font-medium">{s}</span>
-                                  ))}
-                                </div>
+                  {/* 오답 상세 */}
+                  {!r.is_correct && (
+                    <div className={`grid transition-all duration-300 ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                      <div className="overflow-hidden">
+                        <div className="flex flex-col gap-3 border-t border-[#EEF1F4] px-4 pt-3 pb-4">
+                          {(word?.synonyms?.length ?? 0) > 0 && (
+                            <div>
+                              <p className="mb-1.5 text-[10px] font-bold tracking-widest text-[#8B95A1]">유의어</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {word!.synonyms!.map(s => (
+                                  <span key={s} className="rounded-full bg-white px-2.5 py-1 text-[12px] font-medium text-[#4E5968]">{s}</span>
+                                ))}
                               </div>
-                            )}
-                            {(word?.antonyms?.length ?? 0) > 0 && (
-                              <div>
-                                <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest mb-1.5">반의어</p>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {word!.antonyms!.map(a => (
-                                    <span key={a} className="px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 text-xs font-medium">{a}</span>
-                                  ))}
-                                </div>
+                            </div>
+                          )}
+                          {(word?.antonyms?.length ?? 0) > 0 && (
+                            <div>
+                              <p className="mb-1.5 text-[10px] font-bold tracking-widest text-[#8B95A1]">반의어</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {word!.antonyms!.map(a => (
+                                  <span key={a} className="rounded-full bg-white px-2.5 py-1 text-[12px] font-medium text-[#4E5968]">{a}</span>
+                                ))}
                               </div>
-                            )}
-                            {showExampleDetail && word?.example_sentence && (
-                              <div>
-                                <p className="text-[10px] font-bold text-sky-400 uppercase tracking-widest mb-1.5">예문</p>
-                                <div className="space-y-1">
-                                  <p className="text-sm text-gray-700 dark:text-gray-300 italic leading-relaxed">
-                                    &quot;{word.example_sentence}&quot;
-                                  </p>
-                                  {word.example_translation && (
-                                    <p className="text-xs text-gray-400 dark:text-gray-500">{word.example_translation}</p>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
+                            </div>
+                          )}
+                          {showExampleDetail && word?.example_sentence && (
+                            <div>
+                              <p className="mb-1.5 text-[10px] font-bold tracking-widest text-[#8B95A1]">예문</p>
+                              <p className="text-[13px] leading-relaxed text-[#333D4B] italic">{word.example_sentence}</p>
+                              {word.example_translation && (
+                                <p className="mt-0.5 text-[12px] text-[#8B95A1]">{word.example_translation}</p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
-                    )}
-                  </div>
-                )
-              })}
-
-              {phase === 'revealing' && (
-                <div className="flex justify-center py-4">
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-violet-400 border-t-transparent" />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
+              )
+            })}
 
-          {/* 하단 버튼 */}
-          {phase === 'done' && (
-            <div className="fixed bottom-0 left-0 right-0 px-4 pb-8 pt-4 space-y-2.5 bg-gradient-to-t from-slate-50 dark:from-background via-slate-50/90 dark:via-background/80 to-transparent">
-              {!allDone && remaining !== null && remaining > 0 ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={loadData}
-                    className="w-full max-w-lg mx-auto flex items-center justify-center gap-2 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] transition-all text-white font-bold py-4 text-base shadow-lg shadow-indigo-500/25"
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    다음 라운드 ({remaining}개 남음)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => router.back()}
-                    className="w-full max-w-lg mx-auto flex items-center justify-center rounded-2xl bg-white dark:bg-[#1E293B] ring-1 ring-gray-200 dark:ring-white/10 text-gray-600 dark:text-gray-400 font-semibold py-3.5 text-sm active:scale-[0.98] transition-all"
-                  >
-                    대시보드로 돌아가기
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => router.back()}
-                  className="w-full max-w-lg mx-auto flex items-center justify-center rounded-2xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-bold py-4 text-base active:scale-[0.98] transition-all"
-                >
-                  대시보드로 돌아가기
-                </button>
-              )}
-            </div>
-          )}
+            {phase === 'revealing' && (
+              <div className="flex justify-center py-4">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#3182F6] border-t-transparent" />
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* 하단 버튼 */}
+        {phase === 'done' && (
+          <div className="fixed inset-x-0 bottom-0 mx-auto flex max-w-[430px] flex-col gap-2.5 bg-gradient-to-t from-white via-white/90 to-transparent px-4 pt-6 pb-8">
+            {!allDone && remaining !== null && remaining > 0 && (
+              <button
+                type="button"
+                onClick={loadData}
+                className={`${PRESS_STRONG} w-full rounded-full py-3.5 text-[15px] font-extrabold text-white`}
+                style={{ background: T.blue }}
+              >
+                남은 {remaining}개 다시 풀기
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className={`${PRESS_STRONG} w-full rounded-full bg-[#F2F4F6] py-3.5 text-[15px] font-extrabold text-[#4E5968]`}
+            >
+              오답노트로
+            </button>
+          </div>
+        )}
       </div>
     )
   }
 
   return null
+}
+
+/** 로딩·오류·완료처럼 한 덩어리만 가운데 놓는 화면 */
+function CenterScreen({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mx-auto flex min-h-screen max-w-[430px] flex-col items-center justify-center bg-white px-6 text-center">
+      {children}
+    </div>
+  )
 }
