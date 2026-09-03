@@ -1,5 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/server'
-import { buildWeekDisplayMap, isWeekInPeriod, type ClassPeriod, type WeekForPeriod } from '@/lib/class-periods'
+import { buildWeekDisplayMap, getPeriodForWeek, isWeekInPeriod, type ClassPeriod, type WeekForPeriod } from '@/lib/class-periods'
 import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
 import { SHARE_CLOSED_ERROR, SHARE_EXPIRED_ERROR, SHARE_NOT_FOUND_ERROR, loadShareAccess, resolveShareToken } from '@/lib/share-access'
 import { NextResponse } from 'next/server'
@@ -156,17 +156,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const allPeriods = (allPeriodsData ?? []) as ClassPeriod[]
 
   // 기간 선택 시트가 "N회차" 를 보여주고 0회차 기간을 못 고르게 막으려면 회차 수가 필요하다.
-  // week 은 id 만 긁어 세면 되므로 목록 조회 한 번으로 끝낸다.
+  // week 에는 기간 컬럼이 없다 — 기간 소속은 아래 응답 조립과 같은 날짜 매핑(getPeriodForWeek)으로 정한다.
+  // (예전엔 존재하지 않는 week.class_period_id 를 조회해 항상 0회차가 됐고, 시트의 다른 기간이 전부 비활성화됐다.)
   const { data: periodWeekRows } = allPeriods.length > 0
     ? await supabase
       .from('week')
-      .select('id, class_period_id')
-      .in('class_period_id', allPeriods.map((p) => p.id))
-    : { data: [] as { id: string; class_period_id: string | null }[] }
+      .select('id, class_id, week_number, start_date')
+      .in('class_id', allClassIds)
+    : { data: [] as WeekForPeriod[] }
   const weekCountByPeriod = new Map<string, number>()
-  for (const row of periodWeekRows ?? []) {
-    if (!row.class_period_id) continue
-    weekCountByPeriod.set(row.class_period_id, (weekCountByPeriod.get(row.class_period_id) ?? 0) + 1)
+  for (const row of (periodWeekRows ?? []) as WeekForPeriod[]) {
+    const period = getPeriodForWeek(row, allPeriods)
+    if (!period) continue
+    weekCountByPeriod.set(period.id, (weekCountByPeriod.get(period.id) ?? 0) + 1)
   }
 
   const periodOptions = allPeriods.map((period) => ({
