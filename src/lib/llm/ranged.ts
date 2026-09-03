@@ -11,7 +11,7 @@
  * discoverQuestionNumbers 로 번호를 발견한 뒤 numbers 스코프를 쓴다.
  */
 
-import { buildFileBlock, callClaudeTextDetailed, isContentFilterError, parseJsonArrayResponse, type CallClaudeUsage, type ContentBlock } from './client'
+import { buildFileBlock, callClaudeTextDetailed, isContentFilterError, isJsonParseError, parseJsonArrayResponse, type CallClaudeUsage, type ContentBlock } from './client'
 import { coerceQuestionNumber } from './postprocess'
 
 export type RangedCallStats = CallClaudeUsage & {
@@ -78,7 +78,14 @@ export async function rangedParseCall<T extends { question_number: unknown }>(op
     maxTokens: opts.maxTokens,
     content,
   })
-  const parsed = parseJsonArrayResponse<T>(text, opts.label)
+  let parsed: T[]
+  try {
+    parsed = parseJsonArrayResponse<T>(text, opts.label)
+  } catch (error) {
+    // 어느 범위의 어떤 출력이 깨졌는지 남겨야 다음에 프롬프트를 고칠 수 있다 (앞 600자만)
+    console.warn(`[${opts.label}] JSON 파싱 실패 (stop=${stopReason}) — raw head:`, text.slice(0, 600).replace(/\n/g, '\\n'))
+    throw error
+  }
   return {
     items: opts.scope ? filterByScope(parsed, opts.scope) : parsed,
     stats: { ...usage, stopReason, ms: Date.now() - started, range: opts.scope ? scopeBounds(opts.scope) : null },
@@ -92,7 +99,8 @@ function scopeToNumbers(scope: RangedScope): number[] {
 }
 
 /**
- * 필터 격리 범위 콜: 범위 콜이 콘텐츠 필터로 거절되면 문항 단위 콜로 쪼개 재시도한다.
+ * 격리 범위 콜: 범위 콜이 콘텐츠 필터로 거절되거나 출력이 JSON 으로 안 읽히면
+ * 문항 단위 콜로 쪼개 재시도한다. 둘 다 "이 콜만" 의 문제라 같은 처방이 맞다.
  * 필터는 출력 기준이라 같은 범위의 무해한 문항은 살아남는다 — 진짜 걸린 문항만 결손으로 남는다.
  * 문항 단위 재시도는 캐시 히트(입력 0.1배)라 비용이 미미하고, 필터 이벤트에서만 발동한다.
  * 필터가 아닌 에러는 그대로 throw.
@@ -109,22 +117,24 @@ export async function rangedParseCallIsolated<T extends { question_number: unkno
     const { items, stats } = await rangedParseCall<T>(opts)
     return { items, calls: [stats], skippedNumbers: [] }
   } catch (error) {
-    if (!isContentFilterError(error)) throw error
+    const isolable = (e: unknown) => isContentFilterError(e) || isJsonParseError(e)
+    if (!isolable(error)) throw error
+    const reason = isContentFilterError(error) ? '필터 거절' : 'JSON 파싱 실패'
     const numbers = scopeToNumbers(opts.scope)
-    // 이미 1문항 콜이면 재시도해도 같은 출력 요구 — 즉시 결손 처리
+    // 이미 1문항 콜이면 재시도해도 같은 출력 요구 — 즉시 결손 처리 (throw 하면 문서 전체가 통짜 폴백으로 간다)
     if (numbers.length <= 1) {
-      console.warn(`[${opts.label}] ${numbers[0]}번 필터 skip:`, error instanceof Error ? error.message : error)
+      console.warn(`[${opts.label}] ${numbers[0]}번 ${reason} → 결손:`, error instanceof Error ? error.message : error)
       return { items: [], calls: [], skippedNumbers: numbers }
     }
-    console.warn(`[${opts.label}] ${numbers[0]}~${numbers[numbers.length - 1]}번 범위 필터 거절 → 문항 단위 격리 재시도`)
+    console.warn(`[${opts.label}] ${numbers[0]}~${numbers[numbers.length - 1]}번 범위 ${reason} → 문항 단위 격리 재시도`)
 
     const skippedNumbers: number[] = []
     const parts = await Promise.all(numbers.map(async (n) => {
       try {
         return await rangedParseCall<T>({ ...opts, scope: { numbers: [n] } })
       } catch (single) {
-        if (!isContentFilterError(single)) throw single
-        console.warn(`[${opts.label}] ${n}번 필터 skip:`, single instanceof Error ? single.message : single)
+        if (!isolable(single)) throw single
+        console.warn(`[${opts.label}] ${n}번 ${isContentFilterError(single) ? '필터' : 'JSON 파싱 실패'} → 결손:`, single instanceof Error ? single.message : single)
         skippedNumbers.push(n)
         return null
       }
@@ -135,6 +145,23 @@ export async function rangedParseCallIsolated<T extends { question_number: unkno
       skippedNumbers,
     }
   }
+}
+
+/**
+ * 번호 발견 콜은 봤는데 범위 콜 결과에 없는 번호 — "조용한 결손".
+ *
+ * 콘텐츠 필터는 에러로 오니 잡히지만, 모델이 범위 안 문항 하나를 그냥 빼먹거나 JSON 요소가
+ * 깨져 떨어져 나가면 아무 신호가 없다. 발견 목록과 결과를 대조해야만 드러난다.
+ * 이미 필터로 결손 처리된 번호는 제외한다.
+ */
+export function findMissingNumbers<T extends { question_number: unknown }>(
+  discovered: number[],
+  items: T[],
+  skipped: number[],
+): number[] {
+  const present = new Set(items.map((item) => Number(item.question_number)))
+  const skippedSet = new Set(skipped)
+  return discovered.filter((n) => !present.has(n) && !skippedSet.has(n))
 }
 
 /** 캐시 예열: max_tokens 0 — 파일+프롬프트를 읽어 캐시에 올리기만 하고 출력은 없다 (실측 31p 7.6s) */

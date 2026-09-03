@@ -1,11 +1,10 @@
 // ── 진단평가(주차 시험): 해설지·문제지·정오표 파싱 + 서술형 채점 ─────────────
 
 import { GRADING_SYSTEM, GRADING_RULES, PARSE_ANSWER_SHEET_RULES, QUESTION_MARKUP_RULES, SOURCE_IMAGE_FIELD_RULES } from '../prompts'
-import {
-  buildFileBlock, callClaudeText, MODELS,
-  extractJsonArrayCandidate, parseJsonArrayResponse,
+import { callClaudeTextDetailed,
+  buildFileBlock, callClaudeText, MODELS, parseJsonArrayResponse,
 } from './client'
-import { discoverQuestionNumbers, rangedParseCallIsolated, sliceNumbers, type RangedCallStats, type RangedFile } from './ranged'
+import { findMissingNumbers, discoverQuestionNumbers, rangedParseCallIsolated, sliceNumbers, type RangedCallStats, type RangedFile } from './ranged'
 
 export type SubjectiveQuestion = {
   question_number: number
@@ -62,25 +61,6 @@ export type SourceBBox = {
 
 export type TagCategory = { categoryName: string; tags: string[] }
 
-function buildQuestionTypeTagMappingRules(tagCategories: TagCategory[]): string {
-  if (tagCategories.length === 0) {
-    return '\n- question_type: 문제 유형명을 한국어로 추출하세요. 확실하지 않으면 null.\n'
-  }
-
-  return `
-━━━ question_type 매핑 규칙 (반드시 준수) ━━━
-아래 목록에서 각 문항에 가장 적합한 유형명을 정확히 그대로 선택하세요.
-${tagCategories.map((c) => `[${c.categoryName}]: ${c.tags.join(', ')}`).join('\n')}
-
-매핑 판단 기준:
-- 문제 제목이나 해설지에 적힌 유형명이 아니라, 해당 문항이 실제로 테스트하는 문법/개념/독해 유형을 기준으로 고르세요.
-- 특정 문법 개념을 묻는 경우에는 포괄적인 형식 태그보다 구체적인 문법 태그를 우선하세요.
-- 특정 문법/개념을 확정하기 어려운 경우에만 독해 유형(빈칸, 순서, 삽입, 내용 일치 등)을 선택하세요.
-- 세부 문항(a, b, c...)은 부모 문항 유형을 그대로 쓰지 말고, 각 세부 문항이 묻는 개념을 개별적으로 판단하세요.
-- 목록에 정확히 맞는 것이 없으면 가장 가까운 기존 유형을 선택하세요. 그래도 판단할 수 없으면 null.
-- question_type은 반드시 위 목록 중 하나를 정확히 그대로 입력하세요. 목록에 없는 새 유형을 만들지 마세요.
-`
-}
 
 /** 해설지(통합형) 파싱 프롬프트 — 통짜·범위 분할이 공유한다 (범위 콜 간 바이트 동일해야 캐시 적중) */
 function buildAnswerSheetPrompt(tagCategories: TagCategory[]): string {
@@ -125,8 +105,8 @@ ${QUESTION_MARKUP_RULES}
 ━━━ 도표·그림 문항 원본 보존 필드 (모든 객체에 포함) ━━━
 ${SOURCE_IMAGE_FIELD_RULES}
 
-JSON 배열만 출력 (다른 텍스트 없이, 각 객체에 question_stem/passage/choices 와 needs_source_image/source_image_reason/source_page/source_bbox 포함):
-[{"question_number":1,"sub_label":null,"question_style":"objective","question_type":"가정법/조동사","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"...","question_text":"다음 글의 빈칸에 들어갈 말로 가장 적절한 것은?\\nThe researcher concluded that the results were inconclusive. ________ further investigation was needed before any definitive claims could be made about the phenomenon.\\n① However\\n② Therefore\\n③ Thus\\n④ Moreover\\n⑤ Nevertheless","question_stem":"다음 글의 빈칸에 들어갈 말로 가장 적절한 것은?","passage":"The researcher concluded that the results were inconclusive. ________ further investigation was needed before any definitive claims could be made about the phenomenon.","choices":["However","Therefore","Thus","Moreover","Nevertheless"]},{"question_number":2,"sub_label":null,"question_style":"multi_select","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"1,3","grading_criteria":null,"explanation":"...","question_text":"윗글의 내용과 일치하는 것을 모두 고르시오.\\nJohn was born in London in 1990. He studied engineering at university and later moved to Seoul for work."},{"question_number":5,"sub_label":"a","question_style":"ox","question_type":"대명사","correct_answer":0,"correct_answer_text":"X (their)","grading_criteria":null,"explanation":"...","question_text":"다음 문장에서 어법상 틀린 것을 고르시오.\\nEach of the students raised their hand."},{"question_number":5,"sub_label":"b","question_style":"ox","question_type":"수의 일치","correct_answer":0,"correct_answer_text":"O","grading_criteria":null,"explanation":"...","question_text":"다음 문장의 어법이 올바른지 판단하시오.\\nThe committee has made its decision."},{"question_number":6,"sub_label":"a","question_style":"ox","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"F","grading_criteria":null,"explanation":"...","question_text":"Choose True or False (T/F) based on the content of the following text.\\nJohn was born in London in 1990. He studied engineering at university and later moved to Seoul for work.\\n(1) John moved to Seoul in 1990 to study engineering.","question_stem":"Choose True or False (T/F) based on the content of the following text.\\n(1) John moved to Seoul in 1990 to study engineering.","passage":"John was born in London in 1990. He studied engineering at university and later moved to Seoul for work.","choices":null},{"question_number":6,"sub_label":"b","question_style":"ox","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"T","grading_criteria":null,"explanation":"...","question_text":"Choose True or False (T/F) based on the content of the following text.\\nJohn was born in London in 1990. He studied engineering at university and later moved to Seoul for work.\\n(2) John studied engineering at university.","question_stem":"Choose True or False (T/F) based on the content of the following text.\\n(2) John studied engineering at university.","passage":null,"choices":null}]`
+JSON 배열만 출력 (다른 텍스트 없이, 각 객체에 question_text/question_stem/passage/choices 와 needs_source_image/source_image_reason/source_page/source_bbox 포함. 아래 3번(밑줄 어법)·4번(문장 삽입)은 선지가 지문 안에 있어도 choices 를 채우는 예):
+[{"question_number":1,"sub_label":null,"question_style":"objective","question_type":"가정법/조동사","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"...","question_text":"다음 글의 빈칸에 들어갈 말로 가장 적절한 것은?\\nThe researcher concluded that the results were inconclusive. ________ further investigation was needed before any definitive claims could be made about the phenomenon.\\n① However\\n② Therefore\\n③ Thus\\n④ Moreover\\n⑤ Nevertheless","question_stem":"다음 글의 빈칸에 들어갈 말로 가장 적절한 것은?","passage":"The researcher concluded that the results were inconclusive. ________ further investigation was needed before any definitive claims could be made about the phenomenon.","choices":["However","Therefore","Thus","Moreover","Nevertheless"]},{"question_number":3,"sub_label":null,"question_style":"objective","question_type":"어법","correct_answer":4,"correct_answer_text":null,"grading_criteria":null,"explanation":"...","question_text":"다음 글의 밑줄 친 부분 중, 어법상 틀린 것은?\nThe committee ① <u>has</u> decided ② <u>to move</u> the event, and members ③ <u>are</u> expected ④ <u>attending</u> after ⑤ <u>being</u> notified.","question_stem":"다음 글의 밑줄 친 부분 중, 어법상 틀린 것은?","passage":"The committee ① <u>has</u> decided ② <u>to move</u> the event, and members ③ <u>are</u> expected ④ <u>attending</u> after ⑤ <u>being</u> notified.","choices":["has","to move","are","attending","being"]},{"question_number":4,"sub_label":null,"question_style":"objective","question_type":"문장 삽입","correct_answer":2,"correct_answer_text":null,"grading_criteria":null,"explanation":"...","question_text":"글의 흐름으로 보아, 주어진 문장이 들어가기에 가장 적절한 곳은?\nHowever, the plan changed.\nThe team met on Monday. ( ① ) They reviewed the budget. ( ② ) Everyone agreed. ( ③ ) Work began the next day. ( ④ ) It finished early. ( ⑤ )","question_stem":"글의 흐름으로 보아, 주어진 문장이 들어가기에 가장 적절한 곳은?\nHowever, the plan changed.","passage":"The team met on Monday. ( ① ) They reviewed the budget. ( ② ) Everyone agreed. ( ③ ) Work began the next day. ( ④ ) It finished early. ( ⑤ )","choices":["①","②","③","④","⑤"]},{"question_number":2,"sub_label":null,"question_style":"multi_select","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"1,3","grading_criteria":null,"explanation":"...","question_text":"윗글의 내용과 일치하는 것을 모두 고르시오.\\nJohn was born in London in 1990. He studied engineering at university and later moved to Seoul for work."},{"question_number":5,"sub_label":"a","question_style":"ox","question_type":"대명사","correct_answer":0,"correct_answer_text":"X (their)","grading_criteria":null,"explanation":"...","question_text":"다음 문장에서 어법상 틀린 것을 고르시오.\\nEach of the students raised their hand."},{"question_number":5,"sub_label":"b","question_style":"ox","question_type":"수의 일치","correct_answer":0,"correct_answer_text":"O","grading_criteria":null,"explanation":"...","question_text":"다음 문장의 어법이 올바른지 판단하시오.\\nThe committee has made its decision."},{"question_number":6,"sub_label":"a","question_style":"ox","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"F","grading_criteria":null,"explanation":"...","question_text":"Choose True or False (T/F) based on the content of the following text.\\nJohn was born in London in 1990. He studied engineering at university and later moved to Seoul for work.\\n(1) John moved to Seoul in 1990 to study engineering.","question_stem":"Choose True or False (T/F) based on the content of the following text.\\n(1) John moved to Seoul in 1990 to study engineering.","passage":"John was born in London in 1990. He studied engineering at university and later moved to Seoul for work.","choices":null},{"question_number":6,"sub_label":"b","question_style":"ox","question_type":"내용 일치","correct_answer":0,"correct_answer_text":"T","grading_criteria":null,"explanation":"...","question_text":"Choose True or False (T/F) based on the content of the following text.\\nJohn was born in London in 1990. He studied engineering at university and later moved to Seoul for work.\\n(2) John studied engineering at university.","question_stem":"Choose True or False (T/F) based on the content of the following text.\\n(2) John studied engineering at university.","passage":null,"choices":null}]`
 }
 
 export async function parseAnswerSheet(
@@ -134,11 +114,15 @@ export async function parseAnswerSheet(
   mimeType: string,  // image/jpeg, image/png, application/pdf 등
   tagCategories: TagCategory[] = [],
 ): Promise<ParsedAnswer[]> {
-  const raw = await callClaudeText({
+  const { text: raw, stopReason } = await callClaudeTextDetailed({
     model: MODELS.parse,
     maxTokens: 16384,
     content: [buildFileBlock(fileData, mimeType), { type: 'text', text: buildAnswerSheetPrompt(tagCategories) }],
   })
+  // 통짜 1콜은 재시도 단위가 없다. 잘렸으면 뒤쪽 문항이 통째로 없다는 뜻이라 최소한 소리는 낸다.
+  if (stopReason === 'max_tokens') {
+    console.warn('[parseAnswerSheet] 응답이 max_tokens 로 잘림 — 뒤쪽 문항 유실 가능 (범위 분할이 왜 실패했는지 위 로그를 볼 것)')
+  }
   console.log('[parseAnswerSheet] raw response:', raw)
 
   const parsed = parseJsonArrayResponse<ParsedAnswer>(raw, 'parseAnswerSheet')
@@ -186,96 +170,38 @@ export async function parseAnswerSheetRanged(
       prompt, scope: { numbers }, label: 'parseAnswerSheetRanged',
     })))
 
-  const items = parts
-    .flatMap((part) => part.items)
-    .sort((a, b) => a.question_number - b.question_number
-      || (a.sub_label ?? '').localeCompare(b.sub_label ?? ''))
+  let items = parts.flatMap((part) => part.items)
+  const calls = [discovery.stats, ...parts.flatMap((part) => part.calls)]
+  const skippedNumbers = parts.flatMap((part) => part.skippedNumbers)
+
+  // 발견은 됐는데 결과에 없는 번호 — 모델이 빼먹었거나 JSON 요소가 깨져 떨어진 것.
+  // 필터와 달리 신호가 없으므로 대조로 잡아 1문항 콜로 한 번 더 받아본다 (캐시 히트라 저렴).
+  // 그래도 없으면 결손으로 보고한다 — 조용히 사라지는 것보다 업로더 토스트에 뜨는 게 낫다.
+  const missing = findMissingNumbers(discovery.numbers, items, skippedNumbers)
+  if (missing.length) {
+    console.warn(`[parseAnswerSheetRanged] 범위 콜 결과에 없는 번호 ${missing.join(', ')} → 1문항 재시도`)
+    const retries = await Promise.all(missing.map((n) =>
+      rangedParseCallIsolated<ParsedAnswer>({
+        files, model, maxTokens: 8192,
+        prompt, scope: { numbers: [n] }, label: 'parseAnswerSheetRanged.retry',
+      })))
+    items = items.concat(retries.flatMap((part) => part.items))
+    calls.push(...retries.flatMap((part) => part.calls))
+    skippedNumbers.push(...retries.flatMap((part) => part.skippedNumbers))
+    const stillMissing = findMissingNumbers(discovery.numbers, items, skippedNumbers)
+    if (stillMissing.length) {
+      console.warn(`[parseAnswerSheetRanged] 재시도에도 없음 → 결손 보고: ${stillMissing.join(', ')}`)
+      skippedNumbers.push(...stillMissing)
+    }
+  }
+
+  items.sort((a, b) => a.question_number - b.question_number
+    || (a.sub_label ?? '').localeCompare(b.sub_label ?? ''))
   return {
     items,
-    calls: [discovery.stats, ...parts.flatMap((part) => part.calls)],
+    calls,
     discoveredNumbers: discovery.numbers,
-    skippedNumbers: parts.flatMap((part) => part.skippedNumbers).sort((a, b) => a - b),
-  }
-}
-
-// ── 문제지형 (중간·기말 전용 가져오기) ────────────────────────────────────
-
-export type WeekProblemSheetQuestion = {
-  question_number: number
-  question_type: string | null
-  question_style: 'objective' | 'subjective' | 'ox' | 'multi_select'
-  passage: string
-  question_text: string
-  choices: string[]
-  needs_source_image?: boolean
-  source_image_reason?: string | null
-  source_page?: number | null
-  source_bbox?: SourceBBox | null
-}
-
-const WEEK_PROBLEM_SHEET_PARSE_RULES = `이 PDF는 주차별 설정의 '중간·기말 전용 가져오기'에 업로드하는 영어 시험지입니다.
-이 형식은 보통 상단에 문제, 하단에 정답표가 따로 모여 있습니다.
-지금 단계에서는 문제 영역만 읽어서 문항 구조만 추출하세요. 하단 정답표는 무시하세요.
-
-출력 필드:
-- question_number: 문항 번호
-- question_type: 아래 question_type 매핑 규칙을 따라 기존 유형 목록 중 하나를 선택
-- question_style: objective | subjective | ox | multi_select
-- passage: 지문이 있으면 전체, 없으면 ""
-- question_text: 발문 + 보기문장 + 서답형 지시문까지 포함
-- choices: 객관식 보기 배열, 없으면 []. 각 선지는 반드시 원문 번호 기호(①, ②, ③, ④, ⑤...)를 포함해 그대로 작성
-
-판단 규칙:
-- 1개 정답 객관식은 objective
-- O/X 어법 판단, T/F 내용 참·거짓 판단은 ox (시험지 표기를 그대로 따른다)
-- 여러 개를 모두 고르는 형식은 multi_select
-- 서답형, 영작형, 빈칸 완성형 텍스트 답안은 subjective
-
-중요:
-- 문항은 파일에 보이는 순서대로 배열에 담으세요
-- 하단 정답표나 해설표는 문항으로 오인하지 마세요
-- 정답은 생성하지 마세요
-- 문항을 건너뛰지 마세요
-- JSON 배열만 출력하세요`
-
-export async function parseWeekProblemSheetPage(
-  fileData: string,
-  mimeType: string,
-  tagCategories: TagCategory[] = [],
-): Promise<WeekProblemSheetQuestion[]> {
-  const fileContent = buildFileBlock(fileData, mimeType, '지원하지 않는 파일 형식입니다. PDF 또는 이미지만 업로드해주세요.')
-
-  const raw = await callClaudeText({
-    model: MODELS.parse,
-    maxTokens: 16384,
-    content: [fileContent, {
-      type: 'text',
-      text: `${WEEK_PROBLEM_SHEET_PARSE_RULES}
-
-${buildQuestionTypeTagMappingRules(tagCategories)}
-
-Additional fields for each question:
-${QUESTION_MARKUP_RULES}
-${SOURCE_IMAGE_FIELD_RULES}`,
-    }],
-  })
-  console.log('[parseWeekProblemSheetPage] raw response length:', raw.length)
-
-  try {
-    const parsed = parseJsonArrayResponse<WeekProblemSheetQuestion>(raw, 'parseWeekProblemSheetPage')
-    console.log('[parseWeekProblemSheetPage] parsed count:', parsed.length, '| questions:', parsed.map((p) => p.question_number).join(', '))
-    return parsed
-  } catch (e) {
-    const position = typeof e === 'object' && e && 'position' in e ? Number((e as { position?: unknown }).position) : null
-    if (position !== null && Number.isFinite(position)) {
-      const candidate = extractJsonArrayCandidate(raw)
-      console.error(
-        '[parseWeekProblemSheetPage] JSON parse failure near:',
-        candidate.slice(Math.max(0, position - 160), position + 160),
-      )
-    }
-    console.error('[parseWeekProblemSheetPage] JSON parse 실패:', e)
-    throw e
+    skippedNumbers: [...new Set(skippedNumbers)].sort((a, b) => a - b),
   }
 }
 

@@ -9,7 +9,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { DocumentBlockParam, ImageBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
-import { jsonrepair } from 'jsonrepair'
+import { jsonrepair, JSONRepairError } from 'jsonrepair'
 import { fixUnescapedQuotesInJson } from '../json-lenient'
 
 export const anthropic = new Anthropic({
@@ -130,6 +130,14 @@ export async function callClaudeText(options: CallClaudeOptions): Promise<string
 
 export function extractJsonArrayCandidate(raw: string): string {
   const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim()
+  // 1문항 범위 콜에서 모델이 바깥 [ ] 없이 객체만 내는 경우가 있다. 그때 첫 '[' 를 찾으면
+  // 지문 속 "(A) [ making / made ]" 같은 대괄호를 잡아 엉뚱한 구간이 잘려 나온다 (실측: 항상 position 188).
+  // 객체로 시작하면 그 객체(들)를 배열로 감싼다 — 쉼표 없이 이어진 객체는 jsonrepair 가 잇는다.
+  if (cleaned.startsWith('{')) {
+    const end = cleaned.lastIndexOf('}')
+    const body = end > 0 ? cleaned.slice(0, end + 1) : cleaned
+    return `[${body}]`.replace(/^\s*\/\/.*$/gm, '').trim()
+  }
   const start = cleaned.indexOf('[')
   const end = cleaned.lastIndexOf(']')
   const candidate = start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned
@@ -160,11 +168,24 @@ function parseWithQuoteRecovery<T>(candidate: string, label: string): T {
 }
 
 export function parseJsonArrayResponse<T>(raw: string, label = 'parseJsonArrayResponse'): T[] {
-  return parseWithQuoteRecovery<T[]>(extractJsonArrayCandidate(raw), label)
+  const parsed = parseWithQuoteRecovery<T[] | T>(extractJsonArrayCandidate(raw), label)
+  // 감싸기 전에 이미 배열이었으면 그대로, 단일 객체면 배열로 — 호출자는 항상 배열을 기대한다
+  return Array.isArray(parsed) ? parsed : [parsed]
 }
 
 export function parseJsonObjectResponse<T>(raw: string, label = 'parseJsonObjectResponse'): T {
   return parseWithQuoteRecovery<T>(extractJsonObjectCandidate(raw), label)
+}
+
+/**
+ * 모델 출력이 JSON 으로 안 읽힌 에러인지 — 콘텐츠 필터와 마찬가지로 "이 콜만" 의 문제다.
+ * 범위 분할에서 이걸 문항 단위 격리로 돌리지 않으면, 한 범위의 깨진 응답이 문서 전체를
+ * 통짜 폴백으로 끌고 가 max_tokens 잘림으로 뒤쪽 문항이 조용히 사라진다 (숭문 실측: 15→12문항).
+ */
+export function isJsonParseError(error: unknown): boolean {
+  if (error instanceof JSONRepairError || error instanceof SyntaxError) return true
+  const message = error instanceof Error ? error.message : String(error)
+  return /Unexpected (?:character|token|end of JSON|end of input)|JSON at position|is not valid JSON/i.test(message)
 }
 
 /** Anthropic 콘텐츠 필터로 출력이 차단된 에러인지 (페이지 단위 재시도 분기용) */
