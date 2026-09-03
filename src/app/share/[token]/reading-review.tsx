@@ -33,6 +33,28 @@ export type ReviewQuestion = {
   explanation: string | null
   /** OX 의 수정어처럼 정답 옆에 덧붙일 것 */
   answerNote?: string | null
+  /**
+   * 선지를 어떻게 그리나.
+   *   list    — 선지 텍스트를 세로로 (기본)
+   *   markers — 번호만 가로로. 밑줄 친 낱말 문항은 선지가 지문 안에 있어 텍스트가 없다
+   */
+  layout?: 'list' | 'markers'
+}
+
+/**
+ * 지문 안에 ①②③ 으로 박힌 밑줄이 몇 개인지.
+ *
+ * "밑줄 친 부분 중 …" 문항은 선지 목록이 따로 없다 — 파싱이 일부러 지문 안 낱말에만
+ * 기호를 붙인다(prompts.ts). 학생은 ①~⑤ 중 고르면 되므로 번호 버튼만 만들어주면 풀 수 있다.
+ * ① 부터 연속으로 이어질 때만 센다 — 지문에 우연히 섞인 기호를 선지로 오인하지 않으려는 것.
+ */
+function countUnderlineMarkers(text: string): number {
+  let count = 0
+  for (const marker of CIRCLE_NUM) {
+    if (!text.includes(marker)) break
+    count += 1
+  }
+  return count
 }
 
 /** 선지 기호 — OX 는 T/F, 객관식은 ①②③ */
@@ -82,11 +104,22 @@ export function buildReviewQuestions(answers: StudentAnswer[]): ReviewQuestion[]
         }
       }
 
+      if (q.question_style !== 'objective' || q.correct_answer === null) return null
+
       const choices = q.choices ?? []
-      if (q.question_style !== 'objective' || q.correct_answer === null || choices.length < 2) return null
+      if (choices.length >= 2) {
+        return { ...base, choices, correct: q.correct_answer, mine: a.student_answer }
+      }
+
+      // 선지 목록이 없어도 지문에 밑줄 기호가 있으면 번호만으로 고를 수 있다.
+      // 정답 번호가 기호 수를 넘으면 밑줄 문항이 아니라 선지가 유실된 것이니 제외한다.
+      const markerCount = countUnderlineMarkers(`${base.passage ?? ''}
+${q.question_text ?? ''}`)
+      if (markerCount < 2 || q.correct_answer > markerCount) return null
       return {
         ...base,
-        choices,
+        choices: Array.from({ length: markerCount }, () => ''),
+        layout: 'markers',
         correct: q.correct_answer,
         mine: a.student_answer,
       }
@@ -206,7 +239,11 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
           className="mb-4 text-[15px] font-bold leading-relaxed text-[#191F28]"
         />
 
-        <div className="flex flex-col gap-2">
+        {question.layout === 'markers' && (
+          <p className="mb-2 text-[12px] text-[#8B95A1]">지문에서 밑줄 친 번호를 고르세요.</p>
+        )}
+
+        <div className={question.layout === 'markers' ? 'flex flex-wrap gap-2' : 'flex flex-col gap-2'}>
           {question.choices.map((choice, index) => {
             const number = index + 1
             const picked = selected === number
@@ -220,7 +257,12 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
                 type="button"
                 disabled={revealed}
                 onClick={() => setSelected(number)}
-                className={`${PRESS_STRONG} flex items-start gap-2.5 rounded-[16px] border-2 px-4 py-3 text-left transition-colors`}
+                className={`${PRESS_STRONG} border-2 transition-colors ${
+                  question.layout === 'markers'
+                    // 텍스트가 없으므로 번호만 크게 — 지문의 밑줄과 눈으로 잇는다
+                    ? 'flex h-14 w-14 items-center justify-center rounded-full'
+                    : 'flex items-start gap-2.5 rounded-[16px] px-4 py-3 text-left'
+                }`}
                 style={{
                   borderColor: showAnswer ? T.blue : showWrong ? T.red : picked ? T.blue : 'transparent',
                   background: showAnswer ? T.blueBg : showWrong ? T.redBg : '#FFFFFF',
@@ -231,12 +273,14 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
                 }}
               >
                 <span
-                  className="text-[14px] font-extrabold"
+                  className={question.layout === 'markers' ? 'text-[20px] font-extrabold' : 'text-[14px] font-extrabold'}
                   style={{ color: showAnswer ? T.blue : showWrong ? T.red : picked ? T.blue : T.disabled }}
                 >
                   {markerOf(question, index)}
                 </span>
-                <span className="min-w-0 flex-1 text-[14px] leading-relaxed text-[#191F28]">{choice}</span>
+                {question.layout !== 'markers' && (
+                  <span className="min-w-0 flex-1 text-[14px] leading-relaxed text-[#191F28]">{choice}</span>
+                )}
               </button>
             )
           })}

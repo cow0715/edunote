@@ -125,6 +125,45 @@ describe('buildReviewQuestions', () => {
     expect(q.numberLabel).toBe('18번a')
   })
 
+  // ── 밑줄 친 낱말 유형 ────────────────────────────────────────────────────
+  // 선지 목록이 따로 없고 ①~⑤ 가 지문 안 밑줄에 붙는 유형. 파싱이 일부러 그렇게 한다.
+  // 번호만 고르면 되므로 텍스트 없는 번호 버튼으로 살린다.
+  it('지문에 밑줄 기호가 있으면 선지 없이도 번호로 고를 수 있다', () => {
+    const [q] = buildReviewQuestions([answer({}, {
+      question_style: 'objective',
+      choices: null,
+      correct_answer: 4,
+      question_stem: '다음 글의 밑줄 친 부분 중, 문맥상 낱말의 쓰임이 적절하지 않은 것은?',
+      passage: 'We ① adjust to ② new things and ③ go back to our ④ default level of ⑤ wellbeing.',
+    })])
+    expect(q.layout).toBe('markers')
+    expect(q.choices).toHaveLength(5)
+    expect(q.correct).toBe(4)
+  })
+
+  it('기호가 ① 부터 연속으로 이어질 때만 센다', () => {
+    const [q] = buildReviewQuestions([answer({}, {
+      question_style: 'objective', choices: null, correct_answer: 2,
+      passage: '① 하나 ② 둘 ④ 넷', question_stem: '밑줄 친 것 중 틀린 것은?',
+    })])
+    expect(q.choices).toHaveLength(2)
+  })
+
+  it('정답 번호가 기호 수를 넘으면 선지 유실로 보고 제외한다', () => {
+    expect(buildReviewQuestions([answer({}, {
+      question_style: 'objective', choices: null, correct_answer: 5,
+      passage: '① 하나 ② 둘', question_stem: '내용과 일치하지 않는 것은?',
+    })])).toEqual([])
+  })
+
+  it('기호가 아예 없으면 제외한다 — 선지가 유실된 진짜 결손', () => {
+    expect(buildReviewQuestions([answer({}, {
+      question_style: 'objective', choices: null, correct_answer: 5,
+      passage: '기호가 없는 지문', question_text: '다음 글의 내용과 일치하지 않는 것은?',
+      question_stem: '다음 글의 내용과 일치하지 않는 것은?',
+    })])).toEqual([])
+  })
+
   it('문항 번호 순으로 정렬한다', () => {
     const list = buildReviewQuestions([
       answer({ id: 'b' }, { question_number: 30 }),
