@@ -66,7 +66,7 @@ export type ShareData = {
   student: { id: string; name: string; school: string | null; grade: string | null }
   classes: { id: string; name: string; academic_year?: number | null; school_name?: string | null; grade_level?: number | null }[]
   currentPeriod: { id: string; class_id: string; label: string; start_date: string; end_date: string | null; is_current: boolean } | null
-  periodOptions: { id: string; class_id: string; class_name: string; class_type?: 'regular' | 'special'; label: string; start_date: string; end_date: string | null; is_current: boolean; is_active_class: boolean }[]
+  periodOptions: { id: string; class_id: string; class_name: string; class_type?: 'regular' | 'special'; label: string; start_date: string; end_date: string | null; is_current: boolean; is_active_class: boolean; week_count?: number }[]
   weeks: Week[]; weekScores: WeekScore[]; studentAnswers: StudentAnswer[]
   vocabAnswers: VocabAnswer[]; vocabWords: VocabWord[]; attendance: AttendanceRecord[]
   clinicAttendance: ClinicAttendanceRecord[]
@@ -75,3 +75,17 @@ export type ShareData = {
 
 export const CIRCLE_NUM = ['①', '②', '③', '④', '⑤']
 export type TabId = 'home' | 'score' | 'analysis' | 'vocab' | 'wrongnote'
+
+// ── 차트 입력 타입 ──────────────────────────────────────────────────────────
+// 리디자인 이후 share 화면은 인라인 SVG 로 그린다. 이 타입들은 /dev 플레이그라운드의
+// Recharts 컴포넌트와 모양이 같지만, 모델이 컴포넌트를 import 하지 않도록 여기 둔다.
+
+export type TrendItem = {
+  label: string
+  readingRate: number | null
+  vocabRate: number | null
+  classReadingRate: number | null
+  classVocabRate: number | null
+}
+export type HomeworkItem = { label: string; rate: number; done: number; total: number }
+export type RadarItem = { name: string; rate: number; correct: number; total: number }

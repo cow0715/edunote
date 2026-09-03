@@ -1,20 +1,19 @@
 'use client'
 
-// 학부모 공유 화면의 셸.
-// 데이터 로딩 · 공통 상태 · 헤더/탭바/시트만 담당하고, 화면은 tabs/* 가 그린다.
+// 학생·학부모 공유 리포트의 셸.
+// 데이터 로딩 · 공통 상태 · 헤더/탭바/기간 시트만 담당하고, 화면은 tabs/* 가 그린다.
 // 파생 데이터 계산은 use-share-model.ts 로 빠져 있다.
+//
+// 디자인 원본: 학습 리포트 디자인 벤치마킹/design_handoff_share_report/README.md
+// 이 화면은 라이트 기준이다 (다크 매핑은 범위 밖).
 
 import { use, useCallback, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import {
-  X, Home, BarChart2, PieChart, BookX,
-  ChevronDown, CalendarDays, LibraryBig,
-} from 'lucide-react'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { BookOpen, History, Home, Languages, PieChart } from 'lucide-react'
 import { ShareData, TabId } from './share-types'
-import { ThemeToggle } from './share-components'
 import { INITIAL_VOCAB_FILTER, VocabFilterState, VocabStudyMode } from './share-utils'
+import { PRESS, T } from './share-tokens'
 import { useShareModel } from './use-share-model'
 import { DrawerTag, TagDrawer } from './tag-drawer'
 import { HomeTab } from './tabs/home-tab'
@@ -22,14 +21,13 @@ import { ScoreTab } from './tabs/score-tab'
 import { AnalysisTab } from './tabs/analysis-tab'
 import { VocabTab } from './tabs/vocab-tab'
 import { WrongNoteSubTab, WrongNoteTab } from './tabs/wrongnote-tab'
-import { useShareTheme } from './use-share-theme'
 
 const TABS = [
   { id: 'home' as TabId, label: '홈', Icon: Home },
-  { id: 'score' as TabId, label: '성적', Icon: BarChart2 },
+  { id: 'score' as TabId, label: '기록', Icon: History },
   { id: 'analysis' as TabId, label: '분석', Icon: PieChart },
-  { id: 'vocab' as TabId, label: '단어장', Icon: LibraryBig },
-  { id: 'wrongnote' as TabId, label: '오답', Icon: BookX },
+  { id: 'wrongnote' as TabId, label: '오답', Icon: BookOpen },
+  { id: 'vocab' as TabId, label: '단어', Icon: Languages },
 ]
 
 /** 상태 코드를 살려둬야 "만료된 링크"와 "없는 링크"를 다르게 안내할 수 있다 */
@@ -79,16 +77,21 @@ function toggleInSet(set: Set<string>, id: string) {
   return next
 }
 
+/** "06.28 ~ 진행 중" */
+function fmtPeriodRange(start: string, end: string | null) {
+  const dot = (d: string) => d.slice(5).replace('-', '.')
+  return `${dot(start)} ~ ${end ? dot(end) : '진행 중'}`
+}
+
 export default function ShareClient({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params)
   const router = useRouter()
   const searchParams = useSearchParams()
   const selectedPeriodId = searchParams.get('periodId')
   const { data, isLoading, error } = useShareData(token, selectedPeriodId)
-  const { isDark, themeReady, toggleTheme } = useShareTheme()
 
   const [activeTab, setActiveTab] = useState<TabId>('home')
-  const [historyOpen, setHistoryOpen] = useState(false)
+  const [periodSheetOpen, setPeriodSheetOpen] = useState(false)
   const [drawerTag, setDrawerTag] = useState<DrawerTag | null>(null)
 
   const [wrongNoteTab, setWrongNoteTab] = useState<WrongNoteSubTab>('reading')
@@ -97,7 +100,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const [vocabFilter, setVocabFilter] = useState<VocabFilterState>(INITIAL_VOCAB_FILTER)
 
   const model = useShareModel(data)
-  const { wrongNoteGroups, vocabWrongGroups, studentAnswers, weekNumberByWeekId, weekLabelByWeekId, periodGroups, periodOptions } = model
+  const { wrongNoteGroups, vocabWrongGroups, studentAnswers, weekNumberByWeekId, weekLabelByWeekId, periodOptions } = model
 
   // ── 오답노트 최신 주차 자동 펼침 ──────────────────────────────────────────
   // 탭에 들어오자마자 주차 헤더만 보이던 문제. sentinel 로 두고 렌더 중 조정한다
@@ -115,7 +118,6 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     setExpandedVocabWeekIds((prev) => new Set([...prev, firstVocabWeekId]))
   }
 
-  // 대상 요소에 scroll-mt-* 가 걸려 있어 헤더 높이를 여기서 계산하지 않는다
   const scrollTo = useCallback((id: string, delay = 0) => {
     const go = () => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     if (delay > 0) setTimeout(go, delay)
@@ -132,7 +134,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     scrollTo(`wrongnote-${kind}-${targetId}`, 150)
   }, [firstReadingWeekId, firstVocabWeekId, scrollTo])
 
-  /** 오답노트 → 단어장. 목록 탐색은 단어장 탭이 전담한다 */
+  /** 오답노트 → 단어장. 목록 탐색은 단어 탭이 전담한다 */
   const openVocabList = useCallback((weekId: string | null, studyMode: VocabStudyMode) => {
     setVocabFilter({ ...INITIAL_VOCAB_FILTER, studyMode, week: weekId ?? 'all', lookupOpen: true })
     setActiveTab('vocab')
@@ -151,6 +153,12 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     setDrawerTag({ id, name, weekId: null })
   }, [])
 
+  /** 홈 그래프 점 → 기록 탭 해당 회차 */
+  const openHistoryWeek = useCallback((weekId: string) => {
+    setActiveTab('score')
+    scrollTo(`history-${weekId}`, 150)
+  }, [scrollTo])
+
   const drawerAnswers = useMemo(() => drawerTag
     ? studentAnswers
       .filter((a) =>
@@ -166,21 +174,17 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     : [], [drawerTag, studentAnswers, weekNumberByWeekId])
 
   if (isLoading) return (
-    <div className={themeReady && isDark ? 'dark' : ''}>
-      <div className="flex min-h-screen items-center justify-center bg-[#F5F6F8] dark:bg-[#0B0F17]">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#2463EB] border-t-transparent" />
-      </div>
+    <div className="flex min-h-screen items-center justify-center bg-white">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#3182F6] border-t-transparent" />
     </div>
   )
   if (error || !data) {
     const { title, hint } = shareErrorMessage(error?.status)
     return (
-      <div className={themeReady && isDark ? 'dark' : ''}>
-        <div className="flex min-h-screen items-center justify-center bg-[#F5F6F8] px-8 dark:bg-[#0B0F17]">
-          <div className="max-w-xs text-center">
-            <p className="text-base font-bold text-[#1A1C1E] dark:text-[#F1F5F9]">{title}</p>
-            <p className="mt-2 text-sm leading-relaxed text-[#8B95A1] dark:text-gray-500">{hint}</p>
-          </div>
+      <div className="flex min-h-screen items-center justify-center bg-white px-8">
+        <div className="max-w-xs text-center">
+          <p className="text-[16px] font-extrabold text-[#191F28]">{title}</p>
+          <p className="mt-2 text-[13px] leading-relaxed text-[#8B95A1]">{hint}</p>
         </div>
       </div>
     )
@@ -188,233 +192,189 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
 
   const { student, currentPeriod } = data
   const selectedPeriod = selectedPeriodId ? periodOptions.find((p) => p.id === selectedPeriodId) : null
-  const currentViewLabel = selectedPeriod
-    ? `${selectedPeriod.class_name} · ${selectedPeriod.label}`
-    : currentPeriod
-      ? currentPeriod.label
-      : '현재 기간'
+  const periodLabel = selectedPeriod?.label ?? currentPeriod?.label ?? '전체'
+  const className = selectedPeriod?.class_name ?? model.classes[0]?.name ?? ''
+  const headerLine = [student.grade, student.school, className].filter(Boolean).join(' · ')
+  const activeIndex = TABS.findIndex((t) => t.id === activeTab)
+
+  const selectPeriod = (id: string | null) => {
+    router.push(id ? `/share/${token}?periodId=${id}` : `/share/${token}`)
+    setPeriodSheetOpen(false)
+    // 기간이 바뀌면 펼침 상태·스크롤을 초기화한다 — 회차 목록 자체가 달라지기 때문
+    setExpandedWrongWeekIds(new Set())
+    setExpandedVocabWeekIds(new Set())
+    setAutoExpandedReading(null)
+    setAutoExpandedVocab(null)
+    window.scrollTo({ top: 0 })
+  }
 
   return (
-    <div className={themeReady && isDark ? 'dark' : ''}>
-      <div className="min-h-screen bg-[#F5F6F8] dark:bg-[#0B0F17]">
+    <div className="relative mx-auto min-h-screen max-w-[430px] bg-white pb-[92px] text-[#191F28]">
 
-        {/* ── 헤더 ──────────────────────────────────────────────────── */}
-        <header className="sticky top-0 z-20 border-b border-[#E9EBEF] bg-[#F5F6F8]/90 px-4 py-3 backdrop-blur-md dark:border-white/[0.06] dark:bg-[#0B0F17]/90">
-          <div className="mx-auto flex max-w-lg items-center justify-between">
-            <span className="text-sm font-bold text-[#1A1C1E] dark:text-[#F1F5F9]">학습 리포트</span>
-            <ThemeToggle isDark={isDark} onToggle={toggleTheme} />
-          </div>
-        </header>
-
-        {/* ── 탭 콘텐츠 ─────────────────────────────────────────────── */}
-        <main className="mx-auto max-w-lg space-y-3 px-4 pt-4 pb-28">
-          {periodOptions.length > 0 && (
-            <div className="flex items-center justify-between gap-3 px-1">
-              <p className="min-w-0 truncate text-[13px] text-[#8B95A1]">
-                {selectedPeriod
-                  ? selectedPeriod.is_active_class && selectedPeriod.is_current ? '선택한 반' : '지난 기록'
-                  : '현재 기간'}
-                <span className="ml-1.5 font-semibold text-[#3F4650] dark:text-[#CBD5E1]">{currentViewLabel}</span>
-              </p>
-              <button
-                type="button"
-                onClick={() => setHistoryOpen(true)}
-                className="inline-flex shrink-0 items-center gap-0.5 text-[13px] font-semibold text-[#2463EB] active:opacity-70 dark:text-[#3B82F6]"
-              >
-                반·기간 선택
-                <ChevronDown className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
-
-          {activeTab === 'home' && (
-            <HomeTab
-              student={student}
-              model={model}
-              isDark={isDark}
-              onOpenWrongNote={(kind) => openWrongNote(kind)}
-              onGoScoreSection={(id) => { setActiveTab('score'); scrollTo(id, 120) }}
-              onGoAnalysis={() => { setActiveTab('analysis'); window.scrollTo({ top: 0 }) }}
-            />
-          )}
-
-          {activeTab === 'score' && (
-            <ScoreTab
-              model={model}
-              isDark={isDark}
-              onOpenWrongNoteWeek={(kind, weekId) => openWrongNote(kind, weekId)}
-            />
-          )}
-
-          {activeTab === 'analysis' && (
-            <AnalysisTab model={model} isDark={isDark} onTagClick={openDrawerTag} />
-          )}
-
-          {activeTab === 'vocab' && (
-            <VocabTab
-              model={model}
-              filter={vocabFilter}
-              onFilterChange={patchVocabFilter}
-              onResetFilters={resetVocabFilters}
-            />
-          )}
-
-          {activeTab === 'wrongnote' && (
-            <WrongNoteTab
-              token={token}
-              model={model}
-              subTab={wrongNoteTab}
-              onSubTabChange={setWrongNoteTab}
-              expandedReadingWeekIds={expandedWrongWeekIds}
-              onToggleReadingWeek={(id) => setExpandedWrongWeekIds((prev) => toggleInSet(prev, id))}
-              expandedVocabWeekIds={expandedVocabWeekIds}
-              onToggleVocabWeek={(id) => setExpandedVocabWeekIds((prev) => toggleInSet(prev, id))}
-              onOpenVocabList={openVocabList}
-              onStartRetake={(weekId) => router.push(`/share/${token}/retake/${weekId}`)}
-            />
-          )}
-        </main>
-
-        {/* ── 하단 탭바 ─────────────────────────────────────────────── */}
-        <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-[#E9EBEF] bg-white/95 backdrop-blur-md dark:border-white/[0.06] dark:bg-[#151B26]/95">
-          <div className="mx-auto flex max-w-lg pb-safe">
-            {TABS.map(({ id, label, Icon }) => {
-              const active = activeTab === id
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  aria-current={active ? 'page' : undefined}
-                  onClick={() => setActiveTab(id)}
-                  className={`relative flex flex-1 flex-col items-center gap-1 pt-3 pb-2.5 transition-colors ${
-                    active ? 'text-[#2463EB] dark:text-blue-400' : 'text-[#8B95A1] dark:text-gray-500'
-                  }`}
-                >
-                  {active && (
-                    <span className="absolute top-0 left-1/2 h-0.5 w-8 -translate-x-1/2 rounded-full bg-[#2463EB] dark:bg-blue-400" />
-                  )}
-                  <Icon className="h-5 w-5" />
-                  <span className={`text-[10px] ${active ? 'font-bold' : 'font-medium'}`}>{label}</span>
-                </button>
-              )
-            })}
-          </div>
-        </nav>
-
-        {/* ── 반·기간 선택 시트 ─────────────────────────────────────── */}
-        <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
-          <SheetContent side="bottom" className="mx-auto max-h-[82vh] w-full max-w-lg rounded-t-3xl border-0 bg-white p-0 dark:bg-[#151B26]" showCloseButton={false}>
-            <SheetHeader className="px-5 pt-5 pb-3">
-              <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-gray-200 dark:bg-white/20" />
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <SheetTitle className="text-base font-bold text-[#1A1C1E] dark:text-[#F1F5F9]">반·기간 선택</SheetTitle>
-                  <p className="mt-1 text-xs text-[#8B95A1] dark:text-[#94A3B8]">반과 기간을 선택하면 해당 범위로 다시 계산됩니다</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setHistoryOpen(false)}
-                  aria-label="닫기"
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 text-gray-400 dark:bg-white/[0.06] dark:text-gray-300"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </SheetHeader>
-            <div className="overflow-y-auto px-5 pb-6">
-              <button
-                type="button"
-                onClick={() => { router.push(`/share/${token}`); setHistoryOpen(false) }}
-                className={`mb-3 flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left transition-colors ${
-                  !selectedPeriodId
-                    ? 'bg-blue-50 text-[#2463EB] dark:bg-blue-950/40 dark:text-blue-300'
-                    : 'bg-gray-50 text-gray-700 dark:bg-white/[0.05] dark:text-gray-300'
-                }`}
-              >
-                <span>
-                  <span className="block text-sm font-bold">현재 반/기간</span>
-                  <span className="mt-0.5 block text-xs opacity-70">{currentPeriod?.label ?? '현재 기간'}</span>
-                </span>
-                <CalendarDays className="h-4 w-4" />
-              </button>
-
-              <div className="space-y-4">
-                {[...periodGroups.entries()].map(([className, periods]) => (
-                  <PeriodGroup
-                    key={className}
-                    className={className}
-                    periods={periods}
-                    selectedPeriodId={selectedPeriodId}
-                    onSelect={(id) => { router.push(`/share/${token}?periodId=${id}`); setHistoryOpen(false) }}
-                  />
-                ))}
-              </div>
-            </div>
-          </SheetContent>
-        </Sheet>
-
-        <TagDrawer
-          tag={drawerTag}
-          answers={drawerAnswers}
-          token={token}
-          weekLabelByWeekId={weekLabelByWeekId}
-          onClose={() => setDrawerTag(null)}
-        />
-      </div>
-    </div>
-  )
-}
-
-function PeriodGroup({
-  className,
-  periods,
-  selectedPeriodId,
-  onSelect,
-}: {
-  className: string
-  periods: ShareData['periodOptions']
-  selectedPeriodId: string | null
-  onSelect: (id: string) => void
-}) {
-  return (
-    <div>
-      <p className="mb-2 flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-wide text-[#8B95A1] dark:text-[#94A3B8]">
-        {className}
-        {periods[0]?.class_type === 'special' && (
-          <span className="rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold normal-case text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
-            특강
-          </span>
+      {/* ── 헤더 ──────────────────────────────────────────────────── */}
+      <header className="flex items-center justify-between gap-3 px-5 pt-[18px] pb-2">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="truncate text-[12px] font-medium text-[#8B95A1]">{headerLine || '학습 리포트'}</span>
+          <span className="text-[20px] font-extrabold tracking-[-0.01em]">{student.name}</span>
+        </div>
+        {periodOptions.length > 1 && (
+          <button
+            type="button"
+            onClick={() => setPeriodSheetOpen(true)}
+            className={`${PRESS} flex shrink-0 items-center gap-1.5 rounded-full bg-[#F2F4F6] py-2 pr-3 pl-3.5 text-[13px] font-extrabold`}
+          >
+            <span className="max-w-[110px] truncate">{periodLabel}</span>
+            <span className="text-[10px] text-[#8B95A1]">▾</span>
+          </button>
         )}
-      </p>
-      <div className="space-y-1.5">
-        {periods.map((period) => {
-          const active = selectedPeriodId === period.id
-          return (
-            <button
-              key={period.id}
-              type="button"
-              onClick={() => onSelect(period.id)}
-              className={`flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition-colors ${
-                active
-                  ? 'bg-blue-50 text-[#2463EB] dark:bg-blue-950/40 dark:text-blue-300'
-                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]'
-              }`}
-            >
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-bold">{period.label}</span>
-                <span className="mt-0.5 block text-xs opacity-70">
-                  {period.start_date}{period.end_date ? ` ~ ${period.end_date}` : ' 이후'}
-                </span>
-              </span>
-              {period.is_current && (
-                <span className="shrink-0 rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-bold text-[#2463EB] dark:bg-white/[0.08] dark:text-blue-300">
-                  현재
-                </span>
-              )}
-            </button>
-          )
-        })}
-      </div>
+      </header>
+
+      {/* ── 탭 콘텐츠 ─────────────────────────────────────────────── */}
+      <main className="flex flex-col gap-3 px-4 pt-2">
+        {activeTab === 'home' && (
+          <HomeTab
+            model={model}
+            periodLabel={periodLabel}
+            onOpenWrongNote={(kind) => openWrongNote(kind)}
+            onGoHistoryWeek={openHistoryWeek}
+            onGoHistory={() => { setActiveTab('score'); window.scrollTo({ top: 0 }) }}
+          />
+        )}
+
+        {activeTab === 'score' && (
+          <ScoreTab
+            token={token}
+            model={model}
+            periodLabel={periodLabel}
+            selectedPeriodId={selectedPeriodId}
+            hasOtherPeriods={periodOptions.length > 1}
+            onOpenWrongNoteWeek={(kind, weekId) => openWrongNote(kind, weekId)}
+          />
+        )}
+
+        {activeTab === 'analysis' && (
+          <AnalysisTab model={model} periodLabel={periodLabel} onTagClick={openDrawerTag} />
+        )}
+
+        {activeTab === 'wrongnote' && (
+          <WrongNoteTab
+            token={token}
+            model={model}
+            subTab={wrongNoteTab}
+            onSubTabChange={setWrongNoteTab}
+            expandedReadingWeekIds={expandedWrongWeekIds}
+            onToggleReadingWeek={(id) => setExpandedWrongWeekIds((prev) => toggleInSet(prev, id))}
+            expandedVocabWeekIds={expandedVocabWeekIds}
+            onToggleVocabWeek={(id) => setExpandedVocabWeekIds((prev) => toggleInSet(prev, id))}
+            onOpenVocabList={openVocabList}
+            onStartRetake={(weekId) => router.push(`/share/${token}/retake/${weekId}`)}
+          />
+        )}
+
+        {activeTab === 'vocab' && (
+          <VocabTab
+            model={model}
+            filter={vocabFilter}
+            onFilterChange={patchVocabFilter}
+            onResetFilters={resetVocabFilters}
+          />
+        )}
+      </main>
+
+      {/* ── 하단 탭바 ─────────────────────────────────────────────── */}
+      <nav className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] border-t border-[#EEF1F4] bg-white">
+        {/* 인디케이터 하나가 탭 사이를 미끄러진다 */}
+        <span
+          aria-hidden
+          className="absolute top-0 h-[3px] w-[22px] rounded-full bg-[#3182F6] transition-[left] duration-[280ms] ease-[cubic-bezier(.2,.8,.2,1)]"
+          style={{ left: `calc(${activeIndex * 20}% + 10% - 11px)` }}
+        />
+        <div className="flex pb-safe">
+          {TABS.map(({ id, label, Icon }) => {
+            const active = activeTab === id
+            return (
+              <button
+                key={id}
+                type="button"
+                aria-current={active ? 'page' : undefined}
+                onClick={() => { setActiveTab(id); window.scrollTo({ top: 0 }) }}
+                className="flex flex-1 flex-col items-center gap-1 pt-3 pb-2.5 transition-transform duration-[120ms] active:scale-[0.92]"
+                style={{ color: active ? T.blue : T.muted2 }}
+              >
+                <Icon className="h-5 w-5" />
+                <span className={`text-[10px] ${active ? 'font-extrabold' : 'font-medium'}`}>{label}</span>
+              </button>
+            )
+          })}
+        </div>
+      </nav>
+
+      {/* ── 기간 선택 바텀시트 ─────────────────────────────────────── */}
+      {periodSheetOpen && (
+        <div
+          role="presentation"
+          onClick={() => setPeriodSheetOpen(false)}
+          className="fixed inset-0 z-40 flex items-end justify-center bg-[rgba(25,31,40,0.5)]"
+          style={{ animation: 'share-fade-in .2s ease both' }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="기간 선택"
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[80vh] w-full max-w-[430px] overflow-y-auto rounded-t-[20px] bg-[#F9FAFB] px-4 pt-3.5 pb-7"
+            style={{ animation: 'share-sheet-up .42s cubic-bezier(.22,.9,.3,1) both' }}
+          >
+            <div className="mx-auto mb-4 h-1 w-9 rounded-full bg-[#E5E8EB]" />
+            <span className="block px-1.5 pb-3 text-[16px] font-extrabold">기간 선택</span>
+            <div className="flex flex-col gap-1.5">
+              {periodOptions.map((period) => {
+                const active = selectedPeriodId ? selectedPeriodId === period.id : period.id === currentPeriod?.id
+                // 회차가 없는 기간은 열어봐야 빈 화면이라 고를 수 없게 둔다
+                const empty = (period.week_count ?? 0) === 0
+                return (
+                  <button
+                    key={period.id}
+                    type="button"
+                    disabled={empty}
+                    onClick={() => selectPeriod(period.id)}
+                    className={`${PRESS} flex items-center gap-3 rounded-[18px] px-4 py-3.5 text-left disabled:cursor-default`}
+                    style={{ background: active ? T.blueBg : T.canvas }}
+                  >
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="truncate text-[15px] font-extrabold"
+                          style={{ color: empty ? T.disabled : active ? T.blue : T.ink }}
+                        >
+                          {period.class_name ? `${period.class_name} · ${period.label}` : period.label}
+                        </span>
+                        {period.is_current && (
+                          <span className="shrink-0 rounded-full bg-[#E8F3FF] px-[7px] py-0.5 text-[10px] font-bold text-[#3182F6]">
+                            현재
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[12px] text-[#8B95A1]">
+                        {fmtPeriodRange(period.start_date, period.end_date)} · {period.week_count ?? 0}회차
+                      </span>
+                    </span>
+                    {active && <span className="text-[14px] text-[#3182F6]">✓</span>}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <TagDrawer
+        tag={drawerTag}
+        answers={drawerAnswers}
+        token={token}
+        weekLabelByWeekId={weekLabelByWeekId}
+        onClose={() => setDrawerTag(null)}
+      />
     </div>
   )
 }

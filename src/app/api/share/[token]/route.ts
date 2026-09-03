@@ -107,7 +107,10 @@ function emptyShare(student: unknown, periodOptions: unknown[] = []) {
 export async function GET(request: Request, { params }: { params: Promise<{ token: string }> }) {
   const supabase = createServiceClient()
   const { token } = await params
-  const periodId = new URL(request.url).searchParams.get('periodId')
+  const url = new URL(request.url)
+  const periodId = url.searchParams.get('periodId')
+  // 기록 탭의 "전체 기간" 토글 — 기간 필터를 걷고 그 반의 모든 회차를 준다
+  const allScope = url.searchParams.get('scope') === 'all'
 
   // 회전 후 유예 중인 직전 토큰도 받아준다. 유예가 끝난 옛 토큰은 404 가 아니라
   // 410 로 구분해서, 학부모가 "고장" 이 아니라 "새 문자 확인" 으로 읽게 한다.
@@ -151,6 +154,21 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   }
 
   const allPeriods = (allPeriodsData ?? []) as ClassPeriod[]
+
+  // 기간 선택 시트가 "N회차" 를 보여주고 0회차 기간을 못 고르게 막으려면 회차 수가 필요하다.
+  // week 은 id 만 긁어 세면 되므로 목록 조회 한 번으로 끝낸다.
+  const { data: periodWeekRows } = allPeriods.length > 0
+    ? await supabase
+      .from('week')
+      .select('id, class_period_id')
+      .in('class_period_id', allPeriods.map((p) => p.id))
+    : { data: [] as { id: string; class_period_id: string | null }[] }
+  const weekCountByPeriod = new Map<string, number>()
+  for (const row of periodWeekRows ?? []) {
+    if (!row.class_period_id) continue
+    weekCountByPeriod.set(row.class_period_id, (weekCountByPeriod.get(row.class_period_id) ?? 0) + 1)
+  }
+
   const periodOptions = allPeriods.map((period) => ({
     id: period.id,
     class_id: period.class_id,
@@ -161,6 +179,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     end_date: period.end_date,
     is_current: period.is_current,
     is_active_class: activeClassIds.includes(period.class_id),
+    week_count: weekCountByPeriod.get(period.id) ?? 0,
   }))
 
   // 기본 화면은 정규반만 — 특강반은 기간 선택으로 전환 (정규반이 없으면 전체)
@@ -210,12 +229,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const allSelectedWeeks = (rawWeeks ?? []) as ShareWeekRow[]
 
   const selectedPeriodByClassId = new Map(selectedPeriods.map((period) => [period.class_id, period]))
-  const filteredWeeks = selectedPeriods.length > 0
-    ? allSelectedWeeks.filter((week) => {
-        const period = selectedPeriodByClassId.get(week.class_id)
-        return period ? isWeekInPeriod(week, period) : false
-      })
-    : []
+  // scope=all 이면 기간 경계를 무시하고 그 반의 회차를 전부 준다.
+  // 기간별 그룹 헤더는 week.class_period_id 로 클라이언트가 나눈다.
+  const filteredWeeks = allScope
+    ? allSelectedWeeks
+    : selectedPeriods.length > 0
+      ? allSelectedWeeks.filter((week) => {
+          const period = selectedPeriodByClassId.get(week.class_id)
+          return period ? isWeekInPeriod(week, period) : false
+        })
+      : []
 
   const displayMap = buildWeekDisplayMap(
     allSelectedWeeks,
