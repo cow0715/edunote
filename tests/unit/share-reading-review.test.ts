@@ -125,60 +125,24 @@ describe('buildReviewQuestions', () => {
     expect(q.numberLabel).toBe('18번a')
   })
 
-  // ── 밑줄 친 낱말 유형 ────────────────────────────────────────────────────
-  // 선지 목록이 따로 없고 ①~⑤ 가 지문 안 밑줄에 붙는 유형. 파싱이 일부러 그렇게 한다.
-  // 번호만 고르면 되므로 텍스트 없는 번호 버튼으로 살린다.
-  it('지문에 밑줄 기호가 있으면 선지 없이도 번호로 고를 수 있다', () => {
-    const [q] = buildReviewQuestions([answer({}, {
-      question_style: 'objective',
-      choices: null,
-      correct_answer: 4,
-      question_stem: '다음 글의 밑줄 친 부분 중, 문맥상 낱말의 쓰임이 적절하지 않은 것은?',
-      passage: 'We ① adjust to ② new things and ③ go back to our ④ default level of ⑤ wellbeing.',
-    })])
+  // ── 선지가 지문 안에 있는 유형 ─────────────────────────────────────────
+  // 파서가 choices 를 항상 채운다(기호만이라도). 화면은 지문을 뒤지지 않고 choices 만 본다.
+  it('선지가 기호뿐이면(문장 삽입 위치) 번호 버튼 레이아웃', () => {
+    const [q] = buildReviewQuestions([answer({}, { choices: ['①', '②', '③', '④', '⑤'], correct_answer: 2 })])
     expect(q.layout).toBe('markers')
     expect(q.choices).toHaveLength(5)
-    expect(q.correct).toBe(4)
   })
 
-  it('기호가 ① 부터 연속으로 이어질 때만 센다', () => {
-    const [q] = buildReviewQuestions([answer({}, {
-      question_style: 'objective', choices: null, correct_answer: 2,
-      passage: '① 하나 ② 둘 ④ 넷', question_stem: '밑줄 친 것 중 틀린 것은?',
-    })])
-    expect(q.choices).toHaveLength(2)
+  it('선지에 텍스트가 있으면 목록 레이아웃 — 밑줄 표현도 그냥 목록', () => {
+    const [q] = buildReviewQuestions([answer({}, { choices: ['has', 'to move', 'are', 'attending', 'being'], correct_answer: 4 })])
+    expect(q.layout).toBe('list')
   })
 
-  it('정답 번호가 기호 수를 넘으면 선지 유실로 보고 제외한다', () => {
+  it('선지가 없으면 지문에 기호가 있어도 제외한다 — 데이터가 없는 건 추측하지 않는다', () => {
     expect(buildReviewQuestions([answer({}, {
-      question_style: 'objective', choices: null, correct_answer: 5,
-      passage: '① 하나 ② 둘', question_stem: '내용과 일치하지 않는 것은?',
-    })])).toEqual([])
-  })
-
-  it('기호가 아예 없으면 제외한다 — 선지가 유실된 진짜 결손', () => {
-    expect(buildReviewQuestions([answer({}, {
-      question_style: 'objective', choices: null, correct_answer: 5,
-      passage: '기호가 없는 지문', question_text: '다음 글의 내용과 일치하지 않는 것은?',
-      question_stem: '다음 글의 내용과 일치하지 않는 것은?',
-    })])).toEqual([])
-  })
-
-  // 구조화 이전 데이터는 지문·발문·선지가 question_text 에 통짜로 들어 있다.
-  // 거기서 기호를 세면 평범한 객관식이 밑줄 유형으로 오인돼 화면이 겹친다.
-  it('question_stem 이 없는 구 데이터는 밑줄 유형으로 보지 않는다', () => {
-    expect(buildReviewQuestions([answer({}, {
-      question_style: 'objective', choices: null, correct_answer: 3,
-      question_stem: null, passage: null,
-      question_text: '다음 글의 내용과 일치하지 않는 것은? 지문... ① 하나 ② 둘 ③ 셋 ④ 넷 ⑤ 다섯',
-    })])).toEqual([])
-  })
-
-  it('기호가 passage 밖(통짜 본문)에만 있으면 세지 않는다', () => {
-    expect(buildReviewQuestions([answer({}, {
-      question_style: 'objective', choices: null, correct_answer: 2,
-      question_stem: '다음 글의 내용과 일치하지 않는 것은?', passage: '기호 없는 지문',
-      question_text: '① 하나 ② 둘 ③ 셋',
+      choices: null, correct_answer: 4,
+      passage: 'We ① adjust to ② new things and ③ go back to our ④ default level.',
+      question_stem: '밑줄 친 부분 중 문맥상 낱말의 쓰임이 적절하지 않은 것은?',
     })])).toEqual([])
   })
 

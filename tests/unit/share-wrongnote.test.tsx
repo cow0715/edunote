@@ -567,6 +567,18 @@ describe('splitQuestionTexts', () => {
     expect(r.tails[0]).toContain('① However')
   })
 
+  it('선지가 지문 안에 있는 유형(밑줄 어법)은 소문항 꼬리에 선지 목록을 붙이지 않는다', () => {
+    // 어법 "n개 고르" 가 소문항 a/b 로 갈린 경우: 지문의 ①~⑤ 밑줄이 곧 선지다.
+    // 지문은 shared 로 한 번 나가므로, 꼬리마다 목록을 또 붙이면 유령 목록이 소문항 수만큼 생긴다.
+    const underlined = 'The committee ① <u>has</u> decided ② <u>to move</u> the event and ③ <u>are</u> ready.'
+    const r = splitQuestionTexts([
+      { passage: underlined, question_stem: '(a) 어법상 틀린 것은?', choices: ['has', 'to move', 'are'] },
+      { passage: underlined, question_stem: '(b) 어법상 틀린 것은?', choices: ['has', 'to move', 'are'] },
+    ])
+    expect(r.shared).toContain(underlined)
+    expect(r.tails.join('\n')).not.toContain('① has')
+  })
+
   it('passage 가 비어 있으면 예전처럼 question_text 통짜에서 잘라낸다', () => {
     const r = splitQuestionTexts([
       { question_text: '다음 글을 읽고 T/F 를 고르시오. 본문이 길게 이어진다. (1) 첫 번째 문장' },

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildQuestionDisplayText,
   buildQuestionTextFromParts,
+  choicesAreInline,
   ensureChoiceMarker,
   getStructuredQuestionParts,
   hasChoiceMarker,
@@ -167,5 +168,39 @@ describe('build → split 라운드트립', () => {
     const parts = { questionStem: '발문', passage: '지문 첫 줄\n지문 둘째 줄', choices: ['첫째', '둘째', '셋째'] }
     const built = buildQuestionTextFromParts(parts)
     expect(splitStoredQuestionText(built)).toEqual(parts)
+  })
+})
+
+describe('choicesAreInline / buildQuestionTextFromParts', () => {
+  it('선지가 전부 기호뿐이면(문장 삽입 위치) 지문 안에 있는 것으로 본다', () => {
+    expect(choicesAreInline('A ( ① ) B ( ② )', ['①', '②', '③', '④', '⑤'])).toBe(true)
+  })
+
+  it('선지 텍스트가 전부 지문에 들어 있으면(밑줄 어법·어휘) 지문 안에 있는 것으로 본다 — <u> 는 무시', () => {
+    const passage = 'The committee ① <u>has</u> decided ② <u>to move</u> the event.'
+    expect(choicesAreInline(passage, ['has', 'to move'])).toBe(true)
+  })
+
+  it('무관한 문장 유형: 선지가 지문 문장 전체이고 줄바꿈·공백이 달라도 지문 안으로 본다', () => {
+    const passage = 'Squirrels collect nuts.\n① An immune cell\ncannot stop you. ② So the cell rests.'
+    expect(choicesAreInline(passage, ['An immune cell cannot stop you.', 'So the cell rests.'])).toBe(true)
+  })
+
+  it('보통 선지 목록은 지문에 없으므로 false', () => {
+    expect(choicesAreInline('The results were inconclusive.', ['However', 'Therefore'])).toBe(false)
+    expect(choicesAreInline(null, ['a', 'b'])).toBe(false)
+    expect(choicesAreInline('x', [])).toBe(false)
+  })
+
+  it('조립기는 지문 안 선지에는 목록을 붙이지 않는다 — 시험지에 없는 줄', () => {
+    const inline = buildQuestionTextFromParts({
+      questionStem: '밑줄 친 부분 중 어법상 틀린 것은?',
+      passage: 'It ① <u>has</u> ② <u>been</u> done.',
+      choices: ['has', 'been'],
+    })
+    expect(inline).toBe('밑줄 친 부분 중 어법상 틀린 것은?\n\nIt ① <u>has</u> ② <u>been</u> done.')
+
+    const list = buildQuestionTextFromParts({ questionStem: '빈칸은?', passage: '____ it rained.', choices: ['However', 'Thus'] })
+    expect(list).toBe('빈칸은?\n\n____ it rained.\n\n① However\n② Thus')
   })
 })

@@ -55,19 +55,18 @@ export const GRADING_RULES = `━━━ 관대하게 처리 — 오답 처리하
 - confidence: "high" 또는 "low" 반드시 포함`
 
 // ── 문항 텍스트 마크업 규약 (파서 ↔ FormattedQuestionText 렌더러 공유 계약) ──
-// 해설지형(parseAnswerSheet)·문제지형(parseWeekProblemSheetPage) 공용.
+// 해설지형(parseAnswerSheet) 전용. (문제지형 파서는 2026-08-27 통합 가져오기로 제거됨)
 // 기출은행(EXAM_BANK_PARSE_RULES)도 같은 규약을 자체 문구로 담고 있다 — 표기 형식을 바꿀 땐 셋 다 확인.
 
 export const QUESTION_MARKUP_RULES = `- Preserve simple visual emphasis in question_text instead of using an image: wrap bold text as **text** and underlined text as <u>text</u>.
 - Vocabulary/glossary notes that begin with * (for example "*default 디폴트...") are not emphasis. Keep those words as plain text and do not wrap them in **.
 - In vocabulary/glossary note lines, keep the leading asterisks exactly as they appear in the PDF/OCR (for example "*word", "**word", "***word"). They are not bold markers.
-- For questions asking about "밑줄 친 부분/낱말", apply <u>...</u> to the numbered words inside the passage (for example "① <u>direct</u>"), not to the separate answer choices list.`
+- For questions asking about "밑줄 친 부분/낱말", keep the circled number and apply <u>...</u> to each numbered word inside the passage (for example "① <u>direct</u>"). This is a markup rule for question_text/passage only; the choices array is filled separately (see 출력 필드 계약).`
 
 // 도표·표·그림 문항의 원본 이미지 보존 필드 (needs_source_image / source_page / source_bbox).
 // 해설지형·문제지형 공용. 파싱 후 week-reading-import 가 bbox 검증·pageOffset 보정·크롭을 담당한다.
 export const SOURCE_IMAGE_FIELD_RULES = `- needs_source_image: boolean. Use true only when the question contains a table, chart, diagram, picture, schedule grid, map, or complex boxed/multi-column layout that cannot be represented reliably as plain text.
 - Do not set needs_source_image true for plain bold text or underlined text when the content can be represented with **text** or <u>text</u>.
-- Keep original circled choice markers in choices, such as "① a potential risk..." rather than "a potential risk..." or "1. a potential risk...".
 - source_image_reason: one of "table", "chart", "diagram", "layout", "image", or null.
 - source_page: page number in the attached file where this question appears. Use 1 for the first page of the attached file.
 - source_bbox: normalized bounding box for the full question area on source_page, as {"x":0-1,"y":0-1,"width":0-1,"height":0-1}. Include the question number, passage/table/diagram, and choices. Use null when needs_source_image is false or the area cannot be estimated.
@@ -208,6 +207,10 @@ question_style은 문항 유형 이름이 아니라 답안 형식만 보고 결�
    예) "어법상 적절하지 않은 것을 2개 고르면?" 정답 ②④
    → sub_label "a": question_style="objective", correct_answer=2, question_type="분사구문"
    → sub_label "b": question_style="objective", correct_answer=4, question_type="수동태"
+   예) 밑줄 (a)~(e)를 선지 ①~⑤가 가리키는 형태도 같다:
+       "위 글의 (a)~(e) 중 어법상 틀린 것을 2개 고르면?  ① (a) ② (b) ③ (c) ④ (d) ⑤ (e)" 정답 ②③
+   → sub_label "a": objective, correct_answer=2 / sub_label "b": objective, correct_answer=3
+   ⚠️ 이 형태를 multi_select("2,3")로 내지 말 것 — 어법 키워드 + n개 고르 + 정답이 번호 N개면 무조건 ⑥
    ※ 어휘/내용/주장 등 다른 유형의 "n개 고르"는 분리 X → multi_select 한 row로 처리
 
 - sub_label 정규화: A→"a", B→"b", ①→"a", ②→"b" (소문자 알파벳 순)
@@ -223,45 +226,52 @@ question_style은 문항 유형 이름이 아니라 답안 형식만 보고 결�
 ━━━ 기타 ━━━
 - explanation: 오답 포인트/해설. 해설지 해설은 참고 재료일 뿐이며, 있든 없든 아래 explanation 규칙의 수준으로 항상 작성 (null 금지)
 - grading_criteria: 서술형 채점 기준 (없으면 null)
-- question_text: 실제 시험지처럼 문항 전체를 그대로 재현. 없으면 null.
-  · 목표: 학생이 처음 문제를 풀 때 본 그 형식 그대로
-  · 객관식/multi_select: 발문 \n 지문(passage) 전체 \n ① 선택지1 \n ② 선택지2 \n ③ 선택지3 \n ④ 선택지4 \n ⑤ 선택지5
-  · OX: 발문 \n 어법 교정 대상 문장 전체 (밑줄 대상 포함)
-  · 서술형: 발문 \n 빈칸/영작 대상 문장 전체 \n <보기> 단어 목록 (있는 경우)
-  · 순서/배열 문제: 발문 \n 주어진 문장 \n (A) ... \n (B) ... \n (C) ... 형식 그대로
-  · [중요] 지문 공유형 문제 처리 (반드시 준수):
-    - "[6~7] 다음 글을 읽고 물음에 답하시오." 처럼 여러 문항이 하나의 지문을 공유하는 경우
-    - 해당 지문을 공유하는 모든 문항(6번, 7번 등)의 question_text에 공유 지문 전체를 각각 포함할 것
-    - 예: 6번 question_text = "제목으로 가장 적절한 것은?\nEver since I was a child..." (지문 전체)
-    - 예: 7번 question_text = "밑줄 친 부분의 의미로 가장 적절한 것은?\nEver since I was a child..." (동일 지문 반복)
-    - 지문을 한 문항에만 넣고 나머지를 생략하면 안 됨 — 각 문항이 독립적으로 이해 가능해야 함
-  · 원문의 단락 구분, 줄바꿈을 최대한 그대로 재현 (각 줄바꿈은 \n 으로)
-  · [중요] JSON 문자열 이스케이프 규칙 반드시 준수:
-    - 줄바꿈 → \n (실제 개행 문자 사용 금지)
-    - 백슬래시 → \\
-    - [핵심] 문자열 내 큰따옴표(") 처리: 반드시 \" 로 이스케이프하거나 작은따옴표(')로 대체
-      예: "To grow..." → 'To grow...' 또는 \"To grow...\"
-      예: we ______________.\" (닫는 따옴표도 반드시 이스케이프)
-- question_stem / passage / choices: question_text 를 세 조각으로 나눈 것.
-  question_text 와 **함께** 채운다 (통짜만 내거나 조각만 내지 말 것 — 둘 다 필요하다).
-  · question_stem: 발문(지시문). 소문항이면 그 소문항이 묻는 문장까지 포함.
-  · passage: 발문·선지를 뺀 본문 지문 전체. 지문이 없는 문항이면 null.
-  · choices: 객관식 선지 배열(문자열). 번호 기호(①②③) 없이 내용만. 선지가 없으면 null.
-  · [핵심] 소문항이 지문을 공유하면 passage 는 **그 문항의 첫 소문항에만** 싣고,
-    나머지 소문항의 passage 는 null 로 둔다. 각 소문항 고유의 문장은 question_stem 에 넣는다.
-    예) 6(a) passage="John was born in London..."(본문 전체)
-             question_stem="Choose True or False.\\n(1) John moved to Seoul in 1990."
-        6(b) passage=null
-             question_stem="Choose True or False.\\n(2) John studied engineering."
-    이유① 화면은 공유 지문을 한 번만 그리고 소문항 문장만 각자 붙인다.
-          지문을 question_stem 쪽에 섞으면 같은 지문이 소문항 수만큼 반복 출력된다.
-    이유② 소문항마다 지문을 복제하면 출력이 길어져 응답이 잘리고 문항이 통째로 유실된다.
-  · 소문항은 question_stem 을 **빠짐없이** 채운다 — 비면 그 소문항 문장이 화면에서 사라진다.
-    공통 발문("Choose True or False." 등)은 소문항마다 똑같이 반복해서 넣는다.
-    발문은 짧아서 출력이 길어질 걱정이 없고, 화면이 반복된 발문을 알아서 한 번만 그린다.
-    passage 와 달리 여기서 생략하면 그 소문항이 무엇을 묻는지 알 수 없어진다.
-  · question_text 는 지금까지처럼 문항 전체를 그대로(지문 포함) 재현한다 — 조각을 낸다고 줄이지 말 것.
 - ※ 문항을 절대 건너뛰지 마세요. 정답 형식이 불명확해도 최대한 추론해서 추출하세요.
+
+━━━ 출력 필드 계약 — 문항 본문 4조각 (모든 객체에 반드시 포함) ━━━
+
+한 문항의 본문은 question_text(통짜) + question_stem/passage/choices(조각) 로 낸다.
+통짜와 조각을 **둘 다** 낸다. 통짜만 내거나 조각만 내면 화면 한쪽이 빈다.
+
+1. question_text — 시험지에 인쇄된 그대로 문항 전체를 재현. 학생이 처음 본 그 형식.
+   · 객관식/multi_select: 발문 \\n 지문 전체 \\n ① 선지1 \\n ② 선지2 … (선지 목록이 시험지에 있을 때만)
+   · 선지가 지문 안에 있는 유형(아래 3-b)은 지문의 ①~⑤ 기호를 그대로 두고 목록을 덧붙이지 않는다
+   · OX: 발문 \\n 판단 대상 문장 전체 (밑줄 포함)
+   · 서술형: 발문 \\n 빈칸/영작 대상 문장 \\n <보기> 단어 목록 (있으면)
+   · 순서/배열: 발문 \\n 주어진 문장 \\n (A) … \\n (B) … \\n (C) … 형식 그대로
+   · [지문 공유형] "[6~7] 다음 글을 읽고…" 처럼 여러 문항이 한 지문을 쓰면 각 문항의
+     question_text 에 지문 전체를 각각 넣는다 (6번에도, 7번에도)
+   · 조각을 낸다고 통짜를 줄이지 말 것. 없으면 null.
+
+2. question_stem — 발문(지시문). 소문항이면 그 소문항이 묻는 문장까지 포함.
+   · 소문항은 빠짐없이 채운다 — 비면 그 소문항이 무엇을 묻는지 화면에서 사라진다.
+   · 공통 발문("Choose True or False." 등)은 소문항마다 똑같이 반복해서 넣는다.
+     발문은 짧아 출력 부담이 없고, 화면이 반복된 발문을 알아서 한 번만 그린다.
+
+3. passage — 발문·선지를 뺀 본문 지문 전체. 지문이 없는 문항이면 null.
+   · [핵심] 소문항이 지문을 공유하면 passage 는 **그 문항의 첫 소문항에만** 싣고
+     나머지 소문항의 passage 는 null. 각 소문항 고유의 문장은 question_stem 에 넣는다.
+     예) 6(a) passage="John was born in London..."(본문 전체)
+              question_stem="Choose True or False.\\n(1) John moved to Seoul in 1990."
+         6(b) passage=null
+              question_stem="Choose True or False.\\n(2) John studied engineering."
+     이유① 화면은 공유 지문을 한 번만 그리고 소문항 문장만 각자 붙인다.
+     이유② 소문항마다 지문을 복제하면 출력이 길어져 응답이 잘리고 문항이 통째로 유실된다.
+
+4. choices — 객관식·multi_select 의 선택지 배열(문자열). **번호 기호(①②③) 없이 내용만.**
+   객관식이면 선지가 시험지에 목록으로 인쇄돼 있든 지문 안에 있든 **항상 채운다** (아래 두 경우).
+   a. 목록형 — 시험지에 ①~⑤ 목록이 따로 있는 보통 문항. 각 선지 텍스트를 순서대로.
+      예) ["However","Therefore","Thus","Moreover","Nevertheless"]
+   b. 지문 내장형 — 고를 대상이 지문 안에 ①~⑤ 로 박혀 있고 별도 목록이 없는 문항.
+      choices 는 각 기호가 가리키는 내용을 순서대로 담는다:
+      · 밑줄 어법/어휘 ("밑줄 친 부분 중 어법상/문맥상 …"): 밑줄 친 표현 그대로
+        예) ["to move","are","looks like","spending","called"]
+      · 무관한 문장 ("전체 흐름과 관계 없는 문장"): 번호가 붙은 각 문장 전체
+      · 문장 삽입 ("주어진 문장이 들어가기에 가장 적절한 곳"): 위치 표시뿐이라 내용이 없다 → 기호만
+        예) ["①","②","③","④","⑤"]
+      · 지칭/의미 ("밑줄 친 ⓐ~ⓔ 가 의미하는 바"): 선지 목록이 따로 있으므로 a 목록형으로
+   선지가 없는 유형(서술형·OX·find_error)은 null. 빈 배열 [] 을 내지 말 것.
+
 
 ━━━ 영어 전문 지식으로 보강 ━━━
 당신은 영어 원어민 수준의 문법 전문가입니다. 해설지 내용을 기반으로 하되, 아래 두 필드는 AI 지식으로 적극 보강하세요.

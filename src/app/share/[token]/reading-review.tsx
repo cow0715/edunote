@@ -36,37 +36,18 @@ export type ReviewQuestion = {
   /**
    * 선지를 어떻게 그리나.
    *   list    — 선지 텍스트를 세로로 (기본)
-   *   markers — 번호만 가로로. 밑줄 친 낱말 문항은 선지가 지문 안에 있어 텍스트가 없다
+   *   markers — 번호만 가로로. 선지가 기호뿐일 때(문장 삽입 위치 등) — 고를 대상은 지문 안에 있다
    */
   layout?: 'list' | 'markers'
-}
-
-/**
- * 지문 안에 ①②③ 으로 박힌 밑줄이 몇 개인지.
- *
- * "밑줄 친 부분 중 …" 문항은 선지 목록이 따로 없다 — 파싱이 일부러 지문 안 낱말에만
- * 기호를 붙인다(prompts.ts). 학생은 ①~⑤ 중 고르면 되므로 번호 버튼만 만들어주면 풀 수 있다.
- * ① 부터 연속으로 이어질 때만 센다 — 지문에 우연히 섞인 기호를 선지로 오인하지 않으려는 것.
- */
-function countUnderlineMarkers(text: string): number {
-  let count = 0
-  for (const marker of CIRCLE_NUM) {
-    if (!text.includes(marker)) break
-    count += 1
-  }
-  return count
 }
 
 /** 선지 기호 — OX 는 T/F, 객관식은 ①②③ */
 const markerOf = (q: ReviewQuestion, index: number) =>
   q.markers?.[index] ?? CIRCLE_NUM[index] ?? String(index + 1)
 
-/**
- * 오답 중 "다시 풀 수 있는" 것만 고른다.
- *
- * 선지가 저장돼 있고 정답 번호가 있는 객관식만 가능하다. 서술형·OX·선지 미파싱 문항은
- * 화면에 고를 게 없어서 제외한다 — CTA 개수도 이 결과로 센다.
- */
+/** 선지가 기호뿐이면(문장 삽입 위치 등) 번호 버튼만 그린다 */
+const isBareMarker = (choice: string) => /^[①②③④⑤⑥⑦⑧⑨⑩]$/.test(choice.trim())
+
 export function buildReviewQuestions(answers: StudentAnswer[]): ReviewQuestion[] {
   return answers
     .filter((a) => !a.is_correct && a.exam_question?.exam_type === 'reading')
@@ -104,26 +85,14 @@ export function buildReviewQuestions(answers: StudentAnswer[]): ReviewQuestion[]
         }
       }
 
-      if (q.question_style !== 'objective' || q.correct_answer === null) return null
-
+      // 객관식은 선지가 저장돼 있어야 고를 수 있다. 밑줄·삽입처럼 시험지에 목록이 없는 유형도
+      // 파서가 choices 를 채우므로(기호만이라도) 여기서 지문을 뒤지지 않는다 — 데이터가 말한다.
       const choices = q.choices ?? []
-      if (choices.length >= 2) {
-        return { ...base, choices, correct: q.correct_answer, mine: a.student_answer }
-      }
-
-      // 선지 목록이 없어도 지문에 밑줄 기호가 있으면 번호만으로 고를 수 있다.
-      //
-      // 반드시 passage 만 본다. 구조화 이전(question_stem 이 없는) 데이터는 지문·발문·선지가
-      // question_text 에 통짜로 들어 있어서, 거기서 기호를 세면 "내용과 일치하지 않는 것" 같은
-      // 평범한 객관식까지 밑줄 유형으로 오인한다. 그런 문항은 선지가 발문 자리에 그대로
-      // 쏟아지고 그 아래 번호 버튼이 또 붙어 화면이 두 번 겹친다.
-      if (!q.question_stem?.trim()) return null
-      const markerCount = countUnderlineMarkers(base.passage ?? '')
-      if (markerCount < 2 || q.correct_answer > markerCount) return null
+      if (q.question_style !== 'objective' || q.correct_answer === null || choices.length < 2) return null
       return {
         ...base,
-        choices: Array.from({ length: markerCount }, () => ''),
-        layout: 'markers',
+        choices,
+        layout: choices.every(isBareMarker) ? 'markers' : 'list',
         correct: q.correct_answer,
         mine: a.student_answer,
       }

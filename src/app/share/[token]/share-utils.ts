@@ -5,6 +5,7 @@ import { formatOXStudentInput, oxNotation } from '@/lib/ox-grading'
 import {
   buildQuestionDisplayText,
   buildQuestionTextFromParts,
+  choicesAreInline,
   type StructuredQuestionParts,
 } from '@/lib/question-structure'
 import { CIRCLE_NUM, ShareData, StudentAnswer, VocabAnswer, VocabWord, Week } from './share-types'
@@ -241,9 +242,12 @@ export function splitQuestionTexts(questions: StructuredQuestionParts[]): { shar
     // 지문을 뺀 나머지 = 발문 + 그 소문항 문장 + 선지.
     // 발문("Choose True or False…")도 소문항마다 반복되므로 한 번 더 공통부를 걷어낸다.
     // 안 그러면 지문은 한 번인데 발문만 소문항 수만큼 찍힌다.
+    // 선지가 지문 안에 있는 유형(밑줄 어법·어휘, 무관한 문장, 삽입)은 선지 목록을 붙이지 않는다 —
+    // 지문은 위에 한 번 그려지고 기호가 거기 있으므로, 여기 목록을 또 붙이면 소문항 수만큼 유령 목록이 생긴다.
+    // 이 호출엔 지문을 안 넘기므로(지문은 shared 로 따로 나간다) 판정만 공유 지문으로 한다.
     const stemBlocks = questions.map((q) => buildQuestionTextFromParts({
       questionStem: q.question_stem,
-      choices: q.choices,
+      choices: choicesAreInline(filled[0], q.choices ?? []) ? null : q.choices,
     }) ?? '')
     const { shared: commonStem, tails } = splitCommonQuestionText(stemBlocks, { minRatio: 0 })
 
