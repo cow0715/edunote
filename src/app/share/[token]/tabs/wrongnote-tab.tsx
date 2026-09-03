@@ -53,7 +53,7 @@ export function WrongNoteTab({
   // 단어 재시험이 회차 단위인 것과 맞췄다 (한 회차 분량이 학생이 앉은 자리에서 끝낼 크기다).
   const [reviewScope, setReviewScope] = useState<string | null>(null)
 
-  // 선지가 남아 있는 객관식 오답만 다시 풀 수 있다 — 서술형·OX 는 고를 게 없다
+  // 다시 풀 수 있는 건 선지가 남은 객관식과 OX 뿐이다 (서술형은 고를 게 없다)
   const reviewByWeek = useMemo(() => {
     const map = new Map<string, ReviewQuestion[]>()
     for (const g of wrongNoteGroups) map.set(g.week.id, buildReviewQuestions(g.answers))
@@ -112,7 +112,7 @@ export function WrongNoteTab({
                 title={`${allReviewQuestions.length}문항 다시 풀기`}
                 // 선지가 저장된 문항만 풀 수 있어서 오답 총계보다 적을 수 있다 — 그 사실을 힌트에 적는다
                 hint={allReviewQuestions.length < readingCount
-                  ? `약 ${estimateMinutes(allReviewQuestions.length)}분 · 객관식 오답만`
+                  ? `약 ${estimateMinutes(allReviewQuestions.length)}분 · 객관식·OX 오답만`
                   : `약 ${estimateMinutes(allReviewQuestions.length)}분 · 해설 포함`}
                 onClick={() => setReviewScope('all')}
               />

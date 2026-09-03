@@ -10,6 +10,7 @@
 
 import { useRef, useState } from 'react'
 import { FormattedQuestionText } from '@/components/grade/formatted-question-text'
+import { oxChoiceLabels, parseOXAnswerKey } from '@/lib/ox-grading'
 import { CIRCLE_NUM, StudentAnswer } from './share-types'
 import { PRESS, PRESS_STRONG, T } from './share-tokens'
 import { CountUp } from './share-ui'
@@ -17,16 +18,26 @@ import { CountUp } from './share-ui'
 export type ReviewQuestion = {
   id: string
   number: number
+  /** 화면에 찍는 문항 표기 — 객관식 "18번", 밑줄 OX 는 지문 기호와 맞춘 "①" */
+  numberLabel: string
   typeName: string | null
   passage: string | null
   stem: string
   choices: string[]
+  /** 선지 앞 기호. 없으면 ①②③ 을 쓴다 (OX 는 T/F · O/X) */
+  markers?: string[]
   /** 1-based */
   correct: number
   /** 시험 때 고른 선지 (1-based). 미작성이면 null */
   mine: number | null
   explanation: string | null
+  /** OX 의 수정어처럼 정답 옆에 덧붙일 것 */
+  answerNote?: string | null
 }
+
+/** 선지 기호 — OX 는 T/F, 객관식은 ①②③ */
+const markerOf = (q: ReviewQuestion, index: number) =>
+  q.markers?.[index] ?? CIRCLE_NUM[index] ?? String(index + 1)
 
 /**
  * 오답 중 "다시 풀 수 있는" 것만 고른다.
@@ -39,18 +50,45 @@ export function buildReviewQuestions(answers: StudentAnswer[]): ReviewQuestion[]
     .filter((a) => !a.is_correct && a.exam_question?.exam_type === 'reading')
     .map((a): ReviewQuestion | null => {
       const q = a.exam_question!
-      const choices = q.choices ?? []
-      if (q.question_style !== 'objective' || q.correct_answer === null || choices.length < 2) return null
-      return {
+      // 밑줄 OX 는 question_number 가 곧 지문의 밑줄 번호다(sub_label 없음).
+      // 지문에 ①②③ 로 찍혀 있으므로 같은 기호로 불러야 어느 밑줄인지 알 수 있다.
+      const isUnderlineOX = q.question_style === 'ox' && !q.sub_label
+      const base = {
         id: a.id,
         number: q.question_number,
+        numberLabel: isUnderlineOX
+          ? CIRCLE_NUM[q.question_number - 1] ?? `${q.question_number}번`
+          : `${q.question_number}번${q.sub_label ?? ''}`,
         typeName: q.exam_question_tag.find((t) => t.concept_tag)?.concept_tag?.name ?? null,
         passage: q.passage?.trim() || null,
         stem: q.question_stem?.trim() || q.question_text?.trim() || `${q.question_number}번`,
+        explanation: q.explanation?.trim() || null,
+      }
+
+      // OX 는 선지가 저장돼 있지 않아도 정답키에서 두 선택지를 만들 수 있다.
+      // 학생이 고른 쪽은 student_answer 가 아니라 ox_selection 에 있다.
+      if (q.question_style === 'ox') {
+        const key = parseOXAnswerKey(q.correct_answer_text)
+        if (!key) return null
+        const { yes, no } = oxChoiceLabels(key.notation)
+        return {
+          ...base,
+          choices: ['맞는 문장', '틀린 문장'],
+          markers: [yes, no],
+          correct: key.verdict === 'O' ? 1 : 2,
+          mine: a.ox_selection === 'O' ? 1 : a.ox_selection === 'X' ? 2 : null,
+          // 이 화면은 O/X 판정만 묻는다. 수정어까지 요구하지 않는 대신 정답 옆에 적어준다.
+          answerNote: key.corrections.length > 0 ? `수정 ${key.corrections.join(' / ')}` : null,
+        }
+      }
+
+      const choices = q.choices ?? []
+      if (q.question_style !== 'objective' || q.correct_answer === null || choices.length < 2) return null
+      return {
+        ...base,
         choices,
         correct: q.correct_answer,
         mine: a.student_answer,
-        explanation: q.explanation?.trim() || null,
       }
     })
     .filter((q): q is ReviewQuestion => q !== null)
@@ -162,6 +200,7 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
           </div>
         )}
 
+        <p className="mb-1.5 text-[12px] font-bold text-[#3182F6]">{question.numberLabel}</p>
         <FormattedQuestionText
           text={question.stem}
           className="mb-4 text-[15px] font-bold leading-relaxed text-[#191F28]"
@@ -195,7 +234,7 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
                   className="text-[14px] font-extrabold"
                   style={{ color: showAnswer ? T.blue : showWrong ? T.red : picked ? T.blue : T.disabled }}
                 >
-                  {CIRCLE_NUM[index] ?? number}
+                  {markerOf(question, index)}
                 </span>
                 <span className="min-w-0 flex-1 text-[14px] leading-relaxed text-[#191F28]">{choice}</span>
               </button>
@@ -214,7 +253,10 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
             role="status"
           >
             <p className="text-[14px] font-extrabold" style={{ color: isCorrect ? T.blue : T.red }}>
-              {isCorrect ? '정답이에요' : `아쉬워요 · 정답은 ${CIRCLE_NUM[question.correct - 1] ?? question.correct}`}
+              {isCorrect ? '정답이에요' : `아쉬워요 · 정답은 ${markerOf(question, question.correct - 1)}`}
+              {question.answerNote && (
+                <span className="ml-1.5 text-[12px] font-bold text-[#4E5968]">{question.answerNote}</span>
+              )}
             </p>
             {question.explanation && (
               <p className="mt-1.5 max-h-32 overflow-y-auto text-[12.5px] leading-relaxed text-[#4E5968]">
@@ -223,7 +265,7 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
             )}
             {question.mine !== null && question.mine !== selected && (
               <p className="mt-1.5 text-[11px] text-[#8B95A1]">
-                시험 때 고른 답 {CIRCLE_NUM[question.mine - 1] ?? question.mine}
+                시험 때 고른 답 {markerOf(question, question.mine - 1)}
               </p>
             )}
           </div>
