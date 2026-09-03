@@ -175,3 +175,49 @@
     font-family: var(--font-geist-mono), ui-monospace, monospace;
   }
 }
+
+/* ── share 리포트 모션 ───────────────────────────────────────────────────
+   design_handoff_share_report/README.md "모션" 표. 종류를 적게 유지한다. */
+@keyframes share-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes share-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes share-sheet-up {
+  0%   { transform: translateY(100%); }
+  70%  { transform: translateY(-6px); }
+  100% { transform: translateY(0); }
+}
+@keyframes share-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes share-area-in {
+  from { fill-opacity: 0; }
+  to   { fill-opacity: .08; }
+}
+@keyframes share-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.03); }
+  100% { transform: scale(1); }
+}
+@keyframes share-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+/* 모션 최소화 설정에서는 최종 상태만 그린다 */
+@media (prefers-reduced-motion: reduce) {
+  [class*='share-'],
+  [style*='share-rise'],
+  [style*='share-draw'],
+  [style*='share-area-in'] {
+    animation: none !important;
+  }
+}

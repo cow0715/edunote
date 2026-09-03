@@ -5,16 +5,14 @@
  * → 형광처럼 떠보이지 않고 배경과 조화로움
  */
 
-export const statusColor = (rate: number, isDark?: boolean) => {
-  if (isDark) {
-    if (rate >= 80) return '#86efac'  // green-300  — 부드러운 세이지
-    if (rate >= 60) return '#fde68a'  // amber-200  — 소프트 골드
-    return '#fca5a5'                  // red-300    — 소프트 코랄
-  }
-  if (rate >= 80) return '#22c55e'    // green-500
-  if (rate >= 60) return '#f59e0b'    // amber-500
-  return '#f87171'                    // red-400
-}
+/**
+ * 정답률 상태 색.
+ *
+ * share 리포트 리디자인(design_handoff_share_report) 이후 카테고리·등급을 색으로
+ * 나누지 않는다: 60% 미만만 주의(빨강), 그 외는 잉크. 다크 대응은 별도 작업이라
+ * isDark 인자는 받지 않는다.
+ */
+export const statusColor = (rate: number) => (rate < 60 ? '#F04452' : '#191F28')
 
 /** 오답률용 (높을수록 나쁨) */
 export const wrongColor = (index: number, isDark?: boolean) => {

@@ -1,55 +1,56 @@
 'use client'
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Moon, Sun, Info, ChevronRight, ChevronLeft } from 'lucide-react'
+import { ChevronRight, ChevronLeft } from 'lucide-react'
 import { AttendanceRecord, ClinicAttendanceRecord } from './share-types'
-import { CHART_VISIBLE_COUNT, SCROLL_OFFSET_CLASS } from './share-utils'
+import { CHART_VISIBLE_COUNT } from './share-utils'
+import { ATT_DOT, CARD_CLASS, PRESS, T, riseStyle } from './share-tokens'
 
 // ── 공통 표면 ──────────────────────────────────────────────────────────────
-// design.md §3: 16px 라운드 + 1px hairline, 그림자 없음. 탭 파일은 이 상수/컴포넌트만 쓴다.
-export const SURFACE_CLASS = 'rounded-2xl border border-[#E9EBEF] bg-white dark:border-white/[0.06] dark:bg-[#151B26]'
+// 카드는 배경색 차이로만 구분한다. 테두리·그림자 없음, 라운드 20px.
+export const SURFACE_CLASS = CARD_CLASS
 
-export function EmptyState({ children }: { children: React.ReactNode }) {
+export function EmptyState({ children }: { children: ReactNode }) {
   return (
-    <div className={`${SURFACE_CLASS} px-6 py-10 text-center text-sm text-[#8B95A1]`}>
+    <div className={`${SURFACE_CLASS} px-6 py-10 text-center text-[13px] text-[#8B95A1]`}>
       {children}
     </div>
   )
 }
 
-// ── 공통 카드 ──────────────────────────────────────────────────────────────
-export function Card({ title, subtitle, info, infoNode, children, noPad, id }: {
-  title?: string; subtitle?: string; info?: string; infoNode?: React.ReactNode
-  children: React.ReactNode; noPad?: boolean; id?: string
-}) {
-  const [infoOpen, setInfoOpen] = useState(false)
-  const hasInfo = !!(info || infoNode)
-
+/** 카드 안 "데이터 없음" 안내 — 제목 + 한 줄 설명 */
+export function EmptyNote({ title, hint }: { title: string; hint?: string }) {
   return (
-    <div id={id} className={`${SURFACE_CLASS} ${SCROLL_OFFSET_CLASS}`}>
+    <div className={`${SURFACE_CLASS} px-6 py-9 text-center`}>
+      <p className="text-[14px] font-bold text-[#191F28]">{title}</p>
+      {hint && <p className="mt-1.5 text-[12px] leading-relaxed text-[#8B95A1]">{hint}</p>}
+    </div>
+  )
+}
+
+// ── 공통 카드 ──────────────────────────────────────────────────────────────
+export function Card({ title, subtitle, aside, children, noPad, id, riseIndex }: {
+  title?: string
+  subtitle?: string
+  /** 타이틀 오른쪽 보조 정보 (11px 회색) */
+  aside?: ReactNode
+  children: ReactNode
+  noPad?: boolean
+  id?: string
+  riseIndex?: number
+}) {
+  return (
+    <div id={id} className={`${SURFACE_CLASS} scroll-mt-4`} style={riseIndex === undefined ? undefined : riseStyle(riseIndex)}>
       {title && (
-        <div className="px-5 pt-5 pb-3">
-          <div className="flex items-center gap-1.5">
-            <h2 className="text-[15px] font-bold text-[#1A1C1E] dark:text-[#F1F5F9]">{title}</h2>
-            {hasInfo && (
-              <button
-                type="button"
-                onClick={() => setInfoOpen((v) => !v)}
-                className={`rounded-full p-0.5 transition-colors ${infoOpen ? 'text-[#2463EB] dark:text-blue-400' : 'text-gray-300 dark:text-gray-600 hover:text-gray-400 dark:hover:text-gray-400'}`}
-              >
-                <Info className="h-3.5 w-3.5" />
-              </button>
-            )}
+        <div className="flex items-center justify-between gap-3 px-[22px] pt-5 pb-3">
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-extrabold tracking-[-0.01em] text-[#191F28]">{title}</h2>
+            {subtitle && <p className="mt-0.5 text-[12px] text-[#8B95A1]">{subtitle}</p>}
           </div>
-          {subtitle && <p className="mt-0.5 text-xs text-[#8B95A1] dark:text-[#94A3B8]">{subtitle}</p>}
-          {infoOpen && (
-            info
-              ? <p className="mt-2 rounded-xl bg-[#F5F6F8] px-3 py-2 text-xs leading-relaxed text-[#3F4650] dark:bg-white/[0.04] dark:text-[#CBD5E1]">{info}</p>
-              : <div className="mt-2">{infoNode}</div>
-          )}
+          {aside && <span className="shrink-0 text-[11px] text-[#8B95A1]">{aside}</span>}
         </div>
       )}
-      <div className={noPad ? '' : 'px-5 pb-5'}>{children}</div>
+      <div className={noPad ? '' : `px-[22px] pb-5 ${title ? '' : 'pt-5'}`}>{children}</div>
     </div>
   )
 }
@@ -68,19 +69,14 @@ export function AttendanceCalendar({
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
 
   if (attendance.length === 0) return (
-    <p className="py-6 text-center text-xs text-[#8B95A1] dark:text-gray-500">출결 기록이 없습니다</p>
+    <p className="py-6 text-center text-[12px] text-[#8B95A1]">출결 기록이 없어요</p>
   )
 
   const attMap = new Map(attendance.map((a) => [a.date, a.status]))
   const DOW = ['일', '월', '화', '수', '목', '금', '토']
-  const STATUS_COLOR: Record<string, string> = {
-    present: 'bg-[#2463EB] text-white',
-    late:    'bg-amber-400 text-white',
-    absent:  'bg-[#E5484D] text-white dark:bg-[#F87171]',
-  }
-  const legend = variant === 'clinic'
-    ? [['bg-[#2463EB]', '출석'], ['bg-[#E5484D]', '결석']]
-    : [['bg-[#2463EB]', '출석'], ['bg-amber-400', '지각'], ['bg-[#E5484D]', '결석']]
+  const legend: [string, string][] = variant === 'clinic'
+    ? [[T.blue, '출석'], [T.red, '결석']]
+    : [[T.blue, '출석'], [T.muted, '지각'], [T.red, '결석']]
 
   // selectedMonth가 null이거나 목록에 없으면 가장 최신 월
   const monthStr = (selectedMonth && months.includes(selectedMonth)) ? selectedMonth : months[months.length - 1]
@@ -98,44 +94,48 @@ export function AttendanceCalendar({
 
   return (
     <div>
-      {/* 월 네비게이션 */}
-      <div className="flex items-center justify-between mb-3">
+      {/* 월 네비게이션 — 스코프 밖 월은 눌러도 갈 곳이 없어 흐리게 둔다 */}
+      <div className="mb-3 flex items-center justify-between">
         <button
+          type="button"
+          aria-label="이전 달"
           onClick={() => setSelectedMonth(months[idx - 1])}
           disabled={idx <= 0}
-          className="flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-20"
+          className={`${PRESS} flex h-7 w-7 items-center justify-center rounded-full disabled:opacity-30`}
         >
-          <ChevronLeft className="h-4 w-4 text-[#1A1C1E] dark:text-gray-300" />
+          <ChevronLeft className="h-4 w-4 text-[#4E5968]" />
         </button>
-        <p className="text-sm font-semibold text-[#1A1C1E] dark:text-gray-300">
-          {year}년 {month}월
-        </p>
+        <p className="text-[13px] font-extrabold text-[#191F28]">{year}년 {month}월</p>
         <button
+          type="button"
+          aria-label="다음 달"
           onClick={() => setSelectedMonth(months[idx + 1])}
           disabled={idx >= months.length - 1}
-          className="flex h-7 w-7 items-center justify-center rounded-full transition-colors hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-20"
+          className={`${PRESS} flex h-7 w-7 items-center justify-center rounded-full disabled:opacity-30`}
         >
-          <ChevronRight className="h-4 w-4 text-[#1A1C1E] dark:text-gray-300" />
+          <ChevronRight className="h-4 w-4 text-[#4E5968]" />
         </button>
       </div>
 
       <div className="grid grid-cols-7 gap-y-1 text-center">
         {DOW.map((d) => (
-          <div key={d} className="pb-1 text-[10px] font-medium text-[#8B95A1] dark:text-[#94A3B8]">{d}</div>
+          <div key={d} className="pb-1 text-[10px] font-bold text-[#8B95A1]">{d}</div>
         ))}
         {cells.map((d, i) => {
           if (!d) return <div key={`e${i}`} />
           const status = attMap.get(toDateStr(d))
-          if (!status) return (
-            <div key={d} className="flex items-center justify-center py-0.5">
-              <span className="text-[11px] text-gray-300 dark:text-gray-500">{d}</span>
-            </div>
-          )
           return (
             <div key={d} className="flex items-center justify-center py-0.5">
-              <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold ${STATUS_COLOR[status]}`}>
-                {d}
-              </span>
+              {status ? (
+                <span
+                  className="flex h-[26px] w-[26px] items-center justify-center rounded-full text-[11px] font-bold tabular-nums text-white"
+                  style={{ background: ATT_DOT[status] }}
+                >
+                  {d}
+                </span>
+              ) : (
+                <span className="text-[11px] tabular-nums text-[#B0B8C1]">{d}</span>
+              )}
             </div>
           )
         })}
@@ -144,35 +144,11 @@ export function AttendanceCalendar({
       <div className="flex gap-4 pt-3">
         {legend.map(([color, label]) => (
           <div key={label} className="flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${color}`} />
-            <span className="text-[11px] text-[#8B95A1] dark:text-gray-300">{label}</span>
+            <span className="h-2 w-2 rounded-full" style={{ background: color }} />
+            <span className="text-[11px] text-[#8B95A1]">{label}</span>
           </div>
         ))}
       </div>
-    </div>
-  )
-}
-
-// ── 다크모드 토글 ────────────────────────────────────────────────────────────
-export function ThemeToggle({ isDark, onToggle }: { isDark: boolean; onToggle: () => void }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <Sun className="h-3.5 w-3.5 text-amber-400 dark:text-[#94A3B8] transition-colors" />
-      <button
-        role="switch"
-        aria-checked={isDark}
-        onClick={onToggle}
-        className={`relative h-6 w-11 rounded-full transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2463EB] dark:focus-visible:ring-[#3B82F6] ${
-          isDark ? 'bg-[#3B82F6]' : 'bg-gray-200'
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white dark:bg-[#151B26] shadow-md transition-transform duration-300 ${
-            isDark ? 'translate-x-5' : 'translate-x-0'
-          }`}
-        />
-      </button>
-      <Moon className="h-3.5 w-3.5 text-gray-400 dark:text-[#3B82F6] transition-colors" />
     </div>
   )
 }

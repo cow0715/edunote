@@ -81,7 +81,7 @@ export function ConceptRadarChart({ data, isDark }: { data: RadarItem[]; isDark?
           <div key={d.name} className="flex items-center gap-1.5">
             <span
               className="inline-block h-2 w-2 rounded-full"
-              style={{ backgroundColor: statusColor(d.rate, isDark) }}
+              style={{ backgroundColor: statusColor(d.rate) }}
             />
             <span className="text-[11px] text-gray-600 dark:text-gray-300">
               {d.name} <span className="font-semibold">{d.rate}%</span>

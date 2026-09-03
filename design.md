@@ -1,70 +1,63 @@
 # Design Specification: 학생·학부모 학습 리포트 (share 페이지)
 
+> **원본 사양은 `학습 리포트 디자인 벤치마킹/design_handoff_share_report/README.md` 다.**
+> 이 파일은 코드베이스 쪽 요약이다. 두 문서가 어긋나면 handoff README 를 따른다.
+
 ## 0. 참고 도메인 (왜 이렇게 생겼나)
-- **이 화면은 금융 대시보드가 아니라 "주간 학습 리포트" 다.** 참고 문법은 Whoop · Strava · Apple Fitness 의
-  주간 리포트, ClassDojo · Seesaw 의 교사→학부모 소통 화면, 국내 에듀테크(산타·밀크티) 학부모 리포트.
-- 학부모가 읽는 순서: **이번 주 어땠나 (한 문장) → 뭐가 문제였나 (오답) → 흐름은 어떤가 (추세).**
-  홈 탭은 이 순서를 그대로 따른다. 숫자 나열(스탯 카드 격자)로 시작하지 않는다.
-- 이전 사양("Toss-style, Ethereal Analyst")은 폐기. 그라데이션 배경·글로우 그림자·24px 라운드·
-  지표별 색상·델타 칩·이모지 하이라이트가 "AI 가 만든 대시보드" 인상의 주범이었다.
+- **이 화면은 금융 대시보드가 아니라 "주간 학습 리포트" 다.**
+- 정보 구조: **이번 주 한 줄 → 할 일 → 기간 요약(리스트 + 그래프) → 코멘트.**
+  데이터 스코프는 항상 **선택한 기간(class_period)** 이다.
+- 폐기된 이전 사양: "Toss-style, Ethereal Analyst"(그라데이션 배경 `#EBF3FF→#FFF`,
+  컬러 그림자, 지표별 색상, 델타 칩, 이모지 하이라이트) — 전부 쓰지 않는다.
 
 ## 1. 색 (Color budget)
-색은 **의미가 있을 때만** 쓴다. 지표(시험/단어/과제)마다 다른 색을 배정하지 않는다.
+색은 **의미가 있을 때만** 쓴다. 카테고리(시험/단어/과제)마다 색을 배정하지 않는다.
+토큰 원본은 `src/app/share/[token]/share-tokens.ts` 의 `T`.
 
-### Light
-- Page background: `#F5F6F8` (단색, 그라데이션 없음)
-- Surface (card): `#FFFFFF`, 1px hairline `#E9EBEF`
-- Ink (headline): `#1A1C1E`
-- Body text: `#3F4650`
-- Muted: `#8B95A1`
-- Hairline / track: `#EEF0F3`
-
-### Dark
-- Page background: `#0B0F17`
-- Surface: `#151B26`, 1px hairline `rgba(255,255,255,0.06)`
-- Ink: `#F1F5F9` · Body: `#CBD5E1` · Muted: `#8B95A1` · Track: `rgba(255,255,255,0.08)`
-
-### Accent (하나만)
-- Accent: `#2463EB` (dark `#3B82F6`). 용도: 링크·행동 버튼·진행 막대·활성 탭·출석 표시.
-- Negative (오답·결석에만): `#E5484D` (dark `#F87171`).
-- 그 외 emerald/amber/violet 계열은 share 화면에서 쓰지 않는다. 예외: 오답노트 정오 표시(rose/emerald), 출결 캘린더 지각(amber).
+- 파랑 `#3182F6` (진한 `#1B64DA`, 연한 배경 `#E8F3FF`): 선택된 항목, 누를 수 있는 액션,
+  긍정 변화(+%p, 반 평균 이상), 출석.
+- 빨강 `#F04452` (진한 `#D22030`, 연한 배경 `#FFEEEE`): 주의 — 오답, 결석, 하락(-%p),
+  반 평균 미만, 정답률 60% 미만, 과제 미제출, 고착/악화 패턴.
+- 그 외 전부 그레이 스케일. `emerald` / `amber` / `indigo` / `violet` 카테고리 틴트 금지.
+- 캔버스 `#FFFFFF` · 카드 `#F9FAFB` · 카드 안 박스 `#F2F4F6`(카드 안에서는 `#FFFFFF`)
+- 구분선 `#EEF1F4`(카드 내부) / `#E5E8EB`(강한 구분)
+- 텍스트: primary `#191F28` · secondary `#333D4B` `#4E5968` · muted `#6B7684` `#8B95A1`
+  · placeholder/비활성 `#B0B8C1` `#D1D6DB`
+- 다크 패널 `#191F28` — 단어 재시험 집중 모드에만.
+- **다크 모드는 이번 사양 범위 밖이다.** 화면은 라이트 기준으로 그린다.
 
 ## 2. 타이포그래피
-- 폰트: 전역 설정(Pretendard → Geist 폴백)을 그대로 쓴다. 별도 웹폰트 로드 없음.
-- 학생 이름 22px / bold. 리포트 헤드라인 17px / semibold / leading-snug.
-- 섹션 제목 15px / bold. 본문 14px. 보조 12–13px muted. 숫자는 `tabular-nums`.
-- **큰 숫자 금지.** 40–56px 히어로 숫자는 쓰지 않는다. 가장 큰 숫자도 17px 안에서 문장 속에 들어간다.
+- `Pretendard Variable` 유지. `word-break: keep-all`, `-webkit-font-smoothing: antialiased`.
+- 숫자는 `font-variant-numeric: tabular-nums`.
+- 스케일: 헤드라인 23px/700/1.32/-0.025em · 섹션 타이틀 15px/800 · 큰 숫자 20px/700
+  · 본문 13–15px/500 · 라벨 11–12px/600–700 · 캡션 10–11px `#8B95A1`.
 
 ## 3. 표면 (Surface)
-- 카드: radius **16px** (`rounded-2xl`), 1px hairline border, **그림자 없음.**
-- 카드 안에 카드(색 타일) 중첩 금지. 카드 안은 hairline 구분선(`divide-y`)으로 나눈다.
-- 페이지 여백 16px, 카드 간격 12px, 카드 내부 여백 20px.
-- 배지/칩은 무채색. 색 칩·이모지 칩 금지.
+- **그림자 없음.** 카드는 배경색 차이로만 구분한다 (`#FFFFFF` 캔버스 위 `#F9FAFB` 카드).
+- 라운드: 카드 20px · 작은 카드/세그먼트 18px · 칩 999px · 내부 박스 12–14px
+  · 바텀시트 20px 20px 0 0.
+- 모바일 전용. 콘텐츠 최대폭 430px 중앙 정렬, 좌우 패딩 16px, 카드 간격 12px.
+- 하단 고정 탭바(5탭) 약 64px + safe-area, 콘텐츠 하단 패딩 92px.
 
-## 4. 홈 탭 구조 (위→아래)
-1. **학생 헤더** — 카드 없이 텍스트만. 학교·학년·반 (muted) / 이름 (22px).
-2. **이번 주 리포트 카드** (홈의 유일한 히어로)
-   - eyebrow: `이번 주 · {주차} · {날짜}`
-   - 헤드라인 한 문장 (`buildWeeklyHeadline`) — 변화 > 만점 > 반 평균 대비 > 담담한 점수.
-     지난주와 문항 수가 절반 이상 다르면(시험 종류가 바뀜) 델타는 문장에도 행에도 쓰지 않는다 (`isComparableTotal`).
-   - 선생님 코멘트가 있으면 헤드라인 바로 아래 인용 블록으로 (코멘트가 주인공).
-   - 지표 행 3개 (시험·단어·과제): `라벨 | 진행 막대 | 맞힌 수(17px) /전체 · % | 지난주 대비`. 막대는 accent 단색.
-   - **잘한 점 / 챙길 점** 각 최대 2줄, 문장 조각을 `·` 로 이어 쓴다 (`buildWeeklyNotes`). 이모지·칩 금지.
-   - **이번 주 오답 미리보기** 최대 3줄: `[시험|단어] 라벨 — 유형/뜻`. 홈에서 "뭐가 문제였나" 를 답하는 자리.
-   - 하단 행동: `오답 N문항 모두 보기 ›` (accent 텍스트 버튼).
-3. **반복해서 틀리는 유형** — 분석 탭 패턴 중 고착·악화 상위 1개를 쉬운 말로 한 줄. 탭하면 분석 탭.
-4. **최근 흐름** — 최근 8주 창. 3열(시험·단어·과제)에 평균(20px)·스파크라인·`반 평균 ±N%p`. 색 없음. 탭하면 성적 탭.
-5. **과제 제출률** — 주차별 막대. accent 단색 (제출률에 따라 색을 바꾸지 않는다).
-6. **출결** — 정규·클리닉 두 숫자(`18/20회 90%`)를 먼저, 그 아래 텍스트 탭 + 캘린더. 색 타일·필 토글 없음.
-7. **선생님 코멘트 기록** — 이번 주 코멘트를 제외한 지난 코멘트. 날짜 + 본문. 없으면 섹션 자체를 그리지 않는다.
-- 홈에서 뺀 것: 4열 스탯 카드(→ 최근 흐름), "이번 주 잘한 것" 이모지 칩(→ 잘한 점/챙길 점 문장), 빈 값 히어로 타일.
-- 홈 밀도는 기존과 비슷해야 한다. 절제는 위계(크기·색·순서)로 만든다.
+## 4. 화면 구조
+- 헤더: 좌 학년·학교·반(12px `#8B95A1`) + 이름(20px/800), 우 기간 선택 pill → 바텀시트.
+- 탭 5개: 홈 · 기록 · 분석 · 오답 · 단어.
+- 홈: ① 이번 주 카드(헤드라인 + 팩트 리스트) ② 선생님 코멘트 ③ 할 일 ④ 기간 요약(행 + 라인 그래프).
+- 자세한 탭별 사양은 handoff README 의 "화면 구성" 절.
 
-## 5. 인터랙션
-- 눌리는 것은 `active:opacity-70` 만. `active:scale-*` 는 쓰지 않는다.
-- 하단 탭바: 활성 탭 accent, 아이콘 확대 애니메이션 없음.
-- 반·기간 선택은 카드가 아니라 헤더 아래 한 줄 텍스트 + 텍스트 버튼.
+## 5. 인터랙션 / 모션
+종류는 적게, 일관되게. 모바일 전용이라 hover 상태는 정의하지 않는다.
+- **press**: `active:scale-[.985]` (CTA·선택지 `.98`, 하단 탭 `.92`), 리스트 행은 배경 `#F2F4F6` 추가, 120ms.
+- **rise**: 탭 진입 카드 스태거 — 450ms `cubic-bezier(.2,.8,.2,1)`, delay 0/60/120/180ms.
+- **countUp**: 요약 숫자 0→값 700ms ease-out cubic. `visibilityState==='hidden'` 이면 스킵,
+  800ms 폴백 타이머로 최종값 보장.
+- **draw**: 그래프 선 `stroke-dashoffset 1→0` 800ms. 영역 채움은 반드시 `fill-opacity` 로 애니메이션.
+- **sheetUp / pop / shake / tabIndicator / chevron** — handoff README 표 참조.
+- 키프레임은 `src/app/globals.css` 의 `share-*` 에 모아 둔다.
+- `prefers-reduced-motion: reduce` 에서는 최종 상태만 그린다.
 
 ## 6. 구현 메모
-- Tailwind + lucide. 모든 색은 `dark:` 변형을 함께 쓴다.
-- 공용 표면은 `share-components.tsx` 의 `Card` / `SURFACE_CLASS` / `EmptyState` 만 쓴다. 탭 파일에서 표면 클래스를 직접 쓰지 않는다.
+- Tailwind + lucide. 색 상수는 `share-tokens.ts` 의 `T` / `rateColor` / `deltaColor` 만 쓴다.
+- 공용 표면은 `share-components.tsx` 의 `Card` / `SURFACE_CLASS` / `EmptyState` / `EmptyNote`,
+  프리미티브는 `share-ui.tsx` 의 `Segmented` / `Chip` / `Chevron` / `CountUp` / `AccordionRow` 만 쓴다.
+  탭 파일에서 표면 클래스를 직접 만들지 않는다.
