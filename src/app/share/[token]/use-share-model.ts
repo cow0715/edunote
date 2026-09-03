@@ -6,10 +6,10 @@
 import { useMemo } from 'react'
 import { classifyPatterns } from '@/hooks/weakness/useAnalysis'
 import { compareExamDomain, describeRadarAxis, resolveExamDomain, shouldExpandToDomains } from '@/lib/exam-domain'
-import { TrendItem } from '@/components/share/score-trend-chart'
-import { HomeworkItem } from '@/components/share/homework-bar-chart'
-import { RadarItem } from '@/components/share/concept-radar-chart'
-import { ShareData, StudentAnswer, VocabAnswer, VocabWord, Week, WeekScore } from './share-types'
+import {
+  HomeworkItem, RadarItem, ShareData, StudentAnswer, TrendItem,
+  VocabAnswer, VocabWord, Week, WeekScore,
+} from './share-types'
 import {
   EMPTY_AVERAGES,
   EMPTY_LIST,
@@ -17,8 +17,9 @@ import {
   VocabStudyItem,
   WeeklyMetric,
   avg,
+  WeeklyFact,
+  buildWeeklyFacts,
   buildWeeklyHeadline,
-  buildWeeklyNotes,
   fmtWeekLabel,
   getWeekLabel,
   isComparableTotal,
@@ -38,8 +39,29 @@ export type WeeklyReport = {
   wrongVocab: number
   memo: string | null
   headline: string
-  notes: { good: string[]; watch: string[] }
+  facts: WeeklyFact[]
   wrongPreview: WrongPreviewItem[]
+  /** 재시험을 봤는지 / 아직 못 맞힌 단어 수 — 홈 "할 일" 행이 쓴다 */
+  retakeTaken: boolean
+  retakePending: number
+  /** 이 회차 출결 (없으면 null) */
+  attendanceStatus: 'present' | 'late' | 'absent' | null
+}
+
+/** 기간 요약 그래프의 점 하나 */
+export type SummaryPoint = { weekId: string; label: string; date: string; rate: number; classAvg: number | null }
+
+/** 기간 요약 행 하나 (시험/단어/과제) */
+export type PeriodMetric = {
+  /** 기간 평균 정답률(%) */
+  mean: number
+  /** 최신 회차 정답률(%) */
+  latest: number
+  /** 최신 회차의 지난 회차 대비 %p */
+  delta: number | null
+  /** 기간 평균의 반 평균 대비 %p */
+  classDiff: number | null
+  points: SummaryPoint[]
 }
 
 /** 최근 N주 한 지표의 흐름 */
@@ -327,7 +349,21 @@ export function useShareModel(data: ShareData | undefined) {
   // ── 홈: 이번 주 리포트 ───────────────────────────────────────────────────
   // 홈은 최신 주차 하나를 "리포트" 로 읽어준다. 헤드라인 문장 규칙은 share-utils 에 있다.
   const { latestW, latestS, prevW } = scoreModel
-  const attendanceStreak = attendanceStats.attendanceStreak
+  const attByDate = attendanceStats.attByDate
+
+  // 헤드라인 "단어는 N주 연속 올랐고…" 용 — 최신 회차부터 거꾸로 오름세가 끊길 때까지 센다
+  const vocabRisingStreak = useMemo(() => {
+    const rates = scoredWeeks
+      .map((w) => weekRate(scoreByWeek.get(w.id)!, w, 'vocab'))
+      .filter((v): v is number => v !== null)
+    let streak = 0
+    for (let i = rates.length - 1; i > 0; i--) {
+      if (rates[i] <= rates[i - 1]) break
+      streak++
+    }
+    return streak
+  }, [scoredWeeks, scoreByWeek, weekRate])
+
   const latestReport = useMemo((): WeeklyReport | null => {
     if (!latestW || !latestS) return null
     const ca = classAverages[latestW.id]
@@ -371,6 +407,11 @@ export function useShareModel(data: ShareData | undefined) {
       })),
     ].slice(0, 3)
 
+    // 유의어·반의어·파생어로 출제된 오답은 "단어를 외웠는데도 틀린" 쪽이라 따로 센다
+    const wrongVocabDerived = wrongVocabAnswers.filter(
+      (va) => va.test_source && va.test_source !== '뜻'
+    ).length
+
     const retakeTaken = latestS.vocab_retake_correct !== null
     const retakePending = latestS.vocab_correct !== null
       ? Math.max(0, latestW.vocab_total - latestS.vocab_correct - (latestS.vocab_retake_correct ?? 0))
@@ -382,11 +423,49 @@ export function useShareModel(data: ShareData | undefined) {
       reading, vocab, homework,
       wrongReading, wrongVocab,
       memo: latestS.memo?.trim() || null,
-      headline: buildWeeklyHeadline({ reading, vocab, homework }),
-      notes: buildWeeklyNotes({ reading, vocab, homework, wrongReading, wrongVocab, retakePending, retakeTaken, attendanceStreak }),
+      headline: buildWeeklyHeadline({ reading, vocab, homework, vocabRisingStreak }),
+      facts: buildWeeklyFacts({ reading, vocab, homework, wrongVocab, wrongVocabDerived }),
       wrongPreview,
+      retakeTaken,
+      retakePending,
+      attendanceStatus: latestW.start_date ? attByDate.get(latestW.start_date)?.status ?? null : null,
     }
-  }, [latestW, latestS, prevW, classAverages, weekRate, deltas, answersByScore, vocabWrong.vocabWrongGroups, classes, attendanceStreak])
+  }, [latestW, latestS, prevW, classAverages, weekRate, deltas, answersByScore, vocabWrong.vocabWrongGroups, classes, vocabRisingStreak, attByDate])
+
+  // ── 홈: 기간 요약 ─────────────────────────────────────────────────────────
+  // "시즌3 요약" 카드. 행(시험/단어/과제)을 누르면 아래 그래프의 시리즈가 바뀐다.
+  // 값은 기간 평균, 델타는 "최신 회차의 지난주 대비 · 기간 평균의 반 평균 대비" 다 —
+  // 학부모가 묻는 건 "이 기간 얼마나 하나" 와 "요즘 오르나" 두 가지라서.
+  const periodSummary = useMemo(() => {
+    const build = (field: ScoreField, classKey: 'readingRate' | 'vocabRate' | null): PeriodMetric | null => {
+      const points: SummaryPoint[] = []
+      const diffs: number[] = []
+      for (const w of scoredWeeks) {
+        const rate = weekRate(scoreByWeek.get(w.id)!, w, field)
+        if (rate === null) continue
+        const classAvg = classKey ? classAverages[w.id]?.[classKey] ?? null : null
+        if (classAvg !== null) diffs.push(rate - classAvg)
+        points.push({ weekId: w.id, label: getWeekLabel(w), date: fmtWeekLabel(w), rate, classAvg })
+      }
+      if (points.length === 0) return null
+      const mean = avg(points.map((p) => p.rate))!
+      const latest = points[points.length - 1]
+      const prev = points[points.length - 2]
+      return {
+        mean,
+        latest: latest.rate,
+        delta: prev ? latest.rate - prev.rate : null,
+        classDiff: avg(diffs),
+        points,
+      }
+    }
+    return {
+      weekCount: scoredWeeks.length,
+      reading: build('reading', 'readingRate'),
+      vocab: build('vocab', 'vocabRate'),
+      homework: build('homework', null),
+    }
+  }, [scoredWeeks, scoreByWeek, weekRate, classAverages])
 
   // ── 홈: 최근 흐름 (최근 8주) ──────────────────────────────────────────────
   // 기간 전체 평균은 이번 주와 무관한 숫자가 되기 쉬워서 창을 최근 8주로 자른다.
@@ -445,6 +524,7 @@ export function useShareModel(data: ShareData | undefined) {
     ...chartData,
     ...analysis,
     latestReport,
+    periodSummary,
     recentTrend,
     topWeakness,
     wrongNoteGroups,

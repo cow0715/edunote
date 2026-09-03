@@ -1,342 +1,318 @@
 'use client'
 
-// 홈 탭 — "이번 주 한 장 리포트".
+// 홈 탭 — "이번 주 한 줄 → 코멘트 → 할 일 → 기간 요약".
 //
-// 설계 원칙 (design.md §0, §4):
-//   · 대시보드가 아니다. 학부모가 읽는 순서대로:
-//     이번 주 한 문장 → 지표 3줄 → 잘한 점/챙길 점 → 오답 미리보기 → 반복 약점 → 흐름 → 과제 → 출결.
-//   · 큰 숫자·색 타일·이모지 칩 없음. 색은 accent 하나(진행 막대·링크)만 쓴다.
-//   · 선생님 코멘트가 있으면 헤드라인 바로 아래에 둔다 — 숫자보다 먼저 읽힌다.
-//   · 밀도는 기존 화면 수준으로 유지한다. 절제는 위계로 만들고, 내용을 빼서 만들지 않는다.
+// design_handoff_share_report/README.md "1. 홈" 이 원본이다.
+//   · 대시보드가 아니다. 카드 4장뿐이고 순서가 곧 정보 위계다.
+//   · 카테고리(시험/단어/과제)를 색으로 구분하지 않는다. 파랑=액션/긍정, 빨강=주의.
+//   · 스탯 카드 격자·히어로 숫자·이모지 칩·과제 바차트는 전부 이 구조로 대체됐다.
 
 import { useState } from 'react'
-import dynamic from 'next/dynamic'
-import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react'
-import { AttendanceCalendar, Card, EmptyState, SURFACE_CLASS, SwipeChartCard } from '../share-components'
-import { ShareModel, TrendStat, WeeklyReport } from '../use-share-model'
-import { ShareData } from '../share-types'
-import { WeeklyMetric, fmtCount, fmtDelta, fmtShortDate, getWeekLabel } from '../share-utils'
+import { ChevronRight } from 'lucide-react'
+import { Card, EmptyState } from '../share-components'
+import { SummaryChart } from '../summary-chart'
+import { CountUp } from '../share-ui'
+import { ATT_DOT, ATT_LABEL_KO, PRESS, PRESS_ROW, T, deltaColor, riseStyle } from '../share-tokens'
+import { PeriodMetric, ShareModel, WeeklyReport } from '../use-share-model'
+import { fmtCount, fmtDelta, fmtShortDate, getWeekLabel } from '../share-utils'
 
-const HomeworkBarChart = dynamic(
-  () => import('@/components/share/homework-bar-chart').then((m) => m.HomeworkBarChart),
-  { ssr: false }
-)
-
-const INK = 'text-[#1A1C1E] dark:text-[#F1F5F9]'
-const BODY = 'text-[#3F4650] dark:text-[#CBD5E1]'
-const MUTED = 'text-[#8B95A1]'
-const ACCENT = 'text-[#2463EB] dark:text-[#3B82F6]'
-const HAIRLINE = 'border-[#EEF0F3] dark:border-white/[0.06]'
-const DIVIDE = 'divide-[#EEF0F3] dark:divide-white/[0.06]'
+type ChartMetric = 'reading' | 'vocab' | 'homework'
 
 export function HomeTab({
-  student,
   model,
-  isDark,
+  periodLabel,
   onOpenWrongNote,
-  onGoScoreSection,
-  onGoAnalysis,
+  onGoHistoryWeek,
+  onGoHistory,
 }: {
-  student: ShareData['student']
   model: ShareModel
-  isDark: boolean
+  periodLabel: string
   onOpenWrongNote: (kind: 'reading' | 'vocab') => void
-  onGoScoreSection: (id: string) => void
-  onGoAnalysis: () => void
+  onGoHistoryWeek: (weekId: string) => void
+  onGoHistory: () => void
 }) {
-  const {
-    classes, latestReport, recentTrend, topWeakness, homeworkData,
-    attendance, clinicAttendance,
-    totalAtt, presentAtt, attRate, totalClinicAtt, presentClinicAtt, clinicAttRate,
-    commentFeed,
-  } = model
+  const { latestReport, periodSummary, commentFeed, attendanceStreak, attendance } = model
 
-  const className = latestReport?.className || classes[0]?.name || ''
-  const hasAttendanceData = attendance.length > 0 || clinicAttendance.length > 0
-  // 이번 주 코멘트는 리포트 카드가 보여주므로 기록에서는 뺀다
-  const pastComments = commentFeed.filter((c) => c.week.id !== latestReport?.week.id)
+  // 이번 주 코멘트는 코멘트 카드가 본문으로 보여주므로 "이전 코멘트" 에서는 뺀다
+  const olderComments = commentFeed.filter((c) => c.week.id !== latestReport?.week.id)
+
+  if (!latestReport) return <EmptyState>아직 기록이 없어요.</EmptyState>
 
   return (
     <>
-      {/* 학생 헤더 — 카드 없이 텍스트만 */}
-      <div className="px-1 pt-1">
-        <p className={`text-[13px] ${MUTED}`}>
-          {[student.grade, student.school, className].filter(Boolean).join(' · ') || '학습 리포트'}
-        </p>
-        <h1 className={`mt-0.5 text-[22px] font-bold tracking-tight ${INK}`}>{student.name}</h1>
-      </div>
+      <ThisWeekCard report={latestReport} periodLabel={periodLabel} />
 
-      {latestReport
-        ? <WeeklyReportCard report={latestReport} onOpenWrongNote={onOpenWrongNote} />
-        : <EmptyState>아직 시험 결과가 없어요.</EmptyState>}
-
-      {topWeakness && (
-        <button
-          type="button"
-          onClick={onGoAnalysis}
-          className={`${SURFACE_CLASS} flex w-full items-center justify-between gap-3 px-5 py-4 text-left active:opacity-70`}
-        >
-          <span className="min-w-0">
-            <span className={`block text-[12px] ${MUTED}`}>반복해서 틀리는 유형</span>
-            <span className={`mt-0.5 block text-[15px] font-semibold ${INK}`}>{topWeakness.name}</span>
-            <span className={`mt-0.5 block text-[13px] ${BODY}`}>{topWeakness.text}</span>
-          </span>
-          <ChevronRight className={`h-4 w-4 shrink-0 ${MUTED}`} />
-        </button>
-      )}
-
-      {recentTrend.weekCount >= 2 && (
-        <Card title="최근 흐름" subtitle={`최근 ${recentTrend.weekCount}주 · 탭하면 추이 그래프`}>
-          <div className={`grid grid-cols-3 divide-x ${DIVIDE}`}>
-            <TrendCell label="시험" stat={recentTrend.reading} onClick={() => onGoScoreSection('section-reading-chart')} />
-            <TrendCell label="단어" stat={recentTrend.vocab} onClick={() => onGoScoreSection('section-vocab-chart')} />
-            <TrendCell label="과제" stat={recentTrend.homework} onClick={() => onGoScoreSection('section-homework')} />
-          </div>
-        </Card>
-      )}
-
-      {homeworkData.length >= 1 && (
-        <SwipeChartCard id="section-homework" title="과제 제출률" subtitle="주차별 (%)" itemCount={homeworkData.length}>
-          <HomeworkBarChart data={homeworkData} isDark={isDark} />
-        </SwipeChartCard>
-      )}
-
-      {hasAttendanceData && (
-        <AttendanceSection
-          attendance={attendance}
-          clinicAttendance={clinicAttendance}
-          regular={{ present: presentAtt, total: totalAtt, rate: attRate }}
-          clinic={{ present: presentClinicAtt, total: totalClinicAtt, rate: clinicAttRate }}
+      {latestReport.memo && (
+        <CommentCard
+          memo={latestReport.memo}
+          date={latestReport.week.start_date}
+          older={olderComments}
         />
       )}
 
-      {pastComments.length > 0 && <CommentHistory comments={pastComments} />}
+      <TodoCard report={latestReport} onOpenWrongNote={onOpenWrongNote} />
+
+      <PeriodSummaryCard
+        summary={periodSummary}
+        periodLabel={periodLabel}
+        attendanceStreak={attendanceStreak}
+        absentCount={attendance.filter((a) => a.status !== 'present').length}
+        onGoHistoryWeek={onGoHistoryWeek}
+        onGoHistory={onGoHistory}
+      />
     </>
   )
 }
 
-// ── 이번 주 리포트 ──────────────────────────────────────────────────────────
-function WeeklyReportCard({ report, onOpenWrongNote }: {
-  report: WeeklyReport
-  onOpenWrongNote: (kind: 'reading' | 'vocab') => void
-}) {
-  const { week, headline, memo, reading, vocab, homework, wrongReading, wrongVocab, notes, wrongPreview } = report
-  const wrongTotal = wrongReading + wrongVocab
-  const hasNotes = notes.good.length > 0 || notes.watch.length > 0
-
+// ── ① 이번 주 카드 ─────────────────────────────────────────────────────────
+function ThisWeekCard({ report, periodLabel }: { report: WeeklyReport; periodLabel: string }) {
+  const { week, headline, facts, attendanceStatus } = report
+  // display_label 은 기간명을 이미 품고 있는 경우가 많다 ("기존 9주차").
+  // 앞에 기간명을 또 붙이면 "기존 기존 9주차" 가 된다.
+  const weekLabel = getWeekLabel(week)
+  const eyebrowLabel = weekLabel.includes(periodLabel) ? weekLabel : `${periodLabel} ${weekLabel}`
   return (
-    <Card noPad>
-      <div className="px-5 pt-5">
-        <p className={`text-[12px] font-medium ${MUTED}`}>
-          이번 주 · {getWeekLabel(week)}{week.start_date && ` · ${fmtShortDate(week.start_date)}`}
-        </p>
-        <p className={`mt-1.5 text-[17px] font-semibold leading-snug ${INK}`}>{headline}</p>
-        {memo && (
-          <blockquote className="mt-3 border-l-2 border-[#2463EB]/40 pl-3 dark:border-[#3B82F6]/50">
-            <p className={`text-[14px] leading-relaxed ${BODY}`}>{memo}</p>
-            <footer className={`mt-1 text-[12px] ${MUTED}`}>선생님 코멘트</footer>
-          </blockquote>
+    <div className="rounded-[20px] bg-[#F9FAFB] px-[22px] pt-[22px] pb-5" style={riseStyle(0)}>
+      <div className="mb-3.5 flex items-center justify-between gap-3">
+        <span className="min-w-0 truncate text-[11px] font-bold tracking-[0.08em] text-[#3182F6]">
+          이번 주 · {eyebrowLabel}
+          {week.start_date && ` · ${fmtShortDate(week.start_date)}`}
+        </span>
+        {attendanceStatus && (
+          <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-[#8B95A1]">
+            <span className="h-[7px] w-[7px] rounded-full" style={{ background: ATT_DOT[attendanceStatus] }} />
+            {ATT_LABEL_KO[attendanceStatus]}
+          </span>
         )}
       </div>
 
-      <div className={`mt-4 divide-y border-t ${HAIRLINE} ${DIVIDE}`}>
-        {reading && <MetricRow label="시험" metric={reading} onClick={wrongReading > 0 ? () => onOpenWrongNote('reading') : undefined} />}
-        {vocab && <MetricRow label="단어" metric={vocab} onClick={wrongVocab > 0 ? () => onOpenWrongNote('vocab') : undefined} />}
-        {homework && <MetricRow label="과제" metric={homework} />}
+      <p className="mb-4 text-[23px] font-bold leading-[1.32] tracking-[-0.025em] text-pretty">{headline}</p>
+
+      <div className="flex flex-col gap-2">
+        {facts.map((f, i) => (
+          <div key={i} className="flex items-center gap-2.5 text-[13px] leading-[1.4]">
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ background: f.warn ? T.red : T.disabled }}
+            />
+            <span className="text-[#4E5968] tabular-nums">{f.text}</span>
+          </div>
+        ))}
       </div>
-
-      {hasNotes && (
-        <div className={`space-y-2 border-t px-5 py-4 ${HAIRLINE}`}>
-          {notes.good.length > 0 && <NoteLine label="잘한 점" items={notes.good} />}
-          {notes.watch.length > 0 && <NoteLine label="챙길 점" items={notes.watch} />}
-        </div>
-      )}
-
-      {wrongPreview.length > 0 && (
-        <div className={`border-t px-5 pt-4 pb-2 ${HAIRLINE}`}>
-          <p className={`text-[12px] font-medium ${MUTED}`}>이번 주 오답</p>
-          <ul className={`mt-1 divide-y ${DIVIDE}`}>
-            {wrongPreview.map((item, i) => (
-              <li key={i} className="flex items-baseline gap-2.5 py-2">
-                <span className={`w-7 shrink-0 text-[11px] ${MUTED}`}>{item.kind === 'reading' ? '시험' : '단어'}</span>
-                <span className={`text-[14px] font-semibold ${INK}`}>{item.label}</span>
-                {item.detail && <span className={`min-w-0 truncate text-[13px] ${BODY}`}>{item.detail}</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {wrongTotal > 0 && (
-        <button
-          type="button"
-          onClick={() => onOpenWrongNote(wrongReading > 0 ? 'reading' : 'vocab')}
-          className={`flex w-full items-center justify-between border-t px-5 py-3.5 text-[14px] font-semibold active:opacity-70 ${HAIRLINE} ${ACCENT}`}
-        >
-          <span>오답 {wrongTotal}문항 모두 보기</span>
-          <ChevronRight className="h-4 w-4" />
-        </button>
-      )}
-    </Card>
+    </div>
   )
 }
 
-/** "잘한 점  시험 만점 · 5회 연속 출석" */
-function NoteLine({ label, items }: { label: string; items: string[] }) {
-  return (
-    <p className="flex gap-3 text-[13px] leading-relaxed">
-      <span className={`w-11 shrink-0 ${MUTED}`}>{label}</span>
-      <span className={BODY}>{items.join(' · ')}</span>
-    </p>
-  )
-}
-
-/** 라벨 | 진행 막대 | 맞힌 수 · % | 지난주 대비 — 한 줄에 한 지표 */
-function MetricRow({ label, metric, onClick }: { label: string; metric: WeeklyMetric; onClick?: () => void }) {
-  const content = (
-    <>
-      <span className={`w-7 shrink-0 text-[13px] ${MUTED}`}>{label}</span>
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#EEF0F3] dark:bg-white/[0.08]">
-        <div className="h-full rounded-full bg-[#2463EB] dark:bg-[#3B82F6]" style={{ width: `${metric.rate}%` }} />
-      </div>
-      <span className={`w-[92px] shrink-0 text-right tabular-nums ${INK}`}>
-        <span className="text-[17px] font-bold">{fmtCount(metric.correct)}</span>
-        <span className={`text-[13px] font-medium ${MUTED}`}>/{metric.total}</span>
-        <span className={`ml-1.5 text-[12px] font-medium ${MUTED}`}>{metric.rate}%</span>
-      </span>
-      <span className={`w-11 shrink-0 text-right text-[12px] tabular-nums ${MUTED}`}>
-        {metric.delta !== null ? fmtDelta(metric.delta) : ''}
-      </span>
-    </>
-  )
-  const cls = 'flex w-full items-center gap-3 px-5 py-3 text-left'
-  return onClick
-    ? <button type="button" onClick={onClick} className={`${cls} active:opacity-70`}>{content}</button>
-    : <div className={cls}>{content}</div>
-}
-
-// ── 최근 흐름 ───────────────────────────────────────────────────────────────
-function TrendCell({ label, stat, onClick }: { label: string; stat: TrendStat; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className="flex flex-col items-start gap-1 px-3 py-1 text-left first:pl-0 last:pr-0 active:opacity-70">
-      <span className={`text-[12px] ${MUTED}`}>{label}</span>
-      <span className={`text-[20px] font-bold tabular-nums ${INK}`}>{stat.mean !== null ? `${stat.mean}%` : '–'}</span>
-      <Sparkline values={stat.rates} />
-      <span className={`text-[11px] tabular-nums ${MUTED}`}>
-        {stat.classDiff !== null ? `반 평균 ${fmtDelta(stat.classDiff)}` : ' '}
-      </span>
-    </button>
-  )
-}
-
-/** 64×20 폴리라인. 축·라벨 없음 — 방향만 보인다 */
-function Sparkline({ values }: { values: number[] }) {
-  const W = 64, H = 20
-  if (values.length < 2) return <div className="h-5" />
-  const pts = values.map((v, i) => [
-    1 + (i / (values.length - 1)) * (W - 2),
-    H - 1 - (Math.max(0, Math.min(100, v)) / 100) * (H - 2),
-  ])
-  const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ')
-  const [lx, ly] = pts[pts.length - 1]
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden className={ACCENT}>
-      <path d={d} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={lx} cy={ly} r="2" fill="currentColor" />
-    </svg>
-  )
-}
-
-// ── 출결 ────────────────────────────────────────────────────────────────────
-type AttStat = { present: number; total: number; rate: number | null }
-
-function AttendanceSection({ attendance, clinicAttendance, regular, clinic }: {
-  attendance: ShareModel['attendance']
-  clinicAttendance: ShareModel['clinicAttendance']
-  regular: AttStat
-  clinic: AttStat
+// ── ② 선생님 코멘트 카드 ────────────────────────────────────────────────────
+function CommentCard({ memo, date, older }: {
+  memo: string
+  date: string | null
+  older: ShareModel['commentFeed']
 }) {
-  const [view, setView] = useState<'regular' | 'clinic'>('regular')
-  const both = attendance.length > 0 && clinicAttendance.length > 0
-  const visible = view === 'clinic'
-    ? (clinicAttendance.length > 0 ? 'clinic' : 'regular')
-    : (attendance.length > 0 ? 'regular' : 'clinic')
-
+  const [open, setOpen] = useState(false)
   return (
-    <Card id="section-attendance" title="출결">
-      {/* 정규·클리닉 숫자를 먼저 — 학부모가 실제로 챙기는 건 클리닉 결석이다 */}
-      <div className={`mb-4 grid grid-cols-2 divide-x ${DIVIDE}`}>
-        <AttStatCell label="정규수업" stat={regular} />
-        <AttStatCell label="클리닉" stat={clinic} />
+    <div className="rounded-[20px] bg-[#F9FAFB] px-[22px] py-5" style={riseStyle(1)}>
+      <div className="mb-2.5 flex items-center justify-between">
+        <span className="text-[11px] font-bold tracking-[0.08em] text-[#8B95A1]">선생님 코멘트</span>
+        {date && <span className="text-[11px] text-[#8B95A1]">{fmtShortDate(date)}</span>}
       </div>
-      {both && (
-        <div className={`mb-3 flex gap-4 border-b ${HAIRLINE}`}>
-          {([['regular', '정규수업'], ['clinic', '클리닉']] as const).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={visible === id}
-              onClick={() => setView(id)}
-              className={`-mb-px border-b-2 pb-2 text-[13px] font-semibold transition-colors ${
-                visible === id ? `border-[#2463EB] dark:border-[#3B82F6] ${INK}` : `border-transparent ${MUTED}`
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-      <AttendanceCalendar attendance={visible === 'clinic' ? clinicAttendance : attendance} variant={visible} />
-    </Card>
-  )
-}
+      <p className="text-[15px] font-medium leading-[1.6] text-[#333D4B]">{memo}</p>
 
-function AttStatCell({ label, stat }: { label: string; stat: AttStat }) {
-  return (
-    <div className="px-3 first:pl-0 last:pr-0">
-      <p className={`text-[12px] ${MUTED}`}>{label}</p>
-      {stat.total > 0 ? (
-        <p className={`mt-0.5 tabular-nums ${INK}`}>
-          <span className="text-[20px] font-bold">{stat.present}</span>
-          <span className={`text-[13px] font-medium ${MUTED}`}>/{stat.total}회</span>
-          {stat.rate !== null && <span className={`ml-1.5 text-[12px] font-medium ${MUTED}`}>{stat.rate}%</span>}
-        </p>
-      ) : (
-        <p className={`mt-0.5 text-[14px] ${MUTED}`}>기록 없음</p>
+      {older.length > 0 && (
+        open ? (
+          <div className="mt-3.5 flex flex-col gap-3 border-t border-[#E5E8EB] pt-3.5">
+            {older.map(({ week, memo: text }) => (
+              <div key={week.id}>
+                <p className="text-[11px] text-[#8B95A1]">
+                  {getWeekLabel(week)}{week.start_date && ` · ${fmtShortDate(week.start_date)}`}
+                </p>
+                <p className="mt-1 text-[13px] leading-relaxed text-[#4E5968]">{text}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className={`${PRESS} mt-3 text-[13px] font-bold text-[#3182F6]`}
+          >
+            이전 코멘트 {older.length}개
+          </button>
+        )
       )}
     </div>
   )
 }
 
-// ── 선생님 코멘트 기록 ──────────────────────────────────────────────────────
-function CommentHistory({ comments }: { comments: ShareModel['commentFeed'] }) {
-  const [expanded, setExpanded] = useState(false)
-  const shown = expanded ? comments : comments.slice(0, 2)
+// ── ③ 할 일 리스트 카드 ────────────────────────────────────────────────────
+function TodoCard({ report, onOpenWrongNote }: {
+  report: WeeklyReport
+  onOpenWrongNote: (kind: 'reading' | 'vocab') => void
+}) {
+  const { wrongReading, wrongVocab, retakeTaken, retakePending } = report
+  if (wrongReading === 0 && wrongVocab === 0) return null
+
+  const retakeDone = wrongVocab - retakePending
   return (
-    <Card title="선생님 코멘트" subtitle="지난 주차 기록">
-      <ul className={`divide-y ${DIVIDE}`}>
-        {shown.map(({ week, memo, className }) => (
-          <li key={week.id} className="py-3 first:pt-0 last:pb-0">
-            <p className={`text-[12px] ${MUTED}`}>
-              {[className, getWeekLabel(week)].filter(Boolean).join(' ')}
-              {week.start_date && ` · ${fmtShortDate(week.start_date)}`}
-            </p>
-            <p className={`mt-1 text-[14px] leading-relaxed ${BODY}`}>{memo}</p>
-          </li>
+    <Card noPad riseIndex={2}>
+      <div className="flex flex-col py-1">
+        {wrongReading > 0 && (
+          <TodoRow
+            title={`진단평가 오답 ${wrongReading}문항`}
+            hint="해설 보고 다시 풀기"
+            action="풀기"
+            onClick={() => onOpenWrongNote('reading')}
+          />
+        )}
+        {wrongVocab > 0 && (
+          <TodoRow
+            title={`단어 오답 ${wrongVocab}개`}
+            hint={retakeTaken ? `재시험 ${retakeDone}/${wrongVocab} 통과` : '재시험 아직 안 봄'}
+            action="재시험"
+            onClick={() => onOpenWrongNote('vocab')}
+          />
+        )}
+      </div>
+    </Card>
+  )
+}
+
+function TodoRow({ title, hint, action, onClick }: {
+  title: string; hint: string; action: string; onClick: () => void
+}) {
+  return (
+    <button type="button" onClick={onClick} className={`${PRESS_ROW} flex items-center gap-3 px-[22px] py-3.5 text-left`}>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[15px] font-bold">{title}</span>
+        <span className="mt-0.5 block text-[12px] text-[#8B95A1]">{hint}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-0.5 text-[13px] font-bold text-[#3182F6]">
+        {action}
+        <ChevronRight className="h-3.5 w-3.5" />
+      </span>
+    </button>
+  )
+}
+
+// ── ④ 기간 요약 카드 ───────────────────────────────────────────────────────
+const METRIC_LABEL: Record<ChartMetric, string> = { reading: '시험', vocab: '단어', homework: '과제' }
+const CHART_CAPTION: Record<ChartMetric, string> = {
+  reading: '시험 정답률 (%) · 점선은 반 평균',
+  vocab: '단어 정답률 (%) · 점선은 반 평균',
+  homework: '과제 제출률 (%)',
+}
+
+function PeriodSummaryCard({
+  summary, periodLabel, attendanceStreak, absentCount, onGoHistoryWeek, onGoHistory,
+}: {
+  summary: ShareModel['periodSummary']
+  periodLabel: string
+  attendanceStreak: number
+  absentCount: number
+  onGoHistoryWeek: (weekId: string) => void
+  onGoHistory: () => void
+}) {
+  const available = (['reading', 'vocab', 'homework'] as const).filter((k) => summary[k])
+  // 데이터가 있는 첫 항목으로 폴백한다 — 시험 없는 기간에 '시험' 시리즈를 고를 수 없다
+  const [picked, setPicked] = useState<ChartMetric>('reading')
+  const metric: ChartMetric | null = available.includes(picked) ? picked : available[0] ?? null
+  const selected = metric ? summary[metric] : null
+
+  if (available.length === 0) return null
+
+  return (
+    <Card title={`${periodLabel} 요약`} aside={`${summary.weekCount}회차`} noPad riseIndex={3}>
+      <div className="flex flex-col pb-1">
+        {available.map((key) => (
+          <SummaryRow
+            key={key}
+            label={METRIC_LABEL[key]}
+            metric={summary[key]!}
+            selected={metric === key}
+            onClick={() => setPicked(key)}
+          />
         ))}
-      </ul>
-      {comments.length > 2 && (
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          className={`mt-3 flex items-center gap-1 text-[13px] font-semibold active:opacity-70 ${ACCENT}`}
-        >
-          {expanded
-            ? <><ChevronUp className="h-3.5 w-3.5" /> 접기</>
-            : <><ChevronDown className="h-3.5 w-3.5" /> 이전 코멘트 {comments.length - 2}개 더 보기</>}
-        </button>
+        <AttendanceRow streak={attendanceStreak} absentCount={absentCount} onClick={onGoHistory} />
+      </div>
+
+      {selected && (
+        <div className="border-t border-[#EEF1F4] px-[22px] pt-4 pb-5">
+          {selected.points.length >= 2 ? (
+            <SummaryChart
+              // 시리즈가 바뀌면 draw 모션을 처음부터 다시 재생시킨다
+              key={metric ?? 'none'}
+              points={selected.points}
+              caption={CHART_CAPTION[metric!]}
+              onSelectWeek={onGoHistoryWeek}
+            />
+          ) : (
+            <p className="text-[12px] text-[#8B95A1]">
+              {periodLabel}은 아직 1회차예요. 2회차부터 추이가 보입니다.
+            </p>
+          )}
+        </div>
       )}
     </Card>
+  )
+}
+
+function SummaryRow({ label, metric, selected, onClick }: {
+  label: string; metric: PeriodMetric; selected: boolean; onClick: () => void
+}) {
+  const delta = [
+    metric.delta !== null ? fmtDelta(metric.delta) : null,
+    metric.classDiff !== null ? `반 평균 ${metric.classDiff > 0 ? '+' : ''}${metric.classDiff}` : null,
+  ].filter(Boolean).join(' · ')
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`${PRESS} flex items-center gap-3 px-[22px] py-3 text-left transition-colors`}
+      style={{ background: selected ? T.box : undefined }}
+    >
+      <span
+        className="w-16 shrink-0 text-[13px] font-bold"
+        style={{ color: selected ? T.blue : T.body2 }}
+      >
+        {label}
+      </span>
+      <span className="flex-1 tabular-nums">
+        <span className="text-[20px] font-bold">
+          <CountUp value={metric.mean} />
+        </span>
+        <span className="ml-0.5 text-[12px] text-[#8B95A1]">%</span>
+      </span>
+      <span
+        className="shrink-0 text-[12px] font-semibold tabular-nums"
+        style={{ color: deltaColor(metric.delta) }}
+      >
+        {delta}
+      </span>
+      {!selected && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[#B0B8C1]" />}
+    </button>
+  )
+}
+
+function AttendanceRow({ streak, absentCount, onClick }: {
+  streak: number; absentCount: number; onClick: () => void
+}) {
+  const warn = absentCount > 0
+  return (
+    <button type="button" onClick={onClick} className={`${PRESS} flex items-center gap-3 px-[22px] py-3 text-left`}>
+      <span className="w-16 shrink-0 text-[13px] font-bold text-[#4E5968]">출석</span>
+      <span className="flex-1 tabular-nums">
+        <span className="text-[20px] font-bold">{fmtCount(streak)}</span>
+        <span className="ml-0.5 text-[12px] text-[#8B95A1]">회 연속</span>
+      </span>
+      <span
+        className="shrink-0 text-[12px] font-semibold tabular-nums"
+        style={{ color: warn ? T.red : T.muted2 }}
+      >
+        {warn ? `지각·결석 ${absentCount}회` : '전부 출석'}
+      </span>
+      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[#B0B8C1]" />
+    </button>
   )
 }

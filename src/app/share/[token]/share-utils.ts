@@ -25,7 +25,8 @@ export type VocabStudyItem = {
 }
 
 export type VocabViewMode = 'all' | 'weekly'
-export type VocabStudyMode = 'all' | 'wrong_only' | 'retake_pending'
+/** 단어 탭 상단 칩. 'unanswered' 는 오답 중에서도 아예 못 쓴 것만 */
+export type VocabStudyMode = 'all' | 'wrong_only' | 'retake_pending' | 'unanswered'
 export type VocabWrongFilter = 'all' | 'wrong' | 'not_wrong'
 export type VocabExampleFilter = 'all' | 'with' | 'without'
 
@@ -125,17 +126,18 @@ export const fmtShortDate = (date: string) =>
 
 export const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null
 
+/**
+ * 정답률 텍스트 색 — 60% 미만만 주의(빨강), 그 외는 잉크.
+ * 리디자인 이후 80/60 3단계 색(emerald/amber/rose)은 쓰지 않는다.
+ */
 export const scoreColor = (correct: number, total: number) =>
-  total === 0 ? '' : correct / total >= 0.8
-    ? 'text-emerald-600 dark:text-emerald-400'
-    : correct / total >= 0.6
-      ? 'text-amber-500 dark:text-amber-400'
-      : 'text-rose-500 dark:text-rose-400'
+  total > 0 && correct / total < 0.6 ? 'text-[#F04452]' : 'text-[#191F28]'
 
-export const ATT_STYLE: Record<string, string> = {
-  present: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/50 dark:text-green-400 dark:border-green-800/50',
-  late: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-400 dark:border-amber-800/50',
-  absent: 'bg-red-50 text-red-600 border-red-200 dark:bg-red-950/50 dark:text-red-400 dark:border-red-800/50',
+/** 출결 배지 — 배경은 상태색 + 알파, 글자는 상태색 */
+export const ATT_BADGE: Record<string, { color: string; bg: string }> = {
+  present: { color: '#3182F6', bg: '#3182F61A' },
+  late: { color: '#6B7684', bg: '#6B76841A' },
+  absent: { color: '#F04452', bg: '#F044521A' },
 }
 export const ATT_LABEL: Record<string, string> = { present: '출석', late: '지각', absent: '결석' }
 
@@ -259,11 +261,11 @@ export function splitQuestionTexts(questions: StructuredQuestionParts[]): { shar
   )
 }
 
-// ── 홈 탭: 이번 주 리포트 ───────────────────────────────────────────────────
+// ── 홈 탭: 이번 주 카드 ─────────────────────────────────────────────────────
 //
-// 홈은 대시보드가 아니라 "이번 주 한 장 리포트" 다. 숫자를 나열하기 전에 한 문장으로
-// 이번 주가 어땠는지 먼저 말한다. 문장은 학부모가 읽으므로 평가 어조를 피하고
-// 사실만 적는다 (올랐어요/낮아졌어요, 모두 맞혔어요).
+// 홈 첫 카드는 "이번 주가 어땠나" 를 한 문장으로 먼저 말하고, 그 아래 팩트를 점 리스트로
+// 붙인다 (design_handoff_share_report/README.md "① 이번 주 카드").
+// 문장은 학부모가 읽으므로 평가 어조를 피하고 사실만 적는다.
 
 export type WeeklyMetric = {
   /** 정답률(%) */
@@ -282,52 +284,9 @@ export type WeeklyReportInput = {
   homework: WeeklyMetric | null
 }
 
-const METRIC_LABEL = { reading: '시험', vocab: '단어', homework: '과제' } as const
-type MetricKey = keyof typeof METRIC_LABEL
-
-/** 이번 주 헤드라인 한 문장. 가장 눈에 띄는 사실 하나만 고른다 */
-export function buildWeeklyHeadline(r: WeeklyReportInput): string {
-  const scored: [MetricKey, WeeklyMetric][] = (['reading', 'vocab'] as const)
-    .flatMap((k) => (r[k] ? [[k, r[k]!] as [MetricKey, WeeklyMetric]] : []))
-
-  if (scored.length === 0) {
-    if (r.homework) return `이번 주는 과제 ${r.homework.total}개 중 ${r.homework.correct}개를 제출했어요.`
-    return '이번 주 기록이 아직 없어요.'
-  }
-
-  // 1. 지난주 대비 크게 움직인 게 있으면 그걸 먼저 말한다
-  const moved = scored
-    .filter(([, m]) => m.delta !== null && Math.abs(m.delta) >= 5)
-    .sort((a, b) => Math.abs(b[1].delta!) - Math.abs(a[1].delta!))[0]
-  if (moved) {
-    const [k, m] = moved
-    const dir = m.delta! > 0 ? '올랐어요' : '낮아졌어요'
-    return `${METRIC_LABEL[k]} 정답률이 지난주보다 ${Math.abs(m.delta!)}%p ${dir}.`
-  }
-
-  // 2. 만점
-  const perfect = scored.find(([, m]) => m.total > 0 && m.correct === m.total)
-  if (perfect) {
-    const [k, m] = perfect
-    return `${METRIC_LABEL[k]} ${m.total}문항을 모두 맞혔어요.`
-  }
-
-  // 3. 반 평균과 차이가 있으면
-  const vsClass = scored
-    .filter(([, m]) => m.classDiff !== null && Math.abs(m.classDiff) >= 5)
-    .sort((a, b) => Math.abs(b[1].classDiff!) - Math.abs(a[1].classDiff!))[0]
-  if (vsClass) {
-    const [k, m] = vsClass
-    const dir = m.classDiff! > 0 ? '높았어요' : '낮았어요'
-    return `${METRIC_LABEL[k]}은 반 평균보다 ${Math.abs(m.classDiff!)}%p ${dir}.`
-  }
-
-  // 4. 별다른 변화 없음 — 점수만 담담하게
-  const parts = scored.map(([k, m]) => `${METRIC_LABEL[k]} ${m.correct}/${m.total}`)
-  const hasPrev = scored.some(([, m]) => m.delta !== null)
-  return hasPrev
-    ? `${parts.join(', ')}로 지난주와 비슷했어요.`
-    : `${parts.join(', ')}를 맞혔어요.`
+export type WeeklyHeadlineInput = WeeklyReportInput & {
+  /** 단어 정답률이 연속으로 오른 주 수 (이번 주 포함). 2 이상이면 문장에 쓴다 */
+  vocabRisingStreak?: number
 }
 
 /** "+8%p" / "-3%p" / "0%p" — 리포트 안에서 델타를 한 형식으로 쓴다 */
@@ -346,56 +305,112 @@ export function isComparableTotal(a: number, b: number) {
   return Math.min(a, b) / Math.max(a, b) >= 0.5
 }
 
-export type WeeklyNotesInput = WeeklyReportInput & {
-  wrongReading: number
+/** "시험 12/20" — 헤드라인 안에서 점수를 부를 때 */
+const scorePhrase = (label: string, m: WeeklyMetric) => `${label} ${fmtCount(m.correct)}/${m.total}`
+
+/**
+ * 이번 주 헤드라인 한 문장.
+ *
+ * 우선순위(README "① 이번 주 카드"):
+ *   1. 시험 만점  2. 시험 없이 단어만  3. 이 기간 첫 회차
+ *   4. 시험↓·단어↑  5. 시험↑·단어↓  6. 둘 다 같은 방향
+ * 어디에도 안 걸리면 점수만 담담하게 읽어준다.
+ */
+export function buildWeeklyHeadline(r: WeeklyHeadlineInput): string {
+  const { reading, vocab, homework } = r
+
+  // 1. 시험 만점 — 다른 어떤 변화보다 먼저 말한다
+  if (reading && reading.total > 0 && reading.correct === reading.total) {
+    return `시험 ${reading.total}문항을 모두 맞혔어요.`
+  }
+
+  // 2. 시험이 없는 주 — 단어만 읽어준다
+  if (!reading) {
+    if (vocab) {
+      const d = vocab.delta
+      if (d === null) return `${scorePhrase('단어', vocab)}로 시작했어요.`
+      if (Math.abs(d) <= 5) return `${scorePhrase('단어', vocab)}, 지난주와 비슷했어요.`
+      return d > 0 ? `단어가 ${d}%p 올랐어요.` : `단어가 ${-d}%p 내려갔어요.`
+    }
+    if (homework) return `이번 주는 과제 ${homework.total}개 중 ${fmtCount(homework.correct)}개를 제출했어요.`
+    return '이번 주 기록이 아직 없어요.'
+  }
+
+  const rd = reading.delta
+  const vd = vocab?.delta ?? null
+
+  // 3. 이 기간 첫 회차 — 비교할 지난주가 아예 없다
+  if (rd === null && vd === null) {
+    return vocab
+      ? `이 기간 첫 시험. 시험 ${reading.rate}%, 단어 ${vocab.rate}%예요.`
+      : `이 기간 첫 시험. 시험 ${reading.rate}%예요.`
+  }
+
+  // 4~6. 두 지표가 어느 쪽으로 움직였는지
+  if (rd !== null && vd !== null && rd !== 0 && vd !== 0) {
+    if (rd < 0 && vd > 0) {
+      const streak = r.vocabRisingStreak ?? 0
+      return streak >= 2
+        ? `단어는 ${streak}주 연속 올랐고, 시험은 ${-rd}%p 내려갔어요.`
+        : `단어는 ${vd}%p 올랐고, 시험은 ${-rd}%p 내려갔어요.`
+    }
+    if (rd > 0 && vd < 0) return `시험은 ${rd}%p 올랐지만, 단어를 놓쳤어요.`
+    if (rd > 0 && vd > 0) return '시험·단어 둘 다 올랐어요.'
+    return '시험·단어 둘 다 내려간 주예요.'
+  }
+
+  // 한쪽만 움직였거나 제자리 — 점수만
+  const parts = [scorePhrase('시험', reading), vocab ? scorePhrase('단어', vocab) : null].filter(Boolean)
+  return `${parts.join(', ')}로 지난주와 비슷했어요.`
+}
+
+/** 이번 주 카드의 팩트 한 줄. warn 이면 앞 점이 빨강 */
+export type WeeklyFact = { text: string; warn: boolean }
+
+export type WeeklyFactsInput = WeeklyReportInput & {
   wrongVocab: number
-  /** 재시험을 봤는데도 아직 못 맞힌 단어 수 (재시험 안 봤으면 의미 없음) */
-  retakePending: number
-  retakeTaken: boolean
-  /** 최근부터 연속 출석 회수 */
-  attendanceStreak: number
+  /** 단어 오답 중 유의어·반의어·파생어로 출제된 개수 */
+  wrongVocabDerived: number
 }
 
 /**
- * 이번 주 "잘한 점 / 챙길 점" 각 최대 2줄.
- * 이모지 칩 대신 문장 조각 — 학부모 리포트에서 긍정 피드백은 관습이고,
- * 챙길 점은 홈에서 "뭐가 문제였나" 를 답하는 유일한 자리다.
+ * 헤드라인 아래 팩트 리스트.
+ * 각 줄은 "무엇 몇/몇 (몇%) · 지난주 대비 · 반 평균 대비" 순서로만 적는다.
  */
-export function buildWeeklyNotes(i: WeeklyNotesInput): { good: string[]; watch: string[] } {
-  const good: string[] = []
-  const watch: string[] = []
-  const scored = (['reading', 'vocab'] as const).flatMap((k) => (i[k] ? [[k, i[k]!] as const] : []))
+export function buildWeeklyFacts(i: WeeklyFactsInput): WeeklyFact[] {
+  const facts: WeeklyFact[] = []
 
-  // 잘한 점: 만점·고득점 > 상승 > 과제 완료 > 반 평균 상회 > 연속 출석
-  for (const [k, m] of scored) {
-    if (m.total > 0 && m.correct === m.total) good.push(`${METRIC_LABEL[k]} 만점`)
-    else if (m.rate >= 90) good.push(`${METRIC_LABEL[k]} 정답률 ${m.rate}%`)
+  const scoreFact = (label: string, m: WeeklyMetric) => {
+    const parts = [`${label} ${fmtCount(m.correct)}/${m.total} (${m.rate}%)`]
+    if (m.delta !== null) parts.push(fmtDelta(m.delta))
+    if (m.classDiff !== null) parts.push(`반 평균 ${m.classDiff > 0 ? '+' : ''}${m.classDiff}`)
+    facts.push({
+      text: parts.join(' · '),
+      warn: m.rate < 60 || (m.delta !== null && m.delta < 0) || (m.classDiff !== null && m.classDiff < 0),
+    })
   }
-  for (const [k, m] of scored) {
-    if (m.delta !== null && m.delta >= 10) good.push(`${METRIC_LABEL[k]} 지난주보다 ${fmtDelta(m.delta)}`)
-  }
-  if (i.homework && i.homework.correct >= i.homework.total) good.push('과제 전부 제출')
-  for (const [k, m] of scored) {
-    if (m.classDiff !== null && m.classDiff >= 10) good.push(`${METRIC_LABEL[k]} 반 평균보다 ${fmtDelta(m.classDiff)}`)
-  }
-  if (i.attendanceStreak >= 4) good.push(`${i.attendanceStreak}회 연속 출석`)
 
-  // 챙길 점: 하락 > 오답 수 > 과제 미제출 > 반 평균 하회
-  for (const [k, m] of scored) {
-    if (m.delta !== null && m.delta <= -10) watch.push(`${METRIC_LABEL[k]} 지난주보다 ${fmtDelta(m.delta)}`)
+  if (i.reading) scoreFact('시험', i.reading)
+  if (i.vocab) scoreFact('단어', i.vocab)
+
+  if (i.homework) {
+    const missing = i.homework.total - i.homework.correct
+    facts.push({
+      text: missing > 0
+        ? `과제 ${fmtCount(i.homework.correct)}/${i.homework.total} · ${fmtCount(missing)}개 미제출`
+        : `과제 ${fmtCount(i.homework.correct)}/${i.homework.total} · 전부 제출`,
+      warn: missing > 0,
+    })
   }
+
   if (i.wrongVocab > 0) {
-    watch.push(i.retakeTaken && i.retakePending > 0
-      ? `단어 ${i.wrongVocab}개 오답 · 재시험 ${i.retakePending}개 남음`
-      : `단어 ${i.wrongVocab}개 오답`)
-  }
-  if (i.wrongReading > 0) watch.push(`시험 ${i.wrongReading}문항 오답`)
-  if (i.homework && i.homework.correct < i.homework.total) {
-    watch.push(`과제 ${fmtCount(i.homework.total - i.homework.correct)}개 미제출`)
-  }
-  for (const [k, m] of scored) {
-    if (m.classDiff !== null && m.classDiff <= -10) watch.push(`${METRIC_LABEL[k]} 반 평균보다 ${fmtDelta(m.classDiff)}`)
+    facts.push({
+      text: i.wrongVocabDerived > 0
+        ? `단어 ${i.wrongVocab}개 오답 · 유의·반의어 출제가 ${i.wrongVocabDerived}개`
+        : `단어 ${i.wrongVocab}개 오답`,
+      warn: true,
+    })
   }
 
-  return { good: good.slice(0, 2), watch: watch.slice(0, 2) }
+  return facts
 }
