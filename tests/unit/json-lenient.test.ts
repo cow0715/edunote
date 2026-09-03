@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { jsonrepair } from 'jsonrepair'
 import { fixUnescapedQuotesInJson } from '@/lib/json-lenient'
 
-// 문제지 PDF 파서(parseWeekProblemSheetPage)가 실제로 낸 실패 형태를 재현한다.
+// 시험지 PDF 파서(현재는 parseAnswerSheet 계열)가 실제로 낸 실패 형태를 재현한다.
 // 2026-08-19 실측: 같은 시험지 3회 파싱 중 2회가 지문 속 대화 따옴표 때문에 jsonrepair 로도 안 살아났다.
 const BROKEN = `\`\`\`json
 [

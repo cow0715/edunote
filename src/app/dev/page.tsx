@@ -7,7 +7,6 @@ import Link from 'next/link'
 
 const ModelCompare = dynamic(() => import('@/components/dev/model-compare'), { ssr: false })
 const OcrTest = dynamic(() => import('@/components/dev/ocr-test'), { ssr: false })
-const PdfImportCompare = dynamic(() => import('@/components/dev/pdf-import-compare'), { ssr: false })
 const RadarCompare = dynamic(() => import('@/components/dev/radar-compare'), { ssr: false })
 // 단독 라우트(/dev/vocab-print-preview)와 같은 컴포넌트 — 그쪽은 headless 캡처용으로 남겨둔다.
 const VocabPrintPreview = dynamic(() => import('@/app/dev/vocab-print-preview/preview'), { ssr: false })
@@ -107,7 +106,7 @@ function Badge({ children, color }: { children: React.ReactNode; color: 'green' 
   return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{children}</span>
 }
 
-const TABS = ['개발 도구', '모델 비교', 'OCR 테스트', 'PDF Import 비교', '단어 화면', '차트 비교'] as const
+const TABS = ['개발 도구', '모델 비교', 'OCR 테스트', '단어 화면', '차트 비교'] as const
 type Tab = (typeof TABS)[number]
 
 export default function DevPage() {
@@ -159,7 +158,6 @@ export default function DevPage() {
 
         {tab === '모델 비교' && <ModelCompare />}
         {tab === 'OCR 테스트' && <OcrTest />}
-        {tab === 'PDF Import 비교' && <PdfImportCompare />}
         {tab === '단어 화면' && <VocabPrintPreview embedded />}
         {tab === '차트 비교' && <RadarCompare isDark={isDark} />}
 
