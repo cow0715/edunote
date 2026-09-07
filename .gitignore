@@ -53,3 +53,6 @@ supabase/.temp/
 
 # 개인 로컬 설정 (권한 allowlist 등) — 커밋하지 않음
 .claude/settings.local.json
+
+# Claude Design 프로토타입용 실데이터 (학생 실명 포함)
+design-data/
