@@ -103,12 +103,12 @@ DB 스키마는 `supabase/migrations/` 의 SQL 을 Supabase SQL Editor 에 순�
 | 변수 | 용도 |
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase 클라이언트 |
-| `SUPABASE_SERVICE_ROLE_KEY` | 서버 전용 (cron 정리·관리 작업) |
+| `SUPABASE_SERVICE_ROLE_KEY` | 서버 전용 (cron·관리 작업) |
 | `NEXT_PUBLIC_APP_URL` | 공유 링크 생성용 베이스 URL |
 | `ANTHROPIC_API_KEY` | Claude 파싱·채점·해설 생성 |
 | `CLOVA_OCR_API_URL`, `CLOVA_OCR_SECRET` | Naver Clova OCR |
 | `SOLAPI_API_KEY`, `SOLAPI_API_SECRET`, `SOLAPI_SENDER` | SMS 발송 |
-| `CRON_SECRET` | Vercel Cron → `/api/cron/cleanup` 인증 |
+| `CRON_SECRET` | Vercel Cron → `/api/cron/rotate-share-tokens` 인증 |
 | `NEXT_PUBLIC_DB_ENV` | (선택) `dev` / `prod` — 개발자 도구 페이지의 DB 표시용 |
 
 전체 목록은 [`.env.example`](.env.example) 참고.

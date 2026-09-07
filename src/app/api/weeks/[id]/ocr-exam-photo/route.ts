@@ -1,7 +1,7 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { ocrExamAnswers, ExamOcrQuestion } from '@/lib/anthropic'
 import { oxNotation } from '@/lib/ox-grading'
-import { EXAM_PHOTO_BUCKET } from '@/lib/vocab-photo-retention'
+import { EXAM_PHOTO_BUCKET } from '@/lib/photo-buckets'
 
 export const maxDuration = 60
 
