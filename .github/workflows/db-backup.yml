@@ -1,0 +1,75 @@
+name: DB Backup to S3
+
+on:
+  schedule:
+    - cron: '0 18 * * *' # UTC 18:00 = KST 03:00 매일
+  workflow_dispatch:
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # AWS OIDC 용
+    steps:
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Dump database
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          supabase db dump --db-url "$DB_URL" -f roles.sql --role-only
+          supabase db dump --db-url "$DB_URL" -f schema.sql
+          supabase db dump --db-url "$DB_URL" -f data.sql --data-only --use-copy
+
+      - name: Dump auth users (metadata only, no password hashes)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          page=1
+          : > users-pages.ndjson
+          while :; do
+            url="$SUPABASE_URL/auth/v1/admin/users?page=$page&per_page=200"
+            body=$(curl -sS --fail-with-body -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY" "$url")
+            count=$(echo "$body" | jq '.users | length')
+            [ "$count" -eq 0 ] && break
+            echo "$body" | jq -c '.users[]' >> users-pages.ndjson
+            page=$((page + 1))
+            [ "$page" -gt 50 ] && { echo "too many pages"; exit 1; }
+          done
+          jq -s '[.[] | {id, email, phone, created_at, last_sign_in_at, email_confirmed_at, app_metadata, user_metadata}]' users-pages.ndjson > auth-users.json
+          rm -f users-pages.ndjson
+          echo "auth users: $(jq length auth-users.json)"
+
+      - name: Archive
+        run: |
+          set -euo pipefail
+          tar -czf "edunote-$STAMP.sql.tar.gz" roles.sql schema.sql data.sql auth-users.json
+          ls -lh "edunote-$STAMP.sql.tar.gz"
+
+      - name: Verify dump is non-trivial
+        run: |
+          set -euo pipefail
+          SIZE=$(stat -c%s "edunote-${STAMP}.sql.tar.gz")
+          test "$SIZE" -gt 10240 || { echo "dump too small: $SIZE bytes"; exit 1; }
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload to S3
+        run: |
+          set -euo pipefail
+          aws s3 cp "edunote-${STAMP}.sql.tar.gz" "s3://${{ secrets.S3_BUCKET }}/supabase/$(date -u +%Y)/$(date -u +%m)/edunote-${STAMP}.sql.tar.gz" --sse AES256 --storage-class STANDARD_IA
