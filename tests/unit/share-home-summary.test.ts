@@ -66,26 +66,38 @@ describe('buildWeeklyHeadline', () => {
     expect(h(-8, -4)).toBe('시험·단어 둘 다 내려간 주예요.')
   })
 
-  it('한쪽만 움직였거나 제자리면 점수만 담담하게', () => {
+  it('한쪽만 움직였고 ±5%p 안이면 점수만 담담하게', () => {
     expect(buildWeeklyHeadline({
       reading: metric({ delta: 0 }),
       vocab: metric({ correct: 18, total: 20, delta: -2 }),
       homework: null,
     })).toBe('시험 12/20, 단어 18/20로 지난주와 비슷했어요.')
   })
+
+  it('한쪽만 5%p 넘게 움직이면 "비슷" 이 아니라 움직인 쪽을 말한다', () => {
+    const h = (rd: number | null, vd: number | null) =>
+      buildWeeklyHeadline({ reading: metric({ delta: rd }), vocab: metric({ delta: vd }), homework: null })
+    // 운영에서 본 케이스: 시험 -6%p · 단어 0%p 가 "지난주와 비슷했어요" 로 나왔다
+    expect(h(-6, 0)).toBe('시험이 6%p 내려갔어요. 단어는 그대로예요.')
+    expect(h(12, 0)).toBe('시험이 12%p 올랐어요. 단어는 그대로예요.')
+    expect(h(0, -9)).toBe('단어가 9%p 내려갔어요. 시험은 그대로예요.')
+    // 비교할 지난주가 한쪽만 있으면 그쪽만 말한다
+    expect(h(-20, null)).toBe('시험이 20%p 내려갔어요.')
+    expect(h(null, 7)).toBe('단어가 7%p 올랐어요.')
+  })
 })
 
 describe('buildWeeklyFacts', () => {
   const base = { reading: null, vocab: null, homework: null, wrongVocab: 0, wrongVocabDerived: 0 }
 
-  it('점수 줄은 "몇/몇 (몇%) · 지난주 대비 · 반 평균 대비" 순서', () => {
+  it('점수 줄은 "몇/몇 (몇%) · 지난주 대비 · 반 대비" 순서 — 반 대비는 "반보다 ±n%p"', () => {
     const r = buildWeeklyFacts({
       ...base,
       reading: metric({ correct: 2, total: 4, rate: 50, delta: -25, classDiff: -12 }),
       vocab: metric({ correct: 40, total: 52, rate: 77, delta: 3, classDiff: 6 }),
     })
-    expect(r[0]).toEqual({ text: '시험 2/4 (50%) · -25%p · 반 평균 -12', warn: true })
-    expect(r[1]).toEqual({ text: '단어 40/52 (77%) · +3%p · 반 평균 +6', warn: false })
+    expect(r[0]).toEqual({ text: '시험 2/4 (50%) · -25%p · 반보다 -12%p', warn: true })
+    expect(r[1]).toEqual({ text: '단어 40/52 (77%) · +3%p · 반보다 +6%p', warn: false })
   })
 
   it('정답률 60% 미만·하락·반 평균 미만이면 주의로 표시한다', () => {

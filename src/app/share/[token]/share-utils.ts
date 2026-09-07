@@ -296,6 +296,9 @@ export type WeeklyHeadlineInput = WeeklyReportInput & {
 /** "+8%p" / "-3%p" / "0%p" — 리포트 안에서 델타를 한 형식으로 쓴다 */
 export const fmtDelta = (delta: number) => `${delta > 0 ? '+' : ''}${delta}%p`
 
+/** 반 평균 대비 — "반 평균 -40" 은 반이 -40 인 것처럼 읽혀서 "반보다 -40%p" 로 쓴다 (지난주 대비와 같은 단위) */
+export const fmtClassDiff = (diff: number) => (diff === 0 ? '반과 같음' : `반보다 ${fmtDelta(diff)}`)
+
 /** 2.5 처럼 소수점 제출 기록이 있어서, 정수면 그대로, 아니면 한 자리 */
 export const fmtCount = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1))
 
@@ -363,7 +366,12 @@ export function buildWeeklyHeadline(r: WeeklyHeadlineInput): string {
     return '시험·단어 둘 다 내려간 주예요.'
   }
 
-  // 한쪽만 움직였거나 제자리 — 점수만
+  // 여기 오면 한쪽은 정확히 0 이거나 비교 불가다(둘 다 0 이 아니면 위에서 끝났다).
+  // 움직인 쪽이 ±5%p 를 넘으면 그걸 말한다 — 시험이 20%p 떨어진 주를 "비슷" 이라 부르면 안 된다.
+  const moved = (d: number | null): d is number => d !== null && Math.abs(d) > 5
+  const stayed = (subject: string, d: number | null) => (d === 0 ? ` ${subject} 그대로예요.` : '')
+  if (moved(rd)) return `시험이 ${Math.abs(rd)}%p ${rd > 0 ? '올랐어요' : '내려갔어요'}.${stayed('단어는', vd)}`
+  if (moved(vd)) return `단어가 ${Math.abs(vd)}%p ${vd > 0 ? '올랐어요' : '내려갔어요'}.${stayed('시험은', rd)}`
   const parts = [scorePhrase('시험', reading), vocab ? scorePhrase('단어', vocab) : null].filter(Boolean)
   return `${parts.join(', ')}로 지난주와 비슷했어요.`
 }
@@ -387,7 +395,7 @@ export function buildWeeklyFacts(i: WeeklyFactsInput): WeeklyFact[] {
   const scoreFact = (label: string, m: WeeklyMetric) => {
     const parts = [`${label} ${fmtCount(m.correct)}/${m.total} (${m.rate}%)`]
     if (m.delta !== null) parts.push(fmtDelta(m.delta))
-    if (m.classDiff !== null) parts.push(`반 평균 ${m.classDiff > 0 ? '+' : ''}${m.classDiff}`)
+    if (m.classDiff !== null) parts.push(fmtClassDiff(m.classDiff))
     facts.push({
       text: parts.join(' · '),
       warn: m.rate < 60 || (m.delta !== null && m.delta < 0) || (m.classDiff !== null && m.classDiff < 0),

@@ -11,7 +11,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AttendanceCalendar, Card, EmptyState } from '../share-components'
 import { AccordionRow, Chip, Segmented } from '../share-ui'
-import { ATT_BADGE, ATT_LABEL } from '../share-utils'
+import { ATT_BADGE, ATT_LABEL, fmtClassDiff } from '../share-utils'
 import { PRESS_STRONG, T } from '../share-tokens'
 import { HistoryChip, HistoryGroup, HistoryRow, buildHistoryGroups } from '../history-utils'
 import { ShareData } from '../share-types'
@@ -234,11 +234,8 @@ function ScoreChip({ chip }: { chip: HistoryChip }) {
         {chip.value}
       </strong>
       {chip.classDiff !== null && (
-        <span
-          className="text-[10px] font-bold tabular-nums"
-          style={{ color: chip.classDiff >= 0 ? T.blue : T.red }}
-        >
-          반 {chip.classDiff > 0 ? '+' : ''}{chip.classDiff}%
+        <span className="text-[10px] font-bold" style={{ color: chip.classDiff >= 0 ? T.blue : T.red }}>
+          {fmtClassDiff(chip.classDiff)}
         </span>
       )}
     </span>

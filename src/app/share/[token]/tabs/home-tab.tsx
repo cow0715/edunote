@@ -14,7 +14,7 @@ import { SummaryChart } from '../summary-chart'
 import { CountUp } from '../share-ui'
 import { ATT_DOT, ATT_LABEL_KO, PRESS, PRESS_ROW, T, deltaColor, riseStyle } from '../share-tokens'
 import { PeriodMetric, ShareModel, WeeklyReport } from '../use-share-model'
-import { fmtCount, fmtDelta, fmtShortDate, getWeekLabel } from '../share-utils'
+import { fmtClassDiff, fmtCount, fmtDelta, fmtShortDate, getWeekLabel } from '../share-utils'
 
 type ChartMetric = 'reading' | 'vocab' | 'homework'
 
@@ -261,7 +261,7 @@ function SummaryRow({ label, metric, selected, onClick }: {
 }) {
   const delta = [
     metric.delta !== null ? fmtDelta(metric.delta) : null,
-    metric.classDiff !== null ? `반 평균 ${metric.classDiff > 0 ? '+' : ''}${metric.classDiff}` : null,
+    metric.classDiff !== null ? fmtClassDiff(metric.classDiff) : null,
   ].filter(Boolean).join(' · ')
 
   return (
