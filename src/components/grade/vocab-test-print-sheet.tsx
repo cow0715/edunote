@@ -182,7 +182,7 @@ export function VocabTestPrintSheet({ items, answers, studentName }: { items: Vo
                 이 줄은 프레임에 들어오므로 일괄 채점 이름 매칭이 살아남는다. */}
             <header className="mb-5 flex items-end justify-between border-b-2 border-gray-900 pb-3">
               <div>
-                <p className="text-[10px] font-bold tracking-[0.28em] text-gray-500">Vocabulary Test</p>
+                <p className="text-[10px] font-bold tracking-[0.28em] text-gray-500">추지혜 영어</p>
                 <h2 className="mt-1 text-2xl font-black text-gray-950">어휘 Test</h2>
               </div>
               {pageItems.length === 0 && nameScoreInline}
