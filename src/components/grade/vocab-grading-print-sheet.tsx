@@ -95,7 +95,7 @@ export function VocabGradingPrintSheet({ items }: { items: VocabGradingItem[] })
           <section key={pageIndex} className="vocab-print-page bg-white shadow-sm print:shadow-none">
             <header className="mb-5 flex items-end justify-between border-b-2 border-gray-900 pb-3">
               <div>
-                <p className="text-[10px] font-bold tracking-[0.24em] text-gray-500">Vocabulary Grading Sheet</p>
+                <p className="text-[10px] font-bold tracking-[0.24em] text-gray-500">추지혜 영어</p>
                 <h2 className="mt-1 text-2xl font-black text-gray-950">어휘 채점용</h2>
               </div>
               <p className="text-sm font-bold text-gray-700">{sorted.length}문항</p>
