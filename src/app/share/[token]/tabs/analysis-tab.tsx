@@ -1,213 +1,180 @@
 'use client'
 
-// 분석 탭 — "영역별 정답률 → 유형별 오답률 → 약점 패턴".
-//
-// design_handoff_share_report/README.md "3. 분석" 이 원본이다.
-// 레이더·도넛을 Recharts 로 그리던 것을 인라인 SVG 로 바꿨다 — 카테고리마다 색을
-// 배정하던 팔레트를 없애고 파랑/빨강 두 색만 쓰기 위해서다.
+import { useState, type ReactNode } from 'react'
+import { ArrowRight, ChevronRight } from 'lucide-react'
+import { Card, EmptyNote } from '../share-components'
+import { deltaColor, PRESS, T } from '../share-tokens'
+import type { ShareModel } from '../use-share-model'
+import { fmtWeekLabel, getWeekLabel } from '../share-utils'
+import { SMALL_SAMPLE_MAX } from '@/lib/wrong-rate'
+import type { AnalysisType } from '@/lib/share-analysis'
 
-import { useState } from 'react'
-import { EmptyNote, Card } from '../share-components'
-import { PatternCard } from '../share-pattern'
-import { PRESS, T } from '../share-tokens'
-import { ShareModel } from '../use-share-model'
-import { SMALL_SAMPLE_MAX, sortByWeakness } from '@/lib/wrong-rate'
+type TagAction = (id: string, name: string) => void
 
-export function AnalysisTab({
-  model,
-  periodLabel,
-  onTagClick,
-}: {
+export function AnalysisTab({ model, periodLabel, onTagClick, onOpenWrongNote }: {
   model: ShareModel
   periodLabel?: string
-  onTagClick: (id: string, name: string) => void
+  onTagClick: TagAction
+  onOpenWrongNote: () => void
 }) {
-  const { radarData, radarLegend, expandToDomains, typeData, repeatPatterns, scoredWeeks, studentAnswers } = model
-
-  const scope = periodLabel ?? '전체 기간'
-  const readingCount = studentAnswers.filter((a) => a.exam_question?.exam_type === 'reading').length
-  const allWeekNumbers = scoredWeeks.map((w) => w.week_number)
-
+  const { analysisSummary: summary, radarData, radarLegend } = model
+  const { focus } = summary
   return (
-    <>
-      <div className="px-1.5 pt-1">
-        <h1 className="text-[22px] font-extrabold tracking-[-0.02em]">분석</h1>
-        <p className="mt-0.5 text-[13px] text-[var(--share-muted2)] tabular-nums">
-          {readingCount > 0
-            ? `${scope} ${scoredWeeks.length}회차 누적 · ${readingCount}문항`
-            : `${scope}엔 진단평가가 없어요`}
+    <div className="px-1.5 text-[var(--share-ink)]">
+      <section className="pt-4 pb-8" aria-label="먼저 살펴볼 내용">
+        <p className="text-[12px] leading-relaxed text-[var(--share-muted)] tabular-nums">
+          {periodLabel ?? '선택 기간'} 학습 분석 · {summary.weekCount}회차 · {summary.readingCount}문항
         </p>
-      </div>
-
-      {radarData.length >= 3 && (
-        <Card
-          title="영역별 정답률"
-          subtitle={expandToDomains ? '수능 유형 영역별 누적' : '카테고리별 누적'}
-        >
-          <div className="flex items-center gap-4">
-            <AreaRadar data={radarData} />
-            <div className="flex min-w-0 flex-1 flex-col gap-3">
-              {radarLegend.map((d) => <AreaRow key={d.name} item={d} />)}
-            </div>
+        <h1 className="mt-4 whitespace-pre-line break-words text-[23px] leading-[1.32] font-bold tracking-[-0.025em]">{summary.headline}</h1>
+        <p className="mt-3 text-[14px] leading-relaxed text-[var(--share-muted)]">{summary.description}</p>
+        {focus && (
+          <div className="mt-7 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+            <span className="text-[15px] font-bold">{focus.name}</span>
+            <span className="text-[23px] font-bold tabular-nums">{focus.wrong}<span className="text-[12px] font-medium text-[var(--share-muted)]"> / {focus.total}문항 오답</span></span>
           </div>
-        </Card>
+        )}
+        {summary.wrongCount > 0 && (
+          <button type="button" onClick={() => focus ? onTagClick(focus.id, focus.name) : onOpenWrongNote()}
+            className={`${PRESS} mt-5 flex min-h-12 w-full items-center justify-between gap-3 rounded-[14px] bg-[var(--control-bg)] px-4 py-3 text-left text-[14px] font-bold text-[var(--control-fg)]`}>
+            <span>{focus ? `${focus.name} 오답 확인하기` : `오답 ${summary.wrongCount}문항 확인하기`}</span>
+            <ArrowRight size={18} className="shrink-0" aria-hidden />
+          </button>
+        )}
+      </section>
+      {summary.types.length > 0 && (
+        <AnalysisSection title="어떤 유형에서 틀렸나요?" unit="오답률">
+          <TypeList key={periodLabel} types={summary.types} focusId={focus?.id} onTagClick={onTagClick} />
+          <p className="mt-4 text-[12px] leading-relaxed text-[var(--share-muted)]">유형이 여러 개인 문제는 각 유형에 포함돼요. 출제 수가 적은 유형은 참고로 봐주세요.</p>
+        </AnalysisSection>
       )}
-
-      {typeData.length > 0 && (
-        <Card title="유형별 오답률" subtitle={`${scope} 누적 · 탭하면 문제 확인`}>
-          <WrongTypeList typeData={typeData} onTagClick={onTagClick} />
-        </Card>
+      {summary.untaggedCount > 0 && (
+        <p className="pb-5 text-[13px] leading-relaxed text-[var(--share-muted)]">유형이 아직 분류되지 않은 {summary.untaggedCount}문항은 유형·영역 비교에서 제외했어요.</p>
       )}
-
-      {repeatPatterns.length > 0 && (
-        <Card
-          title="약점 패턴"
-          subtitle="빨강은 계속 틀리거나 내려가는 유형, 파랑은 올라오는 유형이에요."
-        >
-          <div className="flex flex-col gap-2">
-            {repeatPatterns.map((p) => (
-              <PatternCard key={p.id} pattern={p} allWeekNumbers={allWeekNumbers} onTagClick={onTagClick} />
+      {summary.trends.length > 0 ? (
+        <AnalysisSection title="출제 회차별로 어떻게 달라졌나요?" unit="정답률">
+          <TrendList key={periodLabel} types={summary.trends} model={model} onTagClick={onTagClick} />
+          <p className="mt-3 text-[12px] leading-relaxed text-[var(--share-muted)]">같은 유형이 나온 최근 두 회차를 비교했어요. 출제 수와 난도가 다를 수 있어요.</p>
+        </AnalysisSection>
+      ) : summary.readingCount > 0 && summary.types.length > 0 ? (
+        <div className="pb-7"><EmptyNote title="다음 결과가 쌓이면 변화도 볼 수 있어요" hint="같은 유형이 두 회차 이상 출제되면 비교해 드릴게요." /></div>
+      ) : null}
+      {radarData.length > 0 && (
+        <AnalysisSection title="영역별로도 살펴보세요" unit="정답률">
+          <div className="space-y-5">
+            {radarData.map((area) => (
+              <div key={area.name}>
+                <div className="flex items-baseline justify-between gap-4 text-[14px]">
+                  <span className="font-bold">{area.name}</span><strong className="shrink-0 tabular-nums">{area.rate}%</strong>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--share-box)]" aria-hidden>
+                  <div className="h-full rounded-full" style={{ width: `${area.rate}%`, background: T.disabled }} />
+                </div>
+                <p className="mt-2 text-[12px] text-[var(--share-muted)] tabular-nums">{area.total}문항 중 {area.correct}문항 정답</p>
+                <p className="mt-1 text-[12px] leading-relaxed text-[var(--share-muted)]">{radarLegend.find((item) => item.name === area.name)?.tags.join(' · ')}</p>
+              </div>
             ))}
           </div>
-        </Card>
+        </AnalysisSection>
       )}
+    </div>
+  )
+}
 
-      {typeData.length === 0 && repeatPatterns.length === 0 && (
-        <EmptyNote
-          title="아직 분석할 시험이 부족해요"
-          hint="유형이 2회 이상 출제되면 약점 패턴이 여기 표시됩니다."
-        />
-      )}
+function AnalysisSection({ title, unit, children }: { title: string; unit: string; children: ReactNode }) {
+  return (
+    <section className="border-t border-[var(--share-line)] py-7">
+      <div className="mb-5 flex items-baseline justify-between gap-3">
+        <h2 className="text-[15px] leading-relaxed font-extrabold">{title}</h2>
+        <span className="shrink-0 text-[11px] text-[var(--share-muted)]">{unit}</span>
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function TypeList({ types, focusId, onTagClick }: { types: AnalysisType[]; focusId?: string; onTagClick: TagAction }) {
+  const [expanded, setExpanded] = useState(false)
+  const shown = expanded ? types : types.slice(0, 8)
+  return (
+    <>
+      <div className="space-y-5">
+        {shown.map((type) => {
+          const rate = Math.round(type.wrong / type.total * 100)
+          const content = <>
+            <span className="flex min-h-11 items-center justify-between gap-3 text-[15px] font-bold">
+              <span className="break-words">{type.name}</span>
+              <span className="flex shrink-0 items-center gap-1 tabular-nums">{rate}%{type.wrong > 0 && <ChevronRight size={16} className="text-[var(--share-muted)]" aria-hidden />}</span>
+            </span>
+            <span className="block h-1.5 overflow-hidden rounded-full bg-[var(--share-box)]" aria-hidden>
+              <span className="block h-full rounded-full" style={{ width: `${rate}%`, background: type.id === focusId && type.total > SMALL_SAMPLE_MAX ? T.blue : T.disabled }} />
+            </span>
+            <span className="mt-2 block text-[12px] text-[var(--share-muted)] tabular-nums">{type.total}문항 중 {type.wrong}문항 오답{type.total <= SMALL_SAMPLE_MAX ? ' · 적은 출제 수' : ''}</span>
+          </>
+          return type.wrong > 0
+            ? <button type="button" key={type.id} onClick={() => onTagClick(type.id, type.name)} aria-label={`${type.name} 오답 ${type.wrong}문항 보기`} className={`${PRESS} block w-full text-left`}>{content}</button>
+            : <div key={type.id}>{content}</div>
+        })}
+      </div>
+      {types.length > 8 && <button type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded} className={`${PRESS} mt-3 min-h-11 text-[13px] font-bold text-[var(--share-blue)]`}>{expanded ? '유형 접기' : `유형 ${types.length - 8}개 더 보기`}</button>}
     </>
   )
 }
 
-// ── 레이더 ─────────────────────────────────────────────────────────────────
-const RADAR_W = 170
-const RADAR_H = 150
-
-/** 축 개수만큼 꼭짓점을 가지는 다각형 레이더 (기본 3축 삼각형) */
-function AreaRadar({ data }: { data: ShareModel['radarData'] }) {
-  const cx = RADAR_W / 2
-  const cy = RADAR_H / 2 + 4
-  const r = Math.min(RADAR_W, RADAR_H) / 2 - 22
-
-  const point = (i: number, ratio: number) => {
-    // 첫 축을 12시에 두면 삼각형이 똑바로 선다
-    const angle = (Math.PI * 2 * i) / data.length - Math.PI / 2
-    return [cx + Math.cos(angle) * r * ratio, cy + Math.sin(angle) * r * ratio] as const
-  }
-  const polygon = (ratio: number) =>
-    data.map((_, i) => point(i, ratio).map((v) => v.toFixed(1)).join(',')).join(' ')
-
-  return (
-    <svg width={RADAR_W} height={RADAR_H} viewBox={`0 0 ${RADAR_W} ${RADAR_H}`} className="shrink-0" aria-hidden>
-      {[0.34, 0.67, 1].map((ratio) => (
-        <polygon key={ratio} points={polygon(ratio)} fill="none" stroke={T.lineStrong} strokeWidth="1" />
-      ))}
-      {data.map((_, i) => {
-        const [x, y] = point(i, 1)
-        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke={T.lineStrong} strokeWidth="1" />
-      })}
-      <polygon
-        points={data.map((d, i) => point(i, Math.max(0, Math.min(100, d.rate)) / 100).map((v) => v.toFixed(1)).join(',')).join(' ')}
-        fill={T.blue}
-        fillOpacity={0.15}
-        stroke={T.blue}
-        strokeWidth="2"
-        strokeLinejoin="round"
-      />
-      {data.map((d, i) => {
-        const [x, y] = point(i, 1.16)
-        return (
-          <text
-            key={d.name}
-            x={x}
-            y={y}
-            fontSize="9"
-            fontWeight="700"
-            fill={T.muted2}
-            textAnchor={Math.abs(x - cx) < 2 ? 'middle' : x > cx ? 'end' : 'start'}
-            dominantBaseline="middle"
-          >
-            {d.name.length > 6 ? `${d.name.slice(0, 6)}…` : d.name}
-          </text>
-        )
-      })}
-    </svg>
-  )
-}
-
-function AreaRow({ item }: { item: ShareModel['radarLegend'][number] }) {
-  const warn = item.rate < 60
-  return (
-    <div className="min-w-0">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-[12px] font-bold">{item.name}</span>
-        <span className="shrink-0 text-[12px] font-extrabold tabular-nums" style={{ color: warn ? T.red : T.ink }}>
-          {item.rate}%
-        </span>
-      </div>
-      <div className="mt-1 h-[5px] overflow-hidden rounded-full bg-[var(--share-box)]">
-        <div className="h-full rounded-full" style={{ width: `${item.rate}%`, background: T.blue }} />
-      </div>
-      {item.tags.length > 0 && (
-        <p className="mt-1 truncate text-[10px] text-[var(--share-muted2)]">{item.tags.join(', ')}</p>
-      )}
-    </div>
-  )
-}
-
-// ── 유형별 오답률 ──────────────────────────────────────────────────────────
-/** 한 학생의 태그가 30개까지 나온다. 다 펼치면 목록이 화면을 잡아먹어 상위만 먼저 보여준다 */
-const VISIBLE_TYPE_COUNT = 8
-
-function WrongTypeList({ typeData, onTagClick }: {
-  typeData: ShareModel['typeData']
-  onTagClick: (id: string, name: string) => void
-}) {
+function TrendList({ types, model, onTagClick }: { types: AnalysisType[]; model: ShareModel; onTagClick: TagAction }) {
   const [expanded, setExpanded] = useState(false)
-  const sorted = sortByWeakness(typeData)
-  const shown = expanded ? sorted : sorted.slice(0, VISIBLE_TYPE_COUNT)
-
+  const shown = expanded ? types : types.slice(0, 3)
+  const label = (id: string) => {
+    const week = model.weeks.find((item) => item.id === id)
+    return week ? `${getWeekLabel(week)}${week.start_date ? ` · ${fmtWeekLabel(week)}` : ''}` : '회차 미상'
+  }
   return (
-    <div className="flex flex-col gap-2.5">
-      {shown.map((d) => (
-        <WrongTypeRow key={d.id} stat={d} onClick={() => onTagClick(d.id, d.name)} />
-      ))}
-      {sorted.length > VISIBLE_TYPE_COUNT && (
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          className={`${PRESS} mt-1 self-start text-[12px] font-bold text-[var(--share-blue)]`}
-        >
-          {expanded ? '접기' : `${sorted.length - VISIBLE_TYPE_COUNT}개 더 보기`}
-        </button>
-      )}
-    </div>
-  )
-}
-
-function WrongTypeRow({ stat, onClick }: {
-  stat: { id: string; name: string; wrong: number; total: number }
-  onClick: () => void
-}) {
-  const rate = stat.total > 0 ? Math.round((stat.wrong / stat.total) * 100) : 0
-  // 표본이 적은 유형은 오답률이 100% 여도 판단 근거가 못 된다 — 강조하지 않는다
-  const small = stat.total <= SMALL_SAMPLE_MAX
-  const barColor = !small && rate >= 50 ? T.red : T.disabled
-
-  return (
-    <button type="button" onClick={onClick} className={`${PRESS} flex items-center gap-2.5 text-left`}>
-      <span className="w-[76px] shrink-0 truncate text-[12px] font-bold">{stat.name}</span>
-      <span className="h-[18px] flex-1 overflow-hidden rounded-[4px] bg-[var(--share-box)]">
-        <span className="block h-full rounded-[4px]" style={{ width: `${rate}%`, background: barColor }} />
-      </span>
-      <span className="shrink-0 text-right text-[11px] tabular-nums">
-        <strong className="font-extrabold" style={{ color: barColor === T.red ? T.red : T.ink }}>{rate}%</strong>
-        <span className="ml-1 text-[var(--share-muted2)]">{stat.wrong}/{stat.total}</span>
-      </span>
-    </button>
+    <>
+      <Card noPad>
+        <div className="divide-y divide-[var(--share-line)] px-4">
+          {shown.map((type) => {
+            const previous = type.points[type.points.length - 2]
+            const latest = type.points[type.points.length - 1]
+            const delta = latest.rate - previous.rate
+            const y = (rate: number) => 42 - rate * .32
+            const pattern = model.repeatPatterns.find((item) => item.id === type.id)
+            return (
+              <div key={type.id} className="py-5">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="text-[15px] font-bold">{type.name}</h3>
+                  <span className="text-[12px] tabular-nums" style={{ color: deltaColor(delta) }}>{delta === 0 ? '같은 정답률' : `${delta > 0 ? '상승' : '하락'} ${Math.abs(delta)}%p`}</span>
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <p className="flex flex-wrap items-center gap-2 text-[23px] font-bold tabular-nums"><span className="font-medium text-[var(--share-muted)]">{previous.rate}%</span><ArrowRight size={16} aria-label="에서" className="text-[var(--share-muted)]" /><span>{latest.rate}%</span></p>
+                  <svg width="72" height="48" className="shrink-0" aria-hidden>
+                    <line x1="6" x2="66" y1={y(previous.rate)} y2={y(latest.rate)} stroke={deltaColor(delta)} strokeWidth="2" />
+                    <circle cx="6" cy={y(previous.rate)} r="3" fill={T.disabled} />
+                    <circle cx="66" cy={y(latest.rate)} r="4" fill={deltaColor(delta)} />
+                  </svg>
+                </div>
+                <div className="mt-2 space-y-1 text-[12px] leading-relaxed text-[var(--share-muted)] tabular-nums">
+                  <p>{label(previous.weekId)} · {previous.correct}/{previous.total}문항 정답</p>
+                  <p>{label(latest.weekId)} · {latest.correct}/{latest.total}문항 정답</p>
+                  {(previous.total <= SMALL_SAMPLE_MAX || latest.total <= SMALL_SAMPLE_MAX) && <p>출제 수가 적어 변화는 참고로 봐주세요.</p>}
+                </div>
+                <details className="mt-2">
+                  <summary className="flex min-h-11 cursor-pointer items-center text-[12px] font-semibold text-[var(--share-body2)]">출제 {type.points.length}회 기록 모두 보기</summary>
+                  <div className="space-y-2 pb-3 text-[12px] leading-relaxed text-[var(--share-muted)]">
+                    <p>기간 누적 정답률 {Math.round((type.total - type.wrong) / type.total * 100)}% · {type.total - type.wrong}/{type.total}문항 정답</p>
+                    {pattern && <p>{pattern.patternType === 'persistent'
+                      ? `${pattern.weekCount}회 출제 중 ${pattern.wrongWeekCount}회에서 절반 넘게 틀렸어요.`
+                      : pattern.patternType === 'unstable'
+                        ? `회차별 정답률은 ${Math.min(...pattern.weeks.map((week) => week.accuracy))}%~${Math.max(...pattern.weeks.map((week) => week.accuracy))}%예요.`
+                        : `기간 앞부분과 비교해 뒷부분 정답률이 ${Math.abs(pattern.trend)}%p ${pattern.trend > 0 ? '높아요' : '낮아요'}.`}</p>}
+                    {type.points.map((point) => <p key={point.weekId} className="tabular-nums">{label(point.weekId)} · {point.correct}/{point.total}문항 정답 · {point.rate}%</p>)}
+                  </div>
+                </details>
+                {type.wrong > 0 && <button type="button" onClick={() => onTagClick(type.id, type.name)} aria-label={`${type.name} 관련 오답 보기`} className={`${PRESS} flex min-h-11 items-center gap-2 text-[13px] font-semibold text-[var(--share-blue)]`}>관련 오답 보기<ArrowRight size={14} aria-hidden /></button>}
+              </div>
+            )
+          })}
+        </div>
+      </Card>
+      {types.length > 3 && <button type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded} className={`${PRESS} mt-2 min-h-11 text-[13px] font-bold text-[var(--share-blue)]`}>{expanded ? '변화 접기' : `다른 유형 변화 ${types.length - 3}개 보기`}</button>}
+    </>
   )
 }

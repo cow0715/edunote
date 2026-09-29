@@ -251,7 +251,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
         )}
 
         {activeTab === 'analysis' && (
-          <AnalysisTab model={model} periodLabel={periodLabel} onTagClick={openDrawerTag} />
+          <AnalysisTab model={model} periodLabel={periodLabel} onTagClick={openDrawerTag} onOpenWrongNote={() => openWrongNote('reading')} />
         )}
 
         {activeTab === 'wrongnote' && (

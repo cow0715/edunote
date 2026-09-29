@@ -5,6 +5,7 @@
 
 import { useMemo } from 'react'
 import { classifyPatterns } from '@/hooks/weakness/useAnalysis'
+import { buildShareAnalysis } from '@/lib/share-analysis'
 import { compareExamDomain, describeRadarAxis, resolveExamDomain, shouldExpandToDomains } from '@/lib/exam-domain'
 import {
   HomeworkItem, RadarItem, ShareData, StudentAnswer, TrendItem,
@@ -191,19 +192,9 @@ export function useShareModel(data: ShareData | undefined) {
 
   // ── 분석: 오답 유형 / 레이더 / 반복 패턴 ──────────────────────────────────
   const analysis = useMemo(() => {
-    const typeWrongMap = new Map<string, { id: string; name: string; wrong: number; total: number }>()
+    const analysisSummary = buildShareAnalysis(studentAnswers, weeks)
     const readingAnswers = studentAnswers.filter((a) => a.exam_question?.exam_type === 'reading')
-    readingAnswers.forEach((a) => {
-      for (const t of a.exam_question?.exam_question_tag ?? []) {
-        const tag = t.concept_tag
-        if (!tag) continue
-        const entry = typeWrongMap.get(tag.id) ?? { id: tag.id, name: tag.name, wrong: 0, total: 0 }
-        entry.total++
-        if (!a.is_correct) entry.wrong++
-        typeWrongMap.set(tag.id, entry)
-      }
-    })
-    const typeData = [...typeWrongMap.values()].filter((d) => d.wrong > 0).sort((a, b) => b.wrong - a.wrong)
+    const typeData = analysisSummary.types
 
     // 카테고리별 정답률 (레이더 차트)
     // 서술형이 없는 학생(모의고사 형태로만 응시)은 카테고리가 독해/문법뿐이라 축이
@@ -211,6 +202,7 @@ export function useShareModel(data: ShareData | undefined) {
     const expandToDomains = shouldExpandToDomains(studentAnswers)
     const categoryAccMap = new Map<string, { name: string; correct: number; total: number; tags: Map<string, number> }>()
     readingAnswers.forEach((a) => {
+      const countedAreas = new Set<string>()
       for (const t of a.exam_question?.exam_question_tag ?? []) {
         const tag = t.concept_tag
         const label = expandToDomains
@@ -219,8 +211,12 @@ export function useShareModel(data: ShareData | undefined) {
         if (!label) continue
         const key = expandToDomains ? label : tag!.category_id ?? label
         const entry = categoryAccMap.get(key) ?? { name: label, correct: 0, total: 0, tags: new Map<string, number>() }
-        entry.total++
-        if (a.is_correct) entry.correct++
+        // 여러 태그가 같은 영역에 속해도 한 문항은 한 번만 센다.
+        if (!countedAreas.has(key)) {
+          entry.total++
+          if (a.is_correct) entry.correct++
+          countedAreas.add(key)
+        }
         if (tag?.name) entry.tags.set(tag.name, (entry.tags.get(tag.name) ?? 0) + 1)
         categoryAccMap.set(key, entry)
       }
@@ -241,8 +237,8 @@ export function useShareModel(data: ShareData | undefined) {
 
     // 반복 오답 패턴 (약점 분류)
     const repeatPatterns = classifyPatterns(studentAnswers, weekNumberByWeekId)
-    return { typeData, expandToDomains, radarData, radarLegend, repeatPatterns }
-  }, [studentAnswers, weekNumberByWeekId])
+    return { analysisSummary, typeData, expandToDomains, radarData, radarLegend, repeatPatterns }
+  }, [studentAnswers, weeks, weekNumberByWeekId])
 
   // ── 오답노트: 독해 ────────────────────────────────────────────────────────
   const wrongNoteGroups = useMemo(() => visibleWeeks
