@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ThemeProvider } from '@/components/providers/theme-provider'
 import { ThemeSelect } from '@/components/layout/theme-select'
+import { ThemeToggle } from '@/components/layout/theme-toggle'
 
 const route = vi.hoisted(() => ({ pathname: '/share/test' }))
 vi.mock('next/navigation', () => ({ usePathname: () => route.pathname }))
@@ -20,6 +21,20 @@ beforeEach(() => {
 afterEach(() => { cleanup(); document.documentElement.className = '' })
 
 describe('appearance preference', () => {
+  it('back-office toggle replaces system preference with explicit light/dark and persists it', async () => {
+    localStorage.setItem('edunote-appearance', 'system')
+    render(<ThemeProvider><ThemeToggle /></ThemeProvider>)
+    const toggle = screen.getByRole('switch', { name: '다크 모드' })
+    expect(screen.queryByRole('menuitemradio')).toBeNull()
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(toggle)
+    await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'))
+    expect(localStorage.getItem('edunote-appearance')).toBe('dark')
+    fireEvent.click(toggle)
+    await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('false'))
+    expect(localStorage.getItem('edunote-appearance')).toBe('light')
+  })
+
   it('switches through the menu, persists the choice and restores it on another screen', async () => {
     const view = render(<ThemeProvider><ThemeSelect /></ThemeProvider>)
     fireEvent.keyDown(screen.getByRole('button', { name: /화면 모드/ }), { key: 'Enter' })
