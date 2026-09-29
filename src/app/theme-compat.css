@@ -1,0 +1,203 @@
+/* Legacy backoffice palette -> semantic dark surfaces. New UI should use semantic tokens.
+   Explicit utilities preserve Tailwind variants and avoid changing white button labels. */
+@utility text-gray-50 { @media screen { @variant dark { color: var(--foreground); } } }
+@utility bg-gray-50 { @media screen { @variant dark { background-color: var(--background); } } }
+@utility border-gray-50 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-gray-100 { @media screen { @variant dark { color: var(--foreground); } } }
+@utility bg-gray-100 { @media screen { @variant dark { background-color: var(--muted); } } }
+@utility border-gray-100 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-gray-200 { @media screen { @variant dark { color: var(--foreground); } } }
+@utility bg-gray-200 { @media screen { @variant dark { background-color: var(--muted); } } }
+@utility border-gray-200 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-gray-300 { @media screen { @variant dark { color: var(--share-body); } } }
+@utility bg-gray-300 { @media screen { @variant dark { background-color: var(--border); } } }
+@utility border-gray-300 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-gray-400 { @media screen { @variant dark { color: var(--muted-foreground); } } }
+@utility bg-gray-400 { @media screen { @variant dark { background-color: var(--border); } } }
+@utility border-gray-400 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-gray-500 { @media screen { @variant dark { color: var(--muted-foreground); } } }
+@utility border-gray-500 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-gray-600 { @media screen { @variant dark { color: var(--share-body2); } } }
+@utility text-gray-700 { @media screen { @variant dark { color: var(--share-body2); } } }
+@utility bg-gray-700 { @media screen { @variant dark { background-color: var(--share-panel); } } }
+@utility border-gray-700 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-gray-800 { @media screen { @variant dark { color: var(--foreground); } } }
+@utility bg-gray-800 { @media screen { @variant dark { background-color: var(--share-panel); } } }
+@utility border-gray-800 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-gray-900 { @media screen { @variant dark { color: var(--foreground); } } }
+@utility bg-gray-900 { @media screen { @variant dark { background-color: var(--share-panel); } } }
+@utility border-gray-900 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-gray-950 { @media screen { @variant dark { color: var(--foreground); } } }
+@utility border-gray-950 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-slate-50 { @media screen { @variant dark { color: var(--foreground); } } }
+@utility bg-slate-50 { @media screen { @variant dark { background-color: var(--background); } } }
+@utility border-slate-50 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-slate-100 { @media screen { @variant dark { color: var(--foreground); } } }
+@utility bg-slate-100 { @media screen { @variant dark { background-color: var(--muted); } } }
+@utility border-slate-100 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-slate-200 { @media screen { @variant dark { color: var(--foreground); } } }
+@utility bg-slate-200 { @media screen { @variant dark { background-color: var(--muted); } } }
+@utility border-slate-200 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-slate-300 { @media screen { @variant dark { color: var(--share-body); } } }
+@utility bg-slate-300 { @media screen { @variant dark { background-color: var(--border); } } }
+@utility text-slate-400 { @media screen { @variant dark { color: var(--muted-foreground); } } }
+@utility text-slate-500 { @media screen { @variant dark { color: var(--muted-foreground); } } }
+@utility border-slate-500 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-slate-600 { @media screen { @variant dark { color: var(--share-body2); } } }
+@utility bg-slate-600 { @media screen { @variant dark { background-color: var(--share-panel); } } }
+@utility border-slate-600 { @media screen { @variant dark { border-color: var(--border); } } }
+@utility text-slate-700 { @media screen { @variant dark { color: var(--share-body2); } } }
+@utility bg-slate-700 { @media screen { @variant dark { background-color: var(--share-panel); } } }
+@utility text-slate-800 { @media screen { @variant dark { color: var(--foreground); } } }
+@utility bg-slate-800 { @media screen { @variant dark { background-color: var(--share-panel); } } }
+@utility text-slate-900 { @media screen { @variant dark { color: var(--foreground); } } }
+@utility bg-slate-900 { @media screen { @variant dark { background-color: var(--share-panel); } } }
+@utility bg-slate-950 { @media screen { @variant dark { background-color: var(--share-panel); } } }
+@utility bg-white { @media screen { @variant dark { background-color: var(--card); } } }
+@utility from-white { @media screen { @variant dark { --tw-gradient-from: var(--card); } } }
+@utility to-white { @media screen { @variant dark { --tw-gradient-to: var(--card); } } }
+@utility text-blue-300 { @media screen { @variant dark { color: #6BA5FF; } } }
+@utility text-blue-400 { @media screen { @variant dark { color: #6BA5FF; } } }
+@utility text-blue-500 { @media screen { @variant dark { color: #6BA5FF; } } }
+@utility text-blue-600 { @media screen { @variant dark { color: #6BA5FF; } } }
+@utility text-blue-700 { @media screen { @variant dark { color: #6BA5FF; } } }
+@utility text-blue-800 { @media screen { @variant dark { color: #6BA5FF; } } }
+@utility text-blue-900 { @media screen { @variant dark { color: #6BA5FF; } } }
+@utility bg-blue-50 { @media screen { @variant dark { background-color: #202F48; } } }
+@utility bg-blue-100 { @media screen { @variant dark { background-color: #202F48; } } }
+@utility bg-blue-200 { @media screen { @variant dark { background-color: #202F48; } } }
+@utility border-blue-100 { @media screen { @variant dark { border-color: #405879; } } }
+@utility border-blue-200 { @media screen { @variant dark { border-color: #405879; } } }
+@utility border-blue-300 { @media screen { @variant dark { border-color: #405879; } } }
+@utility text-indigo-400 { @media screen { @variant dark { color: #9CAEFF; } } }
+@utility text-indigo-500 { @media screen { @variant dark { color: #9CAEFF; } } }
+@utility text-indigo-600 { @media screen { @variant dark { color: #9CAEFF; } } }
+@utility text-indigo-700 { @media screen { @variant dark { color: #9CAEFF; } } }
+@utility bg-indigo-50 { @media screen { @variant dark { background-color: #282B48; } } }
+@utility bg-indigo-100 { @media screen { @variant dark { background-color: #282B48; } } }
+@utility border-indigo-200 { @media screen { @variant dark { border-color: #525979; } } }
+@utility border-indigo-300 { @media screen { @variant dark { border-color: #525979; } } }
+@utility text-violet-700 { @media screen { @variant dark { color: #BBA5F4; } } }
+@utility bg-violet-50 { @media screen { @variant dark { background-color: #302840; } } }
+@utility border-violet-200 { @media screen { @variant dark { border-color: #5E4C7C; } } }
+@utility text-red-300 { @media screen { @variant dark { color: #FF7B86; } } }
+@utility text-red-400 { @media screen { @variant dark { color: #FF7B86; } } }
+@utility text-red-500 { @media screen { @variant dark { color: #FF7B86; } } }
+@utility text-red-600 { @media screen { @variant dark { color: #FF7B86; } } }
+@utility text-red-700 { @media screen { @variant dark { color: #FF7B86; } } }
+@utility bg-red-50 { @media screen { @variant dark { background-color: #39252D; } } }
+@utility bg-red-100 { @media screen { @variant dark { background-color: #39252D; } } }
+@utility bg-red-200 { @media screen { @variant dark { background-color: #39252D; } } }
+@utility border-red-200 { @media screen { @variant dark { border-color: #754550; } } }
+@utility border-red-300 { @media screen { @variant dark { border-color: #754550; } } }
+@utility text-rose-300 { @media screen { @variant dark { color: #FF8AA0; } } }
+@utility text-rose-400 { @media screen { @variant dark { color: #FF8AA0; } } }
+@utility text-rose-500 { @media screen { @variant dark { color: #FF8AA0; } } }
+@utility text-rose-600 { @media screen { @variant dark { color: #FF8AA0; } } }
+@utility bg-rose-50 { @media screen { @variant dark { background-color: #39252D; } } }
+@utility bg-rose-100 { @media screen { @variant dark { background-color: #39252D; } } }
+@utility border-rose-200 { @media screen { @variant dark { border-color: #754550; } } }
+@utility border-rose-300 { @media screen { @variant dark { border-color: #754550; } } }
+@utility text-orange-400 { @media screen { @variant dark { color: #F6B07C; } } }
+@utility text-orange-500 { @media screen { @variant dark { color: #F6B07C; } } }
+@utility text-orange-700 { @media screen { @variant dark { color: #F6B07C; } } }
+@utility bg-orange-50 { @media screen { @variant dark { background-color: #382D23; } } }
+@utility bg-orange-100 { @media screen { @variant dark { background-color: #382D23; } } }
+@utility border-orange-200 { @media screen { @variant dark { border-color: #76573B; } } }
+@utility text-amber-300 { @media screen { @variant dark { color: #E8B96F; } } }
+@utility text-amber-400 { @media screen { @variant dark { color: #E8B96F; } } }
+@utility text-amber-500 { @media screen { @variant dark { color: #E8B96F; } } }
+@utility text-amber-600 { @media screen { @variant dark { color: #E8B96F; } } }
+@utility text-amber-700 { @media screen { @variant dark { color: #E8B96F; } } }
+@utility text-amber-800 { @media screen { @variant dark { color: #E8B96F; } } }
+@utility text-amber-900 { @media screen { @variant dark { color: #E8B96F; } } }
+@utility bg-amber-50 { @media screen { @variant dark { background-color: #352E22; } } }
+@utility bg-amber-100 { @media screen { @variant dark { background-color: #352E22; } } }
+@utility bg-amber-200 { @media screen { @variant dark { background-color: #352E22; } } }
+@utility border-amber-100 { @media screen { @variant dark { border-color: #75603C; } } }
+@utility border-amber-200 { @media screen { @variant dark { border-color: #75603C; } } }
+@utility border-amber-300 { @media screen { @variant dark { border-color: #75603C; } } }
+@utility text-yellow-600 { @media screen { @variant dark { color: #E8C97B; } } }
+@utility text-yellow-700 { @media screen { @variant dark { color: #E8C97B; } } }
+@utility bg-yellow-50 { @media screen { @variant dark { background-color: #352F22; } } }
+@utility border-yellow-200 { @media screen { @variant dark { border-color: #75633C; } } }
+@utility text-green-400 { @media screen { @variant dark { color: #80CCA6; } } }
+@utility text-green-500 { @media screen { @variant dark { color: #80CCA6; } } }
+@utility text-green-600 { @media screen { @variant dark { color: #80CCA6; } } }
+@utility text-green-700 { @media screen { @variant dark { color: #80CCA6; } } }
+@utility bg-green-50 { @media screen { @variant dark { background-color: #20342D; } } }
+@utility bg-green-100 { @media screen { @variant dark { background-color: #20342D; } } }
+@utility bg-green-200 { @media screen { @variant dark { background-color: #20342D; } } }
+@utility border-green-200 { @media screen { @variant dark { border-color: #3E6A56; } } }
+@utility text-emerald-300 { @media screen { @variant dark { color: #73CBB1; } } }
+@utility text-emerald-400 { @media screen { @variant dark { color: #73CBB1; } } }
+@utility text-emerald-500 { @media screen { @variant dark { color: #73CBB1; } } }
+@utility text-emerald-600 { @media screen { @variant dark { color: #73CBB1; } } }
+@utility text-emerald-700 { @media screen { @variant dark { color: #73CBB1; } } }
+@utility text-emerald-800 { @media screen { @variant dark { color: #73CBB1; } } }
+@utility bg-emerald-50 { @media screen { @variant dark { background-color: #20342D; } } }
+@utility bg-emerald-100 { @media screen { @variant dark { background-color: #20342D; } } }
+@utility border-emerald-200 { @media screen { @variant dark { border-color: #3E6A56; } } }
+@utility border-emerald-300 { @media screen { @variant dark { border-color: #3E6A56; } } }
+@utility bg-teal-50 { @media screen { @variant dark { background-color: #203335; } } }
+
+@layer utilities {
+@media screen {
+  .bg-indigo-50\/50:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #282B48 50%, transparent); }
+  .bg-blue-50\/40:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 40%, transparent); }
+  .bg-blue-50\/60:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 60%, transparent); }
+  .bg-gray-50\/70:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 70%, transparent); }
+  .bg-gray-50\/50:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 50%, transparent); }
+  .bg-slate-200\/70:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--muted) 70%, transparent); }
+  .bg-blue-50\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 80%, transparent); }
+  .bg-slate-50\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 80%, transparent); }
+  .bg-blue-50\/70:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 70%, transparent); }
+  .bg-indigo-50\/60:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #282B48 60%, transparent); }
+  .bg-slate-700\/50:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 50%, transparent); }
+  .bg-slate-900\/30:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 30%, transparent); }
+  .border-gray-100\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { border-color: color-mix(in srgb, var(--border) 80%, transparent); }
+  .bg-gray-50\/60:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 60%, transparent); }
+  .bg-blue-50\/30:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 30%, transparent); }
+  .bg-blue-50\/90:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 90%, transparent); }
+  .bg-slate-900\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 80%, transparent); }
+  .bg-slate-50\/90:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 90%, transparent); }
+  .bg-slate-100\/90:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--muted) 90%, transparent); }
+  .bg-slate-900\/60:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 60%, transparent); }
+  .bg-blue-100\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 80%, transparent); }
+  .bg-slate-900\/70:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 70%, transparent); }
+  .bg-slate-900\/90:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 90%, transparent); }
+  .bg-red-50\/40:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #39252D 40%, transparent); }
+  .bg-gray-50\/30:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 30%, transparent); }
+  .bg-amber-50\/50:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #352E22 50%, transparent); }
+  .bg-gray-50\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 80%, transparent); }
+  .bg-gray-50\/40:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 40%, transparent); }
+  .bg-slate-950\/40:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 40%, transparent); }
+  .bg-slate-50\/40:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 40%, transparent); }
+  .bg-slate-950\/20:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 20%, transparent); }
+  .bg-green-50\/50:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #20342D 50%, transparent); }
+  .bg-red-50\/50:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #39252D 50%, transparent); }
+  .bg-amber-50\/40:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #352E22 40%, transparent); }
+  .bg-gray-100\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--muted) 80%, transparent); }
+  .bg-rose-50\/40:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #39252D 40%, transparent); }
+  .bg-emerald-50\/40:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #20342D 40%, transparent); }
+  .bg-blue-50\/50:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 50%, transparent); }
+  .bg-orange-50\/30:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #382D23 30%, transparent); }
+}
+}
+
+/* Opacity variants on hover need the same surface mapping as their resting state. */
+@layer utilities {
+  @media screen and (hover: hover) {
+    .hover\:bg-indigo-50\/50:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #282B48 50%, transparent); }
+    .hover\:bg-gray-50\/50:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 50%, transparent); }
+    .dark\:hover\:bg-slate-700\/50:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 50%, transparent); }
+    .hover\:bg-blue-50\/30:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 30%, transparent); }
+    .hover\:bg-slate-100\/90:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--muted) 90%, transparent); }
+    .dark\:hover\:bg-slate-900\/80:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 80%, transparent); }
+    .hover\:bg-blue-100\/80:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 80%, transparent); }
+    .hover\:bg-gray-50\/60:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 60%, transparent); }
+    .hover\:bg-gray-50\/40:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 40%, transparent); }
+    .hover\:bg-gray-50\/70:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 70%, transparent); }
+    .hover\:bg-blue-50\/50:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 50%, transparent); }
+  }
+}

@@ -9,7 +9,8 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        default: "bg-primary text-primary-foreground hover:bg-primary/90 dark:bg-secondary dark:text-foreground dark:hover:bg-muted dark:shadow-none",
+        action: "bg-[var(--share-blue-solid)] text-white hover:bg-[var(--share-blue-solid)]/90",
         destructive:
           "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
         outline:
@@ -40,7 +41,7 @@ const buttonVariants = cva(
 
 function Button({
   className,
-  variant = "default",
+  variant,
   size = "default",
   asChild = false,
   ...props
@@ -49,13 +50,14 @@ function Button({
     asChild?: boolean
   }) {
   const Comp = asChild ? Slot.Root : "button"
+  const resolvedVariant = variant ?? (props.type === "submit" ? "action" : "default")
 
   return (
     <Comp
       data-slot="button"
-      data-variant={variant}
+      data-variant={resolvedVariant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(buttonVariants({ variant: resolvedVariant, size, className }))}
       {...props}
     />
   )

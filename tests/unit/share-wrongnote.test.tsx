@@ -11,11 +11,38 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { RetakeActionRow, WrongAnswerCard, WrongVocabRow } from '@/app/share/[token]/wrong-answer-card'
 import { WrongNoteTab } from '@/app/share/[token]/tabs/wrongnote-tab'
+import { VocabTab } from '@/app/share/[token]/tabs/vocab-tab'
 import type { ShareModel } from '@/app/share/[token]/use-share-model'
-import { splitCommonQuestionText, splitQuestionTexts } from '@/app/share/[token]/share-utils'
+import { INITIAL_VOCAB_FILTER, splitCommonQuestionText, splitQuestionTexts } from '@/app/share/[token]/share-utils'
 import type { StudentAnswer, VocabAnswer, VocabWord, Week, WeekScore } from '@/app/share/[token]/share-types'
 
 afterEach(cleanup)
+
+describe('단어장 검색 빈 상태', () => {
+  function renderEmptySearch(hasWrong: boolean) {
+    const week = makeWeek()
+    const word = makeWord()
+    const model = {
+      vocabStudyGroups: [{ week, words: [word], className: '테스트반' }],
+      vocabStudyItems: [{ week, word, className: '테스트반', weekLabel: '9주차', wrongAnswer: hasWrong ? makeVocabAnswer() : null }],
+      vocabWeekOptions: [], vocabPassageOptions: [], vocabPosOptions: [],
+    } as unknown as ShareModel
+    render(<VocabTab model={model}
+      filter={{ ...INITIAL_VOCAB_FILTER, studyMode: 'wrong_only', search: 'no-match' }}
+      onFilterChange={vi.fn()} onResetFilters={vi.fn()} />)
+  }
+
+  it('오답이 있지만 검색에 맞지 않으면 오답 없음으로 안내하지 않는다', () => {
+    renderEmptySearch(true)
+    expect(screen.getByText('조건에 맞는 단어가 없어요')).toBeTruthy()
+    expect(screen.queryByText('이 기간엔 틀린 단어가 없어요')).toBeNull()
+  })
+
+  it('실제 오답이 없는 기간은 오답 없음으로 안내한다', () => {
+    renderEmptySearch(false)
+    expect(screen.getByText('이 기간엔 틀린 단어가 없어요')).toBeTruthy()
+  })
+})
 
 // ── 픽스처 ──────────────────────────────────────────────────────────────────
 function makeWord(over: Partial<VocabWord> = {}): VocabWord {
@@ -306,13 +333,13 @@ describe('WrongNoteTab', () => {
   // 재시험 CTA 는 단어 서브탭 최상단(다크 카드)에만 있다 — 진단평가 쪽엔 다시 풀기 CTA 가 온다
   it('단어 탭에서 재시험이 남았으면 CTA 를 띄우고, 누르면 단어장의 "재시험 남은 단어"로 보낸다', () => {
     const h = renderTab({ subTab: 'vocab' })
-    fireEvent.click(screen.getByText('재시험 6개 남음'))
+    fireEvent.click(screen.getByText('복습할 단어 6개 보기'))
     expect(h.onOpenVocabList).toHaveBeenCalledWith(null, 'retake_pending')
   })
 
   it('재시험이 없으면 CTA 를 띄우지 않는다', () => {
     renderTab({ subTab: 'vocab', model: makeModel({ wrongNoteSummary: { readingCount: 1, vocabCount: 1, retakeRemaining: 0 } as ShareModel['wrongNoteSummary'] }) })
-    expect(screen.queryByText(/재시험 .*남음/)).toBeNull()
+    expect(screen.queryByText(/복습할 단어 .*개 보기/)).toBeNull()
   })
 
   it('단어 탭에서 "이 주차 단어장 전체 보기"가 해당 주차로 단어장을 연다', () => {

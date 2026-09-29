@@ -27,8 +27,8 @@ import {
   normalizeVocabText,
 } from '../share-utils'
 
-const SELECT_CLASS = 'h-9 w-full rounded-[12px] bg-white px-3 text-[12px] font-bold text-[#4E5968] outline-none'
-const SELECT_LABEL_CLASS = 'text-[10px] font-bold text-[#8B95A1]'
+const SELECT_CLASS = 'h-9 w-full rounded-[12px] bg-[var(--share-box-on-card)] px-3 text-[12px] font-bold text-[var(--share-body2)] outline-none'
+const SELECT_LABEL_CLASS = 'text-[10px] font-bold text-[var(--share-muted2)]'
 
 const MODE_CHIPS: { id: VocabStudyMode; label: string }[] = [
   { id: 'all', label: '전체' },
@@ -110,7 +110,7 @@ export function VocabTab({
     <>
       <div className="px-1.5 pt-1">
         <h1 className="text-[22px] font-extrabold tracking-[-0.02em]">단어장</h1>
-        <p className="mt-0.5 text-[13px] text-[#8B95A1] tabular-nums">
+        <p className="mt-0.5 text-[13px] text-[var(--share-muted2)] tabular-nums">
           {filteredVocabItems.length}/{vocabStudyItems.length}개 표시
         </p>
       </div>
@@ -118,12 +118,12 @@ export function VocabTab({
       {/* 검색 + 칩 */}
       <div className="flex flex-col gap-2.5">
         <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-[#B0B8C1]" />
+          <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-[var(--share-disabled)]" />
           <input
             value={filter.search}
             onChange={(e) => onFilterChange({ search: e.target.value })}
             placeholder="단어, 뜻, 유의어, 반의어 검색"
-            className="h-11 w-full rounded-[18px] bg-[#F2F4F6] pr-3 pl-10 text-[14px] font-medium text-[#191F28] outline-none placeholder:text-[#B0B8C1]"
+            className="h-11 w-full rounded-[18px] bg-[var(--share-box)] pr-3 pl-10 text-[14px] font-medium text-[var(--share-ink)] outline-none placeholder:text-[var(--share-disabled)]"
           />
         </div>
 
@@ -137,7 +137,7 @@ export function VocabTab({
                 aria-pressed={active}
                 onClick={() => onFilterChange({ studyMode: mode.id })}
                 className={`${PRESS} rounded-full px-3 py-1.5 text-[12px] font-bold transition-colors`}
-                style={active ? { background: T.blue, color: '#FFFFFF' } : { background: T.box, color: T.body2 }}
+                style={active ? { background: T.selected, color: T.onSelected } : { background: T.box, color: T.body2 }}
               >
                 {mode.label}
               </button>
@@ -156,7 +156,7 @@ export function VocabTab({
         >
           <span className="min-w-0">
             <span className="block text-[14px] font-extrabold">상세 조건</span>
-            <span className="mt-0.5 block text-[12px] text-[#8B95A1]">
+            <span className="mt-0.5 block text-[12px] text-[var(--share-muted2)]">
               {detailFilterCount > 0 ? `${detailFilterCount}개 조건 적용 중` : '주차 · 지문 · 품사 · 예문'}
             </span>
           </span>
@@ -164,7 +164,7 @@ export function VocabTab({
         </button>
 
         {filter.lookupOpen && (
-          <div className="grid grid-cols-2 gap-2 border-t border-[#EEF1F4] px-[18px] py-4">
+          <div className="grid grid-cols-2 gap-2 border-t border-[var(--share-line)] px-[18px] py-4">
             <label className="space-y-1">
               <span className={SELECT_LABEL_CLASS}>주차</span>
               <select value={filter.week} onChange={(e) => onFilterChange({ week: e.target.value })} className={SELECT_CLASS}>
@@ -209,8 +209,8 @@ export function VocabTab({
                 type="button"
                 onClick={onResetFilters}
                 disabled={countVocabFilters(filter) === 0}
-                className={`${PRESS} h-9 w-full rounded-[12px] text-[12px] font-bold text-white disabled:bg-[#D1D6DB]`}
-                style={countVocabFilters(filter) === 0 ? undefined : { background: T.ink }}
+                className={`${PRESS} h-9 w-full rounded-[12px] text-[12px] font-bold text-white disabled:bg-[var(--share-disabled2)]`}
+                style={countVocabFilters(filter) === 0 ? undefined : { background: T.panel }}
               >
                 초기화
               </button>
@@ -221,7 +221,9 @@ export function VocabTab({
 
       {filteredVocabItems.length === 0 ? (
         <EmptyNote
-          title={filter.studyMode === 'wrong_only' ? '이 기간엔 틀린 단어가 없어요' : '조건에 맞는 단어가 없어요'}
+          title={filter.studyMode === 'wrong_only' && !vocabStudyItems.some((item) => item.wrongAnswer)
+            ? '이 기간엔 틀린 단어가 없어요'
+            : '조건에 맞는 단어가 없어요'}
           hint="검색어나 필터를 바꿔 보세요."
         />
       ) : (
@@ -244,7 +246,7 @@ export function VocabTab({
                       {[className, getWeekLabel(week)].filter(Boolean).join(' ')}
                     </span>
                     {week.start_date && (
-                      <span className="text-[12px] text-[#8B95A1]">{fmtShortDate(week.start_date)}</span>
+                      <span className="text-[12px] text-[var(--share-muted2)]">{fmtShortDate(week.start_date)}</span>
                     )}
                     {wrongCount > 0 && (
                       <span
@@ -255,7 +257,7 @@ export function VocabTab({
                       </span>
                     )}
                   </span>
-                  <span className="mt-1 block truncate text-[12px] text-[#8B95A1]">
+                  <span className="mt-1 block truncate text-[12px] text-[var(--share-muted2)]">
                     {items.length}/{totalCount}개{preview ? ` · ${preview}` : ''}
                   </span>
                 </span>
@@ -263,7 +265,7 @@ export function VocabTab({
               </button>
 
               {isOpen && (
-                <div className="divide-y divide-[#EEF1F4] border-t border-[#EEF1F4]">
+                <div className="divide-y divide-[var(--share-line)] border-t border-[var(--share-line)]">
                   {items.map((item) => (
                     <VocabStudyWordCard key={item.word.id} item={item} />
                   ))}
@@ -274,7 +276,7 @@ export function VocabTab({
         })
       )}
 
-      <p className="px-2 pb-2 text-[11px] leading-relaxed text-[#8B95A1]">
+      <p className="px-2 pb-2 text-[11px] leading-relaxed text-[var(--share-muted2)]">
         시험에 나온 단어와 사전학습 단어장을 함께 보여줍니다. 주차·지문·품사는 상세 조건에서 좁힐 수 있어요.
       </p>
     </>

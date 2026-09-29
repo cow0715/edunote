@@ -269,17 +269,17 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
   if (phase === 'loading') return (
     <CenterScreen>
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#3182F6] border-t-transparent" />
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--share-blue)] border-t-transparent" />
     </CenterScreen>
   )
 
   if (phase === 'error' || !data) return (
     <CenterScreen>
-      <p className="text-[15px] font-bold text-[#191F28]">{error ?? '알 수 없는 오류'}</p>
+      <p className="text-[15px] font-bold text-[var(--share-ink)]">{error ?? '알 수 없는 오류'}</p>
       <button
         type="button"
         onClick={() => router.back()}
-        className={`${PRESS} mt-4 rounded-full bg-[#F2F4F6] px-5 py-2.5 text-[13px] font-bold text-[#4E5968]`}
+        className={`${PRESS} mt-4 rounded-full bg-[var(--share-box)] px-5 py-2.5 text-[13px] font-bold text-[var(--share-body2)]`}
       >
         돌아가기
       </button>
@@ -288,8 +288,8 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
   if (phase === 'grading') return (
     <CenterScreen>
-      <div className="h-9 w-9 animate-spin rounded-full border-2 border-[#3182F6] border-t-transparent" />
-      <p className="mt-4 text-[13px] font-bold text-[#8B95A1]">채점 중...</p>
+      <div className="h-9 w-9 animate-spin rounded-full border-2 border-[var(--share-blue)] border-t-transparent" />
+      <p className="mt-4 text-[13px] font-bold text-[var(--share-muted2)]">채점 중...</p>
     </CenterScreen>
   )
 
@@ -305,7 +305,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
         : `NO. ${currentWord?.number}`
 
     return (
-      <div className="mx-auto flex min-h-[100dvh] max-w-[430px] flex-col bg-white text-[#191F28] select-none">
+      <div className="mx-auto flex min-h-[100dvh] max-w-[430px] flex-col bg-[var(--share-canvas)] text-[var(--share-ink)] select-none">
 
         {/* 상단 다크 헤더 — 집중 모드에서만 쓰는 패널 */}
         <div className="shrink-0" style={{ background: T.panel }}>
@@ -449,7 +449,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                       onClick={() => setAnswers(p => ({ ...p, [currentWord.answer_id]: option }))}
                       className={`${PRESS_STRONG} rounded-[18px] border-2 px-4 py-4 text-[17px] font-bold`}
                       style={selected
-                        ? { borderColor: T.blue, background: T.blue, color: '#FFFFFF' }
+                        ? { borderColor: T.muted, background: T.selected, color: T.onSelected }
                         : { borderColor: 'transparent', background: T.box, color: T.body }}
                     >
                       {option}
@@ -470,7 +470,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                 value={answers[currentWord?.answer_id ?? ''] ?? ''}
                 onChange={e => setAnswers(p => ({ ...p, [currentWord.answer_id]: e.target.value }))}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); goNext() } }}
-                className="w-full rounded-[22px] bg-[#F2F4F6] px-5 py-4 text-center text-[17px] font-semibold text-[#191F28] outline-none placeholder:text-[#B0B8C1]"
+                className="w-full rounded-[22px] bg-[var(--share-box)] px-5 py-4 text-center text-[17px] font-semibold text-[var(--share-ink)] outline-none placeholder:text-[var(--share-disabled)]"
               />
             )}
 
@@ -478,7 +478,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
               type="button"
               onClick={goNext}
               className={`${PRESS_STRONG} mt-3 w-full rounded-full py-3.5 text-[15px] font-extrabold text-white`}
-              style={{ background: T.blue }}
+              style={{ background: T.blueSolid }}
             >
               {isLast ? '제출 →' : '다음 →'}
             </button>
@@ -495,15 +495,15 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
     if (phase === 'done' && !results) {
       return (
         <CenterScreen>
-          <p className="text-[20px] font-extrabold text-[#191F28]">모든 단어 완료!</p>
-          <p className="mt-1.5 text-[13px] text-[#8B95A1]">
+          <p className="text-[20px] font-extrabold text-[var(--share-ink)]">모든 단어 완료!</p>
+          <p className="mt-1.5 text-[13px] text-[var(--share-muted2)]">
             {data.week.class_name} {data.week.display_label ?? `${data.week.week_number}주차`} 단어를 모두 학습했어요
           </p>
           <button
             type="button"
             onClick={() => router.back()}
             className={`${PRESS_STRONG} mt-6 w-full max-w-xs rounded-full py-3.5 text-[15px] font-extrabold text-white`}
-            style={{ background: T.blue }}
+            style={{ background: T.blueSolid }}
           >
             오답노트로
           </button>
@@ -516,7 +516,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
     const allDone = remaining === 0
 
     return (
-      <div className="mx-auto min-h-screen max-w-[430px] bg-white pb-40 text-[#191F28]">
+      <div className="mx-auto min-h-screen max-w-[430px] bg-[var(--share-canvas)] pb-40 text-[var(--share-ink)]">
         <div className="flex flex-col gap-3 px-4 pt-5">
 
           {/* 점수 카드 — 다크 */}
@@ -534,7 +534,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
               )}
             </div>
           ) : (
-            <div className="h-44 animate-pulse rounded-[20px] bg-[#F2F4F6]" />
+            <div className="h-44 animate-pulse rounded-[20px] bg-[var(--share-box)]" />
           )}
 
           {/* 결과 목록 */}
@@ -547,7 +547,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
               const hasDetail = !r.is_correct && !!(word?.synonyms?.length || word?.antonyms?.length || showExampleDetail)
 
               return (
-                <div key={r.answer_id} className="overflow-hidden rounded-[18px] bg-[#F9FAFB]">
+                <div key={r.answer_id} className="overflow-hidden rounded-[18px] bg-[var(--share-card)]">
                   <button
                     type="button"
                     onClick={() => hasDetail && toggleExpand(r.answer_id)}
@@ -569,7 +569,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                             fill="student"
                           />
                           {word.example_translation && (
-                            <p className="mt-0.5 text-[11px] leading-4 text-[#8B95A1]">{word.example_translation}</p>
+                            <p className="mt-0.5 text-[11px] leading-4 text-[var(--share-muted2)]">{word.example_translation}</p>
                           )}
                           {!r.is_correct && (
                             <p className="mt-1 text-[13px]">
@@ -579,14 +579,14 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                                   const isPicked = !isAnswer && option.toLowerCase() === (r.retake_answer ?? '').toLowerCase()
                                   return (
                                     <span key={index} className={index === 1 ? 'ml-3' : ''}>
-                                      <span className={isAnswer ? SHARE_RIGHT_CLASS : isPicked ? SHARE_WRONG_CLASS : 'font-semibold text-[#4E5968]'}>{option}</span>
+                                      <span className={isAnswer ? SHARE_RIGHT_CLASS : isPicked ? SHARE_WRONG_CLASS : 'font-semibold text-[var(--share-body2)]'}>{option}</span>
                                     </span>
                                   )
                                 })
                               ) : (
-                                <><span className="mr-1 text-[11px] text-[#8B95A1]">정답</span><span className={SHARE_RIGHT_CLASS}>{word.example_answer}</span></>
+                                <><span className="mr-1 text-[11px] text-[var(--share-muted2)]">정답</span><span className={SHARE_RIGHT_CLASS}>{word.example_answer}</span></>
                               )}
-                              <span className="ml-3 text-[#6B7684]"><span className="mr-1 text-[11px] text-[#8B95A1]">{r.english_word}</span>{word.correct_answer}</span>
+                              <span className="ml-3 text-[var(--share-muted)]"><span className="mr-1 text-[11px] text-[var(--share-muted2)]">{r.english_word}</span>{word.correct_answer}</span>
                             </p>
                           )}
                         </>
@@ -597,20 +597,20 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                             <>
                               <ExampleSentenceInline source={word.test_source as ExampleSource} promptText={word.prompt_text} />
                               {word.example_translation && (
-                                <p className="mt-0.5 text-[11px] leading-4 text-[#8B95A1]">{word.example_translation}</p>
+                                <p className="mt-0.5 text-[11px] leading-4 text-[var(--share-muted2)]">{word.example_translation}</p>
                               )}
                             </>
                           ) : (
                             <p className="text-[15px] leading-tight font-extrabold">{r.english_word}</p>
                           )}
                           <p className="mt-1 text-[13px]">
-                            <span className="mr-1 text-[11px] text-[#8B95A1]">내 답</span>
+                            <span className="mr-1 text-[11px] text-[var(--share-muted2)]">내 답</span>
                             <span className={r.is_correct ? SHARE_RIGHT_CLASS : SHARE_WRONG_CLASS}>{r.retake_answer || '미작성'}</span>
                             {!r.is_correct && word?.correct_answer && (
-                              <><span className="mr-1 ml-3 text-[11px] text-[#8B95A1]">정답</span><span className={SHARE_RIGHT_CLASS}>{word.correct_answer}</span></>
+                              <><span className="mr-1 ml-3 text-[11px] text-[var(--share-muted2)]">정답</span><span className={SHARE_RIGHT_CLASS}>{word.correct_answer}</span></>
                             )}
                             {word?.prompt_text && (
-                              <span className="ml-3 text-[11px] text-[#8B95A1]">{r.english_word}</span>
+                              <span className="ml-3 text-[11px] text-[var(--share-muted2)]">{r.english_word}</span>
                             )}
                           </p>
                         </>
@@ -623,33 +623,33 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                   {!r.is_correct && (
                     <div className={`grid transition-all duration-300 ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
                       <div className="overflow-hidden">
-                        <div className="flex flex-col gap-3 border-t border-[#EEF1F4] px-4 pt-3 pb-4">
+                        <div className="flex flex-col gap-3 border-t border-[var(--share-line)] px-4 pt-3 pb-4">
                           {(word?.synonyms?.length ?? 0) > 0 && (
                             <div>
-                              <p className="mb-1.5 text-[10px] font-bold tracking-widest text-[#8B95A1]">유의어</p>
+                              <p className="mb-1.5 text-[10px] font-bold tracking-widest text-[var(--share-muted2)]">유의어</p>
                               <div className="flex flex-wrap gap-1.5">
                                 {word!.synonyms!.map(s => (
-                                  <span key={s} className="rounded-full bg-white px-2.5 py-1 text-[12px] font-medium text-[#4E5968]">{s}</span>
+                                  <span key={s} className="rounded-full bg-[var(--share-canvas)] px-2.5 py-1 text-[12px] font-medium text-[var(--share-body2)]">{s}</span>
                                 ))}
                               </div>
                             </div>
                           )}
                           {(word?.antonyms?.length ?? 0) > 0 && (
                             <div>
-                              <p className="mb-1.5 text-[10px] font-bold tracking-widest text-[#8B95A1]">반의어</p>
+                              <p className="mb-1.5 text-[10px] font-bold tracking-widest text-[var(--share-muted2)]">반의어</p>
                               <div className="flex flex-wrap gap-1.5">
                                 {word!.antonyms!.map(a => (
-                                  <span key={a} className="rounded-full bg-white px-2.5 py-1 text-[12px] font-medium text-[#4E5968]">{a}</span>
+                                  <span key={a} className="rounded-full bg-[var(--share-canvas)] px-2.5 py-1 text-[12px] font-medium text-[var(--share-body2)]">{a}</span>
                                 ))}
                               </div>
                             </div>
                           )}
                           {showExampleDetail && word?.example_sentence && (
                             <div>
-                              <p className="mb-1.5 text-[10px] font-bold tracking-widest text-[#8B95A1]">예문</p>
-                              <p className="text-[13px] leading-relaxed text-[#333D4B] italic">{word.example_sentence}</p>
+                              <p className="mb-1.5 text-[10px] font-bold tracking-widest text-[var(--share-muted2)]">예문</p>
+                              <p className="text-[13px] leading-relaxed text-[var(--share-body)] italic">{word.example_sentence}</p>
                               {word.example_translation && (
-                                <p className="mt-0.5 text-[12px] text-[#8B95A1]">{word.example_translation}</p>
+                                <p className="mt-0.5 text-[12px] text-[var(--share-muted2)]">{word.example_translation}</p>
                               )}
                             </div>
                           )}
@@ -663,7 +663,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 
             {phase === 'revealing' && (
               <div className="flex justify-center py-4">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#3182F6] border-t-transparent" />
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--share-blue)] border-t-transparent" />
               </div>
             )}
           </div>
@@ -677,7 +677,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
                 type="button"
                 onClick={loadData}
                 className={`${PRESS_STRONG} w-full rounded-full py-3.5 text-[15px] font-extrabold text-white`}
-                style={{ background: T.blue }}
+                style={{ background: T.blueSolid }}
               >
                 남은 {remaining}개 다시 풀기
               </button>
@@ -685,7 +685,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
             <button
               type="button"
               onClick={() => router.back()}
-              className={`${PRESS_STRONG} w-full rounded-full bg-[#F2F4F6] py-3.5 text-[15px] font-extrabold text-[#4E5968]`}
+              className={`${PRESS_STRONG} w-full rounded-full bg-[var(--share-box)] py-3.5 text-[15px] font-extrabold text-[var(--share-body2)]`}
             >
               오답노트로
             </button>
@@ -701,7 +701,7 @@ export default function RetakePage({ params }: { params: Promise<{ token: string
 /** 로딩·오류·완료처럼 한 덩어리만 가운데 놓는 화면 */
 function CenterScreen({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto flex min-h-screen max-w-[430px] flex-col items-center justify-center bg-white px-6 text-center">
+    <div className="mx-auto flex min-h-screen max-w-[430px] flex-col items-center justify-center bg-[var(--share-canvas)] px-6 text-center">
       {children}
     </div>
   )

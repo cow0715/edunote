@@ -12,7 +12,7 @@ export const SURFACE_CLASS = CARD_CLASS
 
 export function EmptyState({ children }: { children: ReactNode }) {
   return (
-    <div className={`${SURFACE_CLASS} px-6 py-10 text-center text-[13px] text-[#8B95A1]`}>
+    <div className={`${SURFACE_CLASS} px-6 py-10 text-center text-[13px] text-[var(--share-muted2)]`}>
       {children}
     </div>
   )
@@ -22,8 +22,8 @@ export function EmptyState({ children }: { children: ReactNode }) {
 export function EmptyNote({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className={`${SURFACE_CLASS} px-6 py-9 text-center`}>
-      <p className="text-[14px] font-bold text-[#191F28]">{title}</p>
-      {hint && <p className="mt-1.5 text-[12px] leading-relaxed text-[#8B95A1]">{hint}</p>}
+      <p className="text-[14px] font-bold text-[var(--share-ink)]">{title}</p>
+      {hint && <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--share-muted2)]">{hint}</p>}
     </div>
   )
 }
@@ -44,10 +44,10 @@ export function Card({ title, subtitle, aside, children, noPad, id, riseIndex }:
       {title && (
         <div className="flex items-center justify-between gap-3 px-[22px] pt-5 pb-3">
           <div className="min-w-0">
-            <h2 className="text-[15px] font-extrabold tracking-[-0.01em] text-[#191F28]">{title}</h2>
-            {subtitle && <p className="mt-0.5 text-[12px] text-[#8B95A1]">{subtitle}</p>}
+            <h2 className="text-[15px] font-extrabold tracking-[-0.01em] text-[var(--share-ink)]">{title}</h2>
+            {subtitle && <p className="mt-0.5 text-[12px] text-[var(--share-muted2)]">{subtitle}</p>}
           </div>
-          {aside && <span className="shrink-0 text-[11px] text-[#8B95A1]">{aside}</span>}
+          {aside && <span className="shrink-0 text-[11px] text-[var(--share-muted2)]">{aside}</span>}
         </div>
       )}
       <div className={noPad ? '' : `px-[22px] pb-5 ${title ? '' : 'pt-5'}`}>{children}</div>
@@ -69,7 +69,7 @@ export function AttendanceCalendar({
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
 
   if (attendance.length === 0) return (
-    <p className="py-6 text-center text-[12px] text-[#8B95A1]">출결 기록이 없어요</p>
+    <p className="py-6 text-center text-[12px] text-[var(--share-muted2)]">출결 기록이 없어요</p>
   )
 
   const attMap = new Map(attendance.map((a) => [a.date, a.status]))
@@ -103,9 +103,9 @@ export function AttendanceCalendar({
           disabled={idx <= 0}
           className={`${PRESS} flex h-7 w-7 items-center justify-center rounded-full disabled:opacity-30`}
         >
-          <ChevronLeft className="h-4 w-4 text-[#4E5968]" />
+          <ChevronLeft className="h-4 w-4 text-[var(--share-body2)]" />
         </button>
-        <p className="text-[13px] font-extrabold text-[#191F28]">{year}년 {month}월</p>
+        <p className="text-[13px] font-extrabold text-[var(--share-ink)]">{year}년 {month}월</p>
         <button
           type="button"
           aria-label="다음 달"
@@ -113,13 +113,13 @@ export function AttendanceCalendar({
           disabled={idx >= months.length - 1}
           className={`${PRESS} flex h-7 w-7 items-center justify-center rounded-full disabled:opacity-30`}
         >
-          <ChevronRight className="h-4 w-4 text-[#4E5968]" />
+          <ChevronRight className="h-4 w-4 text-[var(--share-body2)]" />
         </button>
       </div>
 
       <div className="grid grid-cols-7 gap-y-1 text-center">
         {DOW.map((d) => (
-          <div key={d} className="pb-1 text-[10px] font-bold text-[#8B95A1]">{d}</div>
+          <div key={d} className="pb-1 text-[10px] font-bold text-[var(--share-muted2)]">{d}</div>
         ))}
         {cells.map((d, i) => {
           if (!d) return <div key={`e${i}`} />
@@ -128,13 +128,13 @@ export function AttendanceCalendar({
             <div key={d} className="flex items-center justify-center py-0.5">
               {status ? (
                 <span
-                  className="flex h-[26px] w-[26px] items-center justify-center rounded-full text-[11px] font-bold tabular-nums text-white"
-                  style={{ background: ATT_DOT[status] }}
+                  className="flex h-[26px] w-[26px] items-center justify-center rounded-full text-[11px] font-bold tabular-nums"
+                  style={{ background: status === 'absent' ? T.redBg : status === 'present' ? T.blueBg : T.box, color: ATT_DOT[status] }}
                 >
                   {d}
                 </span>
               ) : (
-                <span className="text-[11px] tabular-nums text-[#B0B8C1]">{d}</span>
+                <span className="text-[11px] tabular-nums text-[var(--share-disabled)]">{d}</span>
               )}
             </div>
           )
@@ -145,7 +145,7 @@ export function AttendanceCalendar({
         {legend.map(([color, label]) => (
           <div key={label} className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full" style={{ background: color }} />
-            <span className="text-[11px] text-[#8B95A1]">{label}</span>
+            <span className="text-[11px] text-[var(--share-muted2)]">{label}</span>
           </div>
         ))}
       </div>

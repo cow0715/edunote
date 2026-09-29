@@ -41,6 +41,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
   const [showReviewPanel, setShowReviewPanel] = useState(false)
   const [batchOpen, setBatchOpen] = useState(false)
   const [examBatchOpen, setExamBatchOpen] = useState(false)
+  const [localExamPhotoPaths, setLocalExamPhotoPaths] = useState<Map<string, string>>(new Map())
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -193,8 +194,9 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     for (const score of data?.weekScores ?? []) {
       if (score.exam_photo_path) m.set(score.student_id, score.exam_photo_path)
     }
+    for (const [studentId, path] of localExamPhotoPaths) m.set(studentId, path)
     return m
-  }, [data?.weekScores])
+  }, [data?.weekScores, localExamPhotoPaths])
 
   const updateRow = useCallback((studentId: string, key: keyof GradeRow, value: unknown) => {
     setRows((prev) => prev.map((r) => (r.student_id === studentId ? { ...r, [key]: value } : r)))
@@ -254,10 +256,15 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     })
     rowsRef.current = merged
     setRows(merged)
+    setLocalExamPhotoPaths((prev) => {
+      const next = new Map(prev)
+      next.set(studentId, `${weekId}/${studentId}`)
+      return next
+    })
     const target = merged.find((r) => r.student_id === studentId)
     if (target) saveDraft.mutate([target])
     return applied
-  }, [data?.questions, saveDraft])
+  }, [data?.questions, saveDraft, weekId])
 
   const sheetRow = sheetView !== null ? rows[sheetView.studentIndex] ?? null : null
 
@@ -387,7 +394,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           그때 편집한 내용은 저장 완료 후 refetch 로 조용히 덮였다. 범위를 실제 영향 범위로 맞춘다. */}
       <div className="relative space-y-3">
         {saveGrade.isPending && (
-          <div className="absolute inset-0 z-20 flex items-start justify-center rounded-xl bg-white/80 backdrop-blur-[1px]">
+          <div className="absolute inset-0 z-20 flex items-start justify-center rounded-xl bg-card/80 backdrop-blur-[1px]">
             <div className="mt-16 flex flex-col items-center gap-2 text-sm text-gray-600">
               <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-indigo-500" />
               <span className="font-medium">{hasSubjective ? 'AI 채점 중…' : '저장 중…'}</span>

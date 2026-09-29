@@ -341,14 +341,14 @@ export default function ReportDispatchPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-[#EBF3FF] to-white p-4 md:p-8">
+    <main className="min-h-screen bg-gradient-to-b from-[var(--legacy-wash)] to-white p-4 md:p-8">
       <div className="mx-auto max-w-7xl space-y-5">
         <section className="rounded-[24px] bg-white p-6 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-sm font-extrabold text-[#2463EB]">Report Dispatch</p>
-              <h1 className="mt-2 text-2xl font-extrabold text-[#1A1C1E]">성적표 발송</h1>
-              <p className="mt-2 text-sm font-medium text-[#8B95A1]">
+              <p className="text-sm font-extrabold text-[var(--legacy-blue)]">Report Dispatch</p>
+              <h1 className="mt-2 text-2xl font-extrabold text-[var(--legacy-ink)]">성적표 발송</h1>
+              <p className="mt-2 text-sm font-medium text-[var(--legacy-muted)]">
                 월별 성적표와 모의고사 성적표를 같은 흐름으로 검수하고 링크 문자로 일괄 전송합니다.
               </p>
             </div>
@@ -363,7 +363,7 @@ export default function ReportDispatchPage() {
                   onClick={() => changeKind(tab.value)}
                   className={cn(
                     'rounded-full px-4 py-2 text-sm font-extrabold transition',
-                    kind === tab.value ? 'bg-[#2463EB] text-white' : 'text-slate-500 hover:text-[#2463EB]',
+                    kind === tab.value ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground' : 'text-slate-500 hover:text-[var(--legacy-blue)]',
                   )}
                 >
                   {tab.label}
@@ -377,7 +377,7 @@ export default function ReportDispatchPage() {
           <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
-                <FileText className="h-5 w-5 text-[#2463EB]" />
+                <FileText className="h-5 w-5 text-[var(--legacy-blue)]" />
                 발송 조건
               </CardTitle>
             </CardHeader>
@@ -452,7 +452,7 @@ export default function ReportDispatchPage() {
                       onClick={() => setRecipients((prev) => ({ ...prev, [recipient]: !prev[recipient] }))}
                       className={cn(
                         'rounded-full px-3 py-2 text-sm font-extrabold transition',
-                        recipients[recipient] ? 'bg-[#2463EB] text-white' : 'bg-slate-100 text-slate-500 hover:bg-blue-50',
+                        recipients[recipient] ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground' : 'bg-slate-100 text-slate-500 hover:bg-blue-50',
                       )}
                     >
                       {recipientLabels[recipient]}
@@ -463,8 +463,8 @@ export default function ReportDispatchPage() {
 
               <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-3">
                 <div>
-                  <p className="text-sm font-bold text-[#1A1C1E]">재전송 포함</p>
-                  <p className="text-xs font-medium text-[#8B95A1]">이미 보낸 성적표도 다시 전송</p>
+                  <p className="text-sm font-bold text-[var(--legacy-ink)]">재전송 포함</p>
+                  <p className="text-xs font-medium text-[var(--legacy-muted)]">이미 보낸 성적표도 다시 전송</p>
                 </div>
                 <Switch checked={includeResend} onCheckedChange={setIncludeResend} />
               </div>
@@ -476,13 +476,13 @@ export default function ReportDispatchPage() {
                   onChange={(event) => setMessageTemplate(event.target.value)}
                   className="min-h-32 resize-none rounded-2xl"
                 />
-                <p className="text-xs font-medium text-[#8B95A1]">
+                <p className="text-xs font-medium text-[var(--legacy-muted)]">
                   {'{성적표링크}'}는 발송할 때 학생별 링크로 자동 치환됩니다.
                   {kind === 'monthly' && ' 월간 성적표는 반별로 각각 발송되며 {수업명}이 반 이름으로 치환됩니다.'}
                 </p>
               </div>
 
-              <Button className="w-full rounded-full bg-[#2463EB]" onClick={loadPreview} disabled={loading}>
+              <Button className="w-full rounded-full" onClick={loadPreview} disabled={loading}>
                 {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 대상 불러오기
               </Button>
@@ -494,19 +494,19 @@ export default function ReportDispatchPage() {
               <CardContent className="p-5">
                 <div className="grid gap-3 md:grid-cols-4">
                   <div className="rounded-2xl bg-blue-50 p-4">
-                    <p className="text-xs font-bold text-[#8B95A1]">조회 대상</p>
-                    <p className="mt-1 text-2xl font-extrabold text-[#2463EB]">{preview?.items.length ?? 0}명</p>
+                    <p className="text-xs font-bold text-[var(--legacy-muted)]">조회 대상</p>
+                    <p className="mt-1 text-2xl font-extrabold text-[var(--legacy-blue)]">{preview?.items.length ?? 0}명</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-4">
-                    <p className="text-xs font-bold text-[#8B95A1]">체크한 학생</p>
+                    <p className="text-xs font-bold text-[var(--legacy-muted)]">체크한 학생</p>
                     <p className="mt-1 text-2xl font-extrabold">{selectedItems.length}명</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-4">
-                    <p className="text-xs font-bold text-[#8B95A1]">체크 발송 건수</p>
+                    <p className="text-xs font-bold text-[var(--legacy-muted)]">체크 발송 건수</p>
                     <p className="mt-1 text-2xl font-extrabold">{targetCount}건</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-4">
-                    <p className="text-xs font-bold text-[#8B95A1]">생성 필요 / 전송됨</p>
+                    <p className="text-xs font-bold text-[var(--legacy-muted)]">생성 필요 / 전송됨</p>
                     <p className="mt-1 text-2xl font-extrabold">{missingReportCount} / {sentSelectedCount}</p>
                   </div>
                 </div>
@@ -517,10 +517,10 @@ export default function ReportDispatchPage() {
               <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <CardTitle className="flex items-center gap-2 text-lg">
-                    <Users className="h-5 w-5 text-[#2463EB]" />
+                    <Users className="h-5 w-5 text-[var(--legacy-blue)]" />
                     발송 대상 검수
                   </CardTitle>
-                  <p className="mt-1 text-sm font-medium text-[#8B95A1]">
+                  <p className="mt-1 text-sm font-medium text-[var(--legacy-muted)]">
                     체크된 학생에게만 성적표 링크를 전송합니다. 미체크 학생은 전송 대상에서 제외됩니다.
                   </p>
                 </div>
@@ -536,7 +536,7 @@ export default function ReportDispatchPage() {
                     {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                     체크 성적표 생성/확정
                   </Button>
-                  <Button className="w-full rounded-full bg-[#2463EB] sm:w-auto" onClick={sendSelected} disabled={!preview || sendableSelectedItems.length === 0 || sending}>
+                  <Button variant="action" className="w-full rounded-full bg-[var(--share-blue-solid)] text-white hover:bg-[var(--share-blue-solid)]/90 sm:w-auto" onClick={sendSelected} disabled={!preview || sendableSelectedItems.length === 0 || sending}>
                     {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                     체크한 학생에게 바로 보내기
                   </Button>
@@ -578,29 +578,29 @@ export default function ReportDispatchPage() {
                           />
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-extrabold text-[#1A1C1E]">{student?.name ?? '학생 정보 없음'}</span>
+                              <span className="font-extrabold text-[var(--legacy-ink)]">{student?.name ?? '학생 정보 없음'}</span>
                               {kind === 'monthly' && 'class' in item && (
                                 <Badge variant="outline" className={item.class.class_type === 'special' ? 'border-violet-200 bg-violet-50 text-violet-700' : ''}>
                                   {item.class.name}{item.class.class_type === 'special' ? ' · 특강' : ''}
                                 </Badge>
                               )}
-                              <Badge className={itemReportStatus(item) === 'missing' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-[#2463EB]'}>
+                              <Badge className={itemReportStatus(item) === 'missing' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-[var(--legacy-blue)]'}>
                                 {itemReportStatus(item) === 'missing' ? '생성 필요' : itemReportStatus(item) === 'draft' ? '임시저장' : '발급됨'}
                               </Badge>
                               {itemSentCount(item) > 0 && <Badge variant="outline">전송 {itemSentCount(item)}회</Badge>}
                               {kind === 'mock' && 'raw_score' in item && <Badge variant="outline">{item.raw_score ?? '-'}점</Badge>}
                             </div>
-                            <div className="mt-1 flex flex-wrap gap-2 text-xs font-medium text-[#8B95A1]">
+                            <div className="mt-1 flex flex-wrap gap-2 text-xs font-medium text-[var(--legacy-muted)]">
                               <span>{student?.school ?? '학교 미입력'}</span>
                               {phones.length > 0 ? phones.map((entry) => (
                                 <span key={entry.recipient}>{recipientLabels[entry.recipient]} {entry.phone}</span>
-                              )) : <span className="text-[#FF4D4D]">선택한 수신자 연락처 없음</span>}
+                              )) : <span className="text-[var(--legacy-red)]">선택한 수신자 연락처 없음</span>}
                               {!includeResend && itemSentCount(item) > 0 && <span className="text-amber-600">이미 전송되어 기본 제외</span>}
                             </div>
                           </div>
                           <div className="flex items-center justify-end gap-2">
                             {item.report_url ? (
-                              <span className="max-w-56 truncate text-xs font-bold text-[#2463EB]">{item.report_url}</span>
+                              <span className="max-w-56 truncate text-xs font-bold text-[var(--legacy-blue)]">{item.report_url}</span>
                             ) : (
                               <span className="text-xs font-bold text-amber-600">전송 시 자동 생성</span>
                             )}

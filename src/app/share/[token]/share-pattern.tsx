@@ -59,7 +59,7 @@ function MiniBars({ weeks, accent, allWeekNumbers }: {
       {slots.map((weekNumber) => {
         const accuracy = byWeek.get(weekNumber)
         if (accuracy === undefined) {
-          return <span key={weekNumber} className="h-[3px] flex-1 rounded-full bg-[#F2F4F6]" />
+          return <span key={weekNumber} className="h-[3px] flex-1 rounded-full bg-[var(--share-box)]" />
         }
         return (
           <span
@@ -89,22 +89,24 @@ export function PatternCard({ pattern: p, allWeekNumbers = [], onTagClick }: {
     <button
       type="button"
       onClick={() => onTagClick(p.id, p.name)}
-      className={`${PRESS} w-full rounded-[18px] bg-white px-4 py-3.5 text-left`}
+      className={`${PRESS} w-full rounded-[18px] bg-[var(--share-box-on-card)] px-4 py-3.5 text-left`}
     >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <span
-            className="inline-block rounded-full px-2 py-0.5 text-[10px] font-extrabold text-white"
-            style={{ background: meta.accent }}
+            className="inline-block rounded-full px-2 py-0.5 text-[10px] font-extrabold"
+            style={{ background: `color-mix(in srgb, ${meta.accent} 14%, ${T.card})`, color: meta.accent }}
           >
             {meta.label}
           </span>
           <p className="mt-1.5 truncate text-[16px] font-extrabold">{p.name}</p>
-          <p className="mt-0.5 text-[12px] text-[#8B95A1] tabular-nums">{meta.insightFn(p)}</p>
+          <p className="mt-0.5 text-[12px] text-[var(--share-muted2)] tabular-nums">{meta.insightFn(p)}</p>
         </div>
         <span className="shrink-0 text-[26px] font-black tabular-nums" style={{ color: meta.accent }}>
           {p.overallAccuracy}
           <span className="text-[13px]">%</span>
+          <span className="block text-right text-[11px] font-medium text-[var(--share-muted)]">기간 누적</span>
+          <span className="block text-right text-[11px] font-medium text-[var(--share-muted)]">기간 누적</span>
         </span>
       </div>
       <div className="mt-3">

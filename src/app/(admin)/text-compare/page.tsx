@@ -126,7 +126,7 @@ function StatTile({
   hint: string
 }) {
   return (
-    <div className="rounded-[24px] bg-white/95 p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)] ring-1 ring-blue-100/70">
+    <div className="rounded-[24px] bg-card/95 p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)] ring-1 ring-blue-100/70">
       <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</div>
       <div className="mt-3 text-4xl font-extrabold tracking-tight text-slate-900">{value}</div>
       <div className="mt-2 text-sm text-slate-500">{hint}</div>
@@ -172,9 +172,9 @@ function FileDropZone({
       }}
       className={cn(
         'group cursor-pointer rounded-[28px] border border-dashed p-6 transition-all',
-        'bg-white/92 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]',
+        'bg-card/92 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]',
         dragOver
-          ? 'border-[#2463EB] bg-blue-50/80'
+          ? 'border-[var(--legacy-blue)] bg-blue-50/80'
           : 'border-slate-200 hover:border-blue-300 hover:bg-white'
       )}
     >
@@ -188,7 +188,7 @@ function FileDropZone({
       <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</div>
       {file ? (
         <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-[#2463EB]">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-[var(--legacy-blue)]">
             <FileText className="h-6 w-6" />
           </div>
           <div className="min-w-0 flex-1">
@@ -209,7 +209,7 @@ function FileDropZone({
         </div>
       ) : (
         <div className="rounded-[22px] bg-slate-50/80 p-7 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-white text-[#2463EB] shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-white text-[var(--legacy-blue)] shadow-sm">
             <Upload className="h-6 w-6" />
           </div>
           <div className="mt-4 text-base font-semibold text-slate-900">{description}</div>
@@ -222,12 +222,12 @@ function FileDropZone({
 
 function HeroSummary({ summary }: { summary: TextCompareResult['summary'] }) {
   return (
-    <Card className="overflow-hidden rounded-[32px] border-0 bg-white/80 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+    <Card className="overflow-hidden rounded-[32px] border-0 bg-card/80 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
       <CardContent className="space-y-6 p-0">
-        <div className="bg-[linear-gradient(180deg,#EBF3FF_0%,#FFFFFF_100%)] px-8 py-8">
+        <div className="bg-[linear-gradient(180deg,var(--legacy-wash)_0%,var(--card)_100%)] px-8 py-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-2xl">
-              <div className="text-sm font-semibold uppercase tracking-[0.2em] text-[#2463EB]">
+              <div className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--legacy-blue)]">
                 Exam Transformation Report
               </div>
               <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 lg:text-4xl">
@@ -241,7 +241,7 @@ function HeroSummary({ summary }: { summary: TextCompareResult['summary'] }) {
               <Badge className={cn('rounded-full px-4 py-1.5 text-sm font-semibold', difficultyTone[summary.difficulty])}>
                 예상 난도 {difficultyLabel[summary.difficulty]}
               </Badge>
-              <Button variant="outline" size="sm" className="rounded-full bg-white/80" onClick={() => window.print()}>
+              <Button variant="outline" size="sm" className="rounded-full bg-card/80" onClick={() => window.print()}>
                 <Printer className="mr-2 h-4 w-4" />
                 인쇄
               </Button>
@@ -277,7 +277,7 @@ function HeroSummary({ summary }: { summary: TextCompareResult['summary'] }) {
             <Badge
               key={pattern}
               variant="secondary"
-              className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-[#2463EB]"
+              className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-[var(--legacy-blue)]"
             >
               {pattern}
             </Badge>
@@ -298,7 +298,7 @@ function PassageCard({ passage }: { passage: TextCompareResult['passages'][numbe
   }, [passage.examAdaptationScore, passage.structureChangeScore])
 
   return (
-    <Card className="rounded-[28px] border-0 bg-white/95 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+    <Card className="rounded-[28px] border-0 bg-card/95 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
       <CardContent className="space-y-6 p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-3">
@@ -377,7 +377,7 @@ function PassageCard({ passage }: { passage: TextCompareResult['passages'][numbe
             <Badge
               key={type}
               variant="secondary"
-              className="rounded-full bg-[#2463EB]/10 px-3 py-1 text-xs font-semibold text-[#2463EB]"
+              className="rounded-full bg-[#2463EB]/10 px-3 py-1 text-xs font-semibold text-[var(--legacy-blue)]"
             >
               {type}
             </Badge>
@@ -404,7 +404,7 @@ function PassageCard({ passage }: { passage: TextCompareResult['passages'][numbe
                 <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
                   {passage.addedContent.map((item) => (
                     <li key={item} className="flex gap-2">
-                      <span className="mt-1 text-[#2463EB]">•</span>
+                      <span className="mt-1 text-[var(--legacy-blue)]">•</span>
                       <span>{item}</span>
                     </li>
                   ))}
@@ -420,7 +420,7 @@ function PassageCard({ passage }: { passage: TextCompareResult['passages'][numbe
                     <div className="text-sm leading-6 text-slate-700">{item.original}</div>
                   </div>
                   <div className="mt-3 flex items-center gap-2">
-                    <Badge className="rounded-full bg-[#2463EB]/15 px-2.5 py-0.5 text-xs font-semibold text-[#2463EB]">
+                    <Badge className="rounded-full bg-[#2463EB]/15 px-2.5 py-0.5 text-xs font-semibold text-[var(--legacy-blue)]">
                       시험
                     </Badge>
                     <div className="text-sm leading-6 text-slate-900">{item.exam}</div>
@@ -447,10 +447,10 @@ function QuestionAnalysisSection({ analysis }: { analysis: TextCompareResult['qu
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
-      <Card className="rounded-[28px] border-0 bg-white/95 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+      <Card className="rounded-[28px] border-0 bg-card/95 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
         <CardContent className="space-y-5 p-6">
           <div className="flex items-center gap-2 text-slate-900">
-            <Target className="h-5 w-5 text-[#2463EB]" />
+            <Target className="h-5 w-5 text-[var(--legacy-blue)]" />
             <div className="text-lg font-bold">문항 유형 분포</div>
           </div>
           <div className="space-y-4">
@@ -468,7 +468,7 @@ function QuestionAnalysisSection({ analysis }: { analysis: TextCompareResult['qu
       </Card>
 
       <div className="space-y-4">
-        <Card className="rounded-[28px] border-0 bg-white/95 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+        <Card className="rounded-[28px] border-0 bg-card/95 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
           <CardContent className="space-y-4 p-6">
             <div className="text-lg font-bold text-slate-900">문항 난도 분포</div>
             {([
@@ -490,10 +490,10 @@ function QuestionAnalysisSection({ analysis }: { analysis: TextCompareResult['qu
           </CardContent>
         </Card>
 
-        <Card className="rounded-[28px] border-0 bg-white/95 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+        <Card className="rounded-[28px] border-0 bg-card/95 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
           <CardContent className="space-y-4 p-6">
             <div className="flex items-center gap-2 text-slate-900">
-              <AlertTriangle className="h-5 w-5 text-[#2463EB]" />
+              <AlertTriangle className="h-5 w-5 text-[var(--legacy-blue)]" />
               <div className="text-lg font-bold">고난도 문항</div>
             </div>
             <div className="space-y-4">
@@ -520,7 +520,7 @@ function StrategySection({ strategies }: { strategies: TextCompareResult['teachi
   return (
     <div className="space-y-4">
       {strategies.map((item) => (
-        <Card key={item.priority} className="rounded-[28px] border-0 bg-white/95 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+        <Card key={item.priority} className="rounded-[28px] border-0 bg-card/95 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
           <CardContent className="grid gap-4 p-6 lg:grid-cols-[80px_1fr_1fr] lg:items-start">
             <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[linear-gradient(180deg,#2463EB_0%,#3B82F6_100%)] text-2xl font-extrabold text-white">
               {item.priority}
@@ -530,7 +530,7 @@ function StrategySection({ strategies }: { strategies: TextCompareResult['teachi
               <div className="mt-3 text-sm leading-7 text-slate-600">{item.description}</div>
             </div>
             <div className="rounded-[22px] bg-blue-50/70 p-5">
-              <div className="flex items-center gap-2 text-sm font-semibold text-[#2463EB]">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[var(--legacy-blue)]">
                 <Sparkles className="h-4 w-4" />
                 설명회 멘트
               </div>
@@ -599,12 +599,12 @@ export default function TextComparePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#EBF3FF_0%,#FFFFFF_100%)]">
+    <div className="min-h-screen bg-[linear-gradient(180deg,var(--legacy-wash)_0%,var(--card)_100%)]">
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-8 lg:px-10">
-        <section className="rounded-[32px] bg-white/75 p-6 shadow-[0px_10px_40px_rgba(0,75,198,0.03)] ring-1 ring-white/70 backdrop-blur-sm">
+        <section className="rounded-[32px] bg-card/75 p-6 shadow-[0px_10px_40px_rgba(0,75,198,0.03)] ring-1 ring-white/70 backdrop-blur-sm">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-2xl">
-              <div className="text-sm font-semibold uppercase tracking-[0.22em] text-[#2463EB]">
+              <div className="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--legacy-blue)]">
                 Teaching Proof
               </div>
               <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 lg:text-4xl">
@@ -659,15 +659,15 @@ export default function TextComparePage() {
             <Tabs defaultValue="passages" className="space-y-4">
               <TabsList
                 variant="line"
-                className="w-full justify-start rounded-[24px] bg-white/90 p-2 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]"
+                className="w-full justify-start rounded-[24px] bg-card/90 p-2 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]"
               >
-                <TabsTrigger value="passages" className="rounded-full px-5 py-2 data-[state=active]:bg-blue-50 data-[state=active]:text-[#2463EB]">
+                <TabsTrigger value="passages" className="rounded-full px-5 py-2 data-[state=active]:bg-blue-50 data-[state=active]:text-[var(--legacy-blue)]">
                   지문별 변형 분석
                 </TabsTrigger>
-                <TabsTrigger value="questions" className="rounded-full px-5 py-2 data-[state=active]:bg-blue-50 data-[state=active]:text-[#2463EB]">
+                <TabsTrigger value="questions" className="rounded-full px-5 py-2 data-[state=active]:bg-blue-50 data-[state=active]:text-[var(--legacy-blue)]">
                   문항 출제 분석
                 </TabsTrigger>
-                <TabsTrigger value="strategy" className="rounded-full px-5 py-2 data-[state=active]:bg-blue-50 data-[state=active]:text-[#2463EB]">
+                <TabsTrigger value="strategy" className="rounded-full px-5 py-2 data-[state=active]:bg-blue-50 data-[state=active]:text-[var(--legacy-blue)]">
                   수업 전략
                 </TabsTrigger>
               </TabsList>

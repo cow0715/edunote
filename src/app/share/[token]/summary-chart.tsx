@@ -68,7 +68,7 @@ export function SummaryChart({ points, caption, onSelectWeek }: {
         {/* 반 평균 점선은 본선 위에. 흰 후광을 깔아야 겹쳐도 읽힌다 */}
         {classLine && (
           <>
-            <path d={classLine} fill="none" stroke="#FFFFFF" strokeWidth="4" strokeLinecap="round" />
+            <path d={classLine} fill="none" stroke="var(--share-card)" strokeWidth="4" strokeLinecap="round" />
             <path d={classLine} fill="none" stroke={T.body2} strokeWidth="1.5" strokeDasharray="4 4" strokeLinecap="round" />
           </>
         )}
@@ -82,7 +82,7 @@ export function SummaryChart({ points, caption, onSelectWeek }: {
               cx={x(i)}
               cy={y(p.rate)}
               r={last ? 5.5 : 3.5}
-              fill={last ? T.blue : '#FFFFFF'}
+              fill={last ? T.blue : 'var(--share-canvas)'}
               stroke={T.blue}
               strokeWidth={last ? 0 : 2}
               style={{
@@ -109,12 +109,12 @@ export function SummaryChart({ points, caption, onSelectWeek }: {
             >
               {p.rate}
             </span>
-            <span className="text-[10px] tabular-nums text-[#8B95A1]">{p.date}</span>
+            <span className="text-[10px] tabular-nums text-[var(--share-muted2)]">{p.date}</span>
           </button>
         ))}
       </div>
 
-      <p className="mt-2 text-[11px] text-[#8B95A1]">{caption}</p>
+      <p className="mt-2 text-[11px] text-[var(--share-muted2)]">{caption}</p>
     </div>
   )
 }

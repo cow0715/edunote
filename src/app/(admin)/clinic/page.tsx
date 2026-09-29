@@ -307,7 +307,7 @@ export default function ClinicPage() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-gray-950">요일 설정</h2>
-            <p className="mt-0.5 text-xs text-gray-500">SMS 자동 알림을 고려해 시작/종료 시간을 함께 저장합니다.</p>
+            <p className="mt-0.5 text-[13px] leading-relaxed text-gray-500">SMS 자동 알림을 고려해 시작/종료 시간을 함께 저장합니다.</p>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -329,7 +329,7 @@ export default function ClinicPage() {
             </Button>
           </div>
         </div>
-        {slotSettingsOpen && <div className="grid gap-2 md:grid-cols-7">
+        {slotSettingsOpen && <div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3">
           {slotDrafts.map((slot) => (
             <div
               key={slot.weekday}
@@ -349,13 +349,13 @@ export default function ClinicPage() {
                   type="time"
                   value={slot.starts_at}
                   onChange={(e) => updateSlotDraft(slot.weekday, { starts_at: e.target.value })}
-                  className="h-8 bg-white text-xs"
+                  className="h-9 bg-white text-sm"
                 />
                 <Input
                   type="time"
                   value={slot.ends_at}
                   onChange={(e) => updateSlotDraft(slot.weekday, { ends_at: e.target.value })}
-                  className="h-8 bg-white text-xs"
+                  className="h-9 bg-white text-sm"
                 />
               </div>
               <p className="mt-2 text-[11px] font-semibold text-gray-400">
@@ -370,7 +370,7 @@ export default function ClinicPage() {
         <section className="rounded-2xl bg-white p-4 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
           <div className="mb-4">
             <h2 className="text-base font-bold text-gray-950">학생 배정</h2>
-            <p className="mt-0.5 text-xs text-gray-500">재원 학생별로 여러 보충수업 요일을 선택합니다.</p>
+            <p className="mt-0.5 text-[13px] leading-relaxed text-gray-500">재원 학생별로 여러 보충수업 요일을 선택합니다.</p>
           </div>
           {saveEnrollment.isPending && (
             <div className="mb-4 h-1 overflow-hidden rounded-full bg-blue-50">
@@ -402,7 +402,7 @@ export default function ClinicPage() {
                 type="button"
                 onClick={() => setClassFilter('all')}
                 className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
-                  classFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                  classFilter === 'all' ? 'bg-blue-600 text-white dark:bg-accent dark:text-accent-foreground' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
                 }`}
               >
                 전체 {students.length}
@@ -413,7 +413,7 @@ export default function ClinicPage() {
                   type="button"
                   onClick={() => setClassFilter(cls.id)}
                   className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
-                    classFilter === cls.id ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                    classFilter === cls.id ? 'bg-blue-600 text-white dark:bg-accent dark:text-accent-foreground' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
                   }`}
                 >
                   {cls.name}
@@ -424,7 +424,7 @@ export default function ClinicPage() {
               {filteredStudents.length}명 표시 · {assignedStudentCount}명 배정 · {assignedEnrollmentCount}건
             </p>
           </div>
-          <div className="max-h-[620px] divide-y divide-gray-100 overflow-y-auto">
+          <div className="max-h-[620px] divide-y divide-border overflow-y-auto">
             {students.length === 0 ? (
               <p className="py-10 text-center text-sm text-gray-400">재원 학생이 없습니다.</p>
             ) : filteredStudents.length === 0 ? (
@@ -452,7 +452,7 @@ export default function ClinicPage() {
                       <p className="truncate text-sm font-bold text-gray-900">{student.name}</p>
                       {isSavingStudent && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-600" />}
                     </div>
-                    <p className="mt-0.5 truncate text-xs text-gray-400">
+                    <p className="mt-0.5 text-[13px] leading-relaxed text-gray-400">
                       {[student.school, student.grade, student.classes.map((cls) => cls.name).join(', ')].filter(Boolean).join(' · ')}
                     </p>
                     {pendingTexts.length > 0 && (
@@ -473,7 +473,7 @@ export default function ClinicPage() {
                           disabled={saveEnrollment.isPending}
                           className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
                             isSelected
-                              ? 'bg-blue-600 text-white'
+                              ? 'bg-blue-600 text-white dark:bg-accent dark:text-accent-foreground'
                               : 'bg-gray-50 text-gray-500 hover:bg-blue-50 hover:text-blue-700'
                           } disabled:cursor-not-allowed disabled:opacity-60`}
                         >
@@ -502,7 +502,7 @@ export default function ClinicPage() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-base font-bold text-gray-950">클리닉 운영</h2>
-                <p className="mt-0.5 text-xs text-gray-500">출석 체크와 현황을 탭으로 전환합니다.</p>
+                <p className="mt-0.5 text-[13px] leading-relaxed text-gray-500">출석 체크와 현황을 탭으로 전환합니다.</p>
               </div>
               <TabsList>
                 <TabsTrigger value="check">출석 체크</TabsTrigger>
@@ -514,7 +514,7 @@ export default function ClinicPage() {
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-bold text-gray-950">출석 체크</p>
-                  <p className="mt-0.5 text-xs text-gray-500">
+                  <p className="mt-0.5 text-[13px] leading-relaxed text-gray-500">
                     {selectedSlot
                       ? `${formatDate(selectedDate)} · ${targetStudents.length}명 예정`
                       : `${formatDate(selectedDate)} · 보충수업 없음`}
@@ -567,7 +567,7 @@ export default function ClinicPage() {
                                 className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
                                   status === item
                                     ? item === 'present'
-                                      ? 'bg-blue-600 text-white'
+                                      ? 'bg-blue-600 text-white dark:bg-accent dark:text-accent-foreground'
                                       : 'bg-red-500 text-white'
                                     : 'text-gray-400 hover:text-gray-700'
                                 }`}
@@ -597,7 +597,7 @@ export default function ClinicPage() {
                     <BarChart3 className="h-4 w-4 text-blue-600" />
                     클리닉 출석 현황
                   </div>
-                  <p className="mt-0.5 text-xs text-gray-500">최근 8주 기준으로 학생별 출석 흐름을 확인합니다.</p>
+                  <p className="mt-0.5 text-[13px] leading-relaxed text-gray-500">최근 8주 기준으로 학생별 출석 흐름을 확인합니다.</p>
                 </div>
                 <div className="text-right">
                   <p className="text-2xl font-black text-gray-950">
@@ -636,7 +636,7 @@ export default function ClinicPage() {
                     </div>
                   </div>
 
-                  <div className="mt-4 divide-y divide-gray-100">
+                  <div className="mt-4 divide-y divide-border">
                     {attentionStudents.length === 0 ? (
                       <p className="py-4 text-sm font-semibold text-blue-600">
                         결석이나 미기록이 있는 학생이 없습니다.

@@ -333,7 +333,7 @@ export function ReportCardPreview({ student, card, metrics, previous, academy, c
 
   return (
     <div
-      className={`mx-auto w-full bg-white text-gray-900 ${isMobileDisplay ? 'rounded-[24px] p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)] sm:p-7' : ''}`}
+      className={`print-surface mx-auto w-full bg-white text-gray-900 ${isMobileDisplay ? 'rounded-[24px] p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)] sm:p-7' : ''}`}
       style={{
         fontFamily: "'Plus Jakarta Sans', 'Pretendard', system-ui, sans-serif",
         maxWidth: isMobileDisplay ? '760px' : '210mm',

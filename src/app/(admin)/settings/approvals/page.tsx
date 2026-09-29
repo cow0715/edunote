@@ -95,7 +95,7 @@ export default function TeacherApprovalsPage() {
                         {statusLabels[teacher.approval_status]}
                       </Badge>
                       {teacher.is_admin && (
-                        <Badge variant="outline" className="text-[#2463EB]">
+                        <Badge variant="outline" className="text-[var(--legacy-blue)]">
                           관리자
                         </Badge>
                       )}

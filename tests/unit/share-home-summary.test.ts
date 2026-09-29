@@ -33,15 +33,15 @@ describe('buildWeeklyHeadline', () => {
       buildWeeklyHeadline({ reading: null, vocab: metric({ correct: 43, total: 50, rate: 86, ...over }), homework: null })
 
     expect(only({})).toBe('단어 43/50로 시작했어요.')
-    expect(only({ delta: 4 })).toBe('단어 43/50, 지난주와 비슷했어요.')
+    expect(only({ delta: 4 })).toBe('단어 43/50, 직전 회차와 비슷했어요.')
     expect(only({ delta: 11 })).toBe('단어가 11%p 올랐어요.')
     expect(only({ delta: -9 })).toBe('단어가 9%p 내려갔어요.')
   })
 
   it('시험도 단어도 없으면 과제만, 그것도 없으면 기록 없음', () => {
-    expect(buildWeeklyHeadline({ reading: null, vocab: null, homework: null })).toBe('이번 주 기록이 아직 없어요.')
+    expect(buildWeeklyHeadline({ reading: null, vocab: null, homework: null })).toBe('이 회차 기록이 아직 없어요.')
     expect(buildWeeklyHeadline({ reading: null, vocab: null, homework: metric({ correct: 3, total: 4 }) }))
-      .toBe('이번 주는 과제 4개 중 3개를 제출했어요.')
+      .toBe('최근 수업에서는 과제 4개 중 3개를 제출했어요.')
   })
 
   it('지난주가 아예 없으면 이 기간 첫 시험으로 읽는다', () => {
@@ -55,7 +55,7 @@ describe('buildWeeklyHeadline', () => {
     const r = { reading: metric({ delta: -25 }), vocab: metric({ delta: 3 }), homework: null }
     expect(buildWeeklyHeadline(r)).toBe('단어는 3%p 올랐고, 시험은 25%p 내려갔어요.')
     expect(buildWeeklyHeadline({ ...r, vocabRisingStreak: 3 }))
-      .toBe('단어는 3주 연속 올랐고, 시험은 25%p 내려갔어요.')
+      .toBe('단어는 3회 연속 올랐고, 시험은 25%p 내려갔어요.')
   })
 
   it('나머지 방향 조합', () => {
@@ -63,7 +63,7 @@ describe('buildWeeklyHeadline', () => {
       buildWeeklyHeadline({ reading: metric({ delta: rd }), vocab: metric({ delta: vd }), homework: null })
     expect(h(8, -4)).toBe('시험은 8%p 올랐지만, 단어를 놓쳤어요.')
     expect(h(8, 4)).toBe('시험·단어 둘 다 올랐어요.')
-    expect(h(-8, -4)).toBe('시험·단어 둘 다 내려간 주예요.')
+    expect(h(-8, -4)).toBe('시험·단어 둘 다 내려갔어요.')
   })
 
   it('한쪽만 움직였고 ±5%p 안이면 점수만 담담하게', () => {
@@ -71,13 +71,13 @@ describe('buildWeeklyHeadline', () => {
       reading: metric({ delta: 0 }),
       vocab: metric({ correct: 18, total: 20, delta: -2 }),
       homework: null,
-    })).toBe('시험 12/20, 단어 18/20로 지난주와 비슷했어요.')
+    })).toBe('시험 12/20, 단어 18/20로 직전 회차와 비슷했어요.')
   })
 
   it('한쪽만 5%p 넘게 움직이면 "비슷" 이 아니라 움직인 쪽을 말한다', () => {
     const h = (rd: number | null, vd: number | null) =>
       buildWeeklyHeadline({ reading: metric({ delta: rd }), vocab: metric({ delta: vd }), homework: null })
-    // 운영에서 본 케이스: 시험 -6%p · 단어 0%p 가 "지난주와 비슷했어요" 로 나왔다
+    // 운영에서 본 케이스: 시험 -6%p · 단어 0%p 가 "직전 회차와 비슷했어요" 로 나왔다
     expect(h(-6, 0)).toBe('시험이 6%p 내려갔어요. 단어는 그대로예요.')
     expect(h(12, 0)).toBe('시험이 12%p 올랐어요. 단어는 그대로예요.')
     expect(h(0, -9)).toBe('단어가 9%p 내려갔어요. 시험은 그대로예요.')

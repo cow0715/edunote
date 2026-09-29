@@ -437,7 +437,7 @@ export default function StudentsPage() {
                   <th className={`${thClass} text-right`}>액션</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-border">
                 {filtered.map((s) => {
                   const withdrawn = isWithdrawn(s)
                   return (
@@ -460,7 +460,7 @@ export default function StudentsPage() {
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                         {s.mother_phone || '-'}
                       </td>
-                      <td className="px-4 py-3 text-gray-600">
+                      <td className="min-w-56 max-w-72 px-4 py-3 text-gray-600 break-keep leading-relaxed">
                         {getActiveClasses(s) || (withdrawn ? <span className="text-gray-400 text-xs">퇴원</span> : '-')}
                       </td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">

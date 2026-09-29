@@ -815,7 +815,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
                       {period.is_current && (
                         <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-blue-600">현재</span>
                       )}
-                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
+                      <span className="rounded-full bg-card/70 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
                         {period.semester}학기 · {examTypeLabel(period.exam_type)}
                       </span>
                     </div>
@@ -967,7 +967,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
               onDrop={(weekId, newDate) => moveWeekDate.mutate({ weekId, date: newDate })}
             />
             {moveWeekDate.isPending && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center rounded-lg bg-white/80 backdrop-blur-[2px]">
+              <div className="absolute inset-0 flex flex-col items-center justify-center rounded-lg bg-card/80 backdrop-blur-[2px]">
                 <RefreshCw className="h-5 w-5 animate-spin text-primary" />
                 <p className="mt-2 text-xs font-medium text-gray-500">주차 재정렬 중...</p>
               </div>

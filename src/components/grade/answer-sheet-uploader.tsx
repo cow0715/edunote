@@ -340,7 +340,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
         </button>
       )}
 
-      <Card className="rounded-[24px] border-0 bg-white/95 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/90">
+      <Card className="rounded-[24px] border-0 bg-card/95 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/90">
         <CardHeader className="gap-1">
           <CardTitle className="text-base text-slate-900 dark:text-slate-50">시험지 가져오기</CardTitle>
           <CardDescription className="text-slate-500 dark:text-slate-400">

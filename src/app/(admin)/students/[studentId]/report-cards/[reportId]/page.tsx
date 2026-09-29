@@ -216,7 +216,7 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
       <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
         <DialogContent className="max-w-xl rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.08)]">
           <DialogHeader>
-            <DialogTitle className="text-xl font-extrabold text-[#1A1C1E]">성적표 링크 전송 확인</DialogTitle>
+            <DialogTitle className="text-xl font-extrabold text-[var(--legacy-ink)]">성적표 링크 전송 확인</DialogTitle>
             <DialogDescription>
               학생 성적 링크가 다른 사람에게 전송되지 않도록 수신자와 링크를 확인한 뒤 발송하세요.
             </DialogDescription>
@@ -225,16 +225,16 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
           <div className="space-y-4">
             <div className="grid gap-3 rounded-2xl bg-blue-50 p-4 text-sm">
               <div className="flex items-center justify-between gap-3">
-                <span className="font-bold text-[#8B95A1]">학생</span>
-                <span className="font-extrabold text-[#1A1C1E]">{student.name}</span>
+                <span className="font-bold text-[var(--legacy-muted)]">학생</span>
+                <span className="font-extrabold text-[var(--legacy-ink)]">{student.name}</span>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="font-bold text-[#8B95A1]">성적표</span>
-                <span className="text-right font-extrabold text-[#1A1C1E]">{card.period_label}</span>
+                <span className="font-bold text-[var(--legacy-muted)]">성적표</span>
+                <span className="text-right font-extrabold text-[var(--legacy-ink)]">{card.period_label}</span>
               </div>
               <div className="grid gap-1">
-                <span className="font-bold text-[#8B95A1]">전송 링크</span>
-                <div className="break-all rounded-xl bg-white px-3 py-2 text-xs font-bold text-[#2463EB]">
+                <span className="font-bold text-[var(--legacy-muted)]">전송 링크</span>
+                <div className="break-all rounded-xl bg-white px-3 py-2 text-xs font-bold text-[var(--legacy-blue)]">
                   {sendPreviewUrl || reportUrl}
                 </div>
               </div>
@@ -259,14 +259,14 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
                 onChange={(event) => setSendMessage(event.target.value)}
                 className="min-h-24 resize-none rounded-2xl"
               />
-              <p className="text-xs font-medium text-[#8B95A1]">
+              <p className="text-xs font-medium text-[var(--legacy-muted)]">
                 사용 가능: {'{학생명}'} {'{기간명}'} {'{성적표링크}'}
               </p>
             </div>
 
             <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-bold text-[#8B95A1]">발송 미리보기</p>
-              <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-6 text-[#1A1C1E]">{renderedSendMessage}</p>
+              <p className="text-xs font-bold text-[var(--legacy-muted)]">발송 미리보기</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-6 text-[var(--legacy-ink)]">{renderedSendMessage}</p>
             </div>
           </div>
 

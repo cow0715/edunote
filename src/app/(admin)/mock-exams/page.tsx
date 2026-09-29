@@ -581,11 +581,11 @@ export default function MockExamsPage() {
   ]
 
   return (
-    <div className="min-h-full bg-gradient-to-b from-[#EBF3FF] to-white pb-10 text-[#1A1C1E]">
+    <div className="min-h-full bg-gradient-to-b from-[var(--legacy-wash)] to-white pb-10 text-[var(--legacy-ink)]">
       <div className="mx-auto max-w-7xl space-y-5">
         <section className="flex flex-col gap-4 rounded-[24px] bg-white p-5 shadow-[0px_10px_40px_rgba(0,75,198,0.03)] lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="flex items-center gap-2 text-sm font-bold text-[#2463EB]">
+            <div className="flex items-center gap-2 text-sm font-bold text-[var(--legacy-blue)]">
               <CheckCircle2 className="h-4 w-4" />
               학년별 모의고사 운영
             </div>
@@ -600,14 +600,14 @@ export default function MockExamsPage() {
                   onClick={() => changeGrade(item.value)}
                   className={cn(
                     'rounded-full px-4 py-2 text-sm font-bold transition',
-                    grade === item.value ? 'bg-[#2463EB] text-white shadow-sm' : 'text-slate-500 hover:text-slate-900',
+                    grade === item.value ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground shadow-sm' : 'text-slate-500 hover:text-slate-900',
                   )}
                 >
                   {item.label}
                 </button>
               ))}
             </div>
-            <Button className="rounded-full bg-[#2463EB]" onClick={handleCreate} disabled={createExam.isPending}>
+            <Button className="rounded-full " onClick={handleCreate} disabled={createExam.isPending}>
               <Plus className="mr-2 h-4 w-4" />
               시험 생성
             </Button>
@@ -622,23 +622,23 @@ export default function MockExamsPage() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <Label className="text-xs text-[#8B95A1]">연도</Label>
+                  <Label className="text-xs text-[var(--legacy-muted)]">연도</Label>
                   <Input value={form.exam_year} onChange={(event) => setForm({ ...form, exam_year: event.target.value })} />
                 </div>
                 <div>
-                  <Label className="text-xs text-[#8B95A1]">월</Label>
+                  <Label className="text-xs text-[var(--legacy-muted)]">월</Label>
                   <Input value={form.exam_month} onChange={(event) => setForm({ ...form, exam_month: event.target.value })} />
                 </div>
                 <div className="col-span-2">
-                  <Label className="text-xs text-[#8B95A1]">시험명</Label>
+                  <Label className="text-xs text-[var(--legacy-muted)]">시험명</Label>
                   <Input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
                 </div>
                 <div>
-                  <Label className="text-xs text-[#8B95A1]">출처</Label>
+                  <Label className="text-xs text-[var(--legacy-muted)]">출처</Label>
                   <Input value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })} />
                 </div>
                 <div>
-                  <Label className="text-xs text-[#8B95A1]">응시일</Label>
+                  <Label className="text-xs text-[var(--legacy-muted)]">응시일</Label>
                   <Input type="date" value={form.exam_date} onChange={(event) => setForm({ ...form, exam_date: event.target.value })} />
                 </div>
               </div>
@@ -647,7 +647,7 @@ export default function MockExamsPage() {
                 {examsLoading ? (
                   <div className="h-24 animate-pulse rounded-2xl bg-slate-100" />
                 ) : gradeExams.length === 0 ? (
-                  <div className="rounded-2xl bg-slate-50 p-4 text-sm text-[#8B95A1]">고{grade} 시험이 없습니다.</div>
+                  <div className="rounded-2xl bg-slate-50 p-4 text-sm text-[var(--legacy-muted)]">고{grade} 시험이 없습니다.</div>
                 ) : gradeExams.map((exam) => (
                   <div
                     key={exam.id}
@@ -659,7 +659,7 @@ export default function MockExamsPage() {
                     }}
                     className={cn(
                       'w-full rounded-2xl p-4 text-left transition',
-                      effectiveExamId === exam.id ? 'bg-[#2463EB] text-white' : 'bg-slate-50 text-slate-700 hover:bg-blue-50',
+                      effectiveExamId === exam.id ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground' : 'bg-slate-50 text-slate-700 hover:bg-blue-50',
                     )}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -698,7 +698,7 @@ export default function MockExamsPage() {
             <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
               <CardContent className="p-5">
                 {!selectedExam ? (
-                  <div className="rounded-2xl bg-slate-50 p-8 text-center text-sm font-medium text-[#8B95A1]">
+                  <div className="rounded-2xl bg-slate-50 p-8 text-center text-sm font-medium text-[var(--legacy-muted)]">
                     고{grade} 시험을 생성하거나 선택하세요.
                   </div>
                 ) : (
@@ -706,11 +706,11 @@ export default function MockExamsPage() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="text-2xl font-extrabold">{selectedExam.title}</h2>
-                        <Badge className={cn('rounded-full', incompleteAnswerKeyCount === 0 ? 'bg-blue-100 text-[#2463EB]' : 'bg-amber-100 text-amber-700')}>
+                        <Badge className={cn('rounded-full', incompleteAnswerKeyCount === 0 ? 'bg-blue-100 text-[var(--legacy-blue)]' : 'bg-amber-100 text-amber-700')}>
                           {incompleteAnswerKeyCount === 0 ? '채점 가능' : `정답 ${incompleteAnswerKeyCount}개 필요`}
                         </Badge>
                       </div>
-                      <div className="mt-2 flex flex-wrap gap-3 text-sm text-[#8B95A1]">
+                      <div className="mt-2 flex flex-wrap gap-3 text-sm text-[var(--legacy-muted)]">
                         <span>문항 {readyQuestionCount}/45</span>
                         <span>유형 {typeCount}개</span>
                         <span>학생 {gradeStudents.length}명</span>
@@ -725,7 +725,7 @@ export default function MockExamsPage() {
                           onClick={() => setMode(value)}
                           className={cn(
                             'flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold transition',
-                            mode === value ? 'bg-white text-[#2463EB] shadow-sm' : 'text-slate-500 hover:text-slate-900',
+                            mode === value ? 'bg-white text-[var(--legacy-blue)] shadow-sm' : 'text-slate-500 hover:text-slate-900',
                           )}
                         >
                           <Icon className="h-4 w-4" />
@@ -754,21 +754,21 @@ export default function MockExamsPage() {
                       disabled={importMetadata.isPending}
                       className="rounded-[24px] bg-blue-50 p-5 text-left transition hover:bg-blue-100 disabled:opacity-60"
                     >
-                      {importMetadata.isPending ? <Loader2 className="h-5 w-5 animate-spin text-[#2463EB]" /> : <Upload className="h-5 w-5 text-[#2463EB]" />}
+                      {importMetadata.isPending ? <Loader2 className="h-5 w-5 animate-spin text-[var(--legacy-blue)]" /> : <Upload className="h-5 w-5 text-[var(--legacy-blue)]" />}
                       <div className="mt-4 text-base font-extrabold">문제지+답안지 업로드</div>
-                      <div className="mt-1 text-sm text-[#8B95A1]">배점은 문제지, 정답은 답안지에서 병합</div>
+                      <div className="mt-1 text-sm text-[var(--legacy-muted)]">배점은 문제지, 정답은 답안지에서 병합</div>
                     </button>
                     <div className="rounded-[24px] bg-slate-50 p-5">
-                      <div className="text-sm text-[#8B95A1]">정답 준비</div>
-                      <div className="mt-2 text-3xl font-extrabold text-[#2463EB]">{readyQuestionCount}</div>
-                      <div className="text-sm text-[#8B95A1]">/ 45문항</div>
+                      <div className="text-sm text-[var(--legacy-muted)]">정답 준비</div>
+                      <div className="mt-2 text-3xl font-extrabold text-[var(--legacy-blue)]">{readyQuestionCount}</div>
+                      <div className="text-sm text-[var(--legacy-muted)]">/ 45문항</div>
                     </div>
                     <div className="rounded-[24px] bg-slate-50 p-5">
-                      <div className="text-sm text-[#8B95A1]">총 배점</div>
-                      <div className="mt-2 text-3xl font-extrabold text-[#1A1C1E]">
+                      <div className="text-sm text-[var(--legacy-muted)]">총 배점</div>
+                      <div className="mt-2 text-3xl font-extrabold text-[var(--legacy-ink)]">
                         {activeQuestions.reduce((sum, question) => sum + (question.is_void ? 0 : Number(question.points ?? 0)), 0)}
                       </div>
-                      <div className="text-sm text-[#8B95A1]">점</div>
+                      <div className="text-sm text-[var(--legacy-muted)]">점</div>
                     </div>
                   </div>
 
@@ -778,7 +778,7 @@ export default function MockExamsPage() {
                     <summary className="cursor-pointer text-sm font-bold text-slate-700">문항 메타데이터 검수</summary>
                     <div className="mt-4 max-h-[420px] overflow-auto rounded-2xl bg-white">
                       <table className="w-full min-w-[760px] text-sm">
-                        <thead className="sticky top-0 bg-white text-xs text-[#8B95A1]">
+                        <thead className="sticky top-0 bg-white text-xs text-[var(--legacy-muted)]">
                           <tr>
                             <th className="px-3 py-2 text-left">번호</th>
                             <th className="px-3 py-2 text-left">정답</th>
@@ -826,7 +826,7 @@ export default function MockExamsPage() {
                       </table>
                     </div>
                     <div className="mt-4 flex justify-end">
-                      <Button className="rounded-full bg-[#2463EB]" onClick={handleSaveQuestions} disabled={updateQuestions.isPending}>
+                      <Button variant="action" className="rounded-full bg-[var(--share-blue-solid)] text-white hover:bg-[var(--share-blue-solid)]/90" onClick={handleSaveQuestions} disabled={updateQuestions.isPending}>
                         저장 및 재채점
                       </Button>
                     </div>
@@ -842,16 +842,16 @@ export default function MockExamsPage() {
                     <input ref={omrBatchInputRef} type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={handleOmrBatchFiles} />
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 text-sm font-extrabold text-[#2463EB]">
+                        <div className="flex items-center gap-2 text-sm font-extrabold text-[var(--legacy-blue)]">
                           <Camera className="h-4 w-4" />
                           OMR 일괄 채점
                         </div>
-                        <p className="mt-1 text-sm font-medium text-[#8B95A1]">
+                        <p className="mt-1 text-sm font-medium text-[var(--legacy-muted)]">
                           수능형 OMR PDF를 한 번에 올리면 페이지별 이름과 1~45번 마킹을 읽고, 확실한 학생은 자동 저장합니다.
                         </p>
                       </div>
                       <Button
-                        className="rounded-full bg-[#2463EB]"
+                        className="rounded-full "
                         onClick={() => omrBatchInputRef.current?.click()}
                         disabled={!effectiveExamId || omrBatchAnswers.isPending || incompleteAnswerKeyCount > 0}
                       >
@@ -862,7 +862,7 @@ export default function MockExamsPage() {
 
                     {omrBatchReviewItems.length > 0 && (
                       <div className="mt-5 space-y-3 rounded-[24px] bg-slate-50 p-4">
-                        <div className="flex items-center gap-2 text-sm font-extrabold text-[#1A1C1E]">
+                        <div className="flex items-center gap-2 text-sm font-extrabold text-[var(--legacy-ink)]">
                           <AlertTriangle className="h-4 w-4 text-amber-500" />
                           확인이 필요한 답안지 {omrBatchReviewItems.length}장
                         </div>
@@ -873,7 +873,7 @@ export default function MockExamsPage() {
                                 <div className="flex flex-wrap items-center gap-2">
                                   <span className="font-extrabold">{item.page_number}페이지</span>
                                   <Badge variant="outline">이름 {item.student_name ?? '미인식'}</Badge>
-                                  <Badge className="bg-blue-50 text-[#2463EB]">{item.answered_count}/45문항</Badge>
+                                  <Badge className="bg-blue-50 text-[var(--legacy-blue)]">{item.answered_count}/45문항</Badge>
                                 </div>
                                 {item.warnings.length > 0 && (
                                   <p className="mt-2 text-xs font-medium text-amber-600">{item.warnings[0]}</p>
@@ -894,8 +894,8 @@ export default function MockExamsPage() {
                                   ))}
                                 </SelectContent>
                               </Select>
-                              <Button
-                                className="rounded-full bg-[#2463EB]"
+                              <Button variant="action"
+                                className="rounded-full bg-[var(--share-blue-solid)] text-white hover:bg-[var(--share-blue-solid)]/90"
                                 disabled={!item.matched_student_id || saveResult.isPending}
                                 onClick={() => handleSaveReviewedOmr(item)}
                               >
@@ -912,7 +912,7 @@ export default function MockExamsPage() {
                 <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
                   <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-lg">
-                      <Users className="h-5 w-5 text-[#2463EB]" />
+                      <Users className="h-5 w-5 text-[var(--legacy-blue)]" />
                       고{grade} 학생
                     </CardTitle>
                   </CardHeader>
@@ -931,7 +931,7 @@ export default function MockExamsPage() {
                             onClick={() => handleSelectStudent(student)}
                             className={cn(
                               'rounded-2xl p-4 text-left transition',
-                              selectedStudentId === student.id ? 'bg-[#2463EB] text-white' : 'bg-slate-50 hover:bg-blue-50',
+                              selectedStudentId === student.id ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground' : 'bg-slate-50 hover:bg-blue-50',
                             )}
                           >
                             <div className="flex items-center justify-between gap-2">
@@ -953,7 +953,7 @@ export default function MockExamsPage() {
                     <div>
                       <CardTitle className="text-lg">{selectedStudent?.name ?? '학생 선택'}</CardTitle>
                       {selectedStudent && (
-                        <p className="mt-1 text-sm text-[#8B95A1]">
+                        <p className="mt-1 text-sm text-[var(--legacy-muted)]">
                           {selectedStudent.school ?? '학교 미입력'} · 고{grade}
                         </p>
                       )}
@@ -965,7 +965,7 @@ export default function MockExamsPage() {
                         답안지
                       </Button>
                       <Button
-                        className="rounded-full bg-[#2463EB]"
+                        className="rounded-full "
                         onClick={() => ocrInputRef.current?.click()}
                         disabled={!selectedStudentId || !effectiveExamId || ocrAnswers.isPending || incompleteAnswerKeyCount > 0}
                       >
@@ -986,19 +986,19 @@ export default function MockExamsPage() {
                       <>
                         <div className="grid gap-3 sm:grid-cols-4">
                           <div className="rounded-2xl bg-blue-50 p-4">
-                            <div className="text-xs font-bold text-[#8B95A1]">점수</div>
-                            <div className="mt-1 text-3xl font-extrabold text-[#2463EB]">{selectedResult?.raw_score ?? '-'}</div>
+                            <div className="text-xs font-bold text-[var(--legacy-muted)]">점수</div>
+                            <div className="mt-1 text-3xl font-extrabold text-[var(--legacy-blue)]">{selectedResult?.raw_score ?? '-'}</div>
                           </div>
                           <div className="rounded-2xl bg-slate-50 p-4">
-                            <div className="text-xs font-bold text-[#8B95A1]">등급</div>
+                            <div className="text-xs font-bold text-[var(--legacy-muted)]">등급</div>
                             <div className="mt-1 text-3xl font-extrabold">{selectedResult?.grade ?? '-'}</div>
                           </div>
                           <div className="rounded-2xl bg-slate-50 p-4">
-                            <div className="text-xs font-bold text-[#8B95A1]">듣기</div>
+                            <div className="text-xs font-bold text-[var(--legacy-muted)]">듣기</div>
                             <div className="mt-2 text-xl font-extrabold">{selectedResult ? resultRate(selectedResult.listening_correct, selectedResult.listening_total) : '-'}</div>
                           </div>
                           <div className="rounded-2xl bg-slate-50 p-4">
-                            <div className="text-xs font-bold text-[#8B95A1]">독해</div>
+                            <div className="text-xs font-bold text-[var(--legacy-muted)]">독해</div>
                             <div className="mt-2 text-xl font-extrabold">{selectedResult ? resultRate(selectedResult.reading_correct, selectedResult.reading_total) : '-'}</div>
                           </div>
                         </div>
@@ -1006,30 +1006,30 @@ export default function MockExamsPage() {
                         <div className="rounded-[24px] bg-slate-50 p-5">
                           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                             <div>
-                              <p className="text-sm font-extrabold text-[#1A1C1E]">답안지 업로드 및 OCR 채점</p>
-                              <p className="mt-1 text-sm text-[#8B95A1]">
+                              <p className="text-sm font-extrabold text-[var(--legacy-ink)]">답안지 업로드 및 OCR 채점</p>
+                              <p className="mt-1 text-sm text-[var(--legacy-muted)]">
                                 PDF, 이미지, 캡쳐 파일 모두 같은 OCR 채점으로 처리하고 성적표 발행 목록에 반영합니다.
                               </p>
                             </div>
-                            <Badge className="bg-blue-100 text-[#2463EB]">단일 업로드</Badge>
+                            <Badge className="bg-blue-100 text-[var(--legacy-blue)]">단일 업로드</Badge>
                           </div>
                           {selectedResult ? (
                             <div className="mt-4 grid gap-2 sm:grid-cols-3">
                               <div className="rounded-2xl bg-white p-4">
-                                <p className="text-xs font-bold text-[#8B95A1]">채점 상태</p>
-                                <p className="mt-1 font-extrabold text-[#2463EB]">완료</p>
+                                <p className="text-xs font-bold text-[var(--legacy-muted)]">채점 상태</p>
+                                <p className="mt-1 font-extrabold text-[var(--legacy-blue)]">완료</p>
                               </div>
                               <div className="rounded-2xl bg-white p-4">
-                                <p className="text-xs font-bold text-[#8B95A1]">마지막 저장</p>
+                                <p className="text-xs font-bold text-[var(--legacy-muted)]">마지막 저장</p>
                                 <p className="mt-1 font-extrabold">{formatKoreanDate(selectedResult.updated_at)}</p>
                               </div>
                               <div className="rounded-2xl bg-white p-4">
-                                <p className="text-xs font-bold text-[#8B95A1]">성적표</p>
+                                <p className="text-xs font-bold text-[var(--legacy-muted)]">성적표</p>
                                 <p className="mt-1 font-extrabold">{latestReport(selectedResult) ? '발행됨' : '미발행'}</p>
                               </div>
                             </div>
                           ) : (
-                            <div className="mt-4 rounded-2xl bg-white p-5 text-sm font-medium text-[#8B95A1]">
+                            <div className="mt-4 rounded-2xl bg-white p-5 text-sm font-medium text-[var(--legacy-muted)]">
                               아직 채점 결과가 없습니다.
                             </div>
                           )}
@@ -1038,15 +1038,15 @@ export default function MockExamsPage() {
                         <div className="rounded-[24px] bg-slate-50 p-5">
                           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                             <div>
-                              <p className="text-sm font-extrabold text-[#1A1C1E]">수동 입력</p>
-                              <p className="mt-1 text-sm text-[#8B95A1]">
+                              <p className="text-sm font-extrabold text-[var(--legacy-ink)]">수동 입력</p>
+                              <p className="mt-1 text-sm text-[var(--legacy-muted)]">
                                 OCR이 빠뜨린 문항만 눌러 보정하거나, 전체 답안을 직접 입력해 저장할 수 있습니다.
                               </p>
                             </div>
                             <div className="flex items-center gap-2">
-                              <Badge className="bg-white text-[#2463EB]">{manualAnswerCount}/45 입력</Badge>
-                              <Button
-                                className="rounded-full bg-[#2463EB]"
+                              <Badge className="bg-white text-[var(--legacy-blue)]">{manualAnswerCount}/45 입력</Badge>
+                              <Button variant="action"
+                                className="rounded-full bg-[var(--share-blue-solid)] text-white hover:bg-[var(--share-blue-solid)]/90"
                                 onClick={handleSaveManualAnswers}
                                 disabled={!selectedStudentId || saveResult.isPending || incompleteAnswerKeyCount > 0}
                               >
@@ -1058,7 +1058,7 @@ export default function MockExamsPage() {
                           <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                             {activeQuestions.filter((question) => !question.is_void).map((question) => (
                               <div key={question.question_number} className="grid grid-cols-[2rem_1fr] items-center gap-2 rounded-2xl bg-white p-2">
-                                <div className="text-center text-sm font-extrabold text-[#1A1C1E]">{question.question_number}</div>
+                                <div className="text-center text-sm font-extrabold text-[var(--legacy-ink)]">{question.question_number}</div>
                                 <div className="grid grid-cols-5 gap-1">
                                   {[1, 2, 3, 4, 5].map((choice) => {
                                     const value = String(choice)
@@ -1070,7 +1070,7 @@ export default function MockExamsPage() {
                                         onClick={() => updateManualAnswer(question.question_number, value)}
                                         className={cn(
                                           'h-8 rounded-full text-xs font-extrabold transition',
-                                          selected ? 'bg-[#2463EB] text-white' : 'bg-slate-100 text-slate-500 hover:bg-blue-50 hover:text-[#2463EB]',
+                                          selected ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground' : 'bg-slate-100 text-slate-500 hover:bg-blue-50 hover:text-[var(--legacy-blue)]',
                                         )}
                                       >
                                         {choice}
@@ -1094,7 +1094,7 @@ export default function MockExamsPage() {
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <CardTitle className="text-lg">학생별 성적표</CardTitle>
-                    <p className="mt-1 text-sm font-medium text-[#8B95A1]">
+                    <p className="mt-1 text-sm font-medium text-[var(--legacy-muted)]">
                       미발행 {unpublishedResults.length}명 · 발행됨 {(detail?.results.length ?? 0) - unpublishedResults.length}명
                     </p>
                   </div>
@@ -1109,8 +1109,8 @@ export default function MockExamsPage() {
                       <ExternalLink className="mr-2 h-4 w-4" />
                       발송센터에서 열기
                     </Button>
-                    <Button
-                      className="rounded-full bg-[#2463EB]"
+                    <Button variant="action"
+                      className="rounded-full bg-[var(--share-blue-solid)] text-white hover:bg-[var(--share-blue-solid)]/90"
                       onClick={handlePublishAll}
                       disabled={detailLoading || unpublishedResults.length === 0 || publishReports.isPending}
                     >
@@ -1123,17 +1123,17 @@ export default function MockExamsPage() {
                   {detailLoading ? (
                     <div className="h-40 animate-pulse rounded-2xl bg-slate-100" />
                   ) : !detail?.results.length ? (
-                    <div className="rounded-2xl bg-slate-50 p-8 text-center text-sm font-medium text-[#8B95A1]">채점된 학생이 없습니다.</div>
+                    <div className="rounded-2xl bg-slate-50 p-8 text-center text-sm font-medium text-[var(--legacy-muted)]">채점된 학생이 없습니다.</div>
                   ) : (
                     <div className="space-y-4">
                       <div className="rounded-[24px] bg-slate-50 p-4">
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 text-sm font-extrabold text-[#1A1C1E]">
-                              <MessageSquare className="h-4 w-4 text-[#2463EB]" />
+                            <div className="flex items-center gap-2 text-sm font-extrabold text-[var(--legacy-ink)]">
+                              <MessageSquare className="h-4 w-4 text-[var(--legacy-blue)]" />
                               성적표 문자 전송
                             </div>
-                            <p className="mt-1 text-sm font-medium text-[#8B95A1]">
+                            <p className="mt-1 text-sm font-medium text-[var(--legacy-muted)]">
                               발행된 성적표 링크를 선택한 수신자에게 전송합니다. 기본 수신자는 어머니와 학생입니다.
                             </p>
                             <Textarea
@@ -1141,7 +1141,7 @@ export default function MockExamsPage() {
                               onChange={(event) => setReportMessageTemplate(event.target.value)}
                               className="mt-3 min-h-28 resize-none rounded-2xl bg-white text-sm"
                             />
-                            <p className="mt-2 text-xs font-medium text-[#8B95A1]">
+                            <p className="mt-2 text-xs font-medium text-[var(--legacy-muted)]">
                               사용 가능: {'{학생명}'} {'{시험명}'} {'{성적표링크}'}
                             </p>
                           </div>
@@ -1154,22 +1154,22 @@ export default function MockExamsPage() {
                                   onClick={() => toggleReportRecipient(recipient)}
                                   className={cn(
                                     'rounded-full px-3 py-2 text-sm font-bold transition',
-                                    reportRecipients[recipient] ? 'bg-[#2463EB] text-white' : 'bg-white text-slate-500 hover:bg-blue-50',
+                                    reportRecipients[recipient] ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground' : 'bg-white text-slate-500 hover:bg-blue-50',
                                   )}
                                 >
                                   {reportRecipientLabels[recipient]}
                                 </button>
                               ))}
                             </div>
-                            <Button
-                              className="w-full rounded-full bg-[#2463EB]"
+                            <Button variant="action"
+                              className="w-full rounded-full bg-[var(--share-blue-solid)] text-white hover:bg-[var(--share-blue-solid)]/90"
                               onClick={handleSendPublishedReports}
                               disabled={publishedResults.length === 0 || sendReports.isPending}
                             >
                               {sendReports.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                               발행 성적표 전송
                             </Button>
-                            <p className="text-xs font-medium text-[#8B95A1]">
+                            <p className="text-xs font-medium text-[var(--legacy-muted)]">
                               대상 {publishedResults.length}명 · 미발행 {unpublishedResults.length}명
                             </p>
                           </div>
@@ -1187,9 +1187,9 @@ export default function MockExamsPage() {
                             }}>
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className="text-base font-extrabold">{studentName(result.student)}</span>
-                                {report ? <Badge className="bg-blue-100 text-[#2463EB]">발행됨</Badge> : <Badge variant="outline">미발행</Badge>}
+                                {report ? <Badge className="bg-blue-100 text-[var(--legacy-blue)]">발행됨</Badge> : <Badge variant="outline">미발행</Badge>}
                               </div>
-                              <div className="mt-1 flex flex-wrap gap-3 text-sm text-[#8B95A1]">
+                              <div className="mt-1 flex flex-wrap gap-3 text-sm text-[var(--legacy-muted)]">
                                 <span>{result.raw_score ?? '-'}점</span>
                                 <span>{result.grade ?? '-'}등급</span>
                                 <span>듣기 {resultRate(result.listening_correct, result.listening_total)}</span>
@@ -1211,8 +1211,8 @@ export default function MockExamsPage() {
                               )}
                               <Button
                                 size="sm"
-                                className={cn('rounded-full', !report && 'bg-[#2463EB]')}
-                                variant={report ? 'outline' : 'default'}
+                                className={cn('rounded-full', !report && 'bg-[var(--share-blue-solid)] text-white hover:bg-[var(--share-blue-solid)]/90')}
+                                variant={report ? 'outline' : 'action'}
                                 disabled={publishReport.isPending || publishReports.isPending}
                                 onClick={() => handlePublish(result)}
                               >

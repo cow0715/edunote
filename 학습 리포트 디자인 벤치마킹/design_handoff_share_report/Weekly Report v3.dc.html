@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+body{margin:0;background:#F2F4F6;font-family:'Pretendard Variable',Pretendard,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased;word-break:keep-all}
+a{color:#3182F6;text-decoration:none}a:hover{color:#1d4fd0}
+button,input{font-family:inherit}
+input::placeholder{color:#B0B8C1}
+.scrub::-webkit-scrollbar{display:none}
+@keyframes flipin{from{opacity:0;transform:rotateY(70deg)}to{opacity:1;transform:rotateY(0)}}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes sheetUp{0%{transform:translateY(100%)}70%{transform:translateY(-6px)}100%{transform:translateY(0)}}
+@keyframes draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.03)}100%{transform:scale(1)}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+</style>
+</helmet>
+
+<div style="max-width:430px;margin:0 auto;min-height:100vh;position:relative;color:#191F28;padding-bottom:92px;background:#fff">
+
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 20px 8px">
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <span style="font-size:12px;color:#8B95A1;font-weight:500">{{ headerLine }}</span>
+      <span style="font-size:20px;font-weight:800;letter-spacing:-.01em">{{ studentName }}</span>
+    </div>
+    <sc-if value="{{ hasPeriods }}" hint-placeholder-val="{{ true }}">
+      <button onClick="{{ openSheet }}" style="border:0;cursor:pointer;display:flex;align-items:center;gap:6px;background:#F2F4F6;border-radius:999px;padding:8px 12px 8px 14px;font-size:13px;font-weight:800;color:#191F28">{{ periodLabel }}<span style="font-size:10px;color:#8B95A1">▾</span></button>
+    </sc-if>
+  </div>
+
+  <sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeSheet }}" style="position:fixed;inset:0;background:rgba(25,31,40,.5);z-index:20;display:flex;justify-content:center;align-items:flex-end;animation:fadeIn .2s ease both">
+      <div onClick="{{ stop }}" style="width:100%;max-width:430px;background:#F9FAFB;border-radius:20px 20px 0 0;padding:14px 16px 28px;animation:sheetUp .42s cubic-bezier(.22,.9,.3,1) both">
+        <div style="width:36px;height:4px;border-radius:2px;background:#E5E8EB;margin:0 auto 16px"></div>
+        <span style="display:block;font-size:16px;font-weight:800;padding:0 6px 12px">기간 선택</span>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <sc-for list="{{ periodRows }}" as="p" hint-placeholder-count="3">
+            <button onClick="{{ p.onClick }}" style="border:0;cursor:pointer;text-align:left;display:flex;align-items:center;gap:12px;border-radius:18px;padding:14px 16px;background:{{ p.bg }}">
+              <div style="display:flex;flex-direction:column;gap:3px;flex:1">
+                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:15px;font-weight:800;color:{{ p.fg }}">{{ p.label }}</span><sc-if value="{{ p.isCurrent }}" hint-placeholder-val="{{ false }}"><span style="font-size:10px;font-weight:700;color:#3182F6;background:#E8F3FF;border-radius:999px;padding:2px 7px">현재</span></sc-if></div>
+                <span style="font-size:12px;color:#8B95A1">{{ p.range }} · {{ p.count }}회차</span>
+              </div>
+              <span style="font-size:14px;color:{{ p.check }}">✓</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ══════════ HOME ══════════ -->
+  <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+  <div style="display:flex;flex-direction:column;gap:12px;padding:8px 16px 0">
+
+    <div style="background:#F9FAFB;border-radius:20px;padding:22px 22px 20px;animation:rise .45s cubic-bezier(.2,.8,.2,1) both">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <span style="font-size:11px;font-weight:700;letter-spacing:.08em;color:#3182F6">이번 주 · {{ sel.label }} · {{ sel.dateShort }}</span>
+        <span style="font-size:11px;color:#8B95A1;display:flex;align-items:center;gap:5px"><span style="width:7px;height:7px;border-radius:50%;background:{{ sel.attColor }}"></span>{{ sel.attText }}</span>
+      </div>
+      <p style="margin:0 0 16px;font-size:23px;line-height:1.32;font-weight:700;letter-spacing:-.025em;text-wrap:pretty">{{ headline }}</p>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <sc-for list="{{ facts }}" as="f" hint-placeholder-count="3">
+          <div style="display:flex;align-items:center;gap:10px;font-size:13px;line-height:1.4">
+            <span style="width:6px;height:6px;border-radius:50%;background:{{ f.color }};flex:none"></span>
+            <span style="color:#4E5968">{{ f.text }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <sc-if value="{{ hasComment }}" hint-placeholder-val="{{ true }}">
+      <div style="background:#F9FAFB;color:#191F28;border-radius:20px;padding:20px 22px;animation:rise .45s cubic-bezier(.2,.8,.2,1) both;animation-delay:60ms">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <span style="font-size:11px;font-weight:700;letter-spacing:.08em;color:#8B95A1">선생님 코멘트</span>
+          <span style="font-size:11px;color:#8B95A1">{{ sel.dateShort }}</span>
+        </div>
+        <p style="margin:0;font-size:15px;line-height:1.6;font-weight:500;color:#333D4B">{{ sel.comment }}</p>
+        <sc-if value="{{ hasOlderComments }}" hint-placeholder-val="{{ false }}">
+          <sc-if value="{{ commentOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:14px;padding-top:14px;border-top:1px solid #E5E8EB;display:flex;flex-direction:column;gap:12px">
+              <sc-for list="{{ olderComments }}" as="c" hint-placeholder-count="2">
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <span style="font-size:11px;color:#8B95A1">{{ c.label }} · {{ c.dateShort }}</span>
+                  <span style="font-size:13px;line-height:1.5;color:#4E5968">{{ c.comment }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <button onClick="{{ toggleComment }}" style="margin-top:12px;border:0;background:transparent;color:#3182F6;font-size:12px;font-weight:600;padding:0;cursor:pointer">{{ commentToggleLabel }}</button>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ hasTodo }}" hint-placeholder-val="{{ true }}">
+      <div style="background:#F9FAFB;border-radius:20px;overflow:hidden;animation:rise .45s cubic-bezier(.2,.8,.2,1) both;animation-delay:120ms">
+        <sc-for list="{{ todos }}" as="t" hint-placeholder-count="2">
+          <button onClick="{{ t.onClick }}" style-active="transform:scale(.985);background:#F2F4F6" style="width:100%;text-align:left;border:0;cursor:pointer;background:transparent;padding:16px 20px;display:flex;align-items:center;gap:12px;border-top:1px solid #EEF1F4;transition:transform .12s">
+            <div style="display:flex;flex-direction:column;gap:3px;flex:1">
+              <span style="font-size:15px;font-weight:700">{{ t.title }}</span>
+              <span style="font-size:12px;color:#8B95A1">{{ t.sub }}</span>
+            </div>
+            <span style="font-size:13px;font-weight:700;color:#3182F6">{{ t.action }}</span>
+            <span style="font-size:14px;color:#B0B8C1">›</span>
+          </button>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <div style="background:#F9FAFB;border-radius:20px;overflow:hidden;animation:rise .45s cubic-bezier(.2,.8,.2,1) both;animation-delay:180ms">
+      <div style="padding:18px 20px 6px;display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-size:15px;font-weight:800">{{ periodLabel }} 요약</span>
+        <span style="font-size:11px;color:#8B95A1">{{ trendSub }}</span>
+      </div>
+      <sc-for list="{{ metrics }}" as="m" hint-placeholder-count="4">
+        <button onClick="{{ m.onClick }}" style-active="transform:scale(.985);background:#F2F4F6" style="width:100%;text-align:left;border:0;cursor:pointer;background:{{ m.rowBg }};padding:13px 20px;display:flex;align-items:center;gap:12px;transition:transform .12s">
+          <span style="width:64px;font-size:13px;font-weight:{{ m.labelWeight }};color:{{ m.labelColor }}">{{ m.label }}</span>
+          <span style="font-size:20px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums">{{ m.value }}<span style="font-size:12px;font-weight:600;color:#8B95A1;margin-left:2px">{{ m.unit }}</span></span>
+          <span style="flex:1;text-align:right;font-size:12px;font-weight:600;color:{{ m.deltaColor }}">{{ m.delta }}</span>
+          <span style="font-size:14px;color:{{ m.chev }}">›</span>
+        </button>
+      </sc-for>
+      <sc-if value="{{ hasTrend }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:10px 20px 14px;border-top:1px solid #EEF1F4;animation:rise .25s ease both">
+          <svg width="100%" viewBox="0 0 330 130" style="display:block">
+            <line x1="20" y1="20" x2="310" y2="20" stroke="#E5E8EB"></line>
+            <line x1="20" y1="70" x2="310" y2="70" stroke="#E5E8EB"></line>
+            <line x1="20" y1="120" x2="310" y2="120" stroke="#E5E8EB"></line>
+            {{ chartLine }}
+            <polyline points="{{ avgPoints }}" fill="none" stroke="#fff" stroke-width="4" stroke-dasharray="4 4" opacity=".9"></polyline>
+            <polyline points="{{ avgPoints }}" fill="none" stroke="#4E5968" stroke-width="1.5" stroke-dasharray="4 4"></polyline>
+          </svg>
+          <div style="display:flex;justify-content:space-between;margin:0 -2px;padding:0 4px">
+            <sc-for list="{{ chartPts }}" as="p" hint-placeholder-count="6">
+              <button onClick="{{ p.onClick }}" style="border:0;background:transparent;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 0;flex:1;min-width:0">
+                <span style="font-size:12px;font-weight:700;color:{{ p.lc }};font-variant-numeric:tabular-nums">{{ p.v }}</span>
+                <span style="font-size:10px;color:#8B95A1">{{ p.date }}</span>
+              </button>
+            </sc-for>
+          </div>
+          <span style="display:block;margin-top:6px;font-size:11px;color:#8B95A1">{{ chartCaption }}</span>
+        </div>
+      </sc-if>
+      <sc-if value="{{ noTrend }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:12px 20px 16px;border-top:1px solid #EEF1F4;font-size:12px;line-height:1.55;color:#8B95A1">{{ noTrendText }}</div>
+      </sc-if>
+    </div>
+
+
+  </div>
+  </sc-if>
+
+  <!-- ══════════ HISTORY ══════════ -->
+  <sc-if value="{{ isHistory }}" hint-placeholder-val="{{ false }}">
+  <div style="display:flex;flex-direction:column;gap:12px;padding:8px 16px 0">
+    <div style="padding:8px 6px 0;display:flex;align-items:flex-end;justify-content:space-between;gap:10px">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <span style="font-size:22px;font-weight:800;letter-spacing:-.02em">회차별 기록</span>
+        <span style="font-size:13px;color:#8B95A1">{{ historySub }}</span>
+      </div>
+      <sc-if value="{{ hasPeriods }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;background:#F2F4F6;border-radius:999px;padding:3px;gap:2px">
+          <button onClick="{{ setScopePeriod }}" style="border:0;border-radius:999px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;background:{{ spBg }};color:{{ spFg }}">{{ periodLabel }}</button>
+          <button onClick="{{ setScopeAll }}" style="border:0;border-radius:999px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;background:{{ saBg }};color:{{ saFg }}">전체 기간</button>
+        </div>
+      </sc-if>
+    </div>
+    <sc-for list="{{ historyGroups }}" as="pg" hint-placeholder-count="2">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:baseline;gap:8px;padding:6px 6px 0"><span style="font-size:13px;font-weight:800;color:#3182F6">{{ pg.period }}</span><span style="font-size:11px;color:#8B95A1">{{ pg.count }}회차</span></div>
+        <div style="background:#F9FAFB;border-radius:20px;box-shadow:none;overflow:hidden;border:1px solid #F2F4F6">
+          <sc-for list="{{ pg.rows }}" as="h" hint-placeholder-count="3">
+            <div style="border-top:1px solid #E5E8EB">
+              <button onClick="{{ h.onToggle }}" style-active="background:#F2F4F6" style="width:100%;text-align:left;border:0;background:transparent;cursor:pointer;padding:16px 20px;display:flex;flex-direction:column;gap:10px">
+                <div style="display:flex;align-items:center;gap:8px;width:100%">
+                  <span style="font-size:15px;font-weight:800">{{ h.shortLabel }}</span>
+                  <span style="font-size:12px;color:#8B95A1">{{ h.dateShort }}</span>
+                  <span style="font-size:10px;font-weight:700;border-radius:999px;padding:3px 8px;background:{{ h.attBg }};color:{{ h.attFg }}">{{ h.attText }}</span>
+                  <span style="margin-left:auto;font-size:12px;color:#B0B8C1;transform:rotate({{ h.chev }});transition:transform .2s">⌄</span>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  <sc-for list="{{ h.chips }}" as="c" hint-placeholder-count="3">
+                    <span style="display:flex;align-items:center;gap:5px;font-size:12px;background:{{ c.bg }};border-radius:10px;padding:5px 9px"><span style="color:#6B7684">{{ c.label }}</span><strong style="color:{{ c.color }}">{{ c.value }}</strong><span style="font-size:10px;color:{{ c.diffColor }}">{{ c.diff }}</span></span>
+                  </sc-for>
+                </div>
+              </button>
+              <sc-if value="{{ h.open }}" hint-placeholder-val="{{ false }}">
+                <div style="padding:0 20px 18px;display:flex;flex-direction:column;gap:12px;animation:rise .25s ease both">
+                  <sc-if value="{{ h.hasTypes }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;flex-direction:column;gap:6px">
+                      <span style="font-size:11px;color:#8B95A1">이번 회차 오답 유형</span>
+                      <div style="display:flex;flex-wrap:wrap;gap:6px">
+                        <sc-for list="{{ h.types }}" as="t" hint-placeholder-count="2"><span style="font-size:11px;font-weight:700;color:#E42939;background:#FFEEEE;border-radius:999px;padding:4px 10px">{{ t.name }} <span style="opacity:.6">{{ t.n }}</span></span></sc-for>
+                      </div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ h.hasComment }}" hint-placeholder-val="{{ false }}">
+                    <div style="background:#fff;border-radius:14px;padding:12px 14px"><span style="font-size:10px;font-weight:700;letter-spacing:.06em;color:#3182F6">선생님 코멘트</span><p style="margin:4px 0 0;font-size:13px;line-height:1.55;color:#333D4B">{{ h.comment }}</p></div>
+                  </sc-if>
+                  <sc-if value="{{ h.hasWrong }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:8px">
+                      <sc-if value="{{ h.hasWrongQ }}" hint-placeholder-val="{{ false }}"><button onClick="{{ h.goReading }}" style="flex:1;border:0;cursor:pointer;border-radius:12px;padding:10px;font-size:12px;font-weight:700;background:#3182F6;color:#fff">오답 {{ h.wrongQ }}문항 보기</button></sc-if>
+                      <sc-if value="{{ h.hasWrongW }}" hint-placeholder-val="{{ false }}"><button onClick="{{ h.goVocab }}" style="flex:1;border:0;cursor:pointer;border-radius:12px;padding:10px;font-size:12px;font-weight:700;background:#fff;color:#191F28">틀린 단어 {{ h.wrongW }}개</button></sc-if>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ h.isEmpty }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:#8B95A1">이 회차엔 오답·코멘트가 없어요.</span></sc-if>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+
+    <div style="background:#F9FAFB;border-radius:20px;padding:20px 20px 18px;box-shadow:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <span style="font-size:15px;font-weight:800">출결 현황</span>
+        <div style="display:flex;background:#E5E8EB;border-radius:999px;padding:3px;gap:2px">
+          <button onClick="{{ setRegular }}" style="border:0;border-radius:999px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;background:{{ regBg }};color:{{ regFg }}">정규수업</button>
+          <button onClick="{{ setClinic }}" style="border:0;border-radius:999px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;background:{{ cliBg }};color:{{ cliFg }}">클리닉</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+        <div style="background:#E8F3FF;border-radius:16px;padding:12px 14px"><span style="font-size:11px;font-weight:600;color:#8B95A1">정규수업</span><p style="margin:4px 0 0;font-size:22px;font-weight:900;color:#3182F6;line-height:1">{{ attRate }}<span style="font-size:12px;opacity:.6">%</span></p><span style="font-size:11px;color:#8B95A1">{{ attSummary }}</span></div>
+        <div style="background:#fff;border-radius:16px;padding:12px 14px"><span style="font-size:11px;font-weight:600;color:#8B95A1">클리닉</span><p style="margin:4px 0 0;font-size:22px;font-weight:900;line-height:1">{{ cliRate }}<span style="font-size:12px;opacity:.6">%</span></p><span style="font-size:11px;color:#8B95A1">{{ cliSummary }}</span></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <button onClick="{{ prevMonth }}" style="border:0;background:#F2F4F6;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:14px;color:#191F28;opacity:{{ prevOp }}">‹</button>
+        <span style="font-size:13px;font-weight:700">{{ calTitle }}</span>
+        <button onClick="{{ nextMonth }}" style="border:0;background:#F2F4F6;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:14px;color:#191F28;opacity:{{ nextOp }}">›</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);row-gap:4px;text-align:center">
+        <sc-for list="{{ dow }}" as="d" hint-placeholder-count="7"><span style="font-size:10px;color:#8B95A1;padding-bottom:4px">{{ d }}</span></sc-for>
+        <sc-for list="{{ calCells }}" as="c" hint-placeholder-count="35">
+          <div style="display:flex;justify-content:center;padding:2px 0"><span style="width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:{{ c.w }};background:{{ c.bg }};color:{{ c.fg }}">{{ c.d }}</span></div>
+        </sc-for>
+      </div>
+      <div style="display:flex;gap:14px;margin-top:12px;font-size:11px;color:#8B95A1">
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:#3182F6"></span>출석</span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:#8B95A1"></span>지각</span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:#F04452"></span>결석</span>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ══════════ ANALYSIS ══════════ -->
+  <sc-if value="{{ isAnalysis }}" hint-placeholder-val="{{ false }}">
+  <div style="display:flex;flex-direction:column;gap:12px;padding:8px 16px 0">
+    <div style="padding:8px 6px 0;display:flex;flex-direction:column;gap:4px">
+      <span style="font-size:22px;font-weight:800;letter-spacing:-.02em">분석</span>
+      <span style="font-size:13px;color:#8B95A1">{{ analysisSub }}</span>
+    </div>
+
+    <sc-if value="{{ hasTypes }}" hint-placeholder-val="{{ true }}">
+      <div style="background:#F9FAFB;border-radius:20px;padding:20px;box-shadow:none">
+        <span style="font-size:15px;font-weight:800">영역별 정답률</span>
+        <p style="margin:2px 0 8px;font-size:11px;color:#8B95A1">수능 유형 영역별 누적</p>
+        <div style="display:flex;align-items:center;gap:8px">
+          <svg width="170" height="150" viewBox="0 0 170 150" style="flex:none">
+            <polygon points="85,15 155,130 15,130" fill="none" stroke="#E5E8EB"></polygon>
+            <polygon points="85,54 120,111 50,111" fill="none" stroke="#E5E8EB"></polygon>
+            <polygon points="{{ radarPoints }}" fill="#3182F6" opacity=".15"></polygon>
+            <polygon points="{{ radarPoints }}" fill="none" stroke="#3182F6" stroke-width="2"></polygon>
+          </svg>
+          <div style="display:flex;flex-direction:column;gap:10px;flex:1">
+            <sc-for list="{{ radar }}" as="r" hint-placeholder-count="3">
+              <div style="display:flex;flex-direction:column;gap:3px">
+                <div style="display:flex;justify-content:space-between;font-size:12px"><span style="font-weight:700">{{ r.name }}</span><span style="font-weight:800;color:{{ r.color }}">{{ r.rate }}%</span></div>
+                <div style="height:5px;border-radius:3px;background:#F2F4F6;overflow:hidden"><div style="height:100%;width:{{ r.w }};background:#3182F6;border-radius:3px"></div></div>
+                <span style="font-size:10px;color:#8B95A1">{{ r.tags }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      <div style="background:#F9FAFB;border-radius:20px;padding:20px;box-shadow:none">
+        <span style="font-size:15px;font-weight:800">유형별 오답률</span>
+        <p style="margin:2px 0 14px;font-size:11px;color:#8B95A1">출제 수를 함께 반영해 정렬</p>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <sc-for list="{{ typeRows }}" as="t" hint-placeholder-count="6">
+            <div style="display:grid;grid-template-columns:76px 1fr 54px;align-items:center;gap:10px">
+              <span style="font-size:12px;font-weight:700">{{ t.name }}</span>
+              <div style="height:18px;border-radius:6px;background:#F2F4F6;overflow:hidden"><div style="height:100%;width:{{ t.w }};background:{{ t.bar }};border-radius:6px"></div></div>
+              <span style="font-size:12px;text-align:right"><strong style="color:{{ t.color }}">{{ t.rate }}%</strong><span style="color:#B0B8C1;font-size:10px"> {{ t.frac }}</span></span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ hasPatterns }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;flex-direction:column;gap:6px;padding:4px 6px 0">
+        <span style="font-size:15px;font-weight:800">약점 패턴</span>
+        <span style="font-size:12px;color:#8B95A1;line-height:1.5">빨강은 계속 틀리거나 내려가는 유형, 파랑은 올라오는 유형이에요.</span>
+      </div>
+      <sc-for list="{{ patterns }}" as="p" hint-placeholder-count="2">
+        <div style="background:#F9FAFB;border-radius:18px;padding:18px 20px;box-shadow:none;display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+            <div style="display:flex;flex-direction:column;gap:5px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:10px;font-weight:800;letter-spacing:.06em;color:#fff;background:{{ p.color }};border-radius:6px;padding:3px 7px">{{ p.stateLabel }}</span>
+                <span style="font-size:16px;font-weight:800">{{ p.name }}</span>
+              </div>
+              <span style="font-size:12px;color:#6B7684">{{ p.insight }}</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end">
+              <span style="font-size:26px;font-weight:900;line-height:1;color:{{ p.color }}">{{ p.acc }}<span style="font-size:12px;font-weight:700;opacity:.6">%</span></span>
+              <span style="font-size:10px;color:#8B95A1;margin-top:3px">누적 정답률</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:5px;align-items:end;height:40px">
+            <sc-for list="{{ p.bars }}" as="b" hint-placeholder-count="6">
+              <div style="flex:1;display:flex;flex-direction:column;height:100%;justify-content:flex-end"><div style="width:100%;border-radius:5px;background:{{ b.bg }};height:{{ b.h }}"></div></div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </sc-if>
+    <sc-if value="{{ analysisEmpty }}" hint-placeholder-val="{{ false }}">
+      <div style="background:#F9FAFB;border-radius:20px;padding:36px 22px;box-shadow:none;text-align:center;display:flex;flex-direction:column;gap:6px">
+        <span style="font-size:15px;font-weight:800">아직 분석할 시험이 부족해요</span>
+        <span style="font-size:13px;color:#8B95A1;line-height:1.5">유형이 2회 이상 출제되면 약점 패턴이 여기 표시됩니다.</span>
+      </div>
+    </sc-if>
+  </div>
+  </sc-if>
+
+  <!-- ══════════ WRONG NOTE ══════════ -->
+  <sc-if value="{{ isWrong }}" hint-placeholder-val="{{ false }}">
+  <div style="display:flex;flex-direction:column;gap:12px;padding:8px 16px 0">
+    <sc-if value="{{ wrongList }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;background:#F2F4F6;border-radius:18px;padding:4px">
+        <button onClick="{{ setWrongReading }}" style="flex:1;border:0;cursor:pointer;border-radius:14px;padding:10px;font-size:13px;font-weight:700;background:{{ wrBg }};color:{{ wrFg }}">진단평가 <span style="font-size:11px;border-radius:999px;padding:1px 7px;background:{{ wrBadgeBg }}">{{ wrongReadingCount }}</span></button>
+        <button onClick="{{ setWrongVocab }}" style="flex:1;border:0;cursor:pointer;border-radius:14px;padding:10px;font-size:13px;font-weight:700;background:{{ wvBg }};color:{{ wvFg }}">단어 <span style="font-size:11px;border-radius:999px;padding:1px 7px;background:{{ wvBadgeBg }}">{{ wrongVocabCount }}</span></button>
+      </div>
+
+      <sc-if value="{{ wrongIsReading }}" hint-placeholder-val="{{ true }}">
+        <sc-if value="{{ hasAnyWrongQ }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ startRetake }}" style-active="transform:scale(.98)" style="transition:transform .12s;border:0;cursor:pointer;text-align:left;background:#3182F6;color:#fff;border-radius:20px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;box-shadow:none">
+            <div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:15px;font-weight:800">{{ retakeTotal }}문항 다시 풀기</span><span style="font-size:12px;opacity:.8">약 {{ retakeMinutes }}분 · 해설 포함</span></div>
+            <span style="font-size:20px">→</span>
+          </button>
+          <div style="background:#F9FAFB;border-radius:20px;box-shadow:none;overflow:hidden;border:1px solid #F2F4F6">
+            <sc-for list="{{ wrongReadingGroups }}" as="g" hint-placeholder-count="2">
+              <div style="border-top:1px solid #E5E8EB">
+                <button onClick="{{ g.onToggle }}" style-active="background:#F2F4F6" style="width:100%;text-align:left;border:0;background:transparent;cursor:pointer;padding:14px 20px;display:flex;align-items:center;gap:8px">
+                  <span style="font-size:14px;font-weight:800">{{ g.label }}</span><span style="font-size:12px;color:#8B95A1">{{ g.dateShort }}</span>
+                  <span style="font-size:11px;font-weight:700;color:#E42939;background:#FFEEEE;border-radius:999px;padding:2px 8px">{{ g.count }}문제</span>
+                  <span style="margin-left:auto;font-size:12px;color:#B0B8C1;transform:rotate({{ g.chev }})">⌄</span>
+                </button>
+                <sc-if value="{{ g.open }}" hint-placeholder-val="{{ true }}">
+                  <sc-for list="{{ g.items }}" as="q" hint-placeholder-count="2">
+                    <div style="border-top:1px solid #EEF1F4;padding:14px 20px;display:flex;flex-direction:column;gap:8px">
+                      <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;font-weight:800;color:#3182F6">{{ q.num }}번</span><span style="font-size:10px;font-weight:700;color:#4E5968;background:#F2F4F6;border-radius:6px;padding:2px 7px">{{ q.tag }}</span></div>
+                      <p style="margin:0;font-size:13.5px;font-weight:600;line-height:1.5">{{ q.stem }}</p>
+                      <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="color:#8B95A1">내 답</span><span style="font-weight:800;color:#F04452;text-decoration:line-through">{{ q.mineMark }}</span><span style="color:#B0B8C1">→</span><span style="color:#8B95A1">정답</span><span style="font-weight:800;color:#191F28">{{ q.ansMark }}</span></div>
+                      <button onClick="{{ q.onToggle }}" style="align-self:flex-start;border:0;background:transparent;cursor:pointer;padding:0;font-size:12px;font-weight:600;color:#3182F6">{{ q.expLabel }}</button>
+                      <sc-if value="{{ q.open }}" hint-placeholder-val="{{ false }}"><div style="background:#fff;border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.6;color:#333D4B">{{ q.explanation }}</div></sc-if>
+                    </div>
+                  </sc-for>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noWrongQ }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#F9FAFB;border-radius:20px;padding:36px 22px;box-shadow:none;text-align:center;display:flex;flex-direction:column;gap:6px">
+            <span style="font-size:15px;font-weight:800">{{ noWrongQTitle }}</span>
+            <span style="font-size:13px;color:#8B95A1">{{ noWrongQSub }}</span>
+          </div>
+        </sc-if>
+      </sc-if>
+
+      <sc-if value="{{ wrongIsVocab }}" hint-placeholder-val="{{ false }}">
+        <sc-if value="{{ hasAnyWrongW }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ startVocabRetake }}" style-active="transform:scale(.98)" style="transition:transform .12s;border:0;cursor:pointer;text-align:left;background:#191F28;color:#fff;border-radius:20px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;box-shadow:none">
+            <div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:15px;font-weight:800">재시험 {{ vocabRetakeLeft }}개 남음</span><span style="font-size:12px;opacity:.8">1분 20초 · 뜻 입력</span></div>
+            <span style="font-size:20px">→</span>
+          </button>
+          <div style="background:#F9FAFB;border-radius:20px;box-shadow:none;overflow:hidden;border:1px solid #F2F4F6">
+            <sc-for list="{{ wrongVocabGroups }}" as="g" hint-placeholder-count="1">
+              <div style="border-top:1px solid #E5E8EB">
+                <button onClick="{{ g.onToggle }}" style-active="background:#F2F4F6" style="width:100%;text-align:left;border:0;background:transparent;cursor:pointer;padding:14px 20px;display:flex;align-items:center;gap:8px">
+                  <span style="font-size:14px;font-weight:800">{{ g.label }}</span><span style="font-size:12px;color:#8B95A1">{{ g.dateShort }}</span>
+                  <span style="font-size:11px;font-weight:700;color:#E42939;background:#FFEEEE;border-radius:999px;padding:2px 8px">{{ g.count }}개</span>
+                  <span style="margin-left:auto;font-size:12px;color:#B0B8C1;transform:rotate({{ g.chev }})">⌄</span>
+                </button>
+                <sc-if value="{{ g.open }}" hint-placeholder-val="{{ true }}">
+                  <sc-for list="{{ g.items }}" as="w" hint-placeholder-count="4">
+                    <div style="border-top:1px solid #EEF1F4;padding:12px 20px;display:flex;flex-direction:column;gap:6px">
+                      <div style="display:flex;align-items:center;gap:8px"><span style="font-size:10px;color:#B0B8C1;font-weight:700">#{{ w.no }}</span><span style="font-size:15px;font-weight:800">{{ w.word }}</span><span style="font-size:10px;font-weight:700;border-radius:6px;padding:2px 7px;background:{{ w.srcBg }};color:{{ w.srcFg }}">{{ w.srcLabel }}</span></div>
+                      <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="font-weight:700;color:{{ w.mineColor }};text-decoration:{{ w.mineDeco }}">{{ w.mineText }}</span><span style="color:#B0B8C1">→</span><span style="font-weight:800;color:#191F28">{{ w.ko }}</span></div>
+                      <sc-if value="{{ w.hasRel }}" hint-placeholder-val="{{ true }}">
+                        <div style="display:flex;flex-wrap:wrap;gap:5px">
+                          <sc-for list="{{ w.syn }}" as="s" hint-placeholder-count="1"><span style="font-size:11px;color:#4E5968;background:#F2F4F6;border-radius:999px;padding:3px 8px">유 {{ s }}</span></sc-for>
+                          <sc-for list="{{ w.ant }}" as="a" hint-placeholder-count="1"><span style="font-size:11px;color:#4E5968;background:#F2F4F6;border-radius:999px;padding:3px 8px">반 {{ a }}</span></sc-for>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noWrongW }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#F9FAFB;border-radius:20px;padding:36px 22px;box-shadow:none;text-align:center;font-size:14px;font-weight:700">틀린 단어가 없어요</div>
+        </sc-if>
+      </sc-if>
+    </sc-if>
+
+    <sc-if value="{{ inRetake }}" hint-placeholder-val="{{ false }}">
+      <sc-if value="{{ retakeDone }}" hint-placeholder-val="{{ false }}">
+        <div style="background:#F9FAFB;border-radius:20px;padding:28px 22px;box-shadow:none;display:flex;flex-direction:column;align-items:center;gap:8px;animation:rise .4s ease both">
+          <span style="font-size:11px;font-weight:700;letter-spacing:.08em;color:#8B95A1">다시풀기 결과</span>
+          <span style="font-size:56px;font-weight:900;line-height:1;letter-spacing:-.03em;color:#3182F6">{{ retakeScore }}<span style="font-size:20px;opacity:.6">%</span></span>
+          <span style="font-size:14px;color:#4E5968">{{ retakeTotal }}문항 중 {{ retakeCorrect }}개 정답</span>
+          <div style="display:flex;gap:8px;margin-top:14px">
+            <button onClick="{{ exitRetake }}" style="border:0;cursor:pointer;background:#F2F4F6;color:#191F28;border-radius:999px;padding:14px 22px;font-size:14px;font-weight:700">오답노트로</button>
+            <button onClick="{{ resetRetake }}" style="border:0;cursor:pointer;background:#191F28;color:#fff;border-radius:999px;padding:14px 22px;font-size:14px;font-weight:700">틀린 것만 다시</button>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ retakeActive }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 6px 0">
+          <button onClick="{{ exitRetake }}" style="border:0;background:transparent;cursor:pointer;padding:0;font-size:13px;color:#8B95A1">← 나가기</button>
+          <span style="font-size:13px;color:#8B95A1">{{ q.tag }}</span>
+          <span style="font-size:13px;font-weight:700"><span style="color:#3182F6">{{ qNum }}</span><span style="color:#8B95A1"> / {{ retakeTotal }}</span></span>
+        </div>
+        <div style="height:4px;border-radius:2px;background:#E5E8EB;margin:0 6px;overflow:hidden"><div style="height:100%;border-radius:2px;background:#3182F6;width:{{ retakeProgress }};transition:width .3s"></div></div>
+        <div style="background:#F9FAFB;border-radius:20px;padding:22px;box-shadow:none;display:flex;flex-direction:column;gap:14px">
+          <p style="margin:0;font-size:15px;font-weight:700;line-height:1.5">{{ q.stem }}</p>
+          <p style="margin:0;font-size:13.5px;line-height:1.7;color:#333D4B;background:#fff;border-radius:14px;padding:14px 16px">{{ q.passage }}</p>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <sc-for list="{{ choices }}" as="c" hint-placeholder-count="5">
+            <button onClick="{{ c.onClick }}" style-active="transform:scale(.98)" style="text-align:left;cursor:pointer;display:flex;align-items:center;gap:12px;background:{{ c.bg }};border:2px solid {{ c.border }};border-radius:16px;padding:13px 16px;font-size:14px;color:{{ c.fg }};font-weight:{{ c.weight }};transition:transform .12s,background .2s,border-color .2s;animation:{{ c.anim }}">
+              <span style="width:24px;height:24px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;background:{{ c.numBg }};color:{{ c.numFg }}">{{ c.n }}</span><span>{{ c.text }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <sc-if value="{{ revealed }}" hint-placeholder-val="{{ false }}">
+          <div style="border-radius:20px;padding:16px 18px;background:{{ feedbackBg }};display:flex;flex-direction:column;gap:6px;animation:rise .3s ease both">
+            <span style="font-size:13px;font-weight:800;color:{{ feedbackColor }}">{{ feedbackTitle }}</span>
+            <span style="font-size:13px;line-height:1.6;color:#333D4B">{{ q.explanation }}</span>
+          </div>
+        </sc-if>
+        <button onClick="{{ retakePrimary }}" style-active="transform:scale(.97)" style="transition:transform .12s;border:0;cursor:pointer;border-radius:999px;padding:16px;font-size:15px;font-weight:800;color:#fff;background:{{ retakeBtnBg }};box-shadow:none">{{ retakeBtnLabel }}</button>
+      </sc-if>
+    </sc-if>
+
+    <sc-if value="{{ inVocabRetake }}" hint-placeholder-val="{{ false }}">
+      <sc-if value="{{ vrDone }}" hint-placeholder-val="{{ false }}">
+        <div style="background:#191F28;color:#fff;border-radius:20px;padding:26px 22px;display:flex;flex-direction:column;align-items:center;gap:6px;animation:rise .4s ease both">
+          <span style="font-size:11px;font-weight:700;letter-spacing:.08em;opacity:.8">이번 라운드</span>
+          <span style="font-size:56px;font-weight:900;line-height:1;letter-spacing:-.03em">{{ vrScore }}<span style="font-size:20px;opacity:.7">%</span></span>
+          <span style="font-size:14px;font-weight:600">{{ vrTotal }}개 중 {{ vrCorrect }}개 정답</span>
+          <span style="font-size:12px;opacity:.8">{{ vrLeftText }}</span>
+        </div>
+        <div style="background:#F9FAFB;border-radius:20px;box-shadow:none;overflow:hidden;border:1px solid #F2F4F6">
+          <sc-for list="{{ vrResults }}" as="r" hint-placeholder-count="4">
+            <div style="border-top:1px solid #F2F4F6;padding:12px 20px;display:flex;align-items:center;gap:12px">
+              <span style="width:22px;height:22px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;background:{{ r.bg }};color:{{ r.fg }}">{{ r.mark }}</span>
+              <div style="display:flex;flex-direction:column;gap:2px;flex:1"><span style="font-size:14px;font-weight:800">{{ r.word }}</span><span style="font-size:12px;color:#6B7684">{{ r.ko }}</span></div>
+              <span style="font-size:12px;font-weight:700;color:{{ r.fg }}">{{ r.typed }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onClick="{{ exitVocabRetake }}" style="flex:1;border:0;cursor:pointer;background:#F2F4F6;color:#191F28;border-radius:999px;padding:15px;font-size:14px;font-weight:700">오답노트로</button>
+          <button onClick="{{ vrNextRound }}" style="flex:1.4;border:0;cursor:pointer;background:{{ vrNextBg }};color:#fff;border-radius:999px;padding:15px;font-size:14px;font-weight:800">{{ vrNextLabel }}</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{ vrActive }}" hint-placeholder-val="{{ true }}">
+        <div style="background:#191F28;color:#F9FAFB;border-radius:20px;padding:14px 18px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <button onClick="{{ exitVocabRetake }}" style="border:0;background:rgba(255,255,255,.1);color:#fff;border-radius:50%;width:30px;height:30px;cursor:pointer;font-size:14px">←</button>
+            <span style="font-size:20px;font-weight:900;color:{{ timerColor }};font-variant-numeric:tabular-nums">{{ timerText }}<span style="font-size:12px;color:#6B7684;font-weight:600"> / 1:20</span></span>
+            <span style="font-size:13px;font-weight:700"><span style="font-size:16px">{{ vrNum }}</span><span style="color:#6B7684"> / {{ vrTotal }}</span></span>
+          </div>
+          <div style="height:5px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden"><div style="height:100%;width:{{ timerW }};background:{{ timerColor }};border-radius:3px;transition:width 1s linear"></div></div>
+        </div>
+        <div style="display:flex;gap:5px;justify-content:center;flex-wrap:wrap;padding:14px 0 4px">
+          <sc-for list="{{ vrDots }}" as="d" hint-placeholder-count="4"><span style="width:8px;height:8px;border-radius:50%;background:{{ d }}"></span></sc-for>
+        </div>
+        <div style="background:#191F28;color:#fff;border-radius:20px;min-height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:28px;animation:flipin .35s ease both">
+          <span style="font-size:11px;font-weight:700;letter-spacing:.14em;color:#8B95A1">{{ vrWord.kicker }}</span>
+          <span style="font-size:34px;font-weight:800;letter-spacing:-.02em;text-align:center">{{ vrWord.word }}</span>
+        </div>
+        <input value="{{ vrInput }}" onChange="{{ onVrInput }}" onKeyDown="{{ onVrKey }}" placeholder="한글 뜻을 입력하세요" style="width:100%;box-sizing:border-box;border:0;border-radius:18px;padding:20px;font-size:17px;font-weight:600;text-align:center;background:#F2F4F6;color:#191F28;outline:none">
+        <button onClick="{{ vrSubmit }}" style-active="transform:scale(.97)" style="transition:transform .12s;border:0;cursor:pointer;border-radius:999px;padding:17px;font-size:15px;font-weight:800;color:#fff;background:#3182F6;box-shadow:none">{{ vrBtnLabel }} →</button>
+      </sc-if>
+    </sc-if>
+  </div>
+  </sc-if>
+
+  <!-- ══════════ VOCAB ══════════ -->
+  <sc-if value="{{ isVocab }}" hint-placeholder-val="{{ false }}">
+  <div style="display:flex;flex-direction:column;gap:12px;padding:8px 16px 0">
+    <div style="padding:8px 6px 0;display:flex;flex-direction:column;gap:4px">
+      <span style="font-size:22px;font-weight:800;letter-spacing:-.02em">단어장</span>
+      <span style="font-size:13px;color:#8B95A1">{{ vocabShown }}/{{ vocabAll }}개 표시</span>
+    </div>
+    <input value="{{ vocabSearch }}" onChange="{{ onVocabSearch }}" placeholder="단어, 뜻, 유의어 검색" style="width:100%;box-sizing:border-box;border:0;border-radius:18px;padding:14px 18px;font-size:14px;background:#F2F4F6;color:#191F28;outline:none">
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <sc-for list="{{ vocabModes }}" as="m" hint-placeholder-count="3">
+        <button onClick="{{ m.onClick }}" style="border:0;cursor:pointer;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:700;background:{{ m.bg }};color:{{ m.fg }}">{{ m.label }}</button>
+      </sc-for>
+    </div>
+    <sc-for list="{{ vocabGroups }}" as="g" hint-placeholder-count="2">
+      <div style="background:#F9FAFB;border-radius:20px;box-shadow:none;overflow:hidden;border:1px solid #F2F4F6">
+        <button onClick="{{ g.onToggle }}" style="width:100%;text-align:left;border:0;background:transparent;cursor:pointer;padding:16px 20px;display:flex;align-items:center;gap:8px">
+          <div style="display:flex;flex-direction:column;gap:3px;flex:1">
+            <div style="display:flex;align-items:center;gap:8px"><span style="font-size:14px;font-weight:800">{{ g.label }}</span><span style="font-size:12px;color:#8B95A1">{{ g.dateShort }}</span><span style="font-size:10px;font-weight:700;color:#E42939;background:#FFEEEE;border-radius:999px;padding:2px 7px">오답 {{ g.count }}</span></div>
+            <span style="font-size:11px;color:#8B95A1">{{ g.preview }}</span>
+          </div>
+          <span style="font-size:12px;color:#B0B8C1;transform:rotate({{ g.chev }})">⌄</span>
+        </button>
+        <sc-if value="{{ g.open }}" hint-placeholder-val="{{ false }}">
+          <sc-for list="{{ g.items }}" as="w" hint-placeholder-count="4">
+            <div style="border-top:1px solid #F2F4F6;padding:12px 20px;display:grid;grid-template-columns:30px 1fr;gap:10px;align-items:start">
+              <span style="font-size:10px;color:#B0B8C1;font-weight:700;padding-top:4px">#{{ w.no }}</span>
+              <div style="display:flex;flex-direction:column;gap:5px">
+                <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:15px;font-weight:800">{{ w.word }}</span><span style="font-size:10px;font-weight:700;border-radius:6px;padding:2px 7px;background:{{ w.srcBg }};color:{{ w.srcFg }}">{{ w.srcLabel }}</span></div>
+                <span style="font-size:13px;color:#333D4B">{{ w.ko }}</span>
+                <sc-if value="{{ w.hasRel }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex;flex-wrap:wrap;gap:5px">
+                    <sc-for list="{{ w.syn }}" as="s" hint-placeholder-count="1"><span style="font-size:11px;color:#4E5968;background:#F2F4F6;border-radius:999px;padding:3px 8px">유 {{ s }}</span></sc-for>
+                    <sc-for list="{{ w.ant }}" as="a" hint-placeholder-count="1"><span style="font-size:11px;color:#4E5968;background:#F2F4F6;border-radius:999px;padding:3px 8px">반 {{ a }}</span></sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </sc-if>
+      </div>
+    </sc-for>
+    <sc-if value="{{ vocabEmpty }}" hint-placeholder-val="{{ false }}"><div style="background:#F9FAFB;border-radius:20px;padding:36px 22px;text-align:center;font-size:14px;font-weight:700">이 기간엔 틀린 단어가 없어요</div></sc-if>
+    <span style="padding:0 6px;font-size:11px;line-height:1.55;color:#8B95A1">현재 데이터에는 오답 단어만 있어요. 사전학습 단어장 전체가 연동되면 전체·주차별·지문별로 볼 수 있습니다.</span>
+  </div>
+  </sc-if>
+
+  <div style="position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;pointer-events:none">
+    <div style="width:100%;max-width:430px;pointer-events:auto;background:#fff;border-top:1px solid #F2F4F6;display:flex;padding:10px 8px 18px;position:relative">
+      <span style="position:absolute;top:0;left:{{ tabLeft }};width:20%;height:3px;display:flex;justify-content:center;transition:left .28s cubic-bezier(.2,.8,.2,1)"><span style="width:22px;height:3px;border-radius:0 0 3px 3px;background:#3182F6"></span></span>
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+        <button onClick="{{ t.onClick }}" style-active="transform:scale(.92)" style="flex:1;border:0;background:transparent;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 0 4px;transition:transform .12s">
+          <span style="font-size:12px;font-weight:{{ t.weight }};color:{{ t.color }};transition:color .2s">{{ t.label }}</span>
+        </button>
+      </sc-for>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:430,&quot;height&quot;:900},&quot;dataset&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;강상섭 (목업 · 6주)&quot;,&quot;김동화 (고3 · 26주 · 시험 없음)&quot;,&quot;김대영 (고1 · 새 기간 1주)&quot;],&quot;default&quot;:&quot;김동화 (고3 · 26주 · 시험 없음)&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;데이터&quot;}}">
+const BLUE = '#3182F6', GREEN = '#03B26C', AMBER = '#FE9800', ROSE = '#F04452', GRAY = '#8B95A1', INK = '#191F28';
+const MARK = ['①', '②', '③', '④', '⑤'];
+const pct = o => o ? Math.round(o.c / o.t * 100) : null;
+const hwPct = o => o ? Math.round(o.d / o.t * 100) : null;
+const norm = s => (s || '').replace(/[\s,./()]/g, '');
+const short = iso => { const [, m, d] = iso.split('-'); return `${+m}/${+d}`; };
+const attMeta = a => a === 'present' ? { color: BLUE, text: '출석' } : a === 'late' ? { color: '#8B95A1', text: '지각' } : { color: ROSE, text: '결석' };
+const SRC = { meaning: ['뜻', '#F2F4F6', '#6B7684'], synonym: ['유의어', '#F2F4F6', '#4E5968'], antonym: ['반의어', '#F2F4F6', '#4E5968'], derivative: ['파생어', '#F2F4F6', '#4E5968'] };
+const STATE = { persistent: ['고착', ROSE], deteriorating: ['악화', ROSE], unstable: ['기복', '#6B7684'], improving: ['개선', BLUE] };
+
+class Component extends DCLogic {
+  state = {
+    datasets: null, tab: 'home', period: null, sheetOpen: false, histScope: 'period', commentOpen: false, chartMetric: null, attView: 'regular', calMonth: null,
+    openHist: null, wrongSub: 'reading', openWrong: null, openExp: {}, openVocabGroup: null, vocabMode: 'all', vocabSearch: '',
+    view: 'list', qi: 0, selected: null, revealed: false, results: [], qset: [],
+    vset: [], vi: 0, vrInput: '', vrResults: [], timeLeft: 80, count: 1,
+  };
+  animateCount() { cancelAnimationFrame(this.raf); clearTimeout(this.rafFallback); if (document.visibilityState === 'hidden') { this.setState({ count: 1 }); return; } const t0 = performance.now(); this.setState({ count: 0 }); const step = () => { const p = Math.min(1, (performance.now() - t0) / 700); this.setState({ count: 1 - Math.pow(1 - p, 3) }); if (p < 1) this.raf = requestAnimationFrame(step); }; this.raf = requestAnimationFrame(step); this.rafFallback = setTimeout(() => { cancelAnimationFrame(this.raf); this.setState({ count: 1 }); }, 800); }
+  componentDidMount() { import('./report-data.js').then(m => { this.setState({ datasets: m.DATASETS }); this.animateCount(); }); }
+  componentWillUnmount() { clearInterval(this.timer); cancelAnimationFrame(this.raf); clearTimeout(this.rafFallback); }
+  componentDidUpdate(pp) { if (pp.dataset !== this.props.dataset) { this.animateCount(); this.setState({ period: null, openHist: null, openWrong: null, openVocabGroup: null, calMonth: null, chartMetric: null, view: 'list', tab: 'home' }); } }
+  go(tab, extra) { this.setState({ tab, view: 'list', ...(extra || {}) }); window.scrollTo(0, 0); if (tab === 'home') this.animateCount(); }
+  toggleIn(key, i, base) { this.setState(s => { const cur = s[key] ?? base ?? {}; return { [key]: { ...cur, [i]: !cur[i] } }; }); }
+  startTimer() { clearInterval(this.timer); this.timer = setInterval(() => this.setState(s => { if (s.view !== 'vretake' || s.vi >= s.vset.length) { clearInterval(this.timer); return null; } if (s.timeLeft <= 1) { clearInterval(this.timer); return { timeLeft: 0, vi: s.vset.length }; } return { timeLeft: s.timeLeft - 1 }; }), 1000); }
+  renderVals() {
+    const s = this.state; if (!s.datasets) return { isHome: true, hasPeriods: false, tabs: [] };
+    const names = Object.keys(s.datasets), D = s.datasets[this.props.dataset] ?? s.datasets[names[0]];
+    const allWeeks = D.weeks.map((w, i) => ({ ...w, i, dateShort: short(w.date), att: w.att || 'present' }));
+    const curPeriod = D.periods.find(p => p.isCurrent)?.label ?? D.periods[0].label;
+    const period = s.period ?? curPeriod;
+    const pw = allWeeks.filter(w => w.period === period);
+    const weeks = pw.length ? pw : allWeeks;
+    const n = weeks.length, sel = weeks[n - 1], prev = weeks[n - 2];
+    const latestGlobal = weeks[weeks.length - 1];
+    const scoped = weeks; // 기록 외 모든 탭은 선택 기간 기준
+    const histWeeks = s.histScope === 'all' ? allWeeks : weeks;
+    const openHist = s.openHist ?? { [latestGlobal.i]: true };
+    const openWrong = s.openWrong ?? { [latestGlobal.i]: true };
+    const openVocabGroup = s.openVocabGroup ?? { [latestGlobal.i]: true };
+    // ── home
+    const r = pct(sel.reading), v = pct(sel.vocab), h = hwPct(sel.homework);
+    const pr = prev ? pct(prev.reading) : null, pv = prev ? pct(prev.vocab) : null;
+    const dR = r !== null && pr !== null ? r - pr : null, dV = v !== null && pv !== null ? v - pv : null;
+    const streakOf = (f) => { let c = 0; for (let i = n - 1; i > 0; i--) { const a = f(weeks[i]), b = f(weeks[i - 1]); if (a === null || b === null || a <= b) break; c++; } return c; };
+    const vStreak = streakOf(w => pct(w.vocab));
+    let headline;
+    if (r === 100 && sel.reading) headline = `시험 ${sel.reading.t}문항을 모두 맞혔어요.`;
+    else if (r === null && v !== null) headline = dV === null ? `단어 ${sel.vocab.c}/${sel.vocab.t}로 시작했어요.` : Math.abs(dV) <= 5 ? `단어 ${sel.vocab.c}/${sel.vocab.t}, 지난주와 비슷했어요.` : dV > 0 ? `단어가 ${dV}%p 올랐어요.` : `단어가 ${Math.abs(dV)}%p 내려갔어요.`;
+    else if (dR === null && dV === null) headline = `이 기간 첫 시험. 시험 ${r}%, 단어 ${v}%예요.`;
+    else if (dR < 0 && dV > 0) headline = vStreak >= 2 ? `단어는 ${vStreak}주 연속 올랐고, 시험은 ${Math.abs(dR)}%p 내려갔어요.` : `단어는 ${dV}%p 올랐고, 시험은 ${Math.abs(dR)}%p 내려갔어요.`;
+    else if (dR > 0 && dV < 0) headline = `시험은 ${dR}%p 올랐지만, 단어를 놓쳤어요.`;
+    else if (dR >= 0 && dV >= 0) headline = `시험·단어 둘 다 올랐어요.`;
+    else headline = `시험·단어 둘 다 내려간 주예요.`;
+    const fmtD = d => d === null ? '' : d > 0 ? `+${d}%p` : d < 0 ? `${d}%p` : '변화 없음';
+    const cd = (mine, avg) => avg == null || mine === null ? '' : `반 평균 ${mine - avg >= 0 ? '+' : ''}${mine - avg}`;
+    const facts = [];
+    if (sel.reading) facts.push({ color: dR !== null && dR < 0 ? ROSE : '#B0B8C1', text: [`시험 ${sel.reading.c}/${sel.reading.t} (${r}%)`, fmtD(dR), cd(r, sel.reading.classAvg)].filter(Boolean).join(' · ') });
+    if (sel.vocab) facts.push({ color: dV !== null && dV < 0 ? ROSE : '#B0B8C1', text: [`단어 ${sel.vocab.c}/${sel.vocab.t} (${v}%)`, fmtD(dV), cd(v, sel.vocab.classAvg)].filter(Boolean).join(' · ') });
+    if (sel.homework && sel.homework.d < sel.homework.t) facts.push({ color: ROSE, text: `과제 ${sel.homework.d}/${sel.homework.t} · ${sel.homework.t - sel.homework.d}개 미제출` });
+    if (sel.wrongW.length) facts.push({ color: ROSE, text: `단어 ${sel.wrongW.length}개 오답${sel.wrongW.filter(x => x.source !== 'meaning').length ? ` · 유의·반의어 출제가 ${sel.wrongW.filter(x => x.source !== 'meaning').length}개` : ''}` });
+        const spark = f => { const pts = weeks.map((w, i) => [i, f(w)]).filter(x => x[1] !== null); const step = pts.length > 1 ? 60 / (pts.length - 1) : 0; return pts.map((x, j) => `${2 + j * step},${20 - x[1] / 100 * 18}`).join(' '); };
+    const sparkEnd = f => { const pts = weeks.map(f).filter(x => x !== null); return { x: pts.length > 1 ? 62 : 2, y: 20 - (pts[pts.length - 1] ?? 0) / 100 * 18 }; };
+    const dColor = d => d === null ? GRAY : d > 0 ? BLUE : d < 0 ? ROSE : GRAY;
+    const avail = { reading: weeks.some(w => w.reading), vocab: weeks.some(w => w.vocab), homework: weeks.some(w => w.homework) };
+    const k0 = s.chartMetric && avail[s.chartMetric] ? s.chartMetric : avail.reading ? 'reading' : avail.vocab ? 'vocab' : 'homework';
+    const hwAll = weeks.filter(w => w.homework); const hwRate = hwAll.length ? Math.round(hwAll.reduce((a, w) => a + w.homework.d, 0) / hwAll.reduce((a, w) => a + w.homework.t, 0) * 100) : null;
+    const A = D.attendance.regular;
+    const row = (key, label, value, unit, delta, deltaColor, onClick) => { const on = key === k0; return { label, value: typeof value === 'number' ? Math.round(value * s.count) : value, unit, delta, deltaColor, rowBg: on ? '#F2F4F6' : 'transparent', labelColor: on ? BLUE : '#4E5968', labelWeight: on ? 700 : 500, chev: key ? 'transparent' : '#B0B8C1', onClick }; };
+    const metrics = [];
+    if (sel.reading) metrics.push(row('reading', '시험', r, '%', [fmtD(dR), cd(r, sel.reading.classAvg)].filter(Boolean).join(' · ') || `${sel.reading.c}/${sel.reading.t}`, dColor(dR), () => this.setState({ chartMetric: 'reading' })));
+    if (sel.vocab) metrics.push(row('vocab', '단어', v, '%', [fmtD(dV), cd(v, sel.vocab.classAvg)].filter(Boolean).join(' · ') || `${sel.vocab.c}/${sel.vocab.t}`, dColor(dV), () => this.setState({ chartMetric: 'vocab' })));
+    if (sel.homework) metrics.push(row('homework', '과제', hwRate, n > 1 ? '% 누적' : '%', `이번 주 ${sel.homework.d}/${sel.homework.t}`, sel.homework.d < sel.homework.t ? ROSE : GRAY, () => this.setState({ chartMetric: 'homework' })));
+    metrics.push(row(null, '출석', `${A.present}/${A.total}`, '회', A.total - A.present ? `지각·결석 ${A.total - A.present}회` : A.streak >= 5 ? `${A.streak}회 연속 출석` : '전 회차 출석', A.total - A.present ? ROSE : GRAY, () => this.go('history')));
+    const todos = [];
+    if (sel.wrongQ.length) todos.push({ title: `진단평가 오답 ${sel.wrongQ.length}문항`, sub: '해설 보고 다시 풀기', action: '풀기', onClick: () => this.go('wrong', { wrongSub: 'reading', openWrong: { [sel.i]: true } }) });
+    if (sel.wrongW.length) todos.push({ title: `단어 오답 ${sel.wrongW.length}개`, sub: sel.vocab && sel.vocab.retake && sel.vocab.retake[0] !== null ? `재시험 ${sel.vocab.retake[0]}/${sel.vocab.retake[1]} 통과` : '재시험 아직 안 봄', action: '재시험', onClick: () => this.go('wrong', { wrongSub: 'vocab', openWrong: { [sel.i]: true } }) });
+    function prefix(o) { return { sparkX: o.x, sparkY: o.y }; }
+    // ── trend
+    const hasReading = avail.reading, hasVocab = avail.vocab; const k = k0;
+    const valOf = (w, key) => key === 'homework' ? hwPct(w.homework) : pct(w[key]);
+    const series = weeks.map((w, i) => ({ w, i, val: valOf(w, k) })).filter(x => x.val !== null);
+    const hasTrend = series.length >= 2;
+    const chartColor = BLUE;
+    const X = j => 20 + j * (290 / Math.max(series.length - 1, 1)), Y = val => 120 - val;
+    const chartPts = series.map((x, j) => ({ x: X(j), y: Y(x.val), v: x.val, date: x.w.dateShort, r: j === series.length - 1 ? 5.5 : 3.5, fill: j === series.length - 1 ? chartColor : '#fff', lc: j === series.length - 1 ? chartColor : '#8B95A1', onClick: () => this.go('history', { openHist: { [x.w.i]: true } }) }));
+    const linePoints = chartPts.map(q => `${q.x},${q.y}`).join(' ');
+    const areaPath = chartPts.length ? `M${chartPts[0].x},120 ` + chartPts.map(q => `L${q.x},${q.y}`).join(' ') + ` L${chartPts[chartPts.length - 1].x},120 Z` : '';
+    const chartLine = React.createElement('g', { key: k + ':' + period }, React.createElement('path', { d: areaPath, fill: '#3182F6', fillOpacity: .08, style: { animation: 'fadeIn .8s ease both' } }), React.createElement('polyline', { points: linePoints, fill: 'none', stroke: '#3182F6', strokeWidth: 2.5, strokeLinecap: 'round', strokeLinejoin: 'round', pathLength: 1, strokeDasharray: 1, style: { animation: 'draw .8s cubic-bezier(.4,0,.2,1) both' } }), ...chartPts.map((p, i) => React.createElement('circle', { key: i, cx: p.x, cy: p.y, r: p.r, fill: p.fill, stroke: '#3182F6', strokeWidth: 2.5, style: { animation: 'fadeIn .3s ease both', animationDelay: `${(i / Math.max(chartPts.length - 1, 1)) * .8}s` } })));
+    const avgPoints = k === 'homework' ? '' : series.map((x, j) => x.w[k].classAvg != null ? `${X(j)},${Y(x.w[k].classAvg)}` : null).filter(Boolean).join(' ');
+    // ── calendar
+    const regDays = Object.fromEntries(histWeeks.map(w => [w.date, w.att]));
+    const attMap = s.attView === 'regular' ? regDays : (D.attendance.clinicDays || {});
+    const histDates = histWeeks.map(w => w.date).sort(), lo = histDates[0].slice(0, 7), hi = histDates[histDates.length - 1].slice(0, 7);
+    const months = [...new Set([...Object.keys(regDays), ...Object.keys(D.attendance.clinicDays || {}).filter(d => d.slice(0, 7) >= lo && d.slice(0, 7) <= hi)].map(d => d.slice(0, 7)))].sort();
+    const calMonth = s.calMonth && months.includes(s.calMonth) ? s.calMonth : months[months.length - 1];
+    const mi = months.indexOf(calMonth);
+    const [cy, cm] = calMonth.split('-').map(Number);
+    const dim = new Date(cy, cm, 0).getDate(), startDow = new Date(cy, cm - 1, 1).getDay();
+    const calCells = [];
+    for (let i = 0; i < startDow; i++) calCells.push({ d: '', bg: 'transparent', fg: 'transparent', w: 400 });
+    for (let d = 1; d <= dim; d++) { const st = attMap[`${cy}-${String(cm).padStart(2, '0')}-${String(d).padStart(2, '0')}`]; calCells.push({ d, bg: st === 'present' ? BLUE : st === 'late' ? '#8B95A1' : st === 'absent' ? ROSE : 'transparent', fg: st ? '#fff' : '#B0B8C1', w: st ? 800 : 500 }); }
+    const C = D.attendance.clinic;
+    // ── history
+    const scoreColor = (a, b) => a / b < .6 ? ROSE : INK;
+    const diff = (mine, avg) => { if (avg == null) return { t: '', c: GRAY }; const d = mine - avg; return { t: `반 ${d > 0 ? '+' : ''}${d}%`, c: d > 0 ? BLUE : d < 0 ? ROSE : GRAY }; };
+    const periodsInOrder = [...new Set([...histWeeks].reverse().map(w => w.period))];
+    const historyGroups = periodsInOrder.map(pLabel => ({ period: pLabel, count: histWeeks.filter(w => w.period === pLabel).length, rows: [...histWeeks].reverse().filter(w => w.period === pLabel).map(w => {
+      const am = attMeta(w.att); const chips = [];
+      if (w.reading) { const d = diff(pct(w.reading), w.reading.classAvg); chips.push({ label: '시험', value: `${w.reading.c}/${w.reading.t}`, color: scoreColor(w.reading.c, w.reading.t), bg: '#fff', diff: d.t, diffColor: d.c }); }
+      if (w.vocab) { const d = diff(pct(w.vocab), w.vocab.classAvg); chips.push({ label: '단어', value: `${w.vocab.c}/${w.vocab.t}`, color: scoreColor(w.vocab.c, w.vocab.t), bg: '#fff', diff: d.t, diffColor: d.c }); if (w.vocab.retake && w.vocab.retake[0] !== null) chips.push({ label: '재시험', value: `${w.vocab.retake[0]}/${w.vocab.retake[1]}`, color: INK, bg: '#fff', diff: '', diffColor: GRAY }); }
+      if (w.homework) chips.push({ label: '과제', value: `${w.homework.d}/${w.homework.t}`, color: scoreColor(w.homework.d, w.homework.t), bg: '#fff', diff: '', diffColor: GRAY });
+      const types = Object.entries(w.wrongQ.reduce((m, q) => { m[q.tag] = (m[q.tag] || 0) + 1; return m; }, {})).map(([name, cnt]) => ({ name, n: cnt }));
+      return { shortLabel: w.shortLabel, dateShort: w.dateShort, attText: am.text, attBg: am.color + '1A', attFg: am.color, chips, open: !!openHist[w.i], chev: openHist[w.i] ? '180deg' : '0deg', onToggle: () => this.toggleIn('openHist', w.i, openHist),
+        types, hasTypes: types.length > 0, hasComment: !!w.comment, comment: w.comment, hasWrong: w.wrongQ.length + w.wrongW.length > 0, hasWrongQ: w.wrongQ.length > 0, hasWrongW: w.wrongW.length > 0, wrongQ: w.wrongQ.length, wrongW: w.wrongW.length,
+        isEmpty: !w.comment && !w.wrongQ.length && !w.wrongW.length,
+        goReading: () => this.go('wrong', { wrongSub: 'reading', openWrong: { [w.i]: true } }), goVocab: () => this.go('wrong', { wrongSub: 'vocab', openWrong: { [w.i]: true } }) };
+    }) }));
+    // ── analysis
+    const T = D.analysis.types;
+    let radar = [], radarPoints = '', typeRows = [];
+    if (T) {
+      radar = ['독해', '문법', '어휘'].map(d => { const ts = T.filter(t => t.domain === d); const tot = ts.reduce((a, t) => a + t.total, 0), wr = ts.reduce((a, t) => a + t.wrong, 0); const rate = tot ? Math.round((tot - wr) / tot * 100) : 0; return { name: `${d} 유형`, rate, w: `${rate}%`, color: rate < 60 ? ROSE : INK, tags: ts.map(t => t.name).join(' · ') }; });
+      const Cc = [85, 92], V = [[85, 15], [155, 130], [15, 130]];
+      radarPoints = radar.map((d, i) => `${Cc[0] + (V[i][0] - Cc[0]) * d.rate / 100},${Cc[1] + (V[i][1] - Cc[1]) * d.rate / 100}`).join(' ');
+      typeRows = [...T].sort((a, b) => (b.wrong / b.total) * Math.log(b.total + 1) - (a.wrong / a.total) * Math.log(a.total + 1)).map(t => { const rate = Math.round(t.wrong / t.total * 100); return { name: t.name, rate, w: `${rate}%`, frac: `${t.wrong}/${t.total}`, color: rate >= 50 ? ROSE : '#4E5968', bar: rate >= 50 ? ROSE : '#B0B8C1' }; });
+    }
+    const patterns = (D.analysis.patterns || []).map(pt => { const vals = pt.weeks.filter(x => x !== null); const acc = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length); const [stateLabel, color] = STATE[pt.state]; return { name: pt.name, insight: pt.insight, stateLabel, color, acc, bars: pt.weeks.map(val => ({ h: val === null ? '3px' : `${Math.max(val, 6)}%`, bg: val === null ? '#F2F4F6' : val >= 60 ? color : color + '55' })) }; });
+    // ── wrong note
+    const rev = [...scoped].reverse();
+    const wrongReadingGroups = rev.filter(w => w.wrongQ.length).map(w => ({ label: w.label, dateShort: w.dateShort, count: w.wrongQ.length, open: !!openWrong[w.i], chev: openWrong[w.i] ? '180deg' : '0deg', onToggle: () => this.toggleIn('openWrong', w.i, openWrong),
+      items: w.wrongQ.map((q, j) => { const key = `${w.i}-${j}`; return { ...q, mineMark: MARK[q.mine], ansMark: MARK[q.answer], open: !!s.openExp[key], expLabel: s.openExp[key] ? '해설 접기' : '해설 보기', onToggle: () => this.toggleIn('openExp', key) }; }) }));
+    const decorateWord = (x, j) => { const [srcLabel, srcBg, srcFg] = SRC[x.source] || SRC.meaning; return { ...x, no: j + 1, srcLabel: x.original ? `${srcLabel} · ${x.original}` : srcLabel, srcBg, srcFg, mineText: x.mine || '(미작성)', mineColor: x.mine ? ROSE : '#B0B8C1', mineDeco: x.mine ? 'line-through' : 'none', syn: x.syn || [], ant: x.ant || [], hasRel: (x.syn || []).length + (x.ant || []).length > 0 }; };
+    const wrongVocabGroups = rev.filter(w => w.wrongW.length).map(w => ({ label: w.label, dateShort: w.dateShort, count: w.wrongW.length, open: !!openWrong[w.i], chev: openWrong[w.i] ? '180deg' : '0deg', onToggle: () => this.toggleIn('openWrong', w.i, openWrong), items: w.wrongW.map(decorateWord) }));
+    const allWrongQ = scoped.flatMap(w => w.wrongQ), allWrongW = scoped.flatMap(w => w.wrongW);
+    const wrongReadingCount = allWrongQ.length, wrongVocabCount = allWrongW.length;
+    const vocabRetakeLeft = scoped.reduce((a, w) => a + (w.vocab && w.vocab.retake && w.vocab.retake[0] !== null ? w.vocab.retake[1] - w.vocab.retake[0] : w.wrongW.length), 0);
+    const anyReadingTest = scoped.some(w => w.reading);
+    const fmtRange = p => p.start ? `${p.start.slice(5).replace('-', '.')} ~ ${p.end ? p.end.slice(5).replace('-', '.') : '진행 중'}` : '';
+    // reading retake
+    const qset = s.qset.length ? s.qset : allWrongQ.map((_, i) => i);
+    const q = allWrongQ[qset[s.qi]] ?? allWrongQ[0] ?? { choices: [], tag: '', stem: '', passage: '', explanation: '', answer: 0 };
+    const retakeDone = s.qi >= qset.length;
+    const choices = q.choices.map((text, i) => { const chosen = s.selected === i, correct = i === q.answer, rv = s.revealed; let bg = '#fff', border = 'transparent', numBg = '#F2F4F6', numFg = '#6B7684', fg = INK; if (!rv && chosen) { border = BLUE; numBg = BLUE; numFg = '#fff'; } if (rv && correct) { bg = '#E8F3FF'; border = '#3182F6'; numBg = '#3182F6'; numFg = '#fff'; fg = '#1B64DA'; } if (rv && chosen && !correct) { bg = '#FFEEEE'; border = ROSE; numBg = ROSE; numFg = '#fff'; fg = '#D22030'; } return { n: MARK[i], text, bg, border, numBg, numFg, fg, weight: chosen || (rv && correct) ? 700 : 500, anim: rv && correct ? 'pop .35s ease both' : rv && chosen && !correct ? 'shake .4s ease both' : 'none', onClick: () => { if (!s.revealed) this.setState({ selected: i }); } }; });
+    const wasCorrect = s.selected === q.answer, correctCount = s.results.filter(x => x.ok).length;
+    // vocab retake
+    const vset = s.vset, vrDone = s.vi >= vset.length, vrW = allWrongW[vset[s.vi]] ?? allWrongW[0] ?? { word: '' };
+    const vrCorrect = s.vrResults.filter(x => x.ok).length, vrWrongLeft = s.vrResults.filter(x => !x.ok).map(x => x.i);
+    // vocab list
+    const query = norm(s.vocabSearch).toLowerCase(); let shown = 0, all = 0;
+    const vocabGroups = rev.filter(w => w.wrongW.length).map(w => { all += w.wrongW.length; const items = w.wrongW.map(decorateWord).filter(x => { if (s.vocabMode === 'rel' && x.source === 'meaning') return false; if (s.vocabMode === 'blank' && x.mine) return false; if (!query) return true; return [x.word, x.ko, ...x.syn, ...x.ant].some(t => norm(t).toLowerCase().includes(query)); }); shown += items.length; return { label: w.label, dateShort: w.dateShort, count: items.length, preview: items.slice(0, 3).map(x => x.word).join(', '), items, open: !!openVocabGroup[w.i], chev: openVocabGroup[w.i] ? '180deg' : '0deg', onToggle: () => this.toggleIn('openVocabGroup', w.i, openVocabGroup) }; }).filter(g => g.items.length);
+    return {
+      headerLine: D.student.headerLine, studentName: D.student.name,
+      hasPeriods: D.periods.length > 1, periodLabel: period, sheetOpen: s.sheetOpen, openSheet: () => this.setState({ sheetOpen: true }), closeSheet: () => this.setState({ sheetOpen: false }), stop: e => e.stopPropagation(),
+      periodRows: D.periods.map(p => { const on = p.label === period, cnt = allWeeks.filter(w => w.period === p.label).length; return { label: p.label, isCurrent: !!p.isCurrent, range: fmtRange(p), count: cnt, bg: on ? '#E8F3FF' : cnt ? '#F9FAFB' : 'transparent', fg: on ? BLUE : cnt ? INK : '#B0B8C1', check: on ? BLUE : 'transparent', onClick: () => { if (!cnt) return; this.animateCount(); this.setState({ period: p.label, sheetOpen: false, chartMetric: null, openHist: null, openWrong: null, openVocabGroup: null, calMonth: null, view: 'list' }); window.scrollTo(0, 0); } }; }),
+      setScopePeriod: () => this.setState({ histScope: 'period' }), setScopeAll: () => this.setState({ histScope: 'all' }),
+      spBg: s.histScope === 'period' ? BLUE : 'transparent', spFg: s.histScope === 'period' ? '#fff' : GRAY, saBg: s.histScope === 'all' ? BLUE : 'transparent', saFg: s.histScope === 'all' ? '#fff' : GRAY,
+      isHome: s.tab === 'home', isHistory: s.tab === 'history', isAnalysis: s.tab === 'analysis', isWrong: s.tab === 'wrong', isVocab: s.tab === 'vocab',
+      sel: { ...sel, attColor: attMeta(sel.att).color, attText: attMeta(sel.att).text }, headline, facts, metrics,
+      hasComment: !!sel.comment, hasOlderComments: weeks.slice(0, -1).some(w => w.comment), commentOpen: s.commentOpen, olderComments: weeks.slice(0, -1).filter(w => w.comment).reverse(), toggleComment: () => this.setState({ commentOpen: !s.commentOpen }), commentToggleLabel: s.commentOpen ? '접기' : `이전 코멘트 ${weeks.slice(0, -1).filter(w => w.comment).length}개`,
+      hasTodo: todos.length > 0, todos,
+      selRetakeSub: sel.vocab && sel.vocab.retake && sel.vocab.retake[0] !== null ? `재시험 ${sel.vocab.retake[0]}/${sel.vocab.retake[1]} 통과` : '재시험 아직 안 봄',
+      goWrongReading: () => this.go('wrong', { wrongSub: 'reading', openWrong: { [sel.i]: true } }), goWrongVocab: () => this.go('wrong', { wrongSub: 'vocab', openWrong: { [sel.i]: true } }),
+      hasTrend, noTrend: !hasTrend, noTrendText: n < 2 ? `${period}은 아직 1회차예요. 2회차부터 추이가 보입니다.` : '이 기간엔 시험·단어 점수가 2회 이상 없어요.',
+      trendSub: `${n}회차`, chartCaption: k === 'homework' ? `과제 제출률 (%) · ${series.length}회차` : `${k === 'reading' ? '시험' : '단어'} 정답률 (%) · 점선은 반 평균`,
+      setReading: () => this.setState({ chartMetric: 'reading' }), setVocab: () => this.setState({ chartMetric: 'vocab' }),
+      readingTabBg: k === 'reading' ? '#fff' : 'transparent', readingTabFg: k === 'reading' ? BLUE : GRAY, vocabTabBg: k === 'vocab' ? '#fff' : 'transparent', vocabTabFg: k === 'vocab' ? GREEN : GRAY,
+      chartColor, chartPts, linePoints, areaPath, avgPoints, chartLine,
+      hasStreak: A.streak >= 5, streak: A.streak, streakText: A.streak === A.total ? '기간 내 한 번도 안 빠졌어요' : '최근 연속 출석 중',
+      historySub: s.histScope === 'all' ? `전체 ${histWeeks.length}회차 · ${periodsInOrder.length}개 기간` : `${period} ${histWeeks.length}회차`, historyGroups,
+      setRegular: () => this.setState({ attView: 'regular' }), setClinic: () => this.setState({ attView: 'clinic' }),
+      regBg: s.attView === 'regular' ? '#fff' : 'transparent', regFg: s.attView === 'regular' ? BLUE : GRAY, cliBg: s.attView === 'clinic' ? '#fff' : 'transparent', cliFg: s.attView === 'clinic' ? BLUE : GRAY,
+      attRate: Math.round(A.present / A.total * 100), attSummary: `${A.present}/${A.total}회 출석`, cliRate: Math.round(C.present / C.total * 100), cliSummary: `${C.present}/${C.total}회 출석`,
+      calTitle: `${cy}년 ${cm}월`, dow: ['일', '월', '화', '수', '목', '금', '토'], calCells, prevOp: mi > 0 ? 1 : .3, nextOp: mi < months.length - 1 ? 1 : .3,
+      prevMonth: () => { if (mi > 0) this.setState({ calMonth: months[mi - 1] }); }, nextMonth: () => { if (mi < months.length - 1) this.setState({ calMonth: months[mi + 1] }); },
+      analysisSub: T ? `${period} ${scoped.length}회차 누적 · ${T.reduce((a, t) => a + t.total, 0)}문항` : anyReadingTest ? `${period} · ${scoped.filter(w => w.reading).length}회 시험 기준` : `${period}엔 진단평가가 없어요`,
+      hasTypes: !!T, radar, radarPoints, typeRows, hasPatterns: patterns.length > 0, patterns, analysisEmpty: !T && !patterns.length,
+      patternLegend: [{ color: ROSE, label: '고착', desc: '계속 틀림' }, { color: ROSE, label: '악화', desc: '내려가는 중' }, { color: '#6B7684', label: '기복', desc: '들쭉날쭉' }, { color: BLUE, label: '개선', desc: '올라오는 중' }],
+      wrongList: s.view === 'list', inRetake: s.view === 'retake', inVocabRetake: s.view === 'vretake',
+      wrongIsReading: s.wrongSub === 'reading', wrongIsVocab: s.wrongSub === 'vocab', setWrongReading: () => this.setState({ wrongSub: 'reading' }), setWrongVocab: () => this.setState({ wrongSub: 'vocab' }),
+      wrBg: s.wrongSub === 'reading' ? BLUE : 'transparent', wrFg: s.wrongSub === 'reading' ? '#fff' : GRAY, wrBadgeBg: s.wrongSub === 'reading' ? 'rgba(255,255,255,.2)' : '#E5E8EB',
+      wvBg: s.wrongSub === 'vocab' ? BLUE : 'transparent', wvFg: s.wrongSub === 'vocab' ? '#fff' : GRAY, wvBadgeBg: s.wrongSub === 'vocab' ? 'rgba(255,255,255,.2)' : '#E5E8EB',
+      wrongReadingCount, wrongVocabCount, wrongReadingGroups, wrongVocabGroups, vocabRetakeLeft,
+      hasAnyWrongQ: wrongReadingCount > 0, noWrongQ: wrongReadingCount === 0, noWrongQTitle: !anyReadingTest ? '이 기간엔 진단평가가 없어요' : scoped.every(w => !w.reading || w.reading.c === w.reading.t) ? '진단평가 오답이 없어요' : '문항별 오답 기록이 없어요', noWrongQSub: !anyReadingTest ? '단어·과제만 진행 중' : scoped.every(w => !w.reading || w.reading.c === w.reading.t) ? '시험 전 문항 정답' : '이 기간은 점수만 기록되어 있어요',
+      hasAnyWrongW: wrongVocabCount > 0, noWrongW: wrongVocabCount === 0,
+      retakeTotal: qset.length, retakeMinutes: qset.length * 2,
+      startRetake: () => { this.setState({ view: 'retake', qset: allWrongQ.map((_, i) => i), qi: 0, selected: null, revealed: false, results: [] }); window.scrollTo(0, 0); },
+      exitRetake: () => this.setState({ view: 'list', qset: [], qi: 0, selected: null, revealed: false, results: [] }),
+      q, qNum: Math.min(s.qi + 1, qset.length), retakeProgress: `${s.qi / Math.max(qset.length, 1) * 100}%`, retakeDone, retakeActive: !retakeDone, choices, revealed: s.revealed,
+      feedbackBg: wasCorrect ? '#E6F7EF' : '#FFEEEE', feedbackColor: wasCorrect ? '#02925A' : '#E42939', feedbackTitle: wasCorrect ? '정답이에요' : `아쉬워요 · 정답은 ${MARK[q.answer]}`,
+      retakePrimary: () => { if (!s.revealed) { if (s.selected === null) return; this.setState({ revealed: true, results: [...s.results, { i: qset[s.qi], ok: wasCorrect }] }); } else { if (s.qi + 1 >= qset.length) this.animateCount(); this.setState({ qi: s.qi + 1, selected: null, revealed: false }); window.scrollTo(0, 0); } },
+      retakeBtnLabel: !s.revealed ? '확인' : s.qi + 1 >= qset.length ? '결과 보기' : '다음 문항', retakeBtnBg: !s.revealed && s.selected === null ? '#D1D6DB' : BLUE,
+      retakeScore: s.results.length ? Math.round(correctCount / s.results.length * 100 * s.count) : 0, retakeCorrect: correctCount,
+      resetRetake: () => { const wrong = s.results.filter(x => !x.ok).map(x => x.i); this.setState({ qset: wrong.length ? wrong : allWrongQ.map((_, i) => i), qi: 0, selected: null, revealed: false, results: [] }); },
+      startVocabRetake: () => { this.setState({ view: 'vretake', vset: allWrongW.map((_, i) => i), vi: 0, vrInput: '', vrResults: [], timeLeft: 80 }); this.startTimer(); window.scrollTo(0, 0); },
+      exitVocabRetake: () => { clearInterval(this.timer); this.setState({ view: 'list', vset: [], vi: 0, vrResults: [] }); },
+      vrDone, vrActive: !vrDone, vrTotal: vset.length, vrNum: Math.min(s.vi + 1, vset.length), vrWord: { word: vrW.word, kicker: vrW.source && vrW.source !== 'meaning' ? `${SRC[vrW.source][0]} · ${vrW.original}` : `NO. ${(vset[s.vi] ?? 0) + 1}` }, vrInput: s.vrInput,
+      vrDots: vset.map((_, i) => i < s.vi ? (s.vrResults[i]?.ok ? BLUE : ROSE) : i === s.vi ? '#191F28' : '#D1D6DB'),
+      timerText: `${Math.floor(s.timeLeft / 60)}:${String(s.timeLeft % 60).padStart(2, '0')}`, timerW: `${s.timeLeft / 80 * 100}%`, timerColor: s.timeLeft > 20 ? '#3182F6' : ROSE,
+      onVrInput: e => this.setState({ vrInput: e.target.value }), onVrKey: e => { if (e.key === 'Enter') this._vrSubmit(allWrongW); }, vrSubmit: () => this._vrSubmit(allWrongW), vrBtnLabel: s.vi + 1 >= vset.length ? '제출' : '다음',
+      vrScore: s.vrResults.length ? Math.round(vrCorrect / s.vrResults.length * 100 * s.count) : 0, vrCorrect, vrLeftText: vrWrongLeft.length ? `아직 ${vrWrongLeft.length}개 남았어요` : '전부 통과했어요',
+      vrResults: s.vrResults.map(x => ({ word: allWrongW[x.i].word, ko: allWrongW[x.i].ko, typed: x.typed || '(미작성)', mark: x.ok ? '✓' : '✕', bg: x.ok ? '#E6F7EF' : '#FFEEEE', fg: x.ok ? '#02925A' : '#E42939' })),
+      vrNextBg: vrWrongLeft.length ? '#3182F6' : '#191F28', vrNextLabel: vrWrongLeft.length ? `다음 라운드 (${vrWrongLeft.length}개 남음)` : '완료',
+      vrNextRound: () => { if (!vrWrongLeft.length) { clearInterval(this.timer); this.setState({ view: 'list', vset: [], vrResults: [] }); return; } this.setState({ vset: vrWrongLeft, vi: 0, vrInput: '', vrResults: [], timeLeft: 80 }); this.startTimer(); },
+      vocabShown: shown, vocabAll: all, vocabSearch: s.vocabSearch, onVocabSearch: e => this.setState({ vocabSearch: e.target.value }),
+      vocabModes: [['all', '전체 오답'], ['rel', '유의·반의·파생어'], ['blank', '미작성만']].map(([id, label]) => ({ label, bg: s.vocabMode === id ? BLUE : '#F2F4F6', fg: s.vocabMode === id ? '#fff' : '#4E5968', onClick: () => this.setState({ vocabMode: id }) })),
+      vocabGroups, vocabEmpty: all === 0,
+      tabLeft: `${['home', 'history', 'analysis', 'wrong', 'vocab'].indexOf(s.tab) * 20}%`,
+      tabs: [['home', '홈'], ['history', '기록'], ['analysis', '분석'], ['wrong', '오답'], ['vocab', '단어']].map(([id, label]) => ({ label, onClick: () => this.go(id), color: s.tab === id ? BLUE : GRAY, weight: s.tab === id ? 800 : 500 })),
+    };
+  }
+  _vrSubmit(allWrongW) {
+    const s = this.state, idx = s.vset[s.vi], w = allWrongW[idx]; if (!w) return;
+    const typed = norm(s.vrInput), keys = w.ko.split(/[,/]/).map(norm).filter(Boolean);
+    const ok = typed.length > 0 && keys.some(kw => typed.includes(kw) || kw.includes(typed) && typed.length >= 2);
+    const next = s.vi + 1; if (next >= s.vset.length) { clearInterval(this.timer); this.animateCount(); }
+    this.setState({ vrResults: [...s.vrResults, { i: idx, ok, typed: s.vrInput }], vi: next, vrInput: '' });
+  }
+}
+</script>
+</body>
+</html>

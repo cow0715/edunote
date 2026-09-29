@@ -74,7 +74,7 @@ export function WrongNoteTab({
       {/* 진단평가 / 단어 — 개수를 같이 보여줘 어디에 오답이 있는지 먼저 알린다.
           role="tablist" 을 쓰려면 화살표 키 이동·roving tabindex·tabpanel 연결까지 있어야 한다.
           여기선 두 갈래 필터 토글이라 aria-pressed 로 충분하고, 반만 구현한 tab 의미론보다 정확하다. */}
-      <div className="flex rounded-[18px] bg-[#F2F4F6] p-1">
+      <div className="flex rounded-[18px] bg-[var(--share-box)] p-1">
         {segments.map(({ id, label, count }) => {
           const active = subTab === id
           return (
@@ -84,14 +84,14 @@ export function WrongNoteTab({
               aria-pressed={active}
               onClick={() => onSubTabChange(id)}
               className={`${PRESS_STRONG} flex flex-1 items-center justify-center gap-1.5 rounded-[14px] py-2 text-[13px] font-extrabold transition-colors`}
-              style={active ? { background: T.blue, color: '#FFFFFF' } : { color: T.body2 }}
+              style={active ? { background: T.selected, color: T.onSelected } : { color: T.body2 }}
             >
               {label}
               <span
                 className="rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums"
                 style={active
-                  ? { background: 'rgba(255,255,255,0.22)', color: '#FFFFFF' }
-                  : { background: '#FFFFFF', color: T.muted }}
+                  ? { background: 'rgba(255,255,255,0.22)', color: T.onSolid }
+                  : { background: 'var(--share-canvas)', color: T.muted }}
               >
                 {count}
               </span>
@@ -112,7 +112,7 @@ export function WrongNoteTab({
                 title={`${allReviewQuestions.length}문항 다시 풀기`}
                 // 선지가 저장된 문항만 풀 수 있어서 오답 총계보다 적을 수 있다 — 그 사실을 힌트에 적는다
                 hint={allReviewQuestions.length < readingCount
-                  ? `약 ${estimateMinutes(allReviewQuestions.length)}분 · 객관식·OX 오답만`
+                  ? `약 ${estimateMinutes(allReviewQuestions.length)}분 · 자료가 준비된 객관식·OX만`
                   : `약 ${estimateMinutes(allReviewQuestions.length)}분 · 해설 포함`}
                 onClick={() => setReviewScope('all')}
               />
@@ -131,7 +131,7 @@ export function WrongNoteTab({
               />
             )}
             <Card noPad>
-              <div className="divide-y divide-[#EEF1F4]">
+              <div className="divide-y divide-[var(--share-line)]">
                 {wrongNoteGroups.map(({ week, answers, className }) => {
                   const isOpen = expandedReadingWeekIds.has(week.id)
                   return (
@@ -145,14 +145,14 @@ export function WrongNoteTab({
                         onToggle={() => onToggleReadingWeek(week.id)}
                       />
                       {isOpen && (
-                        <div className="border-t border-[#EEF1F4]">
+                        <div className="border-t border-[var(--share-line)]">
                           {(reviewByWeek.get(week.id)?.length ?? 0) > 0 && (
                             <ReviewActionRow
                               count={reviewByWeek.get(week.id)!.length}
                               onStart={() => setReviewScope(week.id)}
                             />
                           )}
-                          <div className="divide-y divide-[#EEF1F4] border-t border-[#EEF1F4]">
+                          <div className="divide-y divide-[var(--share-line)] border-t border-[var(--share-line)]">
                             {groupAnswersByQuestion(answers).map((group) => (
                               <WrongAnswerCard key={group[0].id} answers={group} token={token} />
                             ))}
@@ -177,13 +177,13 @@ export function WrongNoteTab({
             {retakeRemaining > 0 && (
               <CtaCard
                 tone="dark"
-                title={`재시험 ${retakeRemaining}개 남음`}
-                hint="1분 20초 · 뜻 입력"
+                title={`복습할 단어 ${retakeRemaining}개 보기`}
+                hint="재시험이 남은 단어를 단어장에서 확인해요"
                 onClick={() => onOpenVocabList(null, 'retake_pending')}
               />
             )}
             <Card noPad>
-              <div className="divide-y divide-[#EEF1F4]">
+              <div className="divide-y divide-[var(--share-line)]">
                 {vocabWrongGroups.map(({ week, answers, className }) => {
                   const isOpen = expandedVocabWeekIds.has(week.id)
                   const score = scoreByWeek.get(week.id)
@@ -200,7 +200,7 @@ export function WrongNoteTab({
                         onToggle={() => onToggleVocabWeek(week.id)}
                       />
                       {isOpen && (
-                        <div className="border-t border-[#EEF1F4]">
+                        <div className="border-t border-[var(--share-line)]">
                           {showRetake && (
                             <RetakeActionRow
                               originalWrong={week.vocab_total - (score!.vocab_correct ?? 0)}
@@ -209,7 +209,7 @@ export function WrongNoteTab({
                               onStart={() => onStartRetake(week.id)}
                             />
                           )}
-                          <div className="divide-y divide-[#EEF1F4] border-t border-[#EEF1F4]">
+                          <div className="divide-y divide-[var(--share-line)] border-t border-[var(--share-line)]">
                             {answers.map((va) => (
                               <WrongVocabRow key={va.id} answer={va} />
                             ))}
@@ -217,7 +217,7 @@ export function WrongNoteTab({
                           <button
                             type="button"
                             onClick={() => onOpenVocabList(week.id, 'all')}
-                            className={`${PRESS} flex w-full items-center justify-center gap-1 border-t border-[#EEF1F4] px-5 py-3 text-[12px] font-bold text-[#3182F6]`}
+                            className={`${PRESS} flex w-full items-center justify-center gap-1 border-t border-[var(--share-line)] px-5 py-3 text-[12px] font-bold text-[var(--share-blue)]`}
                           >
                             이 주차 단어장 전체 보기
                             <ChevronRight className="h-3.5 w-3.5" />
@@ -238,6 +238,7 @@ export function WrongNoteTab({
           // 범위가 바뀌면 진행 상태를 처음부터 다시 잡는다
           key={reviewScope}
           questions={reviewQuestions}
+          token={token}
           onClose={() => setReviewScope(null)}
           onGoWrongNote={() => setReviewScope(null)}
         />
@@ -258,7 +259,7 @@ function CtaCard({ tone, title, hint, onClick }: {
       type="button"
       onClick={onClick}
       className={`${PRESS_STRONG} flex w-full items-center gap-3 rounded-[20px] px-[22px] py-[18px] text-left`}
-      style={{ background: tone === 'blue' ? T.blue : T.panel }}
+      style={{ background: tone === 'blue' ? T.control : T.panel }}
     >
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[17px] font-extrabold text-white">{title}</span>

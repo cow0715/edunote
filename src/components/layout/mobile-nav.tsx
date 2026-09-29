@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { ThemeSelect } from './theme-select'
 
 const navSections = [
   {
@@ -135,7 +136,7 @@ export function MobileNav() {
           </nav>
 
           <div className="border-t p-3">
-            <Button
+                <Button
               variant="ghost"
               className="w-full justify-start gap-3 text-gray-600"
               onClick={handleLogout}
@@ -143,6 +144,7 @@ export function MobileNav() {
               <LogOut className="h-4 w-4" />
               로그아웃
             </Button>
+            <div className="pt-2"><ThemeSelect /></div>
           </div>
         </SheetContent>
       </Sheet>

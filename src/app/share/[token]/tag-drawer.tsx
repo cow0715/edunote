@@ -25,6 +25,7 @@ export function TagDrawer({
   weekLabelByWeekId: Map<string, string>
   onClose: () => void
 }) {
+  if (!tag) return null
   return (
     <>
       <div
@@ -35,26 +36,26 @@ export function TagDrawer({
       />
 
       <div
-        className={`fixed bottom-0 left-1/2 z-50 flex max-h-[82vh] w-full max-w-[430px] -translate-x-1/2 flex-col rounded-t-[20px] bg-[#F9FAFB] text-[#191F28] transition-transform duration-300 ease-out ${
+        className={`fixed bottom-0 left-1/2 z-50 flex max-h-[82vh] w-full max-w-[430px] -translate-x-1/2 flex-col rounded-t-[20px] bg-[var(--share-card)] text-[var(--share-ink)] transition-transform duration-300 ease-out ${
           tag ? 'translate-y-0' : 'translate-y-full'
         }`}
       >
         <div className="flex justify-center pt-3 pb-1">
-          <div className="h-1 w-9 rounded-full bg-[#E5E8EB]" />
+          <div className="h-1 w-9 rounded-full bg-[var(--share-line-strong)]" />
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-b border-[#E5E8EB] px-5 py-3">
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--share-line-strong)] px-5 py-3">
           <div className="min-w-0">
             <h3 className="truncate text-[15px] font-extrabold">{tag?.name} 오답노트</h3>
-            <p className="text-[12px] text-[#8B95A1]">
-              {tag?.weekId ? '이번 주차' : '전체 누적'} · 총 {answers.length}회 틀림
+            <p className="text-[12px] text-[var(--share-muted2)]">
+              {tag?.weekId ? '선택 회차' : '선택 기간 누적'} · 총 {answers.length}회 틀림
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="닫기"
-            className={`${PRESS} flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#F2F4F6] text-[#6B7684]`}
+            className={`${PRESS} flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--share-box)] text-[var(--share-muted)]`}
           >
             <X className="h-4 w-4" />
           </button>
@@ -62,9 +63,9 @@ export function TagDrawer({
 
         <div className="overflow-y-auto overscroll-contain pb-6">
           {answers.length === 0 ? (
-            <p className="py-10 text-center text-[13px] text-[#8B95A1]">오답 기록이 없어요</p>
+            <p className="py-10 text-center text-[13px] text-[var(--share-muted2)]">오답 기록이 없어요</p>
           ) : (
-            <div className="divide-y divide-[#EEF1F4]">
+            <div className="divide-y divide-[var(--share-line)]">
               {groupAnswersByQuestion(answers).map((group) => (
                 <WrongAnswerCard
                   key={group[0].id}

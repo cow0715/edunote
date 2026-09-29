@@ -22,12 +22,12 @@ import {
 import { Chevron } from './share-ui'
 import { PRESS_ROW, PRESS_STRONG, T } from './share-tokens'
 
-const LABEL_CLASS = 'mr-1 text-[11px] text-[#8B95A1]'
+const LABEL_CLASS = 'mr-1.5 text-[12px] font-semibold text-[var(--share-muted)]'
 
 /** 내 답 · 정답 한 줄 — 라벨을 위에 쌓지 않고 인라인으로 붙인다 */
 function AnswerLine({ mine, correct }: { mine: string; correct: string }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[15px] leading-relaxed">
       <span className="min-w-0">
         <span className={LABEL_CLASS}>내 답</span>
         <span className={`${ANSWER_WRONG_CLASS} break-words`}>{mine}</span>
@@ -103,11 +103,11 @@ export function WrongAnswerCard({
     // 첫 스크롤에서 카드가 펼쳐지며 페이지가 튄다 (실측 범위 625~1230px).
     <article className="px-5 py-4 [content-visibility:auto] [contain-intrinsic-size:auto_780px]">
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 text-[12px] font-bold text-[#3182F6]">
-          {weekLabel && <span className="mr-1.5 font-semibold text-[#8B95A1]">{weekLabel}</span>}
+        <p className="min-w-0 text-[12px] font-bold text-[var(--share-blue)]">
+          {weekLabel && <span className="mr-1.5 font-semibold text-[var(--share-muted2)]">{weekLabel}</span>}
           {q.question_number}번
           {answers.length > 1 && (
-            <span className="ml-1.5 text-[11px] font-semibold text-[#8B95A1]">
+            <span className="ml-1.5 text-[11px] font-semibold text-[var(--share-muted2)]">
               소문항 {answers.length}개
             </span>
           )}
@@ -122,7 +122,7 @@ export function WrongAnswerCard({
       {questionText && (
         <FormattedQuestionText
           text={questionText}
-          className="mt-2.5 text-[13.5px] font-semibold leading-relaxed text-[#333D4B] text-justify"
+          className="mt-4 text-left text-[16px] font-normal leading-[1.75] break-words text-[var(--share-body)]"
         />
       )}
 
@@ -156,12 +156,12 @@ export function WrongAnswerCard({
               {item.tail && (
                 <FormattedQuestionText
                   text={item.tail}
-                  className="mb-1 text-[13.5px] font-semibold leading-relaxed text-[#333D4B] text-justify"
+                  className="mb-2 text-left text-[16px] font-normal leading-[1.75] break-words text-[var(--share-body)]"
                 />
               )}
               <div className="flex items-baseline gap-2">
                 {item.sub && (
-                  <span className="w-6 shrink-0 text-[11px] font-bold text-[#8B95A1]">({item.sub})</span>
+                  <span className="w-6 shrink-0 text-[11px] font-bold text-[var(--share-muted2)]">({item.sub})</span>
                 )}
                 <AnswerLine mine={item.mine} correct={item.correct} />
               </div>
@@ -211,14 +211,14 @@ export function WrongVocabRow({ answer }: { answer: VocabAnswer }) {
                 fill="student"
               />
               {vw.example_translation && (
-                <p className="mt-0.5 text-[11px] leading-4 text-[#8B95A1]">{vw.example_translation}</p>
+                <p className="mt-0.5 text-[11px] leading-4 text-[var(--share-muted2)]">{vw.example_translation}</p>
               )}
             </>
           ) : (
             <span className="text-[15px] font-extrabold">{answer.test_word ?? vw.english_word}</span>
           )}
           {answer.test_word && answer.test_word !== vw.english_word && !exampleSource && (
-            <span className="ml-2 text-[10px] font-medium text-[#8B95A1]">원본 {vw.english_word}</span>
+            <span className="ml-2 text-[10px] font-medium text-[var(--share-muted2)]">원본 {vw.english_word}</span>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -232,12 +232,12 @@ export function WrongVocabRow({ answer }: { answer: VocabAnswer }) {
               재시험 {retakeDone ? '✓' : '✗'}
             </span>
           )}
-          <span className="text-[11px] text-[#8B95A1] tabular-nums">#{answer.test_number ?? vw.number}</span>
+          <span className="text-[11px] text-[var(--share-muted2)] tabular-nums">#{answer.test_number ?? vw.number}</span>
         </div>
       </div>
 
       {/* 2. 내 답 · 정답 — 한 줄 */}
-      <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+      <div className="mt-1.5 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[15px] leading-relaxed">
         {!studentInSentence && (
           <span>
             <span className={LABEL_CLASS}>내 답</span>
@@ -256,8 +256,8 @@ export function WrongVocabRow({ answer }: { answer: VocabAnswer }) {
               const isPicked = !isAnswer && option.toLowerCase() === pickedLower
               return (
                 <span key={index}>
-                  <span className={isAnswer ? ANSWER_RIGHT_CLASS : isPicked ? ANSWER_WRONG_CLASS : 'font-semibold text-[#4E5968]'}>{option}</span>
-                  <span className="ml-1 text-[#6B7684]">{answer.choice_meanings?.[index] ?? ''}</span>
+                  <span className={isAnswer ? ANSWER_RIGHT_CLASS : isPicked ? ANSWER_WRONG_CLASS : 'font-semibold text-[var(--share-body2)]'}>{option}</span>
+                  <span className="ml-1 text-[var(--share-muted)]">{answer.choice_meanings?.[index] ?? ''}</span>
                 </span>
               )
             })
@@ -270,7 +270,7 @@ export function WrongVocabRow({ answer }: { answer: VocabAnswer }) {
             </span>
             {/* 예문 유형은 단어의 뜻도 참고로 */}
             {exampleSource && (
-              <span className="text-[#6B7684]">
+              <span className="text-[var(--share-muted)]">
                 <span className={LABEL_CLASS}>{vw.english_word}</span>
                 {vw.correct_answer}
               </span>
@@ -314,8 +314,8 @@ export function WeekAccordionHeader({
     >
       <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         <span className="truncate text-[15px] font-extrabold">{title}</span>
-        {date && <span className="text-[12px] text-[#8B95A1]">{date}</span>}
-        <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-[#6B7684] tabular-nums">
+        {date && <span className="text-[12px] text-[var(--share-muted2)]">{date}</span>}
+        <span className="rounded-full bg-[var(--share-box-on-card)] px-2 py-0.5 text-[11px] font-bold text-[var(--share-muted)] tabular-nums">
           {count}{countLabel}
         </span>
       </span>
@@ -335,7 +335,7 @@ export function ReviewActionRow({ count, onStart }: { count: number; onStart: ()
         type="button"
         onClick={onStart}
         className={`${PRESS_STRONG} flex w-full items-center justify-center gap-1.5 rounded-[14px] px-4 py-2.5 text-[13px] font-bold text-white`}
-        style={{ background: T.blue }}
+        style={{ background: T.control, color: T.onControl }}
       >
         <RotateCcw className="h-3.5 w-3.5" />
         이 회차 {count}문항 다시 풀기
@@ -361,7 +361,7 @@ export function RetakeActionRow({
 
   if (remaining <= 0) {
     return (
-      <div className="flex items-center gap-1.5 px-[18px] py-2.5 text-[12px] text-[#6B7684]">
+      <div className="flex items-center gap-1.5 px-[18px] py-2.5 text-[12px] text-[var(--share-muted)]">
         <RotateCcw className="h-3 w-3" style={{ color: T.blue }} />
         재시험 완료
         <strong className="tabular-nums" style={{ color: T.blue }}>{mastered}/{originalWrong}</strong>
@@ -375,7 +375,7 @@ export function RetakeActionRow({
         type="button"
         onClick={onStart}
         className={`${PRESS_STRONG} flex w-full items-center justify-center gap-1.5 rounded-[14px] px-4 py-2.5 text-[13px] font-bold text-white`}
-        style={{ background: T.blue }}
+        style={{ background: T.control, color: T.onControl }}
       >
         <RotateCcw className="h-3.5 w-3.5" />
         재시험 보기 · {remaining}개{started ? ' 남음' : ''}

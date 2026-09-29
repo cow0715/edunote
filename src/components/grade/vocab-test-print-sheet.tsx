@@ -168,7 +168,7 @@ export function VocabTestPrintSheet({ items, answers, studentName }: { items: Vo
   )
 
   return (
-    <div className="mx-auto space-y-4 print:space-y-0">
+    <div className="print-surface mx-auto space-y-4 text-gray-900 print:space-y-0">
       {Array.from({ length: pageCount }, (_, pageIndex) => {
         const pageItems = meaningPages[pageIndex] ?? []
         // 예문 파트가 있으면 좌우 균등 분할로 A파트 세로 길이를 최소화한다 (한 페이지 목표)

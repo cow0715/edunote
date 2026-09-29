@@ -3,38 +3,45 @@
 //
 // 색 사용 원칙: 카테고리(시험/단어/과제)를 색으로 구분하지 않는다.
 //   파랑 = 선택/액션/긍정변화/출석, 빨강 = 주의(오답·결석·하락·60% 미만), 나머지는 그레이.
-// 이 디자인은 라이트 기준이다 (다크 매핑은 별도 작업).
+// 라이트/다크 값은 src/app/theme-tokens.css에서 공통 관리한다.
 
 import type { CSSProperties } from 'react'
 
 export const T = {
-  canvas: '#FFFFFF',
-  card: '#F9FAFB',
+  control: 'var(--control-bg)',
+  onControl: 'var(--control-fg)',
+  selected: 'var(--control-selected)',
+  onSelected: 'var(--control-on-selected)',
+  canvas: 'var(--share-canvas)',
+  card: 'var(--share-card)',
   /** 카드 안 강조 박스 / 입력 / 칩 / 세그먼트 트랙 */
-  box: '#F2F4F6',
+  box: 'var(--share-box)',
   /** 카드 안에서 한 겹 더 들어간 박스 */
-  boxOnCard: '#FFFFFF',
-  line: '#EEF1F4',
-  lineStrong: '#E5E8EB',
+  boxOnCard: 'var(--share-box-on-card)',
+  line: 'var(--share-line)',
+  lineStrong: 'var(--share-line-strong)',
 
-  ink: '#191F28',
-  body: '#333D4B',
-  body2: '#4E5968',
-  muted: '#6B7684',
-  muted2: '#8B95A1',
-  disabled: '#B0B8C1',
-  disabled2: '#D1D6DB',
+  ink: 'var(--share-ink)',
+  body: 'var(--share-body)',
+  body2: 'var(--share-body2)',
+  muted: 'var(--share-muted)',
+  muted2: 'var(--share-muted2)',
+  disabled: 'var(--share-disabled)',
+  disabled2: 'var(--share-disabled2)',
 
-  blue: '#3182F6',
-  blueDeep: '#1B64DA',
-  blueBg: '#E8F3FF',
+  blue: 'var(--share-blue)',
+  blueDeep: 'var(--share-blue-deep)',
+  blueBg: 'var(--share-blue-bg)',
 
-  red: '#F04452',
-  redDeep: '#D22030',
-  redBg: '#FFEEEE',
+  red: 'var(--share-red)',
+  redDeep: 'var(--share-red-deep)',
+  redBg: 'var(--share-red-bg)',
 
   /** 재시험 집중 모드 전용 다크 패널 */
-  panel: '#191F28',
+  panel: 'var(--share-panel)',
+  /** Filled actions use a darker blue so white labels stay readable. */
+  blueSolid: 'var(--share-blue-solid)',
+  onSolid: 'var(--share-on-solid)',
 } as const
 
 /** 정답률 60% 미만은 주의(빨강), 그 외는 잉크. 카테고리 색은 쓰지 않는다 */
@@ -54,12 +61,12 @@ export const ATT_LABEL_KO: Record<string, string> = { present: '출석', late: '
 
 // ── 공통 클래스 ────────────────────────────────────────────────────────────
 /** 카드 표면 — 배경색 차이로만 구분한다. 테두리·그림자 없음 */
-export const CARD_CLASS = 'rounded-[20px] bg-[#F9FAFB]'
+export const CARD_CLASS = 'rounded-[20px] bg-[var(--share-card)]'
 /** 누르는 요소 공통 press 피드백 */
 export const PRESS = 'transition-transform duration-[120ms] active:scale-[0.985]'
 export const PRESS_STRONG = 'transition-transform duration-[120ms] active:scale-[0.98]'
 /** 리스트 행 press — 배경까지 바뀐다 */
-export const PRESS_ROW = `${PRESS} active:bg-[#F2F4F6]`
+export const PRESS_ROW = `${PRESS} active:bg-[var(--share-box)]`
 
 /** 스태거 등장(rise) — 카드 index 로 delay 를 준다 */
 export const riseStyle = (index = 0): CSSProperties => ({

@@ -37,11 +37,11 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#EBF3FF] to-white px-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[var(--legacy-wash)] to-white px-4">
       <Card className="w-full max-w-sm border-0 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl text-[#1A1C1E]">로그인</CardTitle>
-          <CardDescription className="text-[#8B95A1]">EduNote 강사 관리 서비스</CardDescription>
+          <CardTitle className="text-2xl text-[var(--legacy-ink)]">로그인</CardTitle>
+          <CardDescription className="text-[var(--legacy-muted)]">EduNote 강사 관리 서비스</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -70,9 +70,9 @@ export default function LoginPage() {
               {loading ? '로그인 중...' : '로그인'}
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-[#8B95A1]">
+          <p className="mt-4 text-center text-sm text-[var(--legacy-muted)]">
             계정이 없나요?{' '}
-            <Link href="/signup" className="text-[#2463EB] underline">
+            <Link href="/signup" className="text-[var(--legacy-blue)] underline">
               회원가입
             </Link>
           </p>

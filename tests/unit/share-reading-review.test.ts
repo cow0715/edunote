@@ -36,6 +36,27 @@ function answer(over: Record<string, unknown> = {}, q: Record<string, unknown> =
 }
 
 describe('buildReviewQuestions', () => {
+  it('번호가 포함된 선지는 표시 번호를 제거하되 본문 속 기호는 보존한다', () => {
+    const [q] = buildReviewQuestions([answer({}, {
+      choices: ['① blind devotion', '②creative thinking', '문장 ③을 보세요', '4 times', '⑤ effective cooperation'],
+    })])
+    expect(q.choices).toEqual(['blind devotion', 'creative thinking', '문장 ③을 보세요', '4 times', 'effective cooperation'])
+    expect(q.correct).toBe(5)
+  })
+
+  it('그림이 필요한데 원본이 없으면 다시 풀기 대상에서 제외한다', () => {
+    expect(buildReviewQuestions([answer({}, { needs_source_image: true, source_image_path: null })])).toEqual([])
+    expect(buildReviewQuestions([answer({}, { needs_source_image: true, source_image_path: '  ' })])).toEqual([])
+  })
+
+  it('원본 경로와 페이지를 다시 풀기 화면에 전달한다', () => {
+    const [q] = buildReviewQuestions([answer({}, {
+      needs_source_image: true, source_image_path: 'exam/page-2.png', source_page: 2,
+    })])
+    expect(q.sourceImage).toEqual({
+      source_image_path: 'exam/page-2.png', source_page: 2, needs_source_image: true,
+    })
+  })
   it('선지·정답이 갖춰진 객관식 오답만 고른다', () => {
     const result = buildReviewQuestions([answer()])
     expect(result).toHaveLength(1)

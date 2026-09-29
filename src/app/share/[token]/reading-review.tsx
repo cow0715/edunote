@@ -8,8 +8,9 @@
 // 로드돼 있어서, 라우트로 빼면 같은 데이터를 한 번 더 받아오게 된다.
 // 채점도 서버에 보내지 않는다: 정답이 이미 손에 있고, 이 화면은 성적이 아니라 복습이다.
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FormattedQuestionText } from '@/components/grade/formatted-question-text'
+import { SourceImagePreview } from '@/components/grade/source-image-preview'
 import { oxChoiceLabels, parseOXAnswerKey } from '@/lib/ox-grading'
 import { CIRCLE_NUM, StudentAnswer } from './share-types'
 import { PRESS, PRESS_STRONG, T } from './share-tokens'
@@ -31,6 +32,7 @@ export type ReviewQuestion = {
   /** 시험 때 고른 선지 (1-based). 미작성이면 null */
   mine: number | null
   explanation: string | null
+  sourceImage?: { source_image_path: string; source_page: number | null; needs_source_image: boolean }
   /** OX 의 수정어처럼 정답 옆에 덧붙일 것 */
   answerNote?: string | null
   /**
@@ -53,6 +55,8 @@ export function buildReviewQuestions(answers: StudentAnswer[]): ReviewQuestion[]
     .filter((a) => !a.is_correct && a.exam_question?.exam_type === 'reading')
     .map((a): ReviewQuestion | null => {
       const q = a.exam_question!
+      // 필수 그림이 없으면 텍스트만으로 풀게 하지 않는다. 원본은 오답 목록에서 확인한다.
+      if (q.needs_source_image && !q.source_image_path?.trim()) return null
       // 밑줄 OX 는 question_number 가 곧 지문의 밑줄 번호다(sub_label 없음).
       // 지문에 ①②③ 로 찍혀 있으므로 같은 기호로 불러야 어느 밑줄인지 알 수 있다.
       const isUnderlineOX = q.question_style === 'ox' && !q.sub_label
@@ -66,6 +70,11 @@ export function buildReviewQuestions(answers: StudentAnswer[]): ReviewQuestion[]
         passage: q.passage?.trim() || null,
         stem: q.question_stem?.trim() || q.question_text?.trim() || `${q.question_number}번`,
         explanation: q.explanation?.trim() || null,
+        sourceImage: q.source_image_path?.trim() ? {
+          source_image_path: q.source_image_path,
+          source_page: q.source_page ?? null,
+          needs_source_image: q.needs_source_image === true,
+        } : undefined,
       }
 
       // OX 는 선지가 저장돼 있지 않아도 정답키에서 두 선택지를 만들 수 있다.
@@ -91,7 +100,14 @@ export function buildReviewQuestions(answers: StudentAnswer[]): ReviewQuestion[]
       if (q.question_style !== 'objective' || q.correct_answer === null || choices.length < 2) return null
       return {
         ...base,
-        choices,
+        // 지문 속 위치 기호는 그대로 보존하고, 일반 선지의 중복 번호만 제거한다.
+        choices: choices.map((choice, index) => {
+          const trimmed = choice.trim()
+          const marker = CIRCLE_NUM[index]
+          return marker && trimmed.startsWith(marker) && !isBareMarker(trimmed)
+            ? trimmed.slice(marker.length).trimStart()
+            : choice
+        }),
         layout: choices.every(isBareMarker) ? 'markers' : 'list',
         correct: q.correct_answer,
         mine: a.student_answer,
@@ -101,8 +117,9 @@ export function buildReviewQuestions(answers: StudentAnswer[]): ReviewQuestion[]
     .sort((a, b) => a.number - b.number)
 }
 
-export function ReadingReview({ questions, onClose, onGoWrongNote }: {
+export function ReadingReview({ questions, token, onClose, onGoWrongNote }: {
   questions: ReviewQuestion[]
+  token: string
   onClose: () => void
   onGoWrongNote: () => void
 }) {
@@ -112,6 +129,21 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
   const [revealed, setRevealed] = useState(false)
   const [results, setResults] = useState<{ id: string; correct: boolean }[]>([])
   const scrollerRef = useRef<HTMLDivElement>(null)
+  const feedbackRef = useRef<HTMLDivElement>(null)
+  const stemRef = useRef<HTMLDivElement>(null)
+  const resultRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    scrollerRef.current?.scrollTo({ top: 0 })
+    const focusTarget = stemRef.current ?? resultRef.current
+    focusTarget?.focus({ preventScroll: true })
+  }, [qi, queue])
+
+  useEffect(() => {
+    if (!revealed) return
+    feedbackRef.current?.scrollIntoView({ block: 'start' })
+    feedbackRef.current?.focus({ preventScroll: true })
+  }, [revealed])
 
   const question = queue[qi]
   const done = qi >= queue.length
@@ -124,16 +156,17 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
     const rate = results.length > 0 ? Math.round((correctCount / results.length) * 100) : 0
 
     return (
-      <Screen>
-        <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+      <Screen onClose={onGoWrongNote}>
+        <div ref={resultRef} tabIndex={-1} aria-label="복습 결과" className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 text-center outline-none">
           <p className="text-[56px] font-black tabular-nums" style={{ color: T.blue }}>
             <CountUp value={rate} suffix="%" />
           </p>
-          <p className="mt-2 text-[15px] font-bold text-[#4E5968] tabular-nums">
+          <p className="mt-2 text-[15px] font-bold text-[var(--share-body2)] tabular-nums">
             {results.length}문항 중 {correctCount}개 정답
           </p>
+          <p className="mt-3 text-[13px] text-[var(--share-muted)]">개인 복습 결과예요. 성적에는 저장되지 않아요.</p>
         </div>
-        <div className="flex gap-2 px-4 pb-8">
+        <div className="flex shrink-0 gap-2 px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))]">
           <PillButton label="오답노트로" onClick={onGoWrongNote} />
           {wrongIds.size > 0 && (
             <PillButton
@@ -166,28 +199,26 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
     setQi((i) => i + 1)
     setSelected(null)
     setRevealed(false)
-    // 다음 문항은 지문 맨 위부터 읽어야 한다
-    scrollerRef.current?.scrollTo({ top: 0 })
   }
 
   return (
-    <Screen>
+    <Screen onClose={onClose}>
       {/* 헤더 + 진행바 */}
       <div className="shrink-0">
-        <div className="flex items-center gap-2 px-4 pt-4 pb-3">
-          <button type="button" onClick={onClose} className={`${PRESS} text-[13px] font-bold text-[#4E5968]`}>
+        <div className="flex items-center gap-2 px-4 pt-[max(8px,env(safe-area-inset-top))] pb-2">
+          <button type="button" onClick={onClose} className={`${PRESS} min-h-11 px-1 text-[13px] font-bold text-[var(--share-body2)]`}>
             ← 나가기
           </button>
           {question.typeName && (
-            <span className="min-w-0 flex-1 truncate text-center text-[12px] font-bold text-[#8B95A1]">
+            <span className="min-w-0 flex-1 truncate text-center text-[12px] font-bold text-[var(--share-muted2)]">
               {question.typeName}
             </span>
           )}
           <span className="ml-auto text-[13px] font-extrabold tabular-nums">
-            {qi + 1} <span className="text-[#B0B8C1]">/ {queue.length}</span>
+            {qi + 1} <span className="text-[var(--share-disabled)]">/ {queue.length}</span>
           </span>
         </div>
-        <div className="h-1 bg-[#F2F4F6]">
+        <div className="h-1 bg-[var(--share-box)]">
           <div
             className="h-full transition-[width] duration-300"
             style={{ width: `${progress}%`, background: T.blue }}
@@ -196,24 +227,33 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
       </div>
 
       {/* 지문 + 선지 */}
-      <div ref={scrollerRef} className="relative flex-1 overflow-y-auto px-4 pt-4 pb-6">
+      <div ref={scrollerRef} aria-label="문제와 해설" className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-5 pb-6">
+        <div ref={stemRef} tabIndex={-1} className="mb-5 outline-none">
+          <p className="mb-2 text-[13px] font-bold text-[var(--share-blue)]">{question.numberLabel}</p>
+          <FormattedQuestionText text={question.stem}
+            className="text-left text-[17px] font-bold leading-[1.6] break-words text-[var(--share-ink)]" />
+        </div>
         {question.passage && (
-          <div className="mb-3 rounded-[16px] bg-[#F9FAFB] px-4 py-3.5">
+          <div className="mb-6 border-y border-[var(--share-line)] py-5">
             <FormattedQuestionText
               text={question.passage}
-              className="text-[13px] leading-relaxed text-justify text-[#4E5968]"
+              className="[&_strong]:font-extrabold [&_strong]:text-[var(--share-ink)] text-left text-[16px] font-normal leading-[1.75] break-words text-[var(--share-body)]"
             />
           </div>
         )}
 
-        <p className="mb-1.5 text-[12px] font-bold text-[#3182F6]">{question.numberLabel}</p>
-        <FormattedQuestionText
-          text={question.stem}
-          className="mb-4 text-[15px] font-bold leading-relaxed text-[#191F28]"
-        />
+        {question.sourceImage && (
+          <div className="mb-4">
+            <SourceImagePreview
+              key={question.sourceImage.source_image_path}
+              question={question.sourceImage}
+              signedUrlEndpoint={`/api/share/${token}/source-image-url`}
+            />
+          </div>
+        )}
 
         {question.layout === 'markers' && (
-          <p className="mb-2 text-[12px] text-[#8B95A1]">지문에서 밑줄 친 번호를 고르세요.</p>
+          <p className="mb-3 text-[13px] text-[var(--share-muted)]">지문의 기호를 확인하고 번호를 고르세요.</p>
         )}
 
         <div className={question.layout === 'markers' ? 'flex flex-wrap gap-2' : 'flex flex-col gap-2'}>
@@ -229,6 +269,7 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
                 key={number}
                 type="button"
                 disabled={revealed}
+                aria-pressed={picked}
                 onClick={() => setSelected(number)}
                 className={`${PRESS_STRONG} border-2 transition-colors ${
                   question.layout === 'markers'
@@ -237,8 +278,8 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
                     : 'flex items-start gap-2.5 rounded-[16px] px-4 py-3 text-left'
                 }`}
                 style={{
-                  borderColor: showAnswer ? T.blue : showWrong ? T.red : picked ? T.blue : 'transparent',
-                  background: showAnswer ? T.blueBg : showWrong ? T.redBg : '#FFFFFF',
+                  borderColor: showAnswer ? T.blue : showWrong ? T.red : picked ? T.blue : T.line,
+                  background: showAnswer ? T.blueBg : showWrong ? T.redBg : 'var(--share-canvas)',
                   // 정답 확인 순간에만 튀거나 흔들린다 — 어떤 선지였는지 몸으로 기억하게
                   animation: showAnswer
                     ? 'share-pop .35s ease both'
@@ -246,51 +287,56 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
                 }}
               >
                 <span
-                  className={question.layout === 'markers' ? 'text-[20px] font-extrabold' : 'text-[14px] font-extrabold'}
-                  style={{ color: showAnswer ? T.blue : showWrong ? T.red : picked ? T.blue : T.disabled }}
+                  className={question.layout === 'markers' ? 'text-[20px] font-extrabold' : 'text-[16px] font-bold leading-[1.7]'}
+                  style={{ color: showAnswer ? T.blue : showWrong ? T.red : picked ? T.blue : T.muted }}
                 >
                   {markerOf(question, index)}
                 </span>
                 {question.layout !== 'markers' && (
-                  <span className="min-w-0 flex-1 text-[14px] leading-relaxed text-[#191F28]">{choice}</span>
+                  <span className="min-w-0 flex-1 text-[16px] leading-[1.7] break-words text-[var(--share-ink)]">{choice}</span>
                 )}
               </button>
             )
           })}
         </div>
 
-      </div>
-
-      {/* 피드백 + 하단 버튼 — 지문이 길어도 정답·해설이 늘 보이도록 스크롤 밖에 둔다 */}
-      <div className="shrink-0 px-4 pb-8">
+        {/* 해설도 본문과 함께 스크롤한다. 고정 영역은 주요 버튼만 사용한다. */}
         {revealed && (
           <div
-            className="mb-3 rounded-[16px] px-4 py-3.5"
+            ref={feedbackRef}
+            tabIndex={-1}
+            aria-label="풀이 결과와 해설"
+            className="mt-6 scroll-mt-4 rounded-[16px] px-4 py-4 outline-none"
             style={{ background: isCorrect ? T.blueBg : T.redBg }}
             role="status"
           >
             <p className="text-[14px] font-extrabold" style={{ color: isCorrect ? T.blue : T.red }}>
               {isCorrect ? '정답이에요' : `아쉬워요 · 정답은 ${markerOf(question, question.correct - 1)}`}
               {question.answerNote && (
-                <span className="ml-1.5 text-[12px] font-bold text-[#4E5968]">{question.answerNote}</span>
+                <span className="ml-1.5 text-[12px] font-bold text-[var(--share-body2)]">{question.answerNote}</span>
               )}
             </p>
             {question.explanation && (
-              <p className="mt-1.5 max-h-32 overflow-y-auto text-[12.5px] leading-relaxed text-[#4E5968]">
-                {question.explanation}
-              </p>
+              <FormattedQuestionText text={question.explanation}
+                className="mt-3 text-left text-[15px] leading-[1.75] break-words text-[var(--share-body)]" />
             )}
             {question.mine !== null && question.mine !== selected && (
-              <p className="mt-1.5 text-[11px] text-[#8B95A1]">
+              <p className="mt-3 text-[13px] text-[var(--share-muted)]">
                 시험 때 고른 답 {markerOf(question, question.mine - 1)}
               </p>
             )}
+            <button type="button" className={`${PRESS} mt-2 min-h-11 text-[13px] font-bold text-[var(--share-blue)]`}
+              onClick={() => { scrollerRef.current?.scrollTo({ top: 0 }); stemRef.current?.focus({ preventScroll: true }) }}>
+              문제 처음으로
+            </button>
           </div>
         )}
+      </div>
+      <div className="shrink-0 border-t border-[var(--share-line)] px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))]">
         <PillButton
           primary
           disabled={!revealed && selected === null}
-          label={!revealed ? '확인' : qi === queue.length - 1 ? '결과 보기' : '다음 문항'}
+          label={!revealed ? '정답 확인' : qi === queue.length - 1 ? '결과 보기' : '다음 문항'}
           onClick={onPrimary}
         />
       </div>
@@ -298,11 +344,25 @@ export function ReadingReview({ questions, onClose, onGoWrongNote }: {
   )
 }
 
-function Screen({ children }: { children: React.ReactNode }) {
+function Screen({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const dialog = dialogRef.current!
+    const previousOverflow = document.body.style.overflow
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    dialog.showModal()
+    document.body.style.overflow = 'hidden'
+    return () => {
+      dialog.close()
+      document.body.style.overflow = previousOverflow
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true })
+    }
+  }, [])
   return (
-    <div className="fixed inset-0 z-50 mx-auto flex max-w-[430px] flex-col bg-white text-[#191F28]">
+    <dialog ref={dialogRef} aria-label="문제 다시 풀기" onCancel={(event) => { event.preventDefault(); onClose() }}
+      className="fixed inset-0 m-auto h-[100dvh] max-h-[100dvh] w-full max-w-[430px] flex-col overflow-hidden border-0 bg-[var(--share-canvas)] p-0 text-[var(--share-ink)] backdrop:bg-[var(--share-canvas)] open:flex">
       {children}
-    </div>
+    </dialog>
   )
 }
 
@@ -319,9 +379,9 @@ function PillButton({ label, onClick, primary, disabled }: {
       disabled={disabled}
       className={`${PRESS_STRONG} w-full rounded-full py-3.5 text-[15px] font-extrabold`}
       style={disabled
-        ? { background: T.disabled2, color: '#FFFFFF' }
+        ? { background: T.disabled2, color: T.onSolid }
         : primary
-          ? { background: T.blue, color: '#FFFFFF' }
+          ? { background: T.blueSolid, color: T.onSolid }
           : { background: T.box, color: T.body2 }}
     >
       {label}

@@ -37,11 +37,11 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#EBF3FF] to-white px-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[var(--legacy-wash)] to-white px-4">
       <Card className="w-full max-w-sm border-0 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl text-[#1A1C1E]">회원가입</CardTitle>
-          <CardDescription className="text-[#8B95A1]">
+          <CardTitle className="text-2xl text-[var(--legacy-ink)]">회원가입</CardTitle>
+          <CardDescription className="text-[var(--legacy-muted)]">
             강사 계정을 신청합니다. 가입 후 관리자 승인이 필요합니다.
           </CardDescription>
         </CardHeader>
@@ -84,9 +84,9 @@ export default function SignupPage() {
               {loading ? '처리 중...' : '가입 신청'}
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-[#8B95A1]">
+          <p className="mt-4 text-center text-sm text-[var(--legacy-muted)]">
             이미 계정이 있나요?{' '}
-            <Link href="/login" className="text-[#2463EB] underline">
+            <Link href="/login" className="text-[var(--legacy-blue)] underline">
               로그인
             </Link>
           </p>

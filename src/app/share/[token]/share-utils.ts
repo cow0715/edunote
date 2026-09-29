@@ -9,6 +9,7 @@ import {
   type StructuredQuestionParts,
 } from '@/lib/question-structure'
 import { CIRCLE_NUM, ShareData, StudentAnswer, VocabAnswer, VocabWord, Week } from './share-types'
+import { T } from './share-tokens'
 
 export const CHART_VISIBLE_COUNT = 8
 
@@ -132,13 +133,13 @@ export const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a,
  * 리디자인 이후 80/60 3단계 색(emerald/amber/rose)은 쓰지 않는다.
  */
 export const scoreColor = (correct: number, total: number) =>
-  total > 0 && correct / total < 0.6 ? 'text-[#F04452]' : 'text-[#191F28]'
+  total > 0 && correct / total < 0.6 ? 'text-[var(--share-red)]' : 'text-[var(--share-ink)]'
 
 /** 출결 배지 — 배경은 상태색 + 알파, 글자는 상태색 */
 export const ATT_BADGE: Record<string, { color: string; bg: string }> = {
-  present: { color: '#3182F6', bg: '#3182F61A' },
-  late: { color: '#6B7684', bg: '#6B76841A' },
-  absent: { color: '#F04452', bg: '#F044521A' },
+  present: { color: T.blue, bg: T.blueBg },
+  late: { color: T.muted, bg: T.box },
+  absent: { color: T.red, bg: T.redBg },
 }
 export const ATT_LABEL: Record<string, string> = { present: '출석', late: '지각', absent: '결석' }
 
@@ -336,11 +337,11 @@ export function buildWeeklyHeadline(r: WeeklyHeadlineInput): string {
     if (vocab) {
       const d = vocab.delta
       if (d === null) return `${scorePhrase('단어', vocab)}로 시작했어요.`
-      if (Math.abs(d) <= 5) return `${scorePhrase('단어', vocab)}, 지난주와 비슷했어요.`
+      if (Math.abs(d) <= 5) return `${scorePhrase('단어', vocab)}, 직전 회차와 비슷했어요.`
       return d > 0 ? `단어가 ${d}%p 올랐어요.` : `단어가 ${-d}%p 내려갔어요.`
     }
-    if (homework) return `이번 주는 과제 ${homework.total}개 중 ${fmtCount(homework.correct)}개를 제출했어요.`
-    return '이번 주 기록이 아직 없어요.'
+    if (homework) return `최근 수업에서는 과제 ${homework.total}개 중 ${fmtCount(homework.correct)}개를 제출했어요.`
+    return '이 회차 기록이 아직 없어요.'
   }
 
   const rd = reading.delta
@@ -358,12 +359,12 @@ export function buildWeeklyHeadline(r: WeeklyHeadlineInput): string {
     if (rd < 0 && vd > 0) {
       const streak = r.vocabRisingStreak ?? 0
       return streak >= 2
-        ? `단어는 ${streak}주 연속 올랐고, 시험은 ${-rd}%p 내려갔어요.`
+        ? `단어는 ${streak}회 연속 올랐고, 시험은 ${-rd}%p 내려갔어요.`
         : `단어는 ${vd}%p 올랐고, 시험은 ${-rd}%p 내려갔어요.`
     }
     if (rd > 0 && vd < 0) return `시험은 ${rd}%p 올랐지만, 단어를 놓쳤어요.`
     if (rd > 0 && vd > 0) return '시험·단어 둘 다 올랐어요.'
-    return '시험·단어 둘 다 내려간 주예요.'
+    return '시험·단어 둘 다 내려갔어요.'
   }
 
   // 여기 오면 한쪽은 정확히 0 이거나 비교 불가다(둘 다 0 이 아니면 위에서 끝났다).
@@ -373,7 +374,7 @@ export function buildWeeklyHeadline(r: WeeklyHeadlineInput): string {
   if (moved(rd)) return `시험이 ${Math.abs(rd)}%p ${rd > 0 ? '올랐어요' : '내려갔어요'}.${stayed('단어는', vd)}`
   if (moved(vd)) return `단어가 ${Math.abs(vd)}%p ${vd > 0 ? '올랐어요' : '내려갔어요'}.${stayed('시험은', rd)}`
   const parts = [scorePhrase('시험', reading), vocab ? scorePhrase('단어', vocab) : null].filter(Boolean)
-  return `${parts.join(', ')}로 지난주와 비슷했어요.`
+  return `${parts.join(', ')}로 직전 회차와 비슷했어요.`
 }
 
 /** 이번 주 카드의 팩트 한 줄. warn 이면 앞 점이 빨강 */

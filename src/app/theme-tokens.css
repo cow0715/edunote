@@ -1,0 +1,116 @@
+/* Shared appearance tokens. Screen-only dark rules keep printed output light. */
+:root {
+  --control-selected: #1B64DA;
+  --control-on-selected: #FFFFFF;
+  --control-bg: #1B64DA;
+  --control-fg: #FFFFFF;
+  --share-canvas: #FFFFFF;
+  --share-card: #F9FAFB;
+  --share-box: #F2F4F6;
+  --share-box-on-card: #FFFFFF;
+  --share-line: #EEF1F4;
+  --share-line-strong: #E5E8EB;
+  --share-ink: #191F28;
+  --share-body: #333D4B;
+  --share-body2: #4E5968;
+  --share-muted: #6B7684;
+  --share-muted2: #8B95A1;
+  --share-disabled: #B0B8C1;
+  --share-disabled2: #D1D6DB;
+  --share-blue: #3182F6;
+  --share-blue-deep: #1B64DA;
+  --share-blue-bg: #E8F3FF;
+  --share-red: #F04452;
+  --share-red-deep: #D22030;
+  --share-red-bg: #FFEEEE;
+  --share-panel: #191F28;
+  --share-blue-solid: #1B64DA;
+  --share-on-solid: #FFFFFF;
+}
+
+@media screen {
+  :root.dark {
+    --control-selected: #34343C;
+    --control-on-selected: #E5E8EB;
+    --control-bg: #29292F;
+    --control-fg: #E5E8EB;
+    --background: #101013;
+    --foreground: #E5E8EB;
+    --card: #17171C;
+    --card-foreground: #E5E8EB;
+    --popover: #2A2A33;
+    --popover-foreground: #E5E8EB;
+    --primary: #6BA5FF;
+    --primary-foreground: #101013;
+    --secondary: #2A2A33;
+    --secondary-foreground: #D0D3DA;
+    --muted: #2A2A33;
+    --muted-foreground: #9B9FAA;
+    --accent: #34343C;
+    --accent-foreground: #E5E8EB;
+    --destructive: #FF7B86;
+    --border: #34343E;
+    --input: #51545F;
+    --ring: #6BA5FF;
+    --chart-1: #6BA5FF;
+    --chart-2: #73CBB1;
+    --chart-3: #E8B96F;
+    --chart-4: #FF7B86;
+    --chart-5: #B6A2EA;
+    --sidebar: #17171C;
+    --sidebar-foreground: #E5E8EB;
+    --sidebar-primary: #6BA5FF;
+    --sidebar-primary-foreground: #101013;
+    --sidebar-accent: #29292F;
+    --sidebar-accent-foreground: #E5E8EB;
+    --sidebar-border: #34343E;
+    --sidebar-ring: #6BA5FF;
+  --share-canvas: #101013;
+  --share-card: #17171C;
+  --share-box: #2A2A33;
+  --share-box-on-card: #2A2A33;
+  --share-line: #2D2D36;
+  --share-line-strong: #34343E;
+  --share-ink: #E5E8EB;
+  --share-body: #D0D3DA;
+  --share-body2: #C3C6CE;
+  --share-muted: #A9ADB8;
+  --share-muted2: #9B9FAA;
+  --share-disabled: #848894;
+  --share-disabled2: #454550;
+  --share-blue: #6BA5FF;
+  --share-blue-deep: #8EBBFF;
+  --share-blue-bg: #202F48;
+  --share-red: #FF7B86;
+  --share-red-deep: #FF9AA3;
+  --share-red-bg: #39252D;
+  --share-panel: #101013;
+  --share-blue-solid: #1B64DA;
+  --share-on-solid: #FFFFFF;
+  }
+}
+
+:root {
+  --legacy-ink: #1A1C1E;
+  --legacy-blue: #2463EB;
+  --legacy-muted: #8B95A1;
+  --legacy-subtle: #94A3B8;
+  --legacy-bright: #F8FAFC;
+  --legacy-red: #FF4D4D;
+  --legacy-wash: #EBF3FF;
+}
+@media screen {
+  :root.dark {
+    --legacy-ink: #E5E8EB;
+    --legacy-blue: #6BA5FF;
+    --legacy-muted: #9B9FAA;
+    --legacy-subtle: #A9ADB8;
+    --legacy-bright: #E5E8EB;
+    --legacy-red: #FF7B86;
+    --legacy-wash: #17171C;
+  }
+}
+
+/* Embedded paper previews must not inherit dark semantic colors. */
+.print-surface { color-scheme: light; --background: #fff; --foreground: #191f28; --card: #fff; --card-foreground: #191f28; --muted: #f2f4f6; --muted-foreground: #6b7684; --border: #e5e8eb; }
+@media print { :root { color-scheme: light; } body { background: #fff; color: #191f28; } }

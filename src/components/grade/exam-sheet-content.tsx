@@ -192,21 +192,24 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [photoOpen, setPhotoOpen] = useState(false)
   const [rereading, setRereading] = useState(false)
+  const [localPhotoPath, setLocalPhotoPath] = useState<string | null>(null)
+  const visiblePhotoPath = localPhotoPath ?? examPhotoPath ?? null
 
   // 사진 경로가 바뀌면 이전 서명 URL 을 즉시 지운다 — 렌더 중 조정 (다른 학생 사진이 잠깐 남는 것 방지)
   const [syncedPhotoPath, setSyncedPhotoPath] = useState<string | null | undefined>(examPhotoPath)
   if (syncedPhotoPath !== examPhotoPath) {
     setSyncedPhotoPath(examPhotoPath)
+    setLocalPhotoPath(null)
     setPhotoUrl(null)
   }
   useEffect(() => {
-    if (!examPhotoPath) return
+    if (!visiblePhotoPath) return
     // fetch 후(then 안) setState — 렌더 중 동기 호출이 아니라 규칙에 걸리지 않는다
-    fetch(`/api/vocab-photo-url?bucket=exam-photos&path=${encodeURIComponent(examPhotoPath)}`)
+    fetch(`/api/vocab-photo-url?bucket=exam-photos&path=${encodeURIComponent(visiblePhotoPath)}`)
       .then((r) => r.json())
       .then((d) => { if (d.url) setPhotoUrl(d.url) })
       .catch(() => {})
-  }, [examPhotoPath])
+  }, [visiblePhotoPath])
 
   // 저장된 사진으로 재판독 — 재촬영 없이 OCR 만 다시 돌려 답을 다시 채운다
   async function rereadFromStored() {
@@ -307,7 +310,10 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
             weekId={weekId}
             studentId={row.student_id}
             disabled={!row.present}
-            onResult={applyOcrResults}
+            onResult={(results) => {
+              setLocalPhotoPath(`${weekId}/${row.student_id}`)
+              applyOcrResults(results)
+            }}
           />
           {photoUrl && (
             <>

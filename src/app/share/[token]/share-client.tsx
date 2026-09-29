@@ -5,12 +5,14 @@
 // 파생 데이터 계산은 use-share-model.ts 로 빠져 있다.
 //
 // 디자인 원본: 학습 리포트 디자인 벤치마킹/design_handoff_share_report/README.md
-// 이 화면은 라이트 기준이다 (다크 매핑은 범위 밖).
+// 색상은 공통 라이트/다크 토큰을 따른다.
 
 import { use, useCallback, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { BookOpen, History, Home, Languages, PieChart } from 'lucide-react'
+import { ThemeSelect } from '@/components/layout/theme-select'
+import { shareErrorMessage } from './share-feedback'
 import { ShareData, TabId } from './share-types'
 import { INITIAL_VOCAB_FILTER, VocabFilterState, VocabStudyMode } from './share-utils'
 import { PRESS, T } from './share-tokens'
@@ -53,22 +55,6 @@ function useShareData(token: string, periodId: string | null) {
   })
 }
 
-/** 링크가 안 열릴 때 학부모가 다음에 뭘 해야 할지까지 알려준다 */
-function shareErrorMessage(status: number | undefined): { title: string; hint: string } {
-  if (status === 410) return {
-    title: '링크가 만료되었습니다',
-    hint: '가장 최근에 받으신 문자의 링크로 접속해 주세요.',
-  }
-  if (status === 403) return {
-    title: '공유가 종료되었습니다',
-    hint: '자세한 내용은 선생님께 문의해 주세요.',
-  }
-  return {
-    title: '학생 정보를 찾을 수 없습니다',
-    hint: '링크가 잘못되었을 수 있습니다. 문자의 링크를 다시 확인해 주세요.',
-  }
-}
-
 /** Set 토글 — 주차 아코디언용 */
 function toggleInSet(set: Set<string>, id: string) {
   const next = new Set(set)
@@ -88,7 +74,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const router = useRouter()
   const searchParams = useSearchParams()
   const selectedPeriodId = searchParams.get('periodId')
-  const { data, isLoading, error } = useShareData(token, selectedPeriodId)
+  const { data, isLoading, error, refetch, isFetching } = useShareData(token, selectedPeriodId)
 
   const [activeTab, setActiveTab] = useState<TabId>('home')
   const [periodSheetOpen, setPeriodSheetOpen] = useState(false)
@@ -174,17 +160,23 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     : [], [drawerTag, studentAnswers, weekNumberByWeekId])
 
   if (isLoading) return (
-    <div className="flex min-h-screen items-center justify-center bg-white">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#3182F6] border-t-transparent" />
+    <div className="flex min-h-screen items-center justify-center bg-[var(--share-canvas)]">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--share-blue)] border-t-transparent" />
     </div>
   )
   if (error || !data) {
-    const { title, hint } = shareErrorMessage(error?.status)
+    const { title, hint, retryable } = shareErrorMessage(error?.status)
     return (
-      <div className="flex min-h-screen items-center justify-center bg-white px-8">
+      <div className="flex min-h-screen items-center justify-center bg-[var(--share-canvas)] px-8">
         <div className="max-w-xs text-center">
-          <p className="text-[16px] font-extrabold text-[#191F28]">{title}</p>
-          <p className="mt-2 text-[13px] leading-relaxed text-[#8B95A1]">{hint}</p>
+          <p className="text-[16px] font-extrabold text-[var(--share-ink)]">{title}</p>
+          <p className="mt-2 text-[13px] leading-relaxed text-[var(--share-muted2)]">{hint}</p>
+          {retryable && (
+            <button type="button" onClick={() => void refetch()} disabled={isFetching}
+              className={`${PRESS} mt-4 min-h-11 rounded-full bg-[var(--share-box)] px-5 text-[13px] font-bold text-[var(--share-blue)]`}>
+              {isFetching ? '불러오는 중…' : '다시 시도'}
+            </button>
+          )}
         </div>
       </div>
     )
@@ -205,28 +197,34 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     setExpandedVocabWeekIds(new Set())
     setAutoExpandedReading(null)
     setAutoExpandedVocab(null)
+    setVocabFilter(INITIAL_VOCAB_FILTER)
+    setDrawerTag(null)
     window.scrollTo({ top: 0 })
   }
 
   return (
-    <div className="relative mx-auto min-h-screen max-w-[430px] bg-white pb-[92px] text-[#191F28]">
+    <div className="[&_strong]:font-extrabold [&_strong]:text-[var(--share-ink)] relative mx-auto min-h-screen max-w-[430px] bg-[var(--share-canvas)] pb-[92px] text-[var(--share-ink)]">
 
       {/* ── 헤더 ──────────────────────────────────────────────────── */}
       <header className="flex items-center justify-between gap-3 px-5 pt-[18px] pb-2">
         <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="truncate text-[12px] font-medium text-[#8B95A1]">{headerLine || '학습 리포트'}</span>
+          <span className="truncate text-[12px] font-medium text-[var(--share-muted2)]">{headerLine || '학습 리포트'}</span>
           <span className="text-[20px] font-extrabold tracking-[-0.01em]">{student.name}</span>
         </div>
-        {periodOptions.length > 1 && (
-          <button
-            type="button"
-            onClick={() => setPeriodSheetOpen(true)}
-            className={`${PRESS} flex shrink-0 items-center gap-1.5 rounded-full bg-[#F2F4F6] py-2 pr-3 pl-3.5 text-[13px] font-extrabold`}
-          >
-            <span className="max-w-[110px] truncate">{periodLabel}</span>
-            <span className="text-[10px] text-[#8B95A1]">▾</span>
-          </button>
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          {periodOptions.length > 0 && (
+            <button
+              type="button"
+              aria-label={`기간 선택: ${periodLabel}`}
+              onClick={() => setPeriodSheetOpen(true)}
+              className={`${PRESS} flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--share-box)] py-2 pr-3 pl-3.5 text-[13px] font-extrabold`}
+            >
+              <span className="max-w-[110px] truncate">{periodLabel}</span>
+              <span className="text-[10px] text-[var(--share-muted2)]">▾</span>
+            </button>
+          )}
+          <ThemeSelect compact />
+        </div>
       </header>
 
       {/* ── 탭 콘텐츠 ─────────────────────────────────────────────── */}
@@ -282,11 +280,11 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
       </main>
 
       {/* ── 하단 탭바 ─────────────────────────────────────────────── */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] border-t border-[#EEF1F4] bg-white">
+      <nav className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] border-t border-[var(--share-line)] bg-[var(--share-canvas)]">
         {/* 인디케이터 하나가 탭 사이를 미끄러진다 */}
         <span
           aria-hidden
-          className="absolute top-0 h-[3px] w-[22px] rounded-full bg-[#3182F6] transition-[left] duration-[280ms] ease-[cubic-bezier(.2,.8,.2,1)]"
+          className="absolute top-0 h-[3px] w-[22px] rounded-full bg-[var(--share-blue)] transition-[left] duration-[280ms] ease-[cubic-bezier(.2,.8,.2,1)]"
           style={{ left: `calc(${activeIndex * 20}% + 10% - 11px)` }}
         />
         <div className="flex pb-safe">
@@ -322,10 +320,10 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
             aria-modal="true"
             aria-label="기간 선택"
             onClick={(e) => e.stopPropagation()}
-            className="max-h-[80vh] w-full max-w-[430px] overflow-y-auto rounded-t-[20px] bg-[#F9FAFB] px-4 pt-3.5 pb-7"
+            className="max-h-[80vh] w-full max-w-[430px] overflow-y-auto rounded-t-[20px] bg-[var(--share-card)] px-4 pt-3.5 pb-7"
             style={{ animation: 'share-sheet-up .42s cubic-bezier(.22,.9,.3,1) both' }}
           >
-            <div className="mx-auto mb-4 h-1 w-9 rounded-full bg-[#E5E8EB]" />
+            <div className="mx-auto mb-4 h-1 w-9 rounded-full bg-[var(--share-line-strong)]" />
             <span className="block px-1.5 pb-3 text-[16px] font-extrabold">기간 선택</span>
             <div className="flex flex-col gap-1.5">
               {periodOptions.map((period) => {
@@ -350,16 +348,16 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
                           {period.class_name ? `${period.class_name} · ${period.label}` : period.label}
                         </span>
                         {period.is_current && (
-                          <span className="shrink-0 rounded-full bg-[#E8F3FF] px-[7px] py-0.5 text-[10px] font-bold text-[#3182F6]">
+                          <span className="shrink-0 rounded-full bg-[var(--share-blue-bg)] px-[7px] py-0.5 text-[10px] font-bold text-[var(--share-blue)]">
                             현재
                           </span>
                         )}
                       </span>
-                      <span className="text-[12px] text-[#8B95A1]">
+                      <span className="text-[12px] text-[var(--share-muted2)]">
                         {fmtPeriodRange(period.start_date, period.end_date)} · {period.week_count ?? 0}회차
                       </span>
                     </span>
-                    {active && <span className="text-[14px] text-[#3182F6]">✓</span>}
+                    {active && <span className="text-[14px] text-[var(--share-blue)]">✓</span>}
                   </button>
                 )
               })}

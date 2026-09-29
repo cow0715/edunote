@@ -267,7 +267,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
 
   if (readingQuestions.length === 0) {
     return (
-      <div className="rounded-[24px] border border-dashed border-slate-200 bg-white/70 px-6 py-14 text-center text-sm text-slate-400 dark:border-white/10 dark:bg-slate-900/60 dark:text-slate-500">
+      <div className="rounded-[24px] border border-dashed border-slate-200 bg-card/70 px-6 py-14 text-center text-sm text-slate-400 dark:border-white/10 dark:bg-slate-900/60 dark:text-slate-500">
         먼저 해설지나 문제지 PDF를 업로드해 문항을 가져와 주세요.
       </div>
     )
@@ -305,7 +305,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
             : (editRow.correct_answer_text || q.correct_answer_text || '미설정')
 
           return (
-            <div key={q.id} className="overflow-hidden rounded-[24px] bg-white/95 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/90">
+            <div key={q.id} className="overflow-hidden rounded-[24px] bg-card/95 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/90">
               <div className="flex items-start justify-between gap-3 px-4 py-4">
                 <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">

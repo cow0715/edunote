@@ -15,7 +15,7 @@ import { ATT_BADGE, ATT_LABEL, fmtClassDiff } from '../share-utils'
 import { PRESS_STRONG, T } from '../share-tokens'
 import { HistoryChip, HistoryGroup, HistoryRow, buildHistoryGroups } from '../history-utils'
 import { ShareData } from '../share-types'
-import { ShareModel } from '../use-share-model'
+import { ShareModel, useShareModel } from '../use-share-model'
 
 type HistScope = 'period' | 'all'
 
@@ -50,9 +50,9 @@ export function ScoreTab({
     retry: false,
   })
 
-  const groups = buildHistoryGroups(
-    scope === 'all' && allScopeQuery.data ? allScopeQuery.data : model
-  )
+  const allScopeModel = useShareModel(allScopeQuery.data)
+  const waitingForAll = scope === 'all' && !allScopeQuery.data
+  const groups = waitingForAll ? [] : buildHistoryGroups(scope === 'all' ? allScopeModel : model)
 
   const weekCount = groups.reduce((sum, g) => sum + g.rows.length, 0)
   const latestWeekId = groups[0]?.rows[0]?.week.id ?? null
@@ -62,8 +62,8 @@ export function ScoreTab({
       <div className="flex items-end justify-between gap-3 px-1.5 pt-1">
         <div className="min-w-0">
           <h1 className="text-[22px] font-extrabold tracking-[-0.02em]">회차별 기록</h1>
-          <p className="mt-0.5 text-[13px] text-[#8B95A1]">
-            {scope === 'all' ? '전체 기간' : periodLabel} {weekCount}회차
+          <p className="mt-0.5 text-[13px] text-[var(--share-muted2)]">
+            {scope === 'all' ? '전체 기간' : periodLabel}{!waitingForAll && ` ${weekCount}회차`}
           </p>
         </div>
         {hasOtherPeriods && (
@@ -83,10 +83,16 @@ export function ScoreTab({
         <EmptyState>전체 기간 기록을 불러오는 중이에요.</EmptyState>
       )}
       {scope === 'all' && allScopeQuery.isError && (
-        <EmptyState>전체 기간 기록을 불러오지 못했어요.</EmptyState>
+        <div className="text-center">
+          <EmptyState>전체 기간 기록을 불러오지 못했어요.</EmptyState>
+          <button type="button" disabled={allScopeQuery.isFetching} onClick={() => void allScopeQuery.refetch()}
+            className="min-h-11 px-4 text-[13px] font-bold text-[var(--share-blue)]">
+            {allScopeQuery.isFetching ? '불러오는 중…' : '다시 시도'}
+          </button>
+        </div>
       )}
 
-      {weekCount === 0
+      {!waitingForAll && (weekCount === 0
         ? <EmptyState>아직 기록된 회차가 없어요.</EmptyState>
         : groups.map((group) => (
           <HistoryGroupCard
@@ -96,9 +102,9 @@ export function ScoreTab({
             showPeriodHeader={scope === 'all'}
             onOpenWrongNoteWeek={onOpenWrongNoteWeek}
           />
-        ))}
+        )))}
 
-      <AttendanceSection model={model} />
+      {!waitingForAll && <AttendanceSection key={scope} model={scope === 'all' ? allScopeModel : model} />}
     </>
   )
 }
@@ -125,12 +131,12 @@ function HistoryGroupCard({ group, latestWeekId, showPeriodHeader, onOpenWrongNo
     <div className="flex flex-col gap-2">
       {showPeriodHeader && (
         <div className="flex items-baseline gap-2 px-1.5">
-          <span className="text-[13px] font-extrabold text-[#3182F6]">{group.periodLabel}</span>
-          <span className="text-[11px] text-[#8B95A1]">{group.rows.length}회차</span>
+          <span className="text-[13px] font-extrabold text-[var(--share-blue)]">{group.periodLabel}</span>
+          <span className="text-[11px] text-[var(--share-muted2)]">{group.rows.length}회차</span>
         </div>
       )}
       <Card noPad>
-        <div className="divide-y divide-[#EEF1F4]">
+        <div className="divide-y divide-[var(--share-line)]">
           {group.rows.map((row) => (
             <HistoryRowView
               key={row.week.id}
@@ -165,7 +171,7 @@ function HistoryRowView({ row, open, onToggle, onOpenWrongNoteWeek }: {
         <>
           <span className="flex flex-wrap items-center gap-2">
             <span className="text-[15px] font-extrabold">{row.weekLabel}</span>
-            {row.dateLabel && <span className="text-[12px] text-[#8B95A1]">{row.dateLabel}</span>}
+            {row.dateLabel && <span className="text-[12px] text-[var(--share-muted2)]">{row.dateLabel}</span>}
             {badge && row.attendance && (
               <span
                 className="rounded-full px-2 py-0.5 text-[10px] font-bold"
@@ -185,7 +191,7 @@ function HistoryRowView({ row, open, onToggle, onOpenWrongNoteWeek }: {
         <div className="flex flex-col gap-3">
           {row.wrongTypes.length > 0 && (
             <div>
-              <p className="mb-1.5 text-[11px] font-bold text-[#8B95A1]">이번 회차 오답 유형</p>
+              <p className="mb-1.5 text-[11px] font-bold text-[var(--share-muted2)]">이번 회차 오답 유형</p>
               <div className="flex flex-wrap gap-1.5">
                 {row.wrongTypes.map((t) => (
                   <Chip key={t.name} tone="red">{t.name} {t.count}</Chip>
@@ -195,9 +201,9 @@ function HistoryRowView({ row, open, onToggle, onOpenWrongNoteWeek }: {
           )}
 
           {row.memo && (
-            <div className="rounded-[12px] bg-white px-3.5 py-3">
-              <p className="text-[10px] font-bold text-[#3182F6]">선생님 코멘트</p>
-              <p className="mt-1 text-[13px] leading-relaxed text-[#333D4B]">{row.memo}</p>
+            <div className="rounded-[12px] bg-[var(--share-box-on-card)] px-3.5 py-3">
+              <p className="text-[10px] font-bold text-[var(--share-blue)]">선생님 코멘트</p>
+              <p className="mt-1 text-[13px] leading-relaxed text-[var(--share-body)]">{row.memo}</p>
             </div>
           )}
 
@@ -220,7 +226,7 @@ function HistoryRowView({ row, open, onToggle, onOpenWrongNoteWeek }: {
           )}
         </div>
       ) : (
-        <p className="text-[12px] text-[#8B95A1]">이 회차엔 오답·코멘트가 없어요.</p>
+        <p className="text-[12px] text-[var(--share-muted2)]">이 회차엔 오답·코멘트가 없어요.</p>
       )}
     </AccordionRow>
   )
@@ -228,8 +234,8 @@ function HistoryRowView({ row, open, onToggle, onOpenWrongNoteWeek }: {
 
 function ScoreChip({ chip }: { chip: HistoryChip }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-[10px] bg-white px-2 py-1 text-[11px]">
-      <span className="text-[#6B7684]">{chip.label}</span>
+    <span className="inline-flex items-center gap-1 rounded-[10px] bg-[var(--share-box-on-card)] px-2 py-1 text-[11px]">
+      <span className="text-[var(--share-muted)]">{chip.label}</span>
       <strong className="font-extrabold tabular-nums" style={{ color: chip.warn ? T.red : T.ink }}>
         {chip.value}
       </strong>
@@ -249,8 +255,8 @@ function ActionButton({ label, onClick, primary }: { label: string; onClick: () 
       onClick={onClick}
       className={`${PRESS_STRONG} flex-1 rounded-[14px] py-2.5 text-[13px] font-bold`}
       style={primary
-        ? { background: T.blue, color: '#FFFFFF' }
-        : { background: '#FFFFFF', color: T.body2 }}
+        ? { background: T.control, color: T.onControl }
+        : { background: 'var(--share-canvas)', color: T.body2 }}
     >
       {label}
     </button>
@@ -304,15 +310,15 @@ function AttSummary({ label, present, total, accent }: {
   label: string; present: number; total: number; accent?: boolean
 }) {
   return (
-    <div className="rounded-[14px] bg-white px-3.5 py-3">
-      <p className="text-[11px] font-bold text-[#8B95A1]">{label}</p>
+    <div className="rounded-[14px] bg-[var(--share-box-on-card)] px-3.5 py-3">
+      <p className="text-[11px] font-bold text-[var(--share-muted2)]">{label}</p>
       {total > 0 ? (
         <p className="mt-0.5 tabular-nums">
           <span className="text-[22px] font-black" style={{ color: accent ? T.blue : T.ink }}>{present}</span>
-          <span className="text-[12px] font-bold text-[#8B95A1]">/{total}회</span>
+          <span className="text-[12px] font-bold text-[var(--share-muted2)]">/{total}회</span>
         </p>
       ) : (
-        <p className="mt-1.5 text-[13px] text-[#B0B8C1]">기록 없음</p>
+        <p className="mt-1.5 text-[13px] text-[var(--share-disabled)]">기록 없음</p>
       )}
     </div>
   )

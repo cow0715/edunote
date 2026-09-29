@@ -15,8 +15,8 @@ import { VocabWord } from './share-types'
  * 채점 화면(components/grade/*)은 초록=정답 관습을 그대로 쓴다 — 거긴 선생님용이고
  * 정오를 빠르게 훑는 화면이라 관습이 더 강하다. 여기만 리포트 팔레트를 따른다.
  */
-export const SHARE_WRONG_CLASS = 'font-semibold text-[#F04452] line-through decoration-[#F04452]/40'
-export const SHARE_RIGHT_CLASS = 'font-semibold text-[#191F28]'
+export const SHARE_WRONG_CLASS = 'font-bold text-[var(--share-red)] line-through decoration-[var(--share-red)]/40'
+export const SHARE_RIGHT_CLASS = 'font-bold text-[var(--share-ink)]'
 
 /** 어휘 관계 — 전부 회색 칩. 라벨로 구분한다 */
 export function WordRelationChips({ word, className }: { word: VocabWord; className?: string }) {
@@ -29,7 +29,7 @@ export function WordRelationChips({ word, className }: { word: VocabWord; classN
       {synonyms.map((value, index) => (
         <span
           key={`syn-${value}-${index}`}
-          className="rounded-full bg-[#F2F4F6] px-2 py-0.5 text-[11px] font-medium text-[#4E5968]"
+          className="rounded-full bg-[var(--share-box)] px-2 py-0.5 text-[11px] font-medium text-[var(--share-body2)]"
         >
           유의 {value}
         </span>
@@ -37,7 +37,7 @@ export function WordRelationChips({ word, className }: { word: VocabWord; classN
       {antonyms.map((value, index) => (
         <span
           key={`ant-${value}-${index}`}
-          className="rounded-full bg-[#F2F4F6] px-2 py-0.5 text-[11px] font-medium text-[#4E5968]"
+          className="rounded-full bg-[var(--share-box)] px-2 py-0.5 text-[11px] font-medium text-[var(--share-body2)]"
         >
           반의 {value}
         </span>
@@ -57,10 +57,10 @@ export function ExampleBox({
   className?: string
 }) {
   return (
-    <div className={`rounded-[12px] bg-white px-3 py-2 ${className ?? ''}`}>
-      <p className="text-[12px] italic leading-relaxed text-[#333D4B]">{sentence}</p>
+    <div className={`rounded-[12px] bg-[var(--share-box-on-card)] px-3 py-2 ${className ?? ''}`}>
+      <p className="text-[12px] italic leading-relaxed text-[var(--share-body)]">{sentence}</p>
       {translation && (
-        <p className="mt-0.5 text-[11px] leading-relaxed text-[#8B95A1]">{translation}</p>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--share-muted2)]">{translation}</p>
       )}
     </div>
   )
@@ -69,9 +69,9 @@ export function ExampleBox({
 /** 보조 설명 블록 (해설 / 첨삭) */
 export function NoteBlock({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-[12px] bg-white px-3 py-2.5">
-      <p className="mb-1 text-[10px] font-bold tracking-wide text-[#8B95A1]">{label}</p>
-      <div className="text-[12.5px] leading-relaxed text-[#4E5968]">{children}</div>
+    <div className="rounded-[12px] bg-[var(--share-box-on-card)] px-3 py-2.5">
+      <p className="mb-1 text-[12px] font-bold text-[var(--share-muted)]">{label}</p>
+      <div className="text-left text-[15px] leading-[1.75] break-words text-[var(--share-body2)]">{children}</div>
     </div>
   )
 }
@@ -79,7 +79,7 @@ export function NoteBlock({ label, children }: { label: string; children: React.
 /** 유형 태그칩 — 무채색. 색을 빼야 내 답/정답이 먼저 읽힌다 */
 export function ConceptChip({ name }: { name: string }) {
   return (
-    <span className="rounded-full bg-[#F2F4F6] px-2 py-0.5 text-[11px] font-medium text-[#6B7684]">
+    <span className="rounded-full bg-[var(--share-box)] px-2 py-0.5 text-[11px] font-medium text-[var(--share-muted)]">
       {name}
     </span>
   )

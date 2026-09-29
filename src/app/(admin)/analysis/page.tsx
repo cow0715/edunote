@@ -640,7 +640,7 @@ export default function AnalysisPage() {
               className={cn(
                 'px-4 py-2 rounded-lg text-sm font-medium transition-colors border',
                 selectedClassId === cls.id
-                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  ? 'bg-indigo-600 text-white border-indigo-600 dark:bg-accent dark:text-accent-foreground dark:border-accent-foreground/30'
                   : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
               )}
             >

@@ -14,7 +14,7 @@ export function Segmented<V extends string>({ value, options, onChange, size = '
   size?: 'sm' | 'md'
 }) {
   return (
-    <div className="inline-flex rounded-[18px] bg-[#F2F4F6] p-1">
+    <div className="inline-flex rounded-[18px] bg-[var(--share-box)] p-1">
       {options.map((o) => {
         const active = o.value === value
         return (
@@ -25,7 +25,7 @@ export function Segmented<V extends string>({ value, options, onChange, size = '
             onClick={() => onChange(o.value)}
             className={`${PRESS_STRONG} rounded-[14px] font-extrabold transition-colors ${
               size === 'sm' ? 'px-3 py-1.5 text-[11px]' : 'px-3.5 py-2 text-[12px]'
-            } ${active ? 'bg-[#3182F6] text-white' : 'text-[#4E5968]'}`}
+            } ${active ? 'bg-[var(--control-selected)] text-[var(--control-on-selected)]' : 'text-[var(--share-body2)]'}`}
           >
             {o.label}
           </button>

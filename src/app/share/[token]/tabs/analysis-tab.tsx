@@ -32,7 +32,7 @@ export function AnalysisTab({
     <>
       <div className="px-1.5 pt-1">
         <h1 className="text-[22px] font-extrabold tracking-[-0.02em]">분석</h1>
-        <p className="mt-0.5 text-[13px] text-[#8B95A1] tabular-nums">
+        <p className="mt-0.5 text-[13px] text-[var(--share-muted2)] tabular-nums">
           {readingCount > 0
             ? `${scope} ${scoredWeeks.length}회차 누적 · ${readingCount}문항`
             : `${scope}엔 진단평가가 없어요`}
@@ -148,11 +148,11 @@ function AreaRow({ item }: { item: ShareModel['radarLegend'][number] }) {
           {item.rate}%
         </span>
       </div>
-      <div className="mt-1 h-[5px] overflow-hidden rounded-full bg-[#F2F4F6]">
+      <div className="mt-1 h-[5px] overflow-hidden rounded-full bg-[var(--share-box)]">
         <div className="h-full rounded-full" style={{ width: `${item.rate}%`, background: T.blue }} />
       </div>
       {item.tags.length > 0 && (
-        <p className="mt-1 truncate text-[10px] text-[#8B95A1]">{item.tags.join(', ')}</p>
+        <p className="mt-1 truncate text-[10px] text-[var(--share-muted2)]">{item.tags.join(', ')}</p>
       )}
     </div>
   )
@@ -180,7 +180,7 @@ function WrongTypeList({ typeData, onTagClick }: {
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
-          className={`${PRESS} mt-1 self-start text-[12px] font-bold text-[#3182F6]`}
+          className={`${PRESS} mt-1 self-start text-[12px] font-bold text-[var(--share-blue)]`}
         >
           {expanded ? '접기' : `${sorted.length - VISIBLE_TYPE_COUNT}개 더 보기`}
         </button>
@@ -201,12 +201,12 @@ function WrongTypeRow({ stat, onClick }: {
   return (
     <button type="button" onClick={onClick} className={`${PRESS} flex items-center gap-2.5 text-left`}>
       <span className="w-[76px] shrink-0 truncate text-[12px] font-bold">{stat.name}</span>
-      <span className="h-[18px] flex-1 overflow-hidden rounded-[4px] bg-[#F2F4F6]">
+      <span className="h-[18px] flex-1 overflow-hidden rounded-[4px] bg-[var(--share-box)]">
         <span className="block h-full rounded-[4px]" style={{ width: `${rate}%`, background: barColor }} />
       </span>
       <span className="shrink-0 text-right text-[11px] tabular-nums">
         <strong className="font-extrabold" style={{ color: barColor === T.red ? T.red : T.ink }}>{rate}%</strong>
-        <span className="ml-1 text-[#8B95A1]">{stat.wrong}/{stat.total}</span>
+        <span className="ml-1 text-[var(--share-muted2)]">{stat.wrong}/{stat.total}</span>
       </span>
     </button>
   )

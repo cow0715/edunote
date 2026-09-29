@@ -24,6 +24,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { ThemeSelect } from './theme-select'
 
 const navSections = [
   {
@@ -129,6 +130,7 @@ export function Sidebar() {
           <LogOut className="h-4 w-4" />
           로그아웃
         </Button>
+        <div className="pt-2"><ThemeSelect /></div>
       </div>
     </aside>
   )

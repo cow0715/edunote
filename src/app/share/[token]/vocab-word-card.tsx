@@ -18,7 +18,7 @@ const SOURCE_LABEL: Record<string, string> = {
   example_choice: '예문 선택',
 }
 
-const GRAY_BADGE = 'rounded-full bg-[#F2F4F6] px-1.5 py-0.5 text-[10px] font-bold text-[#6B7684]'
+const GRAY_BADGE = 'rounded-full bg-[var(--share-box)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--share-muted)]'
 
 export const VocabStudyWordCard = memo(function VocabStudyWordCard({
   item,
@@ -48,7 +48,7 @@ export const VocabStudyWordCard = memo(function VocabStudyWordCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-bold text-[#B0B8C1] tabular-nums">#{word.number}</span>
+            <span className="text-[10px] font-bold text-[var(--share-disabled)] tabular-nums">#{word.number}</span>
             <p className="break-words text-[15px] font-extrabold leading-tight">{word.english_word}</p>
             {sourceLabel && (
               <span className={GRAY_BADGE}>{sourceLabel}{testWord ? ` · ${testWord}` : ''}</span>
@@ -58,7 +58,7 @@ export const VocabStudyWordCard = memo(function VocabStudyWordCard({
             {word.passage_label && <span className={GRAY_BADGE}>지문 {word.passage_label}</span>}
           </div>
           {word.correct_answer && (
-            <p className="mt-1 text-[13px] font-medium leading-relaxed text-[#333D4B]">{word.correct_answer}</p>
+            <p className="mt-1 text-[13px] font-medium leading-relaxed text-[var(--share-body)]">{word.correct_answer}</p>
           )}
         </div>
 
@@ -80,10 +80,10 @@ export const VocabStudyWordCard = memo(function VocabStudyWordCard({
         <p className="mt-1.5 text-[13px]">
           {wrongAnswer.student_answer
             ? <span className={SHARE_WRONG_CLASS}>{wrongAnswer.student_answer}</span>
-            : <span className="text-[#B0B8C1]">(미작성)</span>}
+            : <span className="text-[var(--share-disabled)]">(미작성)</span>}
           {correctText && (
             <>
-              <span className="mx-1.5 text-[#B0B8C1]">→</span>
+              <span className="mx-1.5 text-[var(--share-disabled)]">→</span>
               <span className="font-semibold">{correctText}</span>
             </>
           )}
@@ -93,8 +93,8 @@ export const VocabStudyWordCard = memo(function VocabStudyWordCard({
       <WordRelationChips word={word} className="mt-2.5" />
 
       {word.derivatives && (
-        <div className="mt-2 rounded-[12px] bg-white px-3 py-2 text-[12px] leading-relaxed text-[#4E5968]">
-          <span className="mr-1 font-bold text-[#8B95A1]">파생/변형</span>
+        <div className="mt-2 rounded-[12px] bg-[var(--share-box-on-card)] px-3 py-2 text-[12px] leading-relaxed text-[var(--share-body2)]">
+          <span className="mr-1 font-bold text-[var(--share-muted2)]">파생/변형</span>
           {word.derivatives}
         </div>
       )}
