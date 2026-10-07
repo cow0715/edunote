@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getTeacherAccess } from '@/lib/api'
 import { Sidebar } from '@/components/layout/sidebar'
 import { MobileNav } from '@/components/layout/mobile-nav'
+import { ThemeToggle } from '@/components/layout/theme-toggle'
 
 export default async function AdminLayout({
   children,
@@ -50,8 +51,11 @@ export default async function AdminLayout({
         <MobileNav />
       </div>
       <main className="flex-1 overflow-auto print:block print:overflow-visible">
-        <div className="p-4 print:p-0 md:p-6">{children}</div>
+        <div className="p-4 print:p-0 md:p-6 md:pb-24">{children}</div>
       </main>
+      <div className="fixed right-6 bottom-6 z-30 hidden md:block print:hidden">
+        <ThemeToggle />
+      </div>
     </div>
   )
 }

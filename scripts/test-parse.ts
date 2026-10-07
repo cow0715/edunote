@@ -32,8 +32,7 @@ loadEnv()
 
 process.env.NODE_PATH = path.resolve(process.cwd(), 'src')
 
-// 정적 import 는 호이스팅되어 loadEnv() 보다 먼저 실행된다 — Anthropic 클라이언트가
-// 모듈 로드 시점에 키를 읽으므로 반드시 env 를 채운 뒤 동적으로 불러온다.
+// 실행 환경을 로드한 뒤 운영 파싱 진입점을 불러온다. SDK는 실제 호출 시 초기화된다.
 type ParsedAnswer = import('../src/lib/llm/week').ParsedAnswer
 type ParseDocument = typeof import('../src/lib/week-reading-import')['parseAnswerSheetDocument']
 let parseAnswerSheetDocument: ParseDocument
@@ -189,7 +188,8 @@ async function runFile(filePath: string, update: boolean): Promise<boolean> {
 async function main() {
   const args = process.argv.slice(2)
   const update = args.includes('--update')
-  if (!process.env.ANTHROPIC_API_KEY) { console.error('❌ ANTHROPIC_API_KEY 가 .env.local 에 없습니다'); process.exit(1) }
+  const { isTaskConfigured } = await import('../src/lib/llm/client')
+  if (!isTaskConfigured('week.parseAnswers')) { console.error('❌ 해설지 파싱 모델의 API 설정이 없습니다'); process.exit(1) }
   ;({ parseAnswerSheetDocument } = await import('../src/lib/week-reading-import'))
 
   if (args.includes('--all')) {

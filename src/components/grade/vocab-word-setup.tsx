@@ -1,7 +1,9 @@
 'use client'
 
+import { FileUpload } from '@/components/ui/file-upload'
+
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Dice5, FileSpreadsheet, FileText, Loader2, Lock, Printer, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Upload, X } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Dice5, Loader2, Lock, Printer, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Upload, X } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -502,7 +504,7 @@ const WordRow = memo(function WordRow({ word, isSelected, selectedSource, orderN
                 onClick={(e) => { e.preventDefault(); onSelectPrompt(word, source) }}
                 className={`rounded-full px-2 py-0.5 text-[11px] font-semibold transition-colors ${
                   isActive
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-[var(--control-selected)] text-[var(--control-on-selected)] ring-1 ring-border'
                     : 'bg-gray-100 text-gray-500 hover:bg-blue-100 hover:text-blue-700'
                 } ${testLocked ? 'cursor-default hover:bg-gray-100 hover:text-gray-500' : ''}`}
               >
@@ -1117,26 +1119,8 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         </p>
       </div>
 
-      <input ref={inputRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => handleFileSelect(e, 'xlsx')} />
-      <input ref={legacyInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => handleFileSelect(e, 'legacy_ai')} />
-
-      <div
-        onClick={() => inputRef.current?.click()}
-        className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-200 bg-white py-8 transition-colors hover:border-blue-400 hover:bg-blue-50/50"
-      >
-        <FileSpreadsheet className="h-8 w-8 text-blue-500" />
-        <p className="text-sm font-medium text-gray-700">엑셀 단어장 업로드 (.xlsx)</p>
-        <p className="text-xs text-gray-400">샘플처럼 컬럼명이 있는 첫 단어장 시트를 읽습니다.</p>
-      </div>
-
-      <button
-        type="button"
-        onClick={() => legacyInputRef.current?.click()}
-        className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600"
-      >
-        <FileText className="h-3.5 w-3.5" />
-        PDF/이미지 AI 추출은 보조 기능으로 사용
-      </button>
+      <FileUpload label="엑셀 단어장 선택" description="XLSX · 컬럼명이 있는 첫 단어장 시트를 읽습니다" accept=".xlsx" inputRef={inputRef} onChange={(e) => handleFileSelect(e, 'xlsx')} />
+      <FileUpload compact label="PDF/이미지 AI 추출 (보조 기능)" accept=".pdf,image/*" inputRef={legacyInputRef} onChange={(e) => handleFileSelect(e, 'legacy_ai')} />
 
       {status.type === 'error' && (
         <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
@@ -1149,17 +1133,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
 
   if (status.type === 'file-selected') return (
     <div className="space-y-4">
-      <input ref={inputRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => handleFileSelect(e, 'xlsx')} />
-      <div
-        onClick={() => inputRef.current?.click()}
-        className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-8 transition-colors hover:border-blue-300 hover:bg-gray-50"
-      >
-        {uploadMode === 'xlsx'
-          ? <FileSpreadsheet className="h-8 w-8 text-blue-500" />
-          : <FileText className="h-8 w-8 text-indigo-500" />}
-        <p className="text-sm font-medium text-gray-700">{status.fileName}</p>
-        <p className="text-xs text-gray-400">다른 파일로 바꾸려면 클릭</p>
-      </div>
+      <FileUpload label="단어장 파일 선택" description={uploadMode === 'xlsx' ? 'XLSX 파일' : 'PDF 또는 이미지'} accept={uploadMode === 'xlsx' ? '.xlsx' : '.pdf,image/*'} inputRef={inputRef} fileName={status.fileName} onChange={(e) => handleFileSelect(e, uploadMode)} />
       <Button className="w-full" onClick={handleUpload}>
         <Upload className="mr-2 h-4 w-4" />
         원본 단어장 등록
@@ -1329,7 +1303,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                     disabled={testLocked}
                     onClick={() => setRandomPickCount(count)}
                     className={`rounded px-1.5 py-0.5 text-[11px] font-bold transition-colors ${
-                      randomPickCount === count ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'
+                      randomPickCount === count ? 'bg-[var(--control-selected)] text-[var(--control-on-selected)] ring-1 ring-border' : 'text-gray-500 hover:bg-gray-100'
                     }`}
                   >
                     {count}

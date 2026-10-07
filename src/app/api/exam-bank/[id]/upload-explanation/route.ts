@@ -1,6 +1,7 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parsePdfExplanationsHakpyungRanged, parsePdfExplanationsWithClaudeRanged } from '@/lib/anthropic'
+import { createLlmExecution } from '@/lib/llm/client'
 import { mergeExamVocabularyText, syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
 import { enrichExamQuestionVocabulary } from '@/lib/vocab-enrichment'
 
@@ -58,11 +59,12 @@ export async function POST(
   // 해석·출제의도는 원문 그대로 추출(창작 금지), 풀이·어휘는 원문 기반 작성 (학평은 원문에 없어 신규 작성).
   // 콘텐츠 필터에 걸린 범위는 문항 단위로 격리 재시도돼 진짜 걸린 문항만 결손된다 (skipped_questions).
   let explanations
+  const execution = createLlmExecution()
   let skippedQuestions: number[] = []
   try {
     const parsed = hakpyung
-      ? await parsePdfExplanationsHakpyungRanged(buffer)
-      : await parsePdfExplanationsWithClaudeRanged(buffer)
+      ? await parsePdfExplanationsHakpyungRanged(buffer, { execution })
+      : await parsePdfExplanationsWithClaudeRanged(buffer, { execution })
     explanations = parsed.items
     skippedQuestions = parsed.skippedNumbers
   } catch (e) {
@@ -118,7 +120,7 @@ export async function POST(
   // 단어 DB 보강 (기존 generate-explanation 라우트에서 이식 — 뜻·예문 없는 신규 단어 채우기)
   let enriched = { candidates: 0, generated: 0, updated: 0 }
   if (normalizedWords.size > 0) {
-    enriched = await enrichExamQuestionVocabulary(serviceClient, { normalizedWords: [...normalizedWords], limit: 300, batchSize: 40 })
+    enriched = await enrichExamQuestionVocabulary(serviceClient, { normalizedWords: [...normalizedWords], limit: 300, batchSize: 40, execution })
   }
 
   return ok({

@@ -1,26 +1,22 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { FileUpload } from '@/components/ui/file-upload'
+
+import { useState, useRef, useEffect } from 'react'
 import { errorMessage, runOrReport } from '@/lib/async-ui'
-import { Upload, Play, RotateCcw, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronUp, Trash2, Pencil } from 'lucide-react'
+import { Play, RotateCcw, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronUp, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { getModelCatalog } from '@/lib/llm/models'
 
 // ── 상수 ──────────────────────────────────────────────────────────────────
 
-const MODELS = [
-  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', color: 'bg-emerald-500' },
-  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', color: 'bg-blue-500' },
-  { id: 'claude-opus-4-6', label: 'Opus 4.6', color: 'bg-violet-500' },
-] as const
+const MODELS = getModelCatalog().map((model) => ({
+  ...model,
+  color: model.id.includes('haiku') ? 'bg-emerald-500' : model.id.includes('opus') ? 'bg-violet-500' : 'bg-blue-500',
+}))
 
 type ModelId = (typeof MODELS)[number]['id']
-
-const PRICES: Record<ModelId, { input: number; output: number }> = {
-  'claude-haiku-4-5-20251001': { input: 0.8, output: 4 },
-  'claude-sonnet-4-6': { input: 3, output: 15 },
-  'claude-opus-4-6': { input: 15, output: 75 },
-}
 
 const FUNCTIONS = [
   {
@@ -66,9 +62,9 @@ type RunResult = {
   status: 'loading' | 'done' | 'error'
   result?: unknown
   error?: string
-  inputTokens: number
-  outputTokens: number
-  cost: number
+  inputTokens: number | null
+  outputTokens: number | null
+  cost: number | null
   durationMs: number
 }
 
@@ -98,8 +94,8 @@ function fileToBase64(file: File): Promise<{ data: string; mimeType: string }> {
   })
 }
 
-function formatCost(cost: number | undefined) {
-  if (!cost) return '-'
+function formatCost(cost: number | null | undefined) {
+  if (cost == null) return '미확인'
   if (cost < 0.001) return `$${cost.toFixed(6)}`
   return `$${cost.toFixed(4)}`
 }
@@ -261,7 +257,7 @@ function HistoryRow({
       {/* 펼쳐진 상세 */}
       {expanded && doneResults.length > 0 && (
         <tr className="border-b border-gray-50 dark:border-white/5">
-          <td colSpan={8} className="bg-gray-50/50 px-4 py-3 dark:bg-slate-900/30">
+          <td colSpan={5 + MODELS.length} className="bg-gray-50/50 px-4 py-3 dark:bg-slate-900/30">
             <div className="grid gap-3 sm:grid-cols-3">
               {MODELS.map((model) => {
                 const r = entry.results[model.id]
@@ -272,7 +268,7 @@ function HistoryRow({
                       <span className={cn('h-2 w-2 rounded-full', model.color)} />
                       <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">{model.label}</span>
                       <span className="ml-auto text-[10px] text-gray-400">
-                        in {r.inputTokens.toLocaleString()} / out {r.outputTokens.toLocaleString()}
+                        in {r.inputTokens?.toLocaleString() ?? '미확인'} / out {r.outputTokens?.toLocaleString() ?? '미확인'}
                       </span>
                     </div>
                     <pre className="max-h-60 overflow-auto rounded-lg bg-gray-50 p-2 text-[10px] leading-relaxed text-gray-600 dark:bg-slate-900 dark:text-gray-300">
@@ -294,7 +290,7 @@ function HistoryRow({
 export default function ModelCompare() {
   const [selectedFn, setSelectedFn] = useState<FnId>('parseAnswerSheet')
   const [selectedModels, setSelectedModels] = useState<Set<ModelId>>(
-    new Set(['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'])
+    new Set(MODELS.slice(0, 3).map((model) => model.id))
   )
   const [file, setFile] = useState<File | null>(null)
   const [jsonInput, setJsonInput] = useState('')
@@ -322,11 +318,6 @@ export default function ModelCompare() {
     })
   }
 
-  const handleFileDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    const dropped = e.dataTransfer.files[0]
-    if (dropped) setFile(dropped)
-  }, [])
 
   const reset = () => {
     setResults({})
@@ -343,7 +334,7 @@ export default function ModelCompare() {
 
     const loadingState: Partial<Record<ModelId, RunResult>> = {}
     for (const m of selectedModels) {
-      loadingState[m] = { status: 'loading', inputTokens: 0, outputTokens: 0, cost: 0, durationMs: 0 }
+      loadingState[m] = { status: 'loading', inputTokens: null, outputTokens: null, cost: null, durationMs: 0 }
     }
     setResults(loadingState)
 
@@ -373,12 +364,12 @@ export default function ModelCompare() {
         const json = await res.json()
         const data = json.data ?? json
         const r: RunResult = data.error
-          ? { status: 'error', error: data.error, inputTokens: 0, outputTokens: 0, cost: 0, durationMs: data.durationMs ?? 0 }
-          : { status: 'done', result: data.result, inputTokens: data.inputTokens, outputTokens: data.outputTokens, cost: data.cost, durationMs: data.durationMs }
+          ? { status: 'error', error: data.error, inputTokens: data.inputTokens ?? null, outputTokens: data.outputTokens ?? null, cost: data.cost ?? null, durationMs: data.durationMs ?? 0 }
+          : { status: 'done', result: data.result, inputTokens: data.inputTokens ?? null, outputTokens: data.outputTokens ?? null, cost: data.cost ?? null, durationMs: data.durationMs }
         finalResults[modelId] = r
         setResults((prev) => ({ ...prev, [modelId]: r }))
       }, (e) => {
-        const r: RunResult = { status: 'error', error: errorMessage(e, '요청 실패'), inputTokens: 0, outputTokens: 0, cost: 0, durationMs: 0 }
+        const r: RunResult = { status: 'error', error: errorMessage(e, '요청 실패'), inputTokens: null, outputTokens: null, cost: null, durationMs: 0 }
         finalResults[modelId] = r
         setResults((prev) => ({ ...prev, [modelId]: r }))
       })
@@ -459,31 +450,7 @@ export default function ModelCompare() {
           <div className="rounded-2xl bg-white p-5 shadow-sm dark:bg-slate-800">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-400">입력</p>
             {currentFn.inputType === 'file' ? (
-              <div
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleFileDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className={cn(
-                  'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-8 transition-colors',
-                  file
-                    ? 'border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-900/20'
-                    : 'border-gray-200 hover:border-blue-300 dark:border-slate-600 dark:hover:border-blue-600'
-                )}
-              >
-                <Upload className={cn('h-6 w-6', file ? 'text-blue-500' : 'text-gray-300')} />
-                {file ? (
-                  <p className="text-sm font-medium text-blue-600 dark:text-blue-400">{file.name}</p>
-                ) : (
-                  <p className="text-sm text-gray-400">PDF 또는 이미지를 드래그하거나 클릭</p>
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept={currentFn.accept}
-                  className="hidden"
-                  onChange={(e) => e.target.files?.[0] && setFile(e.target.files[0])}
-                />
-              </div>
+              <FileUpload label="분석 파일 선택" description="PDF 또는 이미지" accept={currentFn.accept ?? '.pdf,image/*'} inputRef={fileInputRef} fileName={file?.name} onChange={(e) => e.target.files?.[0] && setFile(e.target.files[0])} />
             ) : (
               <textarea
                 value={jsonInput}
@@ -513,7 +480,7 @@ export default function ModelCompare() {
                     <div className="flex-1">
                       <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{model.label}</p>
                       <p className="text-[10px] text-gray-400">
-                        in ${PRICES[model.id].input} / out ${PRICES[model.id].output} per 1M
+                        {model.pricing ? `in $${model.pricing.input} / out $${model.pricing.output} per 1M` : '요금 미확인'}
                       </p>
                     </div>
                     <div className={cn('h-4 w-4 rounded border-2 transition-colors', selected ? 'border-blue-600 bg-blue-600' : 'border-gray-300 dark:border-slate-500')}>

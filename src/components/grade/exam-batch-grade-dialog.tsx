@@ -1,5 +1,7 @@
 'use client'
 
+import { FileUpload } from '@/components/ui/file-upload'
+
 // 진단평가 답안지 일괄 판독 — 반 전체 답안지 사진을 한 번에 넣고, 이름 자동 매칭을 확인한 뒤,
 // 병렬로 OCR 해 학생별 답안을 그리드에 채운다 (임시저장까지. AI 채점은 "채점 저장" 한 번으로).
 //
@@ -13,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { runOrReport } from '@/lib/async-ui'
-import { AlertTriangle, CheckCircle2, ImagePlus, Loader2, RefreshCw, Trash2, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Trash2, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
@@ -70,7 +72,6 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
 }) {
   const [phase, setPhase] = useState<Phase>('pick')
   const [items, setItems] = useState<Item[]>([])
-  const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const patch = useCallback((id: string, changes: Partial<Item>) => {
@@ -227,27 +228,8 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
         <div className="max-h-[calc(90vh-140px)] overflow-y-auto px-5 py-4">
           {/* 파일 넣기 영역 */}
           {(phase === 'pick' || phase === 'review') && (
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files) }}
-              onClick={() => inputRef.current?.click()}
-              className={cn(
-                'mb-4 flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed py-6 transition-colors',
-                dragOver ? 'border-indigo-400 bg-indigo-50/60' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/60'
-              )}
-            >
-              <ImagePlus className="h-5 w-5 text-gray-400" />
-              <p className="text-xs text-gray-500">사진을 끌어다 놓거나 클릭해서 선택 (여러 장 가능)</p>
-              <input
-                ref={inputRef}
-                type="file"
-                accept="image/*,application/pdf"
-                multiple
-                className="hidden"
-                onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }}
-              />
-            </div>
+            <FileUpload className="mb-4" label="답안지 파일 선택" description="이미지 또는 PDF · 여러 파일 선택 가능 · 학생 한 명당 한 장" accept="image/*,application/pdf" multiple inputRef={inputRef}
+              onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
           )}
 
           {/* 항목 목록 */}

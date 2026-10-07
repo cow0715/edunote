@@ -1,5 +1,6 @@
 import { generateVariantMeanings, type VocabVariantMeaningCandidate } from '@/lib/vocab-variants'
 import type { SupabaseServerClient } from '@/lib/api'
+import { createLlmExecution, isTaskConfigured, type TaskCallOptions } from '@/lib/llm/client'
 
 const DEFAULT_LIMIT = 50
 
@@ -63,13 +64,14 @@ async function countRemaining(supabase: SupabaseClientLike, wordIds: string[]) {
 
 export async function enrichVocabVariantMeanings(
   supabase: SupabaseClientLike,
-  options: {
+  options: TaskCallOptions & {
     weekId: string
     variantIds?: string[]
     limit?: number
     cacheOnly?: boolean
   }
 ) {
+  const execution = options.execution ?? createLlmExecution()
   const requestedVariantIds = [...new Set((options.variantIds ?? []).filter(Boolean))]
   const limit = Math.max(1, Math.min(options.limit ?? DEFAULT_LIMIT, DEFAULT_LIMIT))
   const cacheOnly = options.cacheOnly === true
@@ -162,7 +164,7 @@ export async function enrichVocabVariantMeanings(
 
   const uncachedRows = variantRows.filter((variant) => !updatedVariantIds.has(variant.id))
   if (!cacheOnly && uncachedRows.length > 0) {
-    if (!process.env.ANTHROPIC_API_KEY) throw new Error('단어 뜻 저장 설정이 없습니다.')
+    if (!isTaskConfigured('vocab.enrich', execution)) throw new Error('단어 뜻 저장 설정이 없습니다.')
 
     const candidates: VocabVariantMeaningCandidate[] = uncachedRows.flatMap((variant) => {
       const source = wordById.get(variant.vocab_word_id)
@@ -179,7 +181,7 @@ export async function enrichVocabVariantMeanings(
       }]
     })
 
-    const generated = await generateVariantMeanings(candidates)
+    const generated = await generateVariantMeanings(candidates, { execution })
     for (const result of generated) {
       const { error: updateError } = await supabase
         .from('vocab_word_variant')

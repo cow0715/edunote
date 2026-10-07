@@ -59,7 +59,7 @@ function ObjectiveMarks({ q, answer, disabled, onChange }: {
                     ? 'bg-emerald-500 text-white'
                     : result === false
                       ? 'bg-rose-500 text-white'
-                      : 'bg-indigo-600 text-white'
+                      : 'bg-[var(--control-selected)] text-[var(--control-on-selected)] ring-1 ring-border'
                   : isAccepted && !q.is_void
                     ? 'bg-white text-emerald-600 ring-1 ring-inset ring-emerald-400 hover:bg-emerald-50'
                     : 'bg-gray-100 text-gray-400 hover:bg-gray-200',

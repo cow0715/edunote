@@ -14,8 +14,8 @@ export default defineConfig({
     // tests/unit 만 포함 — scripts/test-parse.ts 같은 LLM 호출(유료) 하네스는 제외
     // 컴포넌트 테스트(.tsx)는 파일 맨 위 `// @vitest-environment jsdom` 로 환경을 바꾼다.
     include: ['tests/unit/**/*.test.{ts,tsx}'],
-    // lib/anthropic.ts 가 모듈 로드 시점에 Anthropic 클라이언트를 생성하므로
-    // 키가 없으면 import 단계에서 throw 한다. 실제 호출은 하지 않으므로 더미 값.
+    // 설정된 작업 경로를 검사할 때 쓰는 더미 키. LLM 응답은 테스트별로 모의 처리한다.
+    // JSON 처리/설정 모듈의 import에는 API 키가 필요하지 않다.
     env: {
       ANTHROPIC_API_KEY: 'test-dummy-key',
     },

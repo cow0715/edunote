@@ -1,5 +1,6 @@
 import { getAuth, err, ok } from '@/lib/api'
-import { callClaudeText, parseJsonArrayResponse, type ContentBlock } from '@/lib/llm/client'
+import { buildFileBlock, callLlmText, createLlmExecution, parseJsonArrayResponse } from '@/lib/llm/client'
+import type { ContentBlock } from '@/lib/llm/types'
 import { buildVocabOcrClovaPrompt, VOCAB_OCR_VISION_PROMPT } from '@/lib/prompts'
 
 export const maxDuration = 120
@@ -107,18 +108,20 @@ async function callGoogle(fileData: string): Promise<{ text: string; ms: number 
 }
 
 // ── Claude 파싱/OCR ───────────────────────────────────────────────────────
-async function callClaude(
+async function callTestOcr(
   prompt: string,
   model: string,
-  fileContent?: object,
+  fileContent?: ContentBlock,
 ): Promise<{ items: OcrItem[]; rawText: string; ms: number }> {
   const start = Date.now()
 
-  const content = fileContent
+  const content: string | ContentBlock[] = fileContent
     ? [fileContent, { type: 'text', text: prompt }]
     : prompt
 
-  const raw = await callClaudeText({ model, maxTokens: 4096, content: content as string | ContentBlock[] })
+  // 이 도구의 프롬프트 변형은 판독 실험용이다. 모델 선택은 이 실행에만 적용한다.
+  const execution = createLlmExecution({ 'vocab.answerOcr': model })
+  const raw = await callLlmText({ task: 'vocab.answerOcr', execution, maxTokens: 4096, content })
   const items = parseJsonArrayResponse<OcrItem>(raw, 'ocr-test')
 
   return { items, rawText: raw, ms: Date.now() - start }
@@ -137,7 +140,7 @@ export async function POST(request: Request) {
   if (!fileData || !mimeType || !tests?.length) return err('파라미터 누락')
 
   const fileContent = mimeType.startsWith('image/')
-    ? { type: 'image' as const, source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: fileData } }
+    ? buildFileBlock(fileData, mimeType)
     : null
 
   const results: Record<string, OcrTestResult> = {}
@@ -148,28 +151,28 @@ export async function POST(request: Request) {
 
         case 'clova': {
           const { text, ms: cMs } = await callClova(fileData, mimeType)
-          const { items, ms: pMs } = await callClaude(buildVocabOcrClovaPrompt(text), 'claude-haiku-4-5-20251001')
+          const { items, ms: pMs } = await callTestOcr(buildVocabOcrClovaPrompt(text), 'claude-haiku-4-5-20251001')
           results.clova = { items, rawText: text, ms: cMs + pMs }
           break
         }
 
         case 'claude-haiku': {
           if (!fileContent) { results['claude-haiku'] = { ms: 0, error: '이미지만 지원' }; break }
-          const { items, ms } = await callClaude(VOCAB_OCR_VISION_PROMPT, 'claude-haiku-4-5-20251001', fileContent)
+          const { items, ms } = await callTestOcr(VOCAB_OCR_VISION_PROMPT, 'claude-haiku-4-5-20251001', fileContent)
           results['claude-haiku'] = { items, ms }
           break
         }
 
         case 'claude-sonnet': {
           if (!fileContent) { results['claude-sonnet'] = { ms: 0, error: '이미지만 지원' }; break }
-          const { items, ms } = await callClaude(VOCAB_OCR_VISION_PROMPT, 'claude-sonnet-4-6', fileContent)
+          const { items, ms } = await callTestOcr(VOCAB_OCR_VISION_PROMPT, 'claude-sonnet-4-6', fileContent)
           results['claude-sonnet'] = { items, ms }
           break
         }
 
         case 'claude-sonnet-enhanced': {
           if (!fileContent) { results['claude-sonnet-enhanced'] = { ms: 0, error: '이미지만 지원' }; break }
-          const { items, ms } = await callClaude(ENHANCED_VISION_PROMPT, 'claude-sonnet-4-6', fileContent)
+          const { items, ms } = await callTestOcr(ENHANCED_VISION_PROMPT, 'claude-sonnet-4-6', fileContent)
           results['claude-sonnet-enhanced'] = { items, ms }
           break
         }
@@ -190,14 +193,14 @@ ${text}
 
 JSON 배열만 출력:
 [{"number":1,"english_word":"necessary","student_answer":"필수적인"}]`
-          const { items, ms: pMs } = await callClaude(hybridPrompt, 'claude-sonnet-4-6', fileContent)
+          const { items, ms: pMs } = await callTestOcr(hybridPrompt, 'claude-sonnet-4-6', fileContent)
           results['clova-claude'] = { items, rawText: text, ms: cMs + pMs }
           break
         }
 
         case 'google': {
           const { text, ms: gMs } = await callGoogle(fileData)
-          const { items, ms: pMs } = await callClaude(buildVocabOcrClovaPrompt(text), 'claude-haiku-4-5-20251001')
+          const { items, ms: pMs } = await callTestOcr(buildVocabOcrClovaPrompt(text), 'claude-haiku-4-5-20251001')
           results.google = { items, rawText: text, ms: gMs + pMs }
           break
         }

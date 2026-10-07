@@ -1,5 +1,7 @@
 'use client'
 
+import { FileUpload } from '@/components/ui/file-upload'
+
 import { useMemo, useRef, useState } from 'react'
 import {
   BarChart3,
@@ -16,7 +18,6 @@ import {
   Search,
   Send,
   Trash2,
-  Upload,
   Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -749,15 +750,7 @@ export default function MockExamsPage() {
                 </CardHeader>
                 <CardContent className="space-y-5">
                   <div className="grid gap-3 md:grid-cols-3">
-                    <button
-                      onClick={() => metadataInputRef.current?.click()}
-                      disabled={importMetadata.isPending}
-                      className="rounded-[24px] bg-blue-50 p-5 text-left transition hover:bg-blue-100 disabled:opacity-60"
-                    >
-                      {importMetadata.isPending ? <Loader2 className="h-5 w-5 animate-spin text-[var(--legacy-blue)]" /> : <Upload className="h-5 w-5 text-[var(--legacy-blue)]" />}
-                      <div className="mt-4 text-base font-extrabold">문제지+답안지 업로드</div>
-                      <div className="mt-1 text-sm text-[var(--legacy-muted)]">배점은 문제지, 정답은 답안지에서 병합</div>
-                    </button>
+                    <FileUpload label="문제지·답안지 선택" description="PDF 또는 이미지 · 여러 파일 선택 가능" inputRef={metadataInputRef} accept="application/pdf,image/*" multiple onChange={handleMetadataFile} loading={importMetadata.isPending} />
                     <div className="rounded-[24px] bg-slate-50 p-5">
                       <div className="text-sm text-[var(--legacy-muted)]">정답 준비</div>
                       <div className="mt-2 text-3xl font-extrabold text-[var(--legacy-blue)]">{readyQuestionCount}</div>
@@ -771,8 +764,6 @@ export default function MockExamsPage() {
                       <div className="text-sm text-[var(--legacy-muted)]">점</div>
                     </div>
                   </div>
-
-                  <input ref={metadataInputRef} type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={handleMetadataFile} />
 
                   <details className="rounded-[24px] bg-slate-50 p-4">
                     <summary className="cursor-pointer text-sm font-bold text-slate-700">문항 메타데이터 검수</summary>
@@ -839,7 +830,6 @@ export default function MockExamsPage() {
               <section className="grid gap-5 xl:grid-cols-[360px_1fr]">
                 <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)] xl:col-span-2">
                   <CardContent className="p-5">
-                    <input ref={omrBatchInputRef} type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={handleOmrBatchFiles} />
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 text-sm font-extrabold text-[var(--legacy-blue)]">
@@ -850,14 +840,7 @@ export default function MockExamsPage() {
                           수능형 OMR PDF를 한 번에 올리면 페이지별 이름과 1~45번 마킹을 읽고, 확실한 학생은 자동 저장합니다.
                         </p>
                       </div>
-                      <Button
-                        className="rounded-full "
-                        onClick={() => omrBatchInputRef.current?.click()}
-                        disabled={!effectiveExamId || omrBatchAnswers.isPending || incompleteAnswerKeyCount > 0}
-                      >
-                        {omrBatchAnswers.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                        PDF 일괄 업로드
-                      </Button>
+                      <FileUpload compact label="OMR 파일 선택" description="PDF 또는 이미지 · 여러 파일 선택 가능" accept="application/pdf,image/*" multiple inputRef={omrBatchInputRef} onChange={handleOmrBatchFiles} loading={omrBatchAnswers.isPending} disabled={!effectiveExamId || incompleteAnswerKeyCount > 0} />
                     </div>
 
                     {omrBatchReviewItems.length > 0 && (
@@ -959,19 +942,11 @@ export default function MockExamsPage() {
                       )}
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <input ref={ocrInputRef} type="file" multiple accept="application/pdf,image/*" className="hidden" onChange={handleOcrFiles} />
                       <Button variant="outline" className="rounded-full" onClick={openAnswerSheet}>
                         <Printer className="mr-2 h-4 w-4" />
                         답안지
                       </Button>
-                      <Button
-                        className="rounded-full "
-                        onClick={() => ocrInputRef.current?.click()}
-                        disabled={!selectedStudentId || !effectiveExamId || ocrAnswers.isPending || incompleteAnswerKeyCount > 0}
-                      >
-                        {ocrAnswers.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                        답안지 업로드
-                      </Button>
+                      <FileUpload compact label="답안지 파일 선택" description="PDF 또는 이미지 · 여러 파일 선택 가능" accept="application/pdf,image/*" multiple inputRef={ocrInputRef} onChange={handleOcrFiles} loading={ocrAnswers.isPending} disabled={!selectedStudentId || !effectiveExamId || incompleteAnswerKeyCount > 0} />
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">

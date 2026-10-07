@@ -1,5 +1,7 @@
 'use client'
 
+import { FileUpload } from '@/components/ui/file-upload'
+
 import { useState, useRef } from 'react'
 import { errorMessage, runWithLoading } from '@/lib/async-ui'
 import { useQueryClient } from '@tanstack/react-query'
@@ -95,21 +97,7 @@ export function ExplanationUploadDialog({
           해석은 PDF 원문 그대로 저장됩니다.
         </p>
         <div className="space-y-3">
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".pdf"
-            className="hidden"
-            onChange={(e) => setFileName(e.target.files?.[0]?.name ?? '')}
-          />
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            className="flex w-full items-center gap-2 rounded-md border border-dashed border-gray-300 px-3 py-2 text-sm text-gray-500 hover:border-gray-400 hover:bg-gray-50 transition-colors"
-          >
-            <File className="h-4 w-4 shrink-0 text-gray-400" />
-            <span className="truncate">{fileName || '해설 PDF 파일 선택'}</span>
-          </button>
+          <FileUpload label="해설 PDF 선택" description="PDF 파일 1개" accept=".pdf" inputRef={fileRef} disabled={uploading} fileName={fileName} onChange={(e) => setFileName(e.target.files?.[0]?.name ?? '')} />
 
           {uploading && (
             <div className="rounded-lg border bg-amber-50 p-3 space-y-2">

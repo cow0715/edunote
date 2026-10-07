@@ -472,7 +472,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
                                   className={[
                                     'flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold transition-colors',
                                     isPrimary
-                                      ? 'bg-blue-600 text-white'
+                                      ? 'bg-[var(--control-selected)] text-[var(--control-on-selected)] ring-1 ring-border'
                                       : isExtra
                                         ? 'bg-amber-400 text-white'
                                         : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700',
@@ -589,7 +589,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
 
       <div className="flex justify-end">
         <Button
-          className="rounded-full bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+          className="rounded-full bg-[var(--share-blue-solid)] text-white hover:opacity-90"
           onClick={() => save.mutate()}
           disabled={save.isPending}
         >

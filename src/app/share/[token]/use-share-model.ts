@@ -140,7 +140,7 @@ export function useShareModel(data: ShareData | undefined) {
   }, [weeks, weekScores, studentAnswers])
 
   const {
-    scoreByWeek, answersByScore, weekNumberByWeekId, scoredWeeks, visibleWeeks, weekRate, deltas,
+    scoreByWeek, answersByScore, scoredWeeks, visibleWeeks, weekRate, deltas,
   } = scoreModel
 
   // ── 출결 통계 ─────────────────────────────────────────────────────────────
@@ -192,14 +192,27 @@ export function useShareModel(data: ShareData | undefined) {
 
   // ── 분석: 오답 유형 / 레이더 / 반복 패턴 ──────────────────────────────────
   const analysis = useMemo(() => {
-    const analysisSummary = buildShareAnalysis(studentAnswers, weeks)
-    const readingAnswers = studentAnswers.filter((a) => a.exam_question?.exam_type === 'reading')
+    const weekIds = new Set(weeks.map((week) => week.id))
+    // 분석 전체가 같은 기간을 보도록 제한하고, 중복 태그 연결은 한 문항으로 센다.
+    const readingAnswers = studentAnswers
+      .filter((answer) => answer.exam_question?.exam_type === 'reading' && weekIds.has(answer.exam_question.week_id))
+      .map((answer) => {
+        const question = answer.exam_question!
+        const seenTags = new Set<string>()
+        const tags = question.exam_question_tag.filter(({ concept_tag: tag }) => {
+          if (!tag || seenTags.has(tag.id)) return false
+          seenTags.add(tag.id)
+          return true
+        })
+        return { ...answer, exam_question: { ...question, exam_question_tag: tags } }
+      })
+    const analysisSummary = buildShareAnalysis(readingAnswers, weeks)
     const typeData = analysisSummary.types
 
     // 카테고리별 정답률 (레이더 차트)
     // 서술형이 없는 학생(모의고사 형태로만 응시)은 카테고리가 독해/문법뿐이라 축이
     // 빈약하다. 이 경우 태그를 수능 영역 단위로 펼친다.
-    const expandToDomains = shouldExpandToDomains(studentAnswers)
+    const expandToDomains = shouldExpandToDomains(readingAnswers)
     const categoryAccMap = new Map<string, { name: string; correct: number; total: number; tags: Map<string, number> }>()
     readingAnswers.forEach((a) => {
       const countedAreas = new Set<string>()
@@ -236,9 +249,13 @@ export function useShareModel(data: ShareData | undefined) {
     }))
 
     // 반복 오답 패턴 (약점 분류)
-    const repeatPatterns = classifyPatterns(studentAnswers, weekNumberByWeekId)
+    // 반마다 같은 주차 번호를 쓸 수 있으므로 실제 회차 ID별 시간순 키로 분리한다.
+    const patternWeekOrderByWeekId = new Map([...weeks]
+      .sort((a, b) => (a.start_date ?? '').localeCompare(b.start_date ?? '') || a.week_number - b.week_number || a.id.localeCompare(b.id))
+      .map((week, index) => [week.id, index + 1]))
+    const repeatPatterns = classifyPatterns(readingAnswers, patternWeekOrderByWeekId)
     return { analysisSummary, typeData, expandToDomains, radarData, radarLegend, repeatPatterns }
-  }, [studentAnswers, weeks, weekNumberByWeekId])
+  }, [studentAnswers, weeks])
 
   // ── 오답노트: 독해 ────────────────────────────────────────────────────────
   const wrongNoteGroups = useMemo(() => visibleWeeks

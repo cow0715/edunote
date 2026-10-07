@@ -77,8 +77,8 @@ export const CIRCLE_NUM = ['①', '②', '③', '④', '⑤']
 export type TabId = 'home' | 'score' | 'analysis' | 'vocab' | 'wrongnote'
 
 // ── 차트 입력 타입 ──────────────────────────────────────────────────────────
-// 리디자인 이후 share 화면은 인라인 SVG 로 그린다. 이 타입들은 /dev 플레이그라운드의
-// Recharts 컴포넌트와 모양이 같지만, 모델이 컴포넌트를 import 하지 않도록 여기 둔다.
+// 화면과 /dev 차트에서 같은 입력 형태를 사용한다.
+// 모델이 차트 컴포넌트를 import 하지 않도록 데이터 타입은 여기 둔다.
 
 export type TrendItem = {
   label: string

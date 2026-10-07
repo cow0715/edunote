@@ -11,10 +11,10 @@
  * discoverQuestionNumbers 로 번호를 발견한 뒤 numbers 스코프를 쓴다.
  */
 
-import { buildFileBlock, callClaudeTextDetailed, isContentFilterError, isJsonParseError, parseJsonArrayResponse, type CallClaudeUsage, type ContentBlock } from './client'
+import { buildFileBlock, callLlmTextDetailed, createLlmExecution, isContentFilterError, isJsonParseError, parseJsonArrayResponse, type LlmUsage, type LlmTask, type LlmExecution, type ContentBlock } from './client'
 import { coerceQuestionNumber } from './postprocess'
 
-export type RangedCallStats = CallClaudeUsage & {
+export type RangedCallStats = LlmUsage & {
   stopReason: string | null
   ms: number
   /** 이 콜이 맡은 번호 구간 (예열·통짜는 null). numbers 스코프는 [min, max] 로 기록 */
@@ -61,7 +61,8 @@ export function filterByScope<T extends { question_number: unknown }>(items: T[]
  */
 export async function rangedParseCall<T extends { question_number: unknown }>(opts: {
   files: RangedFile[]
-  model: string
+  task: LlmTask
+  execution?: LlmExecution
   maxTokens: number
   prompt: string
   scope: RangedScope | null
@@ -69,14 +70,16 @@ export async function rangedParseCall<T extends { question_number: unknown }>(op
 }): Promise<{ items: T[]; stats: RangedCallStats }> {
   const fileBlocks = buildFileBlocks(opts.files)
   const content: ContentBlock[] = opts.scope
-    ? [...fileBlocks, { type: 'text', text: opts.prompt, cache_control: { type: 'ephemeral' } }, { type: 'text', text: scopeInstruction(opts.scope) }]
+    ? [...fileBlocks, { type: 'text', text: opts.prompt }, { type: 'text', text: scopeInstruction(opts.scope) }]
     : [...fileBlocks, { type: 'text', text: opts.prompt }]
 
   const started = Date.now()
-  const { text, usage, stopReason } = await callClaudeTextDetailed({
-    model: opts.model,
+  const { text, usage, stopReason } = await callLlmTextDetailed({
+    task: opts.task,
+    execution: opts.execution,
     maxTokens: opts.maxTokens,
     content,
+    cacheBoundary: opts.scope ? fileBlocks.length : undefined,
   })
   let parsed: T[]
   try {
@@ -107,12 +110,14 @@ function scopeToNumbers(scope: RangedScope): number[] {
  */
 export async function rangedParseCallIsolated<T extends { question_number: unknown }>(opts: {
   files: RangedFile[]
-  model: string
+  task: LlmTask
+  execution?: LlmExecution
   maxTokens: number
   prompt: string
   scope: RangedScope
   label: string
 }): Promise<{ items: T[]; calls: RangedCallStats[]; skippedNumbers: number[] }> {
+  opts = { ...opts, execution: opts.execution ?? createLlmExecution() }
   try {
     const { items, stats } = await rangedParseCall<T>(opts)
     return { items, calls: [stats], skippedNumbers: [] }
@@ -167,16 +172,20 @@ export function findMissingNumbers<T extends { question_number: unknown }>(
 /** 캐시 예열: max_tokens 0 — 파일+프롬프트를 읽어 캐시에 올리기만 하고 출력은 없다 (실측 31p 7.6s) */
 export async function prewarmPdfCache(opts: {
   files: RangedFile[]
-  model: string
+  task: LlmTask
+  execution?: LlmExecution
   prompt: string
 }): Promise<RangedCallStats> {
   const started = Date.now()
-  const warm = await callClaudeTextDetailed({
-    model: opts.model,
+  const warm = await callLlmTextDetailed({
+    task: opts.task,
+    execution: opts.execution,
+    phase: 'prewarm',
     maxTokens: 0,
+    cacheBoundary: opts.files.length,
     content: [
       ...buildFileBlocks(opts.files),
-      { type: 'text', text: opts.prompt, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: opts.prompt },
     ],
   })
   return { ...warm.usage, stopReason: warm.stopReason, ms: Date.now() - started, range: null }
@@ -189,17 +198,20 @@ export async function prewarmPdfCache(opts: {
  */
 export async function discoverQuestionNumbers(opts: {
   files: RangedFile[]
-  model: string
+  task: LlmTask
+  execution?: LlmExecution
   prompt: string
   label: string
 }): Promise<{ numbers: number[]; stats: RangedCallStats }> {
   const started = Date.now()
-  const { text, usage, stopReason } = await callClaudeTextDetailed({
-    model: opts.model,
+  const { text, usage, stopReason } = await callLlmTextDetailed({
+    task: opts.task,
+    execution: opts.execution,
     maxTokens: 1000,
+    cacheBoundary: opts.files.length,
     content: [
       ...buildFileBlocks(opts.files),
-      { type: 'text', text: opts.prompt, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: opts.prompt },
       {
         type: 'text',
         text: '[번호 조사] 이번 호출에서는 문항을 파싱하지 말고, 첨부된 자료 전체에 등장하는 모든 문항의 주 번호만 오름차순 JSON 배열로 출력하세요. 소문항 기호(a, b 등)는 무시하고 주 번호만 포함합니다. 예: [1,2,3,4,5]. 다른 텍스트 없이 배열만 출력하세요.',

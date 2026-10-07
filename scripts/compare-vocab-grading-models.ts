@@ -24,7 +24,8 @@ loadEnv()
 
 type Case = { number: number; english_word: string; correct_answer: string; student_answer: string; expected: boolean; why: string }
 
-// 기대값은 VOCAB_GRADING_RULES 기준으로 사람이 정함. 규칙이 애매한 건 why 에 근거를 적어둠.
+// 기존 기대값을 보존한다. 일부 품사/-ed 사례는 현재 규칙과 충돌하므로 정확도는 확정 기준이 아니다.
+// 모델 교체 평가는 교사가 기대값을 확정한 뒤 실행해야 한다. 이 구조 변경에서 채점 정책은 바꾸지 않는다.
 const CASES: Case[] = [
   // ── 다의어: correct_answer 에 없어도 사전적 뜻이면 정답 ──
   { number: 1, english_word: 'run', correct_answer: '달리다', student_answer: '운영하다', expected: true, why: '다의어, 동사 유지' },
@@ -79,19 +80,28 @@ const CASES: Case[] = [
 ]
 
 async function main() {
-  const { gradeVocabItems } = await import('../src/lib/anthropic')
+  const { gradeVocabItemsDetailed } = await import('../src/lib/llm/vocab')
+  const { createLlmExecution } = await import('../src/lib/llm/client')
+  const { getModelCatalog, estimateLlmCost } = await import('../src/lib/llm/models')
   const runsArg = process.argv.indexOf('--runs')
   const runs = runsArg >= 0 ? Number(process.argv[runsArg + 1]) || 1 : 1
   const models = ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001']
 
   const items = CASES.map((c) => ({ number: c.number, english_word: c.english_word, student_answer: c.student_answer, correct_answer: c.correct_answer }))
-  const results: Record<string, { grades: boolean[][]; ms: number[] }> = {}
+  if (models.some((model) => !getModelCatalog().some((candidate) => candidate.id === model))) {
+    throw new Error('비교 모델을 중앙 모델 목록에 등록해주세요.')
+  }
+  console.warn('⚠️ 기존 기대값 중 일부는 현재 채점 규칙과 충돌합니다. 아래 일치율은 잠정 참고값입니다.')
+  const results: Record<string, { grades: boolean[][]; ms: number[]; cost: (number | null)[] }> = {}
 
   for (const model of models) {
-    results[model] = { grades: [], ms: [] }
+    results[model] = { grades: [], ms: [], cost: [] }
     for (let r = 0; r < runs; r++) {
       const t = Date.now()
-      const graded = await gradeVocabItems(items, undefined, model)
+      const execution = createLlmExecution({ 'vocab.gradeMeaning': model })
+      const detailed = await gradeVocabItemsDetailed(items, undefined, { execution })
+      const graded = detailed.results
+      results[model].cost.push(estimateLlmCost(model, detailed.usage))
       results[model].ms.push(Date.now() - t)
       const byNum = new Map(graded.map((g) => [g.number, g.is_correct]))
       results[model].grades.push(CASES.map((c) => byNum.get(c.number) ?? false))
@@ -126,7 +136,11 @@ async function main() {
   console.log('─'.repeat(100))
   for (const m of models) {
     const avg = results[m].ms.reduce((a, b) => a + b, 0) / results[m].ms.length
-    console.log(`${short(m).padEnd(7)} 정확도 ${acc[m] ?? 0}/${CASES.length}  평균 ${(avg / 1000).toFixed(1)}s${runs > 1 ? `  (${runs}회 중 답 바뀐 문항 ${flip[m] ?? 0}개)` : ''}`)
+    const costs = results[m].cost
+    const cost = costs.every((value) => value != null)
+      ? `$${costs.reduce<number>((sum, value) => sum + value!, 0).toFixed(6)}`
+      : '미확인'
+    console.log(`${short(m).padEnd(7)} 잠정 기대값 일치 ${acc[m] ?? 0}/${CASES.length}  평균 ${(avg / 1000).toFixed(1)}s  총비용 ${cost}${runs > 1 ? `  (${runs}회 중 답 바뀐 문항 ${flip[m] ?? 0}개)` : ''}`)
   }
   console.log(`두 모델 불일치: ${disagree}개`)
   console.log('\n범례: ✓/✗ = 모델 판정, ❌ = 기대와 다름, ~ = 반복 실행 간 답이 바뀜')

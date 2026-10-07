@@ -12,7 +12,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     || pathname.startsWith('/mock-exam-reports/')
 
   return (
-    <NextThemeProvider attribute="class" storageKey="edunote-appearance"
+    <NextThemeProvider attribute="class" storageKey={pathname.startsWith('/dev/share-design/frame') ? 'edunote-share-design-appearance' : 'edunote-appearance'}
       defaultTheme="system" enableSystem disableTransitionOnChange
       forcedTheme={isPrintPage ? 'light' : undefined}>
       {children}

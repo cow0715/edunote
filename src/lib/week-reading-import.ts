@@ -18,7 +18,7 @@ import { gradeFindErrorRow, normalizeFindErrorKeyText } from '@/lib/find-error-g
 
 import { getPdfPageCount } from '@/lib/pdf'
 import { runParsePipeline, type PipelineFile, type SkippedRange } from '@/lib/llm/pipeline'
-import { isContentFilterError } from '@/lib/llm/client'
+import { createLlmExecution, isContentFilterError, type LlmExecution, type TaskCallOptions } from '@/lib/llm/client'
 import { coerceQuestionNumber } from '@/lib/llm/postprocess'
 
 export type MatchTagId = (questionType: string | null, questionStyle?: string | null) => string | null
@@ -521,13 +521,14 @@ function normalizeSourceFieldsForChunk<T extends {
 async function parseAnswerSheetWhole(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
+  options: TaskCallOptions = {},
 ): Promise<{ answers: ParsedAnswer[]; skipped: SkippedRange[] }> {
   const { items, skipped } = await runParsePipeline<ParsedAnswer, ParsedAnswer>({
     label: 'week-answer-sheet',
     chunk: { kind: 'whole' },
     // whole 1청크라 재시도 단위가 없음 — 필터로 통째 막히면 skip 되어 빈 결과 → 라우트가 422 처리
     onChunkError: { skipIf: isContentFilterError },
-    parseChunk: (file) => parseAnswerSheet(file.fileData, file.mimeType, tagCategories),
+    parseChunk: (file) => parseAnswerSheet(file.fileData, file.mimeType, tagCategories, options),
     normalizeChunk: (parsed, file) => normalizeSourceFieldsForChunk(parsed, file)
       .map((answer) => ({
         ...answer,
@@ -552,13 +553,14 @@ async function parseAnswerSheetWhole(
 export async function parseAnswerSheetDocumentRanged(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
+  options: TaskCallOptions = {},
 ): Promise<{ answers: ParsedAnswer[]; discoveredNumbers: number[]; skippedNumbers: number[] }> {
   if (!files.length || files.some((file) => !file.fileData)) {
     throw new Error('업로드 파일 데이터를 읽지 못했습니다.')
   }
   // 파일 1~N개 (통합형 1개 / 시험지+해설지 세트 / 낱장 사진 묶음) — 순서대로 전부 첨부
   const result = await parseAnswerSheetRanged(
-    files.map((file) => ({ fileData: file.fileData!, mimeType: file.mimeType })), tagCategories)
+    files.map((file) => ({ fileData: file.fileData!, mimeType: file.mimeType })), tagCategories, options)
 
   const [pipelineFile] = toPipelineFiles(files)
   let answers: ParsedAnswer[] = normalizeSourceFieldsForChunk(result.items, pipelineFile)
@@ -583,10 +585,12 @@ export async function parseAnswerSheetDocumentRanged(
 export async function parseAnswerSheetDocument(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
+  options: TaskCallOptions = {},
 ): Promise<{ answers: ParsedAnswer[]; skipped: SkippedRange[]; skippedQuestionNumbers?: number[] }> {
+  const execution = options.execution ?? createLlmExecution()
   if (files.length && files.every((file) => file.fileData)) {
     try {
-      const ranged = await parseAnswerSheetDocumentRanged(files, tagCategories)
+      const ranged = await parseAnswerSheetDocumentRanged(files, tagCategories, { execution })
       if (ranged.answers.length) {
         return { answers: ranged.answers, skipped: [], skippedQuestionNumbers: ranged.skippedNumbers }
       }
@@ -596,7 +600,7 @@ export async function parseAnswerSheetDocument(
         error instanceof Error ? error.message : error)
     }
   }
-  return parseAnswerSheetWhole(files, tagCategories)
+  return parseAnswerSheetWhole(files, tagCategories, { execution })
 }
 
 export async function saveWeekAnswerSheetFile(
@@ -855,6 +859,7 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
   matchTagId?: MatchTagId
   deleteMissingQuestions?: boolean
   regradeExistingAnswers?: boolean
+  execution?: LlmExecution
 }): Promise<ReadingImportOutcome> {
   const {
     supabase,
@@ -863,6 +868,7 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
     matchTagId = () => null,
     deleteMissingQuestions = true,
     regradeExistingAnswers = true,
+    execution = createLlmExecution(),
   } = params
   const persistErrors: string[] = []
   let deletedCount = 0
@@ -1152,7 +1158,7 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
 
     if (subjectiveQuestions.length > 0) {
       try {
-        const gradingResults = await gradeSubjectiveAnswers(subjectiveQuestions, subjectiveForGrading)
+        const gradingResults = await gradeSubjectiveAnswers(subjectiveQuestions, subjectiveForGrading, { execution })
         for (const result of gradingResults) {
           await supabase
             .from('student_answer')
@@ -1236,8 +1242,9 @@ export async function applyWeekReadingAnswerKeyAndRegrade(params: {
   supabase: SupabaseServerClient
   weekId: string
   parsedAnswers: ParsedAnswer[]
+  execution?: LlmExecution
 }): Promise<ReadingImportOutcome> {
-  const { supabase, weekId, parsedAnswers } = params
+  const { supabase, weekId, parsedAnswers, execution = createLlmExecution() } = params
 
   const { data: existingQuestions } = await supabase
     .from('exam_question')
@@ -1396,7 +1403,7 @@ export async function applyWeekReadingAnswerKeyAndRegrade(params: {
 
     if (subjectiveQuestions.length > 0) {
       try {
-        const gradingResults = await gradeSubjectiveAnswers(subjectiveQuestions, subjectiveForGrading)
+        const gradingResults = await gradeSubjectiveAnswers(subjectiveQuestions, subjectiveForGrading, { execution })
         for (const result of gradingResults) {
           await supabase
             .from('student_answer')

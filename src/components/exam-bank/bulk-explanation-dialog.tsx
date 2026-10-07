@@ -1,5 +1,7 @@
 'use client'
 
+import { FileUpload } from '@/components/ui/file-upload'
+
 import { useState, useRef } from 'react'
 import { errorMessage, runOrReport } from '@/lib/async-ui'
 import { useQuery } from '@tanstack/react-query'
@@ -11,7 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Upload, Loader2, FolderOpen, CheckCircle2, XCircle } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { safeJson, confirmAiWork } from './constants'
 import type { ExamBank } from './types'
@@ -135,18 +137,8 @@ export function BulkExplanationDialog({
             <p>예시: <code>2025_06_3.pdf</code> → 2025년 6월 고3 / <code>2025_11_3.pdf</code> → 2025년 11월 수능</p>
           </div>
 
-          <input ref={fileRef} type="file" accept=".pdf" multiple className="hidden"
-            onChange={(e) => handleFiles(e.target.files)} />
-
-          {items.length === 0 ? (
-            <button
-              onClick={() => fileRef.current?.click()}
-              className="flex w-full flex-col items-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-8 text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors"
-            >
-              <FolderOpen className="h-8 w-8" />
-              <span className="text-sm">PDF 파일 여러 개 선택</span>
-            </button>
-          ) : (
+          <FileUpload label="해설 PDF 선택" description="PDF · 여러 파일 선택 가능" accept=".pdf" multiple inputRef={fileRef} disabled={running} fileName={items.length ? items.length + '개 파일 선택됨' : undefined} onChange={(e) => handleFiles(e.target.files)} />
+          {items.length > 0 && (
             <>
               <div className="flex items-center justify-between text-xs text-gray-500">
                 <span>{items.length}개 파일 · 매칭 {matchedCount}개</span>

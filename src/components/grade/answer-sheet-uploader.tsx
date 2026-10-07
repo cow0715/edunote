@@ -1,8 +1,10 @@
 'use client'
 
+import { FileUpload } from '@/components/ui/file-upload'
+
 import { useEffect, useRef, useState, type ChangeEvent, type RefObject } from 'react'
 import { errorMessage, runOrReport } from '@/lib/async-ui'
-import { AlertTriangle, CheckCircle2, FileCheck, FileText, Upload } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, FileCheck, Upload } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -104,32 +106,7 @@ function FileDropzone(props: {
 }) {
   const { file, inputRef, onChange } = props
 
-  return (
-    <div
-      onClick={() => inputRef.current?.click()}
-      className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[24px] bg-slate-50/90 px-4 py-8 text-center transition hover:bg-slate-100/90 dark:bg-slate-900/60 dark:hover:bg-slate-900/80"
-    >
-      {file ? (
-        <>
-          <FileText className="h-8 w-8 text-blue-600 dark:text-blue-400" />
-          <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{file.name}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">다른 파일로 바꾸려면 다시 클릭하세요.</p>
-        </>
-      ) : (
-        <>
-          <Upload className="h-8 w-8 text-slate-300 dark:text-slate-500" />
-          <p className="text-sm text-slate-500 dark:text-slate-400">클릭해서 시험지 PDF 선택</p>
-        </>
-      )}
-      <input
-        ref={inputRef}
-        type="file"
-        accept="application/pdf"
-        className="hidden"
-        onChange={onChange}
-      />
-    </div>
-  )
+  return <FileUpload label="시험지 PDF 선택" description="PDF 파일 1개" accept="application/pdf" inputRef={inputRef} onChange={onChange} fileName={file?.name} />
 }
 
 function StatusBanner({ status }: { status: AnswerSheetStatus }) {
@@ -357,7 +334,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
           <StatusBanner status={status} />
 
           {file && !isLoading && status.type !== 'done' && (
-            <Button className="w-full rounded-full bg-slate-900 text-white hover:bg-slate-800 dark:bg-blue-600 dark:hover:bg-blue-700" onClick={handleStart}>
+            <Button variant="action" className="w-full rounded-full" onClick={handleStart}>
               <Upload className="h-4 w-4" />
               문항·정답·해설 등록
             </Button>

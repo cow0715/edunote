@@ -1,8 +1,8 @@
 // ── 진단평가(주차 시험): 해설지·문제지·정오표 파싱 + 서술형 채점 ─────────────
 
 import { GRADING_SYSTEM, GRADING_RULES, PARSE_ANSWER_SHEET_RULES, QUESTION_MARKUP_RULES, SOURCE_IMAGE_FIELD_RULES } from '../prompts'
-import { callClaudeTextDetailed,
-  buildFileBlock, callClaudeText, MODELS, parseJsonArrayResponse,
+import { callLlmTextDetailed,
+  buildFileBlock, callLlmText, createLlmExecution, parseJsonArrayResponse, type TaskCallOptions,
 } from './client'
 import { findMissingNumbers, discoverQuestionNumbers, rangedParseCallIsolated, sliceNumbers, type RangedCallStats, type RangedFile } from './ranged'
 
@@ -113,9 +113,11 @@ export async function parseAnswerSheet(
   fileData: string,  // base64
   mimeType: string,  // image/jpeg, image/png, application/pdf 등
   tagCategories: TagCategory[] = [],
+  options: TaskCallOptions = {},
 ): Promise<ParsedAnswer[]> {
-  const { text: raw, stopReason } = await callClaudeTextDetailed({
-    model: MODELS.parse,
+  const { text: raw, stopReason } = await callLlmTextDetailed({
+    task: 'week.parseAnswers',
+    execution: options.execution,
     maxTokens: 16384,
     content: [buildFileBlock(fileData, mimeType), { type: 'text', text: buildAnswerSheetPrompt(tagCategories) }],
   })
@@ -148,13 +150,15 @@ export type AnswerSheetRangedResult = {
 export async function parseAnswerSheetRanged(
   files: RangedFile[],
   tagCategories: TagCategory[] = [],
+  options: TaskCallOptions = {},
 ): Promise<AnswerSheetRangedResult> {
   // sonnet-5: 4-6 대비 단가 33% 낮고 신세대라 필터 거절이 stop_reason 으로 온다 (2026-08-27 전환)
-  const model = MODELS.parse
+  const task = 'week.parseAnswers' as const
+  const execution = options.execution ?? createLlmExecution()
   const prompt = buildAnswerSheetPrompt(tagCategories)
 
   const discovery = await discoverQuestionNumbers({
-    files, model, prompt, label: 'parseAnswerSheetRanged.discover',
+    files, task, execution, prompt, label: 'parseAnswerSheetRanged.discover',
   })
   if (!discovery.numbers.length) {
     throw new Error('문항 번호를 발견하지 못했습니다. 파일을 확인해주세요.')
@@ -166,7 +170,7 @@ export async function parseAnswerSheetRanged(
   const groups = sliceNumbers(discovery.numbers)
   const parts = await Promise.all(groups.map((numbers) =>
     rangedParseCallIsolated<ParsedAnswer>({
-      files, model, maxTokens: 8192,
+      files, task, execution, maxTokens: 8192,
       prompt, scope: { numbers }, label: 'parseAnswerSheetRanged',
     })))
 
@@ -182,7 +186,7 @@ export async function parseAnswerSheetRanged(
     console.warn(`[parseAnswerSheetRanged] 범위 콜 결과에 없는 번호 ${missing.join(', ')} → 1문항 재시도`)
     const retries = await Promise.all(missing.map((n) =>
       rangedParseCallIsolated<ParsedAnswer>({
-        files, model, maxTokens: 8192,
+        files, task, execution, maxTokens: 8192,
         prompt, scope: { numbers: [n] }, label: 'parseAnswerSheetRanged.retry',
       })))
     items = items.concat(retries.flatMap((part) => part.items))
@@ -217,7 +221,8 @@ const SINGLE_CALL_THRESHOLD = 30
 // 단일 배치 채점 (내부 전용)
 async function gradeSingleBatch(
   questions: SubjectiveQuestion[],
-  answers: SubjectiveStudentAnswer[]
+  answers: SubjectiveStudentAnswer[],
+  options: TaskCallOptions,
 ): Promise<GradingResult[]> {
   const qLabel = (q: { question_number: number; sub_label: string | null }) =>
     `${q.question_number}번${q.sub_label ? ` (${q.sub_label})` : ''}`
@@ -285,8 +290,9 @@ ${answers.map((a, i) => `
 
 ${GRADING_RULES}`
 
-  const raw = await callClaudeText({
-    model: MODELS.parse,
+  const raw = await callLlmText({
+    task: 'week.gradeSubjective',
+    execution: options.execution,
     maxTokens: 4096,
     temperature: 0,
     content: prompt,
@@ -314,9 +320,11 @@ ${GRADING_RULES}`
 // > 30개: 문항별 분할 (같은 문항 학생끼리 한 호출 → 문항 내 일관성 유지, 출력 잘림 방지)
 export async function gradeSubjectiveAnswers(
   questions: SubjectiveQuestion[],
-  answers: SubjectiveStudentAnswer[]
+  answers: SubjectiveStudentAnswer[],
+  options: TaskCallOptions = {},
 ): Promise<GradingResult[]> {
   if (answers.length === 0) return []
+  const execution = options.execution ?? createLlmExecution()
 
   type Batch = { questions: SubjectiveQuestion[]; answers: SubjectiveStudentAnswer[] }
   const batches: Batch[] = []
@@ -347,7 +355,7 @@ export async function gradeSubjectiveAnswers(
 
   // 배치 병렬 처리 (부분 실패 허용)
   const settled = await Promise.allSettled(
-    batches.map((b) => gradeSingleBatch(b.questions, b.answers))
+    batches.map((b) => gradeSingleBatch(b.questions, b.answers, { execution }))
   )
 
   const allResults: GradingResult[] = []

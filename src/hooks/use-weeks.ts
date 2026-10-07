@@ -53,7 +53,7 @@ export function useMoveWeekDate(classId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ weekId, date }: { weekId: string; date: string }) => {
-      // 1. 날짜 변경
+      // 날짜와 주차 번호를 서버의 같은 트랜잭션에서 저장한다.
       const moveRes = await fetch(`/api/weeks/${weekId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -61,11 +61,7 @@ export function useMoveWeekDate(classId: string) {
       })
       if (!moveRes.ok) throw new Error((await moveRes.json()).error)
 
-      // 2. 주차 번호 재정렬 (start_date 순)
-      const reorderRes = await fetch(`/api/classes/${classId}/weeks/reorder`, { method: 'POST' })
-      if (!reorderRes.ok) throw new Error((await reorderRes.json()).error)
-
-      return reorderRes.json()
+      return moveRes.json()
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['weeks', classId] })

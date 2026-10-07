@@ -26,7 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
-import { ThemeSelect } from './theme-select'
+import { ThemeToggle } from './theme-toggle'
 
 const navSections = [
   {
@@ -93,12 +93,17 @@ export function MobileNav() {
           <GraduationCap className="h-5 w-5 text-primary" />
           <span className="text-sm font-semibold text-gray-900">{currentLabel}</span>
         </div>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
         <button
+          type="button"
+          aria-label="메뉴 열기"
           onClick={() => setOpen(true)}
           className="flex h-9 w-9 items-center justify-center rounded-md text-gray-600 hover:bg-gray-100"
         >
           <Menu className="h-5 w-5" />
         </button>
+        </div>
       </header>
 
       <Sheet open={open} onOpenChange={setOpen}>
@@ -144,7 +149,6 @@ export function MobileNav() {
               <LogOut className="h-4 w-4" />
               로그아웃
             </Button>
-            <div className="pt-2"><ThemeSelect /></div>
           </div>
         </SheetContent>
       </Sheet>

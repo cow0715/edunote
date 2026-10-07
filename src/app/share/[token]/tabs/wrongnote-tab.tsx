@@ -259,13 +259,13 @@ function CtaCard({ tone, title, hint, onClick }: {
       type="button"
       onClick={onClick}
       className={`${PRESS_STRONG} flex w-full items-center gap-3 rounded-[20px] px-[22px] py-[18px] text-left`}
-      style={{ background: tone === 'blue' ? T.control : T.panel }}
+      style={{ background: tone === 'blue' ? T.control : T.panel, color: tone === 'blue' ? T.onControl : T.onSolid }}
     >
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[17px] font-extrabold text-white">{title}</span>
-        <span className="mt-0.5 block text-[12px] text-white/70">{hint}</span>
+        <span className="block truncate text-[17px] font-extrabold">{title}</span>
+        <span className="mt-0.5 block text-[12px] opacity-70">{hint}</span>
       </span>
-      <ChevronRight className="h-5 w-5 shrink-0 text-white" />
+      <ChevronRight className="h-5 w-5 shrink-0" />
     </button>
   )
 }

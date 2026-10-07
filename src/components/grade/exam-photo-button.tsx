@@ -1,8 +1,10 @@
 'use client'
 
+import { FileUpload } from '@/components/ui/file-upload'
+
 import { useRef, useState } from 'react'
-import { Camera, Loader2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+
+
 import { runWithLoading } from '@/lib/async-ui'
 import { compressImageForUpload } from '@/lib/image-compress'
 
@@ -49,27 +51,7 @@ export function ExamPhotoButton({ weekId, studentId, disabled, onResult }: {
 
   return (
     <>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleFile}
-      />
-      <button
-        type="button"
-        disabled={disabled || loading}
-        onClick={() => fileRef.current?.click()}
-        className={cn(
-          'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors shrink-0',
-          disabled || loading
-            ? 'text-gray-300 cursor-not-allowed'
-            : 'text-emerald-600 hover:bg-emerald-50'
-        )}
-      >
-        {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
-        {loading ? 'OCR 중...' : '답안지 촬영'}
-      </button>
+      <FileUpload compact label={loading ? 'OCR 중...' : '답안지 촬영'} accept="image/*" inputRef={fileRef} onChange={handleFile} disabled={disabled} loading={loading} />
       {error && <span className="text-xs text-red-400">{error}</span>}
     </>
   )

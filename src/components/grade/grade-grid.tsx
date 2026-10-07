@@ -342,7 +342,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
             <button
               type="button"
               onClick={() => setExamBatchOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-1.5 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-100"
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-[var(--control-bg)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
             >
               <Camera className="h-3.5 w-3.5" />
               답안지 일괄 판독
@@ -352,7 +352,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           <button
             type="button"
             onClick={() => setBatchOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-1.5 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-[var(--control-bg)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
           >
             <Images className="h-3.5 w-3.5" />
             단어 시험지 일괄 채점

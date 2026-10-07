@@ -1,12 +1,14 @@
 'use client'
 
+import { FileUpload } from '@/components/ui/file-upload'
+
 import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
-import { Upload, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
 import type { OcrTestResult } from '@/app/api/dev/ocr-test/route'
 import { runWithLoading } from '@/lib/async-ui'
 
@@ -118,30 +120,11 @@ export default function OcrTest() {
             <CardTitle className="text-sm">시험지 이미지</CardTitle>
           </CardHeader>
           <CardContent>
-            <div
-              className="border-2 border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-muted/40 transition-colors"
-              style={{ minHeight: 180 }}
-              onClick={() => fileRef.current?.click()}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f) }}
-            >
-              {imagePreview ? (
+            <FileUpload label="시험지 이미지 선택" description="이미지 파일 1개" accept="image/*" inputRef={fileRef} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+              preview={imagePreview ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={imagePreview} alt="preview" className="max-h-48 object-contain rounded" />
-              ) : (
-                <div className="flex flex-col items-center gap-2 text-muted-foreground py-8">
-                  <Upload className="h-8 w-8" />
-                  <span className="text-sm">클릭 또는 드래그해서 업로드</span>
-                </div>
-              )}
-            </div>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
-            />
+                <img src={imagePreview} alt="선택한 시험지" className="max-h-48 rounded object-contain" />
+              ) : undefined} />
           </CardContent>
         </Card>
 

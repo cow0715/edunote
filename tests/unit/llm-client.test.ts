@@ -1,19 +1,5 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-
-// client.ts 는 모듈 로드 시 Anthropic 클라이언트를 만들므로 env 를 먼저 채우고 동적 import 한다.
-let parseJsonArrayResponse: <T>(raw: string, label?: string) => T[]
-let parseJsonObjectResponse: <T>(raw: string, label?: string) => T
-let extractJsonArrayCandidate: (raw: string) => string
-let isJsonParseError: (error: unknown) => boolean
-
-beforeAll(async () => {
-  process.env.ANTHROPIC_API_KEY ||= 'test-key'
-  const mod = await import('../../src/lib/llm/client')
-  isJsonParseError = mod.isJsonParseError
-  parseJsonArrayResponse = mod.parseJsonArrayResponse
-  parseJsonObjectResponse = mod.parseJsonObjectResponse
-  extractJsonArrayCandidate = mod.extractJsonArrayCandidate
-})
+import { describe, it, expect } from 'vitest'
+import { parseJsonArrayResponse, parseJsonObjectResponse, extractJsonArrayCandidate, isJsonParseError } from '../../src/lib/llm/json'
 
 describe('parseJsonArrayResponse', () => {
   it('```json 펜스를 벗기고 파싱한다', () => {

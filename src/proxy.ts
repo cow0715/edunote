@@ -41,8 +41,10 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/share') ||
     pathname.startsWith('/api/cron') ||
-    // 인쇄 레이아웃 프리뷰(샘플 데이터 전용)는 로컬 개발에서만 공개
-    (process.env.NODE_ENV === 'development' && pathname.startsWith('/dev/vocab-print-preview'))
+    // 개발용 디자인 확인 페이지는 로컬 개발에서만 로그인 없이 연다.
+    (process.env.NODE_ENV === 'development' && (
+      pathname.startsWith('/dev/vocab-print-preview') || pathname.startsWith('/dev/share-design')
+    ))
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()

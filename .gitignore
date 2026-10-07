@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/tmp/transaction-pg/
 
 # next.js
 /.next/

@@ -1,9 +1,10 @@
 /* Shared appearance tokens. Screen-only dark rules keep printed output light. */
 :root {
-  --control-selected: #1B64DA;
-  --control-on-selected: #FFFFFF;
-  --control-bg: #1B64DA;
-  --control-fg: #FFFFFF;
+  --upload-bg: #F9FAFB;
+  --control-selected: #FFFFFF;
+  --control-on-selected: #191F28;
+  --control-bg: #F2F4F6;
+  --control-fg: #333D4B;
   --share-canvas: #FFFFFF;
   --share-card: #F9FAFB;
   --share-box: #F2F4F6;
@@ -30,45 +31,46 @@
 
 @media screen {
   :root.dark {
-    --control-selected: #34343C;
+    --upload-bg: #1D1D23;
+    --control-selected: #2D2D35;
     --control-on-selected: #E5E8EB;
-    --control-bg: #29292F;
+    --control-bg: #24242B;
     --control-fg: #E5E8EB;
     --background: #101013;
     --foreground: #E5E8EB;
     --card: #17171C;
     --card-foreground: #E5E8EB;
-    --popover: #2A2A33;
+    --popover: #24242B;
     --popover-foreground: #E5E8EB;
-    --primary: #6BA5FF;
+    --primary: #82A8DC;
     --primary-foreground: #101013;
-    --secondary: #2A2A33;
+    --secondary: #24242B;
     --secondary-foreground: #D0D3DA;
-    --muted: #2A2A33;
+    --muted: #24242B;
     --muted-foreground: #9B9FAA;
-    --accent: #34343C;
+    --accent: #2D2D35;
     --accent-foreground: #E5E8EB;
-    --destructive: #FF7B86;
+    --destructive: #EB8D95;
     --border: #34343E;
-    --input: #51545F;
-    --ring: #6BA5FF;
-    --chart-1: #6BA5FF;
+    --input: #3D3D47;
+    --ring: #82A8DC;
+    --chart-1: #82A8DC;
     --chart-2: #73CBB1;
     --chart-3: #E8B96F;
-    --chart-4: #FF7B86;
+    --chart-4: #EB8D95;
     --chart-5: #B6A2EA;
     --sidebar: #17171C;
     --sidebar-foreground: #E5E8EB;
-    --sidebar-primary: #6BA5FF;
+    --sidebar-primary: #82A8DC;
     --sidebar-primary-foreground: #101013;
-    --sidebar-accent: #29292F;
+    --sidebar-accent: #24242B;
     --sidebar-accent-foreground: #E5E8EB;
     --sidebar-border: #34343E;
-    --sidebar-ring: #6BA5FF;
+    --sidebar-ring: #82A8DC;
   --share-canvas: #101013;
   --share-card: #17171C;
-  --share-box: #2A2A33;
-  --share-box-on-card: #2A2A33;
+  --share-box: #24242B;
+  --share-box-on-card: #24242B;
   --share-line: #2D2D36;
   --share-line-strong: #34343E;
   --share-ink: #E5E8EB;
@@ -78,14 +80,14 @@
   --share-muted2: #9B9FAA;
   --share-disabled: #848894;
   --share-disabled2: #454550;
-  --share-blue: #6BA5FF;
-  --share-blue-deep: #8EBBFF;
-  --share-blue-bg: #202F48;
-  --share-red: #FF7B86;
-  --share-red-deep: #FF9AA3;
+  --share-blue: #82A8DC;
+  --share-blue-deep: #A0BCE3;
+  --share-blue-bg: #202A3A;
+  --share-red: #EB8D95;
+  --share-red-deep: #F0A3AA;
   --share-red-bg: #39252D;
   --share-panel: #101013;
-  --share-blue-solid: #1B64DA;
+  --share-blue-solid: #285FA8;
   --share-on-solid: #FFFFFF;
   }
 }
@@ -102,11 +104,11 @@
 @media screen {
   :root.dark {
     --legacy-ink: #E5E8EB;
-    --legacy-blue: #6BA5FF;
+    --legacy-blue: #82A8DC;
     --legacy-muted: #9B9FAA;
     --legacy-subtle: #A9ADB8;
     --legacy-bright: #E5E8EB;
-    --legacy-red: #FF7B86;
+    --legacy-red: #EB8D95;
     --legacy-wash: #17171C;
   }
 }

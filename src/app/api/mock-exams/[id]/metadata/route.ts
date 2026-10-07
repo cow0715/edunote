@@ -15,6 +15,7 @@ import {
   type MockExamSection,
 } from '@/lib/mock-exam'
 import { assertMockExamOwner } from '@/lib/mock-exam-server'
+import { createLlmExecution } from '@/lib/llm/client'
 
 type MetadataImportBody = {
   raw_text?: string
@@ -120,15 +121,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!hasFile && !hasFiles && !hasText) return err('메타데이터 파일 또는 텍스트가 필요합니다')
 
   let parsed: MockExamMetadataQuestion[]
+  const execution = createLlmExecution()
   try {
     parsed = hasFiles
-      ? await parseMockExamMetadataFiles(files)
+      ? await parseMockExamMetadataFiles(files, { execution })
       : hasFile
-      ? await parseMockExamMetadataFile(body.fileData!, body.mimeType!)
-      : await parseMockExamMetadataText(body.raw_text!.trim())
+      ? await parseMockExamMetadataFile(body.fileData!, body.mimeType!, { execution })
+      : await parseMockExamMetadataText(body.raw_text!.trim(), { execution })
     if (hasFiles || hasFile) {
       const answerKeyFiles = hasFiles ? files : [{ fileData: body.fileData!, mimeType: body.mimeType!, fileName: body.fileName }]
-      const answerKeyParsed = await parseMockExamAnswerKeyFiles(answerKeyFiles).catch((error) => {
+      const answerKeyParsed = await parseMockExamAnswerKeyFiles(answerKeyFiles, { execution }).catch((error) => {
         console.warn('[mock-exam metadata] answer key focused extraction skipped:', error)
         return []
       })
