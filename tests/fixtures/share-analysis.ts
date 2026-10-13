@@ -26,3 +26,32 @@ export const analysisFixture = analysisData([
   analysisAnswer('g', 'w2', false, [{ ...analysisTag, id: 'claim', name: '주장' }]),
   analysisAnswer('h', 'w2', true, [{ ...analysisTag, id: 'content', name: '내용 일치' }]),
 ], [analysisWeek('w1', 1, '2026-09-17'), analysisWeek('w2', 2, '2026-09-24')])
+
+// Four appearances distinguish a recent review need, improvement and a retained strength.
+const insightWeeks = [1, 2, 3, 4].map((number) => analysisWeek(`insight-${number}`, number, `2026-09-${String(number * 7).padStart(2, '0')}`))
+const insightTypes = [
+  { tag: analysisTag, total: 5, correct: [4, 3, 2, 1] },
+  { tag: { ...analysisTag, id: 'claim', name: '주장' }, total: 4, correct: [1, 1, 3, 4] },
+  { tag: { ...analysisTag, id: 'content', name: '내용 일치' }, total: 4, correct: [4, 4, 4, 4] },
+]
+export const insightFixture = analysisData(insightTypes.flatMap((type) => insightWeeks.flatMap((week, index) =>
+  Array.from({ length: type.total }, (_, question) => {
+    const result = analysisAnswer(`${type.tag.id}-${week.id}-${question}`, week.id, question < type.correct[index], [type.tag])
+    result.exam_question!.question_number = insightTypes.slice(0, insightTypes.indexOf(type)).reduce((sum, item) => sum + item.total, 0) + question + 1
+    return result
+  }),
+)), insightWeeks)
+
+// Many types include clear review needs, stable results and insufficient evidence.
+const manyTypeNames = ['빈칸 추론', '문장 삽입', '글의 순서', '어법', '어휘', '제목', '요지', '주장', '주제', '내용 일치', '내용 불일치', '세부 정보', '지시어', '연결어', '문장 완성', '요약문', '함축 의미', '심경', '목적', '도표', '실용문', '장문', '추론', '문맥 어휘']
+export const manyTypesFixture = analysisData(manyTypeNames.flatMap((name, typeIndex) => {
+  const tag = { ...analysisTag, id: `many-${typeIndex}`, name }
+  const weeks = typeIndex >= 16 ? insightWeeks.slice(-1) : insightWeeks
+  return weeks.flatMap((week, index) => Array.from({ length: typeIndex >= 16 ? 2 : 5 }, (_, question) => {
+    const correctCount = typeIndex < 4 ? [4, 4, 1, 2][index]
+      : typeIndex < 6 ? [3, 3, 3, 4][index] : typeIndex < 16 ? [4, 5, 5, 4][index] : 1
+    const answer = analysisAnswer(`${tag.id}-${week.id}-${question}`, week.id, question < correctCount, [tag])
+    answer.exam_question!.question_number = typeIndex * 5 + question + 1
+    return answer
+  }))
+}), insightWeeks)
