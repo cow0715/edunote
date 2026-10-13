@@ -7,7 +7,8 @@
 // 디자인 원본: 학습 리포트 디자인 벤치마킹/design_handoff_share_report/README.md
 // 색상은 공통 라이트/다크 토큰을 따른다.
 
-import { use, useCallback, useMemo, useState } from 'react'
+import { use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { BookOpen, History, Home, Languages, PieChart } from 'lucide-react'
@@ -16,13 +17,18 @@ import { shareErrorMessage } from './share-feedback'
 import { ShareData, TabId } from './share-types'
 import { INITIAL_VOCAB_FILTER, VocabFilterState, VocabStudyMode } from './share-utils'
 import { PRESS, T } from './share-tokens'
-import { useShareModel } from './use-share-model'
+import { useShareModel, type ShareModel } from './use-share-model'
 import { DrawerTag, TagDrawer } from './tag-drawer'
 import { HomeTab } from './tabs/home-tab'
 import { ScoreTab } from './tabs/score-tab'
-import { AnalysisTab } from './tabs/analysis-tab'
 import { VocabTab } from './tabs/vocab-tab'
 import { WrongNoteSubTab, WrongNoteTab } from './tabs/wrongnote-tab'
+
+// Load the chart library when the analysis tab is opened.
+const AnalysisTab = dynamic(() => import('./tabs/analysis-tab').then((module) => module.AnalysisTab), {
+  ssr: false,
+  loading: () => <p role="status" className="px-1.5 py-5 text-[13px] text-[var(--share-muted)]">분석을 준비하고 있어요.</p>,
+})
 
 const TABS = [
   { id: 'home' as TabId, label: '홈', Icon: Home },
@@ -39,7 +45,7 @@ class ShareError extends Error {
   }
 }
 
-function useShareData(token: string, periodId: string | null) {
+export function useShareData(token: string, periodId: string | null) {
   return useQuery<ShareData, ShareError>({
     queryKey: ['share', token, periodId],
     queryFn: async () => {
@@ -52,6 +58,7 @@ function useShareData(token: string, periodId: string | null) {
       return res.json()
     },
     retry: false,
+    placeholderData: (previous) => previous,
   })
 }
 
@@ -74,11 +81,124 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const router = useRouter()
   const searchParams = useSearchParams()
   const selectedPeriodId = searchParams.get('periodId')
-  const { data, isLoading, error, refetch, isFetching } = useShareData(token, selectedPeriodId)
-
+  const { data, isLoading, error, refetch, isFetching, isPlaceholderData } = useShareData(token, selectedPeriodId)
   const [activeTab, setActiveTab] = useState<TabId>('home')
+
+  if (isLoading || error || !data) return (
+    <ShareLoadState loading={isLoading} status={error?.status} retry={() => void refetch()} retrying={isFetching} />
+  )
+  return (
+    <ShareReport
+      data={data}
+      loading={isPlaceholderData}
+      token={token}
+      selectedPeriodId={selectedPeriodId}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+      onSelectPeriod={(id) => router.push(id ? `/share/${token}?periodId=${id}` : `/share/${token}`)}
+      onStartRetake={(weekId) => router.push(`/share/${token}/retake/${weekId}`)}
+    />
+  )
+}
+
+/** 실제 공유 화면과 개발자 디자인 이력이 함께 쓰는 리포트. */
+export type ShareAnalysisRenderProps = {
+  model: ShareModel
+  periodLabel: string
+  onTagClick: (id: string, name: string) => void
+  onOpenWrongNote: () => void
+}
+
+export function ShareLoadState({ loading, status, retry, retrying }: {
+  loading: boolean
+  status?: number
+  retry: () => void
+  retrying: boolean
+}) {
+  if (loading) return (
+    <div role="status" aria-label="리포트 불러오는 중" className="flex min-h-screen items-center justify-center bg-[var(--share-canvas)]">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--share-blue)] border-t-transparent" />
+    </div>
+  )
+  const { title, hint, retryable } = shareErrorMessage(status)
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[var(--share-canvas)] px-8">
+      <div className="max-w-xs text-center">
+        <p className="text-[16px] font-extrabold text-[var(--share-ink)]">{title}</p>
+        <p className="mt-2 text-[13px] leading-relaxed text-[var(--share-muted2)]">{hint}</p>
+        {retryable && (
+          <button type="button" onClick={retry} disabled={retrying}
+            className={`${PRESS} mt-4 min-h-11 rounded-full bg-[var(--share-box)] px-5 text-[13px] font-bold text-[var(--share-blue)]`}>
+            {retrying ? '불러오는 중…' : '다시 시도'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export function ShareReport({ data, token, selectedPeriodId, onSelectPeriod, onStartRetake, initialTab = 'home', activeTab: controlledTab, onTabChange, renderAnalysis, historyAllData, loading = false }: {
+  data: ShareData
+  token: string
+  selectedPeriodId: string | null
+  onSelectPeriod: (id: string | null) => void
+  onStartRetake: (weekId: string) => void
+  initialTab?: TabId
+  activeTab?: TabId
+  onTabChange?: (tab: TabId) => void
+  renderAnalysis?: (props: ShareAnalysisRenderProps) => ReactNode
+  historyAllData?: ShareData
+  /** 조회 중에는 이전 모델로 셸 상태만 유지하고 수치는 표시하지 않는다. */
+  loading?: boolean
+}) {
+  const [localTab, setLocalTab] = useState<TabId>(initialTab)
+  const activeTab = controlledTab ?? localTab
+  const setActiveTab = onTabChange ?? setLocalTab
   const [periodSheetOpen, setPeriodSheetOpen] = useState(false)
   const [drawerTag, setDrawerTag] = useState<DrawerTag | null>(null)
+  const periodTriggerRef = useRef<HTMLButtonElement>(null)
+  const periodDialogRef = useRef<HTMLDivElement>(null)
+  const pendingWrongScroll = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!periodSheetOpen) return
+
+    const dialog = periodDialogRef.current
+    const trigger = periodTriggerRef.current
+    const getFocusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    ) ?? [])
+    getFocusable()[0]?.focus()
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setPeriodSheetOpen(false)
+        return
+      }
+      if (event.key !== 'Tab' || !dialog) return
+
+      const focusable = getFocusable()
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (!first || !last) {
+        event.preventDefault()
+        dialog.focus()
+      } else if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      trigger?.focus()
+    }
+  }, [periodSheetOpen])
 
   const [wrongNoteTab, setWrongNoteTab] = useState<WrongNoteSubTab>('reading')
   const [expandedWrongWeekIds, setExpandedWrongWeekIds] = useState<Set<string>>(new Set())
@@ -118,14 +238,30 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
     const setExpanded = kind === 'reading' ? setExpandedWrongWeekIds : setExpandedVocabWeekIds
     setExpanded((prev) => new Set([...prev, targetId]))
     scrollTo(`wrongnote-${kind}-${targetId}`, 150)
-  }, [firstReadingWeekId, firstVocabWeekId, scrollTo])
+  }, [firstReadingWeekId, firstVocabWeekId, scrollTo, setActiveTab])
+
+  useEffect(() => {
+    if (loading || !pendingWrongScroll.current) return
+    const target = document.getElementById(pendingWrongScroll.current)
+    if (!target) return
+    scrollTo(pendingWrongScroll.current)
+    pendingWrongScroll.current = null
+  }, [data, loading, scrollTo])
+
+  const openHistoryWrongNote = (kind: WrongNoteSubTab, weekId: string, periodId?: string | null) => {
+    if (!model.weeks.some((week) => week.id === weekId) && periodId) {
+      pendingWrongScroll.current = `wrongnote-${kind}-${weekId}`
+      onSelectPeriod(periodId)
+    }
+    openWrongNote(kind, weekId)
+  }
 
   /** 오답노트 → 단어장. 목록 탐색은 단어 탭이 전담한다 */
   const openVocabList = useCallback((weekId: string | null, studyMode: VocabStudyMode) => {
     setVocabFilter({ ...INITIAL_VOCAB_FILTER, studyMode, week: weekId ?? 'all', lookupOpen: true })
     setActiveTab('vocab')
     window.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [])
+  }, [setActiveTab])
 
   const patchVocabFilter = useCallback((patch: Partial<VocabFilterState>) => {
     setVocabFilter((prev) => ({ ...prev, ...patch }))
@@ -143,7 +279,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const openHistoryWeek = useCallback((weekId: string) => {
     setActiveTab('score')
     scrollTo(`history-${weekId}`, 150)
-  }, [scrollTo])
+  }, [scrollTo, setActiveTab])
 
   const drawerAnswers = useMemo(() => drawerTag
     ? studentAnswers
@@ -159,28 +295,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
       })
     : [], [drawerTag, studentAnswers, weekNumberByWeekId])
 
-  if (isLoading) return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--share-canvas)]">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--share-blue)] border-t-transparent" />
-    </div>
-  )
-  if (error || !data) {
-    const { title, hint, retryable } = shareErrorMessage(error?.status)
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--share-canvas)] px-8">
-        <div className="max-w-xs text-center">
-          <p className="text-[16px] font-extrabold text-[var(--share-ink)]">{title}</p>
-          <p className="mt-2 text-[13px] leading-relaxed text-[var(--share-muted2)]">{hint}</p>
-          {retryable && (
-            <button type="button" onClick={() => void refetch()} disabled={isFetching}
-              className={`${PRESS} mt-4 min-h-11 rounded-full bg-[var(--share-box)] px-5 text-[13px] font-bold text-[var(--share-blue)]`}>
-              {isFetching ? '불러오는 중…' : '다시 시도'}
-            </button>
-          )}
-        </div>
-      </div>
-    )
-  }
+  if (loading) return <ShareLoadState loading retry={() => {}} retrying={false} />
 
   const { student, currentPeriod } = data
   const selectedPeriod = selectedPeriodId ? periodOptions.find((p) => p.id === selectedPeriodId) : null
@@ -190,7 +305,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
   const activeIndex = TABS.findIndex((t) => t.id === activeTab)
 
   const selectPeriod = (id: string | null) => {
-    router.push(id ? `/share/${token}?periodId=${id}` : `/share/${token}`)
+    onSelectPeriod(id)
     setPeriodSheetOpen(false)
     // 기간이 바뀌면 펼침 상태·스크롤을 초기화한다 — 회차 목록 자체가 달라지기 때문
     setExpandedWrongWeekIds(new Set())
@@ -215,6 +330,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
           {periodOptions.length > 0 && (
             <button
               type="button"
+              ref={periodTriggerRef}
               aria-label={`기간 선택: ${periodLabel}`}
               onClick={() => setPeriodSheetOpen(true)}
               className={`${PRESS} flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--share-box)] py-2 pr-3 pl-3.5 text-[13px] font-extrabold`}
@@ -246,12 +362,15 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
             periodLabel={periodLabel}
             selectedPeriodId={selectedPeriodId}
             hasOtherPeriods={periodOptions.length > 1}
-            onOpenWrongNoteWeek={(kind, weekId) => openWrongNote(kind, weekId)}
+            onOpenWrongNoteWeek={openHistoryWrongNote}
+            allData={historyAllData}
           />
         )}
 
         {activeTab === 'analysis' && (
-          <AnalysisTab model={model} periodLabel={periodLabel} onTagClick={openDrawerTag} onOpenWrongNote={() => openWrongNote('reading')} />
+          renderAnalysis
+            ? renderAnalysis({ model, periodLabel, onTagClick: openDrawerTag, onOpenWrongNote: () => openWrongNote('reading') })
+            : <AnalysisTab model={model} periodLabel={periodLabel} onTagClick={openDrawerTag} onOpenWrongNote={() => openWrongNote('reading')} />
         )}
 
         {activeTab === 'wrongnote' && (
@@ -265,7 +384,7 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
             expandedVocabWeekIds={expandedVocabWeekIds}
             onToggleVocabWeek={(id) => setExpandedVocabWeekIds((prev) => toggleInSet(prev, id))}
             onOpenVocabList={openVocabList}
-            onStartRetake={(weekId) => router.push(`/share/${token}/retake/${weekId}`)}
+            onStartRetake={onStartRetake}
           />
         )}
 
@@ -319,6 +438,8 @@ export default function ShareClient({ params }: { params: Promise<{ token: strin
             role="dialog"
             aria-modal="true"
             aria-label="기간 선택"
+            ref={periodDialogRef}
+            tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
             className="max-h-[80vh] w-full max-w-[430px] overflow-y-auto rounded-t-[20px] bg-[var(--share-card)] px-4 pt-3.5 pb-7"
             style={{ animation: 'share-sheet-up .42s cubic-bezier(.22,.9,.3,1) both' }}

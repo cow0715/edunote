@@ -26,6 +26,7 @@ export function ScoreTab({
   selectedPeriodId,
   hasOtherPeriods,
   onOpenWrongNoteWeek,
+  allData,
 }: {
   token: string
   model: ShareModel
@@ -33,7 +34,9 @@ export function ScoreTab({
   selectedPeriodId: string | null
   /** 기간이 하나뿐이면 스코프 세그먼트를 숨긴다 */
   hasOtherPeriods: boolean
-  onOpenWrongNoteWeek: (kind: 'reading' | 'vocab', weekId: string) => void
+  onOpenWrongNoteWeek: (kind: 'reading' | 'vocab', weekId: string, periodId?: string | null) => void
+  /** 디자인 이력에서도 실제 기록 화면을 사용하기 위한 전체 기간 데이터. */
+  allData?: ShareData
 }) {
   const [scope, setScope] = useState<HistScope>('period')
 
@@ -46,12 +49,12 @@ export function ScoreTab({
       if (!res.ok) throw new Error('기록을 불러올 수 없습니다')
       return res.json()
     },
-    enabled: scope === 'all' && hasOtherPeriods,
+    enabled: scope === 'all' && hasOtherPeriods && !allData,
     retry: false,
   })
 
-  const allScopeModel = useShareModel(allScopeQuery.data)
-  const waitingForAll = scope === 'all' && !allScopeQuery.data
+  const allScopeModel = useShareModel(allData ?? allScopeQuery.data)
+  const waitingForAll = scope === 'all' && !allData && !allScopeQuery.data
   const groups = waitingForAll ? [] : buildHistoryGroups(scope === 'all' ? allScopeModel : model)
 
   const weekCount = groups.reduce((sum, g) => sum + g.rows.length, 0)
@@ -79,10 +82,10 @@ export function ScoreTab({
         )}
       </div>
 
-      {scope === 'all' && allScopeQuery.isLoading && (
+      {scope === 'all' && !allData && allScopeQuery.isLoading && (
         <EmptyState>전체 기간 기록을 불러오는 중이에요.</EmptyState>
       )}
-      {scope === 'all' && allScopeQuery.isError && (
+      {scope === 'all' && !allData && allScopeQuery.isError && (
         <div className="text-center">
           <EmptyState>전체 기간 기록을 불러오지 못했어요.</EmptyState>
           <button type="button" disabled={allScopeQuery.isFetching} onClick={() => void allScopeQuery.refetch()}
@@ -114,7 +117,7 @@ function HistoryGroupCard({ group, latestWeekId, showPeriodHeader, onOpenWrongNo
   group: HistoryGroup
   latestWeekId: string | null
   showPeriodHeader: boolean
-  onOpenWrongNoteWeek: (kind: 'reading' | 'vocab', weekId: string) => void
+  onOpenWrongNoteWeek: (kind: 'reading' | 'vocab', weekId: string, periodId?: string | null) => void
 }) {
   // 기본 펼침은 최신 회차 하나뿐 — 전부 펼치면 스크롤이 감당 안 된다
   const [expanded, setExpanded] = useState<Set<string>>(
@@ -157,7 +160,7 @@ function HistoryRowView({ row, open, onToggle, onOpenWrongNoteWeek }: {
   row: HistoryRow
   open: boolean
   onToggle: () => void
-  onOpenWrongNoteWeek: (kind: 'reading' | 'vocab', weekId: string) => void
+  onOpenWrongNoteWeek: (kind: 'reading' | 'vocab', weekId: string, periodId?: string | null) => void
 }) {
   const badge = row.attendance ? ATT_BADGE[row.attendance] : null
   const hasDetail = row.wrongTypes.length > 0 || row.memo || row.wrongReading > 0 || row.wrongVocab > 0
@@ -213,13 +216,13 @@ function HistoryRowView({ row, open, onToggle, onOpenWrongNoteWeek }: {
                 <ActionButton
                   primary
                   label={`오답 ${row.wrongReading}문항 보기`}
-                  onClick={() => onOpenWrongNoteWeek('reading', row.week.id)}
+                  onClick={() => onOpenWrongNoteWeek('reading', row.week.id, row.week.class_period_id)}
                 />
               )}
               {row.wrongVocab > 0 && (
                 <ActionButton
                   label={`틀린 단어 ${row.wrongVocab}개`}
-                  onClick={() => onOpenWrongNoteWeek('vocab', row.week.id)}
+                  onClick={() => onOpenWrongNoteWeek('vocab', row.week.id, row.week.class_period_id)}
                 />
               )}
             </div>
