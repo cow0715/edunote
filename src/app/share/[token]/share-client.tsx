@@ -12,7 +12,7 @@ import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { BookOpen, History, Home, Languages, PieChart } from 'lucide-react'
-import { ThemeSelect } from '@/components/layout/theme-select'
+import { ThemeToggle } from '@/components/layout/theme-toggle'
 import { shareErrorMessage } from './share-feedback'
 import { ShareData, TabId } from './share-types'
 import { INITIAL_VOCAB_FILTER, VocabFilterState, VocabStudyMode } from './share-utils'
@@ -339,7 +339,7 @@ export function ShareReport({ data, token, selectedPeriodId, onSelectPeriod, onS
               <span className="text-[10px] text-[var(--share-muted2)]">▾</span>
             </button>
           )}
-          <ThemeSelect compact />
+          <ThemeToggle />
         </div>
       </header>
 

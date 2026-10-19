@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { ShareLoadState, ShareReport, useShareData, type ShareAnalysisRenderProps } from '@/app/share/[token]/share-client'
@@ -19,7 +19,13 @@ export default function ShareDesignFrame() {
   const scenario = params.get('scenario') ?? 'default'
   const periodId = params.get('periodId')
   const initialTab = parseShareDesignContext({ type: SHARE_DESIGN_CONTEXT_MESSAGE, periodId, tab: params.get('tab') })?.tab ?? 'analysis'
-  useEffect(() => { setTheme(theme) }, [setTheme, theme])
+  const appliedTheme = useRef<string | null>(null)
+  useEffect(() => {
+    // next-themes changes setTheme identity after a toggle; don't reapply the URL then.
+    if (appliedTheme.current === theme) return
+    appliedTheme.current = theme
+    setTheme(theme)
+  }, [setTheme, theme])
   return token
     ? <LiveReport key={token} token={token} initialPeriod={periodId} initialTab={initialTab} design={design} />
     : <SampleReport key={scenario} scenario={scenario} initialPeriod={periodId} initialTab={initialTab} design={design} />

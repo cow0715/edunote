@@ -252,7 +252,7 @@ export function VocabTestPrintSheet({ items, answers, studentName }: { items: Vo
         )
       })}
 
-      <style jsx global>{`
+      <style>{`
         @page {
           size: A4 portrait;
           margin: 10mm;
