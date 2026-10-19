@@ -38,3 +38,14 @@ describe('shared light/dark toggle', () => {
     expect(screen.queryByText(/기기 설정/)).toBeNull()
   })
 })
+
+it.each(['light', 'dark'])('share icon button immediately changes %s without a menu', (resolvedTheme) => {
+  state.resolvedTheme = resolvedTheme
+  render(<ThemeToggle compact />)
+  const target = resolvedTheme === 'dark' ? 'light' : 'dark'
+  fireEvent.click(screen.getByRole('button', { name: target === 'light' ? '라이트 모드로 전환' : '다크 모드로 전환' }))
+  expect(state.setTheme).toHaveBeenCalledExactlyOnceWith(target)
+  expect(screen.queryByRole('switch')).toBeNull()
+  expect(screen.queryByRole('menu')).toBeNull()
+  expect(screen.queryByRole('button')?.getAttribute('aria-haspopup')).toBeNull()
+})
