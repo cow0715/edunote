@@ -1,3 +1,4 @@
+import { collectPages } from '@/lib/collect-pages'
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 
 export async function GET() {
@@ -7,18 +8,15 @@ export async function GET() {
   const teacherId = await getTeacherId(supabase, user.id)
   if (!teacherId) return err('강사 정보 없음', 404)
 
-  const { data, error } = await supabase
-    .from('student')
-    .select('*, class_student(class_id, joined_at, left_at, class:class_id(name))')
-    .eq('teacher_id', teacherId)
-    .order('name')
-
-  if (error) {
+  try {
+    const data = await collectPages((from, to) => supabase.from('student')
+      .select('*, class_student(class_id, joined_at, left_at, class:class_id(name))')
+      .eq('teacher_id', teacherId).order('name').order('id').range(from, to))
+    return ok(data)
+  } catch (error) {
     console.error('[GET /api/students]', error)
-    return err(error.message, 500)
+    return err('학생 목록 조회 실패', 500)
   }
-
-  return ok(data)
 }
 
 export async function POST(request: Request) {
