@@ -11,6 +11,8 @@ import { useStudents, useDeleteStudent, useClassStudents } from '@/hooks/use-stu
 import { useClasses } from '@/hooks/use-classes'
 import { Student, StudentWithEnrollments } from '@/lib/types'
 import * as XLSX from 'xlsx'
+import { buildStudentWorkbook } from '@/lib/student-export'
+import { toast } from 'sonner'
 
 type SortKey = 'name' | 'school' | 'grade' | 'class' | 'joined_at' | 'left_at'
 type SortDir = 'asc' | 'desc'
@@ -211,64 +213,14 @@ export default function StudentsPage() {
     setDialogOpen(true)
   }
 
-  async function handleExportExcel() {
+  function handleExportExcel() {
     if (!students || !classes) return
-
-    const classStudentsList = await Promise.all(
-      classes.map(async (c) => {
-        const res = await fetch(`/api/classes/${c.id}/students`)
-        if (!res.ok) return { classId: c.id, studentIds: [] as string[] }
-        const data: { student_id: string }[] = await res.json()
-        return { classId: c.id, studentIds: data.map((d) => d.student_id) }
-      })
-    )
-
-    const assignedIds = new Set(classStudentsList.flatMap((cl) => cl.studentIds))
-
-    const wb = XLSX.utils.book_new()
-    const COLS = [{ wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }]
-    const TAB_COLORS = ['4F81BD', 'C0504D', '9BBB59', '8064A2', '4BACC6', 'F79646', '17375E', '953734']
-
-    const toRow = (s: Student) => ({
-      이름: s.name,
-      학생연락처: s.phone ?? '',
-      어머니연락처: s.mother_phone ?? '',
-      아버지연락처: s.father_phone ?? '',
-    })
-
-    const makeSheet = (rows: ReturnType<typeof toRow>[]) => {
-      const ws = XLSX.utils.json_to_sheet(rows, {
-        header: ['이름', '학생연락처', '어머니연락처', '아버지연락처'],
-      })
-      ws['!cols'] = COLS
-      ws['!freeze'] = { xSplit: 0, ySplit: 1 }
-      return ws
+    try {
+      const wb = buildStudentWorkbook(students, classes)
+      XLSX.writeFile(wb, `학생목록_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } catch {
+      toast.error('학생 목록을 내보내지 못했습니다. 다시 시도해 주세요.')
     }
-
-    let sheetIdx = 0
-    for (const c of classes) {
-      const entry = classStudentsList.find((cl) => cl.classId === c.id)
-      const rows = (entry?.studentIds ?? [])
-        .map((id) => students.find((s) => s.id === id))
-        .filter((s): s is StudentWithEnrollments => !!s)
-        .map(toRow)
-      if (rows.length === 0) continue
-      XLSX.utils.book_append_sheet(wb, makeSheet(rows), c.name.slice(0, 31))
-      if (!wb.Workbook) wb.Workbook = { Sheets: [] }
-      if (!wb.Workbook.Sheets) wb.Workbook.Sheets = []
-      wb.Workbook.Sheets[sheetIdx] = { TabColor: { rgb: TAB_COLORS[sheetIdx % TAB_COLORS.length] } } as XLSX.SheetProps
-      sheetIdx++
-    }
-
-    const unassigned = students.filter((s) => !assignedIds.has(s.id) && !isWithdrawn(s)).map(toRow)
-    if (unassigned.length > 0) {
-      XLSX.utils.book_append_sheet(wb, makeSheet(unassigned), '미배정')
-      if (!wb.Workbook) wb.Workbook = { Sheets: [] }
-      if (!wb.Workbook.Sheets) wb.Workbook.Sheets = []
-      wb.Workbook.Sheets[sheetIdx] = { TabColor: { rgb: '808080' } } as XLSX.SheetProps
-    }
-
-    XLSX.writeFile(wb, `학생목록_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
   const thClass = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap'

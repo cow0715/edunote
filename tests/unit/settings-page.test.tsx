@@ -42,3 +42,13 @@ it('keeps input and allows retry after saving fails', async () => {
   fireEvent.click(screen.getByRole('button', { name: '저장' }))
   await waitFor(() => expect(notices.success).toHaveBeenCalledWith('저장되었습니다'))
 })
+
+it('explains that a dropped save response leaves the result uncertain and preserves input', async () => {
+  const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(profile))).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  vi.stubGlobal('fetch', fetcher)
+  mount()
+  fireEvent.change(await screen.findByLabelText('학원명'), { target: { value: '응답 확인 전' } })
+  fireEvent.click(screen.getByRole('button', { name: '저장' }))
+  await waitFor(() => expect(notices.error).toHaveBeenCalledWith('연결이 끊겨 저장 결과를 확인하지 못했습니다. 새로고침 후 내용을 확인해 주세요.'))
+  expect(screen.getByDisplayValue('응답 확인 전')).toBeTruthy()
+})

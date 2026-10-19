@@ -61,3 +61,12 @@ describe('shared file selection', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 })
+
+it('a native cancel event leaves the selected filename and change handler untouched', () => {
+  const ref = createRef<HTMLInputElement>()
+  const onChange = vi.fn()
+  render(<FileUpload label="단어장 선택" accept=".xlsx" inputRef={ref} fileName="선택됨.xlsx" onChange={onChange} />)
+  fireEvent(ref.current!, new Event('cancel', { bubbles: true }))
+  expect(screen.getByText('선택됨.xlsx')).toBeTruthy()
+  expect(onChange).not.toHaveBeenCalled()
+})
