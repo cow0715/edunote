@@ -1,12 +1,14 @@
 'use client'
 
+import { FileUpload } from '@/components/ui/file-upload'
+
 import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { errorMessage, runWithLoading } from '@/lib/async-ui'
-import { Upload, Copy, Loader2, FileText, X, Image } from 'lucide-react'
+import { Copy, Loader2 } from 'lucide-react'
 
 const ACCEPTED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
@@ -52,7 +54,6 @@ export default function PdfExtractPage() {
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
   const [result, setResult] = useState('')
-  const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   function pickFiles(incoming: FileList | null) {
@@ -152,67 +153,9 @@ export default function PdfExtractPage() {
       </div>
 
       <Card className="p-6">
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault()
-            setDragOver(false)
-            pickFiles(e.dataTransfer.files)
-          }}
-          onClick={() => inputRef.current?.click()}
-          className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-10 transition-colors ${
-            dragOver ? 'border-primary bg-primary/5' : 'border-gray-300 hover:border-gray-400'
-          }`}
-        >
-          <input
-            ref={inputRef}
-            type="file"
-            accept="application/pdf,image/jpeg,image/png,image/webp"
-            multiple
-            className="hidden"
-            onChange={(e) => pickFiles(e.target.files)}
-          />
-          {files.length > 0 ? (
-            <div className="flex w-full flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {isImage
-                    ? <Image className="h-5 w-5 text-primary" />
-                    : <FileText className="h-5 w-5 text-primary" />}
-                  <span className="font-medium text-gray-900">
-                    {isImage ? `이미지 ${files.length}장` : files[0].name}
-                  </span>
-                  <span className="text-xs text-gray-500">
-                    ({(files.reduce((s, f) => s + f.size, 0) / 1024).toFixed(0)} KB)
-                  </span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={(e) => { e.stopPropagation(); clearFiles() }}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-              {isImage && (
-                <ul className="ml-7 space-y-0.5">
-                  {files.map((f, i) => (
-                    <li key={i} className="text-xs text-gray-500">{i + 1}. {f.name}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ) : (
-            <>
-              <Upload className="h-10 w-10 text-gray-400" />
-              <p className="mt-3 text-sm font-medium text-gray-700">
-                파일을 드래그하거나 클릭하여 선택
-              </p>
-              <p className="mt-1 text-xs text-gray-500">PDF 1개 또는 이미지 여러 장 (JPG·PNG·WEBP)</p>
-            </>
-          )}
-        </div>
+        <FileUpload label="텍스트 추출 파일 선택" description="PDF 1개 또는 JPG·PNG·WEBP 여러 장" accept="application/pdf,image/jpeg,image/png,image/webp" multiple inputRef={inputRef} disabled={loading}
+          fileName={files.length ? (isImage ? '이미지 ' + files.length + '장 선택됨' : files[0].name) : undefined} onClear={clearFiles} onChange={(e) => pickFiles(e.target.files)}
+          preview={isImage && files.length > 0 ? <ul className="space-y-1 text-xs text-muted-foreground">{files.map((file, i) => <li className="break-all" key={i}>{i + 1}. {file.name}</li>)}</ul> : undefined} />
 
         <div className="mt-4 flex items-center justify-end gap-3">
           {loading && status && (

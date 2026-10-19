@@ -1,5 +1,5 @@
 import { splitPdfToSinglePageBase64 } from '@/lib/pdf'
-import { buildFileBlock, callClaudeText, isContentFilterError, MODELS } from '@/lib/llm/client'
+import { buildFileBlock, callLlmText, createLlmExecution, isContentFilterError, type LlmExecution } from '@/lib/llm/client'
 import { mapWithConcurrency } from '@/lib/concurrency'
 import { err, getAuth, getTeacherId } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -100,9 +100,10 @@ const EXTRACT_PROMPT = `너는 시험지 PDF에서 문제와 해설을 추출하
 
 "PDF를 사람이 복사한 것처럼 최대한 유사한 텍스트"`
 
-async function extractWithClaude(base64: string, maxTokens = 32000): Promise<string> {
-  const text = await callClaudeText({
-    model: MODELS.parse,
+async function extractWithLlm(base64: string, execution: LlmExecution, maxTokens = 32000): Promise<string> {
+  const text = await callLlmText({
+    task: 'pdf.extractText',
+    execution,
     maxTokens,
     temperature: 0,
     stream: true,
@@ -127,10 +128,11 @@ export async function POST(request: Request) {
 
     const buffer = await data.arrayBuffer()
     const base64 = Buffer.from(buffer).toString('base64')
+    const execution = createLlmExecution()
 
     // 1차: 전체 PDF 시도
     try {
-      const text = await extractWithClaude(base64)
+      const text = await extractWithLlm(base64, execution)
       await supabase.storage.from('pdf-temp').remove([path]).catch(() => {})
       return new Response(text, { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })
     } catch (e) {
@@ -147,7 +149,7 @@ export async function POST(request: Request) {
     // 동시 3 — 30페이지를 한꺼번에 쏘면 rate limit 에 걸린다
     const pageResults: PageResult[] = await mapWithConcurrency(pages, 3, async (pageBase64, i): Promise<PageResult> => {
       try {
-        const text = await extractWithClaude(pageBase64, 8192)
+        const text = await extractWithLlm(pageBase64, execution, 8192)
         return { pageNum: i + 1, text, filtered: false }
       } catch (e) {
         if (isContentFilterError(e)) return { pageNum: i + 1, text: '', filtered: true }

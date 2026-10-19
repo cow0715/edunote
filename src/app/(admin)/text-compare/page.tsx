@@ -1,5 +1,7 @@
 'use client'
 
+import { FileUpload } from '@/components/ui/file-upload'
+
 import { useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,12 +14,10 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
-  FileText,
   Loader2,
   Printer,
   Sparkles,
   Target,
-  Upload,
 } from 'lucide-react'
 
 type DifficultyLevel = 'low' | 'low-medium' | 'medium' | 'medium-high' | 'high'
@@ -146,7 +146,7 @@ function FileDropZone({
   onFile: (file: File | null) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
-  const [dragOver, setDragOver] = useState(false)
+
 
   function pick(nextFile: File | null) {
     if (!nextFile) return
@@ -157,67 +157,7 @@ function FileDropZone({
     onFile(nextFile)
   }
 
-  return (
-    <div
-      onClick={() => inputRef.current?.click()}
-      onDragOver={(event) => {
-        event.preventDefault()
-        setDragOver(true)
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(event) => {
-        event.preventDefault()
-        setDragOver(false)
-        pick(event.dataTransfer.files[0] ?? null)
-      }}
-      className={cn(
-        'group cursor-pointer rounded-[28px] border border-dashed p-6 transition-all',
-        'bg-card/92 shadow-[0px_10px_40px_rgba(0,75,198,0.03)]',
-        dragOver
-          ? 'border-[var(--legacy-blue)] bg-blue-50/80'
-          : 'border-slate-200 hover:border-blue-300 hover:bg-white'
-      )}
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        accept="application/pdf"
-        className="hidden"
-        onChange={(event) => pick(event.target.files?.[0] ?? null)}
-      />
-      <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</div>
-      {file ? (
-        <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-[var(--legacy-blue)]">
-            <FileText className="h-6 w-6" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate font-medium text-slate-900">{file.name}</div>
-            <div className="mt-1 text-sm text-slate-500">{(file.size / 1024).toFixed(0)} KB</div>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            className="text-slate-500 hover:text-slate-900"
-            onClick={(event) => {
-              event.stopPropagation()
-              onFile(null)
-            }}
-          >
-            제거
-          </Button>
-        </div>
-      ) : (
-        <div className="rounded-[22px] bg-slate-50/80 p-7 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-white text-[var(--legacy-blue)] shadow-sm">
-            <Upload className="h-6 w-6" />
-          </div>
-          <div className="mt-4 text-base font-semibold text-slate-900">{description}</div>
-          <div className="mt-2 text-sm text-slate-500">클릭하거나 파일을 드래그해 업로드하세요.</div>
-        </div>
-      )}
-    </div>
-  )
+  return <FileUpload label={label} description={description + ' · PDF 파일 1개'} accept="application/pdf" inputRef={inputRef} fileName={file?.name} onClear={() => onFile(null)} onChange={(event) => pick(event.target.files?.[0] ?? null)} />
 }
 
 function HeroSummary({ summary }: { summary: TextCompareResult['summary'] }) {

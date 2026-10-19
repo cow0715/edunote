@@ -56,16 +56,16 @@
 @utility bg-white { @media screen { @variant dark { background-color: var(--card); } } }
 @utility from-white { @media screen { @variant dark { --tw-gradient-from: var(--card); } } }
 @utility to-white { @media screen { @variant dark { --tw-gradient-to: var(--card); } } }
-@utility text-blue-300 { @media screen { @variant dark { color: #6BA5FF; } } }
-@utility text-blue-400 { @media screen { @variant dark { color: #6BA5FF; } } }
-@utility text-blue-500 { @media screen { @variant dark { color: #6BA5FF; } } }
-@utility text-blue-600 { @media screen { @variant dark { color: #6BA5FF; } } }
-@utility text-blue-700 { @media screen { @variant dark { color: #6BA5FF; } } }
-@utility text-blue-800 { @media screen { @variant dark { color: #6BA5FF; } } }
-@utility text-blue-900 { @media screen { @variant dark { color: #6BA5FF; } } }
-@utility bg-blue-50 { @media screen { @variant dark { background-color: #202F48; } } }
-@utility bg-blue-100 { @media screen { @variant dark { background-color: #202F48; } } }
-@utility bg-blue-200 { @media screen { @variant dark { background-color: #202F48; } } }
+@utility text-blue-300 { @media screen { @variant dark { color: var(--share-blue); } } }
+@utility text-blue-400 { @media screen { @variant dark { color: var(--share-blue); } } }
+@utility text-blue-500 { @media screen { @variant dark { color: var(--share-blue); } } }
+@utility text-blue-600 { @media screen { @variant dark { color: var(--share-blue); } } }
+@utility text-blue-700 { @media screen { @variant dark { color: var(--share-blue); } } }
+@utility text-blue-800 { @media screen { @variant dark { color: var(--share-blue); } } }
+@utility text-blue-900 { @media screen { @variant dark { color: var(--share-blue); } } }
+@utility bg-blue-50 { @media screen { @variant dark { background-color: var(--share-blue-bg); } } }
+@utility bg-blue-100 { @media screen { @variant dark { background-color: var(--share-blue-bg); } } }
+@utility bg-blue-200 { @media screen { @variant dark { background-color: var(--share-blue-bg); } } }
 @utility border-blue-100 { @media screen { @variant dark { border-color: #405879; } } }
 @utility border-blue-200 { @media screen { @variant dark { border-color: #405879; } } }
 @utility border-blue-300 { @media screen { @variant dark { border-color: #405879; } } }
@@ -80,11 +80,11 @@
 @utility text-violet-700 { @media screen { @variant dark { color: #BBA5F4; } } }
 @utility bg-violet-50 { @media screen { @variant dark { background-color: #302840; } } }
 @utility border-violet-200 { @media screen { @variant dark { border-color: #5E4C7C; } } }
-@utility text-red-300 { @media screen { @variant dark { color: #FF7B86; } } }
-@utility text-red-400 { @media screen { @variant dark { color: #FF7B86; } } }
-@utility text-red-500 { @media screen { @variant dark { color: #FF7B86; } } }
-@utility text-red-600 { @media screen { @variant dark { color: #FF7B86; } } }
-@utility text-red-700 { @media screen { @variant dark { color: #FF7B86; } } }
+@utility text-red-300 { @media screen { @variant dark { color: var(--share-red); } } }
+@utility text-red-400 { @media screen { @variant dark { color: var(--share-red); } } }
+@utility text-red-500 { @media screen { @variant dark { color: var(--share-red); } } }
+@utility text-red-600 { @media screen { @variant dark { color: var(--share-red); } } }
+@utility text-red-700 { @media screen { @variant dark { color: var(--share-red); } } }
 @utility bg-red-50 { @media screen { @variant dark { background-color: #39252D; } } }
 @utility bg-red-100 { @media screen { @variant dark { background-color: #39252D; } } }
 @utility bg-red-200 { @media screen { @variant dark { background-color: #39252D; } } }
@@ -144,26 +144,26 @@
 @layer utilities {
 @media screen {
   .bg-indigo-50\/50:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #282B48 50%, transparent); }
-  .bg-blue-50\/40:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 40%, transparent); }
-  .bg-blue-50\/60:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 60%, transparent); }
+  .bg-blue-50\/40:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-blue-bg) 40%, transparent); }
+  .bg-blue-50\/60:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-blue-bg) 60%, transparent); }
   .bg-gray-50\/70:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 70%, transparent); }
   .bg-gray-50\/50:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 50%, transparent); }
   .bg-slate-200\/70:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--muted) 70%, transparent); }
-  .bg-blue-50\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 80%, transparent); }
+  .bg-blue-50\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-blue-bg) 80%, transparent); }
   .bg-slate-50\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 80%, transparent); }
-  .bg-blue-50\/70:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 70%, transparent); }
+  .bg-blue-50\/70:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-blue-bg) 70%, transparent); }
   .bg-indigo-50\/60:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #282B48 60%, transparent); }
   .bg-slate-700\/50:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 50%, transparent); }
   .bg-slate-900\/30:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 30%, transparent); }
   .border-gray-100\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { border-color: color-mix(in srgb, var(--border) 80%, transparent); }
   .bg-gray-50\/60:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 60%, transparent); }
-  .bg-blue-50\/30:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 30%, transparent); }
-  .bg-blue-50\/90:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 90%, transparent); }
+  .bg-blue-50\/30:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-blue-bg) 30%, transparent); }
+  .bg-blue-50\/90:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-blue-bg) 90%, transparent); }
   .bg-slate-900\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 80%, transparent); }
   .bg-slate-50\/90:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 90%, transparent); }
   .bg-slate-100\/90:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--muted) 90%, transparent); }
   .bg-slate-900\/60:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 60%, transparent); }
-  .bg-blue-100\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 80%, transparent); }
+  .bg-blue-100\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-blue-bg) 80%, transparent); }
   .bg-slate-900\/70:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 70%, transparent); }
   .bg-slate-900\/90:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 90%, transparent); }
   .bg-red-50\/40:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #39252D 40%, transparent); }
@@ -180,7 +180,7 @@
   .bg-gray-100\/80:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--muted) 80%, transparent); }
   .bg-rose-50\/40:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #39252D 40%, transparent); }
   .bg-emerald-50\/40:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #20342D 40%, transparent); }
-  .bg-blue-50\/50:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 50%, transparent); }
+  .bg-blue-50\/50:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-blue-bg) 50%, transparent); }
   .bg-orange-50\/30:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #382D23 30%, transparent); }
 }
 }
@@ -191,13 +191,13 @@
     .hover\:bg-indigo-50\/50:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #282B48 50%, transparent); }
     .hover\:bg-gray-50\/50:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 50%, transparent); }
     .dark\:hover\:bg-slate-700\/50:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 50%, transparent); }
-    .hover\:bg-blue-50\/30:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 30%, transparent); }
+    .hover\:bg-blue-50\/30:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-blue-bg) 30%, transparent); }
     .hover\:bg-slate-100\/90:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--muted) 90%, transparent); }
     .dark\:hover\:bg-slate-900\/80:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-panel) 80%, transparent); }
-    .hover\:bg-blue-100\/80:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 80%, transparent); }
+    .hover\:bg-blue-100\/80:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-blue-bg) 80%, transparent); }
     .hover\:bg-gray-50\/60:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 60%, transparent); }
     .hover\:bg-gray-50\/40:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 40%, transparent); }
     .hover\:bg-gray-50\/70:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--background) 70%, transparent); }
-    .hover\:bg-blue-50\/50:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, #202F48 50%, transparent); }
+    .hover\:bg-blue-50\/50:hover:is(.dark *):not(:where(.print-surface, .print-surface *)) { background-color: color-mix(in srgb, var(--share-blue-bg) 50%, transparent); }
   }
 }

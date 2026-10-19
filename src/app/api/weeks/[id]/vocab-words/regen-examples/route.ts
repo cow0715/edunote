@@ -1,6 +1,7 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { generateVocabExamples } from '@/lib/anthropic'
 import { chunkVocabExampleBatches } from '@/lib/vocab-examples'
+import { createLlmExecution } from '@/lib/llm/client'
 
 // 배치 병렬 호출이라 보통 1분 안에 끝나지만, LLM 지연·재시도를 감안해 다른 LLM 라우트와 같은 상한을 둔다
 export const maxDuration = 300
@@ -28,9 +29,10 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
 
   // 배치마다 생성 → 즉시 저장. 한 배치가 실패해도 나머지는 남고, 다시 누르면 빈 단어만 이어서 채운다.
   const batches = chunkVocabExampleBatches(missing)
+  const execution = createLlmExecution()
   const results = await Promise.allSettled(
     batches.map(async (batch) => {
-      const examples = await generateVocabExamples(batch)
+      const examples = await generateVocabExamples(batch, { execution })
       const updates = await Promise.all(
         examples.map((u) =>
           supabase

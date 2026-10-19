@@ -24,7 +24,7 @@ export const ObjectiveInput = memo(function ObjectiveInput({
           onClick={() => onChange(value === n ? null : n)}
           className={cn(
             'flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium transition-colors',
-            value === n ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            value === n ? 'bg-[var(--control-selected)] text-[var(--control-on-selected)] ring-1 ring-border' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
           )}
         >
           {n}
@@ -65,7 +65,7 @@ export const OXInput = memo(function OXInput({
         onClick={isO ? () => onChange('') : selectO}
         className={cn(
           'flex h-8 w-10 items-center justify-center rounded-md text-sm font-bold transition-colors',
-          isO ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+          isO ? 'bg-[var(--control-selected)] text-[var(--control-on-selected)] ring-1 ring-border' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
         )}
       >{yes}</button>
       <button

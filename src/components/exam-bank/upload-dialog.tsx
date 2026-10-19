@@ -1,5 +1,7 @@
 'use client'
 
+import { FileUpload } from '@/components/ui/file-upload'
+
 import { useState, useRef } from 'react'
 import { errorMessage, runOrReport, runWithLoading } from '@/lib/async-ui'
 import { useQueryClient } from '@tanstack/react-query'
@@ -20,7 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Upload, FileText, File, BookOpen } from 'lucide-react'
+import { Upload, FileText, File} from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { MONTHS, safeJson } from './constants'
 
@@ -238,41 +240,13 @@ export function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           {/* PDF */}
           <div className="flex items-center gap-3">
             <Label className="w-16 shrink-0 text-right text-sm text-gray-500">파일</Label>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".pdf,image/*"
-              className="hidden"
-              onChange={(e) => setFileName(e.target.files?.[0]?.name ?? '')}
-            />
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="flex flex-1 items-center gap-2 rounded-md border border-dashed border-gray-300 px-3 py-2 text-sm text-gray-500 hover:border-gray-400 hover:bg-gray-50 transition-colors"
-            >
-              <File className="h-4 w-4 shrink-0 text-gray-400" />
-              <span className="truncate">{fileName || 'PDF 또는 이미지 파일 선택'}</span>
-            </button>
+            <FileUpload className="flex-1" label="시험지 파일 선택" description="PDF 또는 이미지" accept=".pdf,image/*" inputRef={fileRef} disabled={uploading} fileName={fileName} onChange={(e) => setFileName(e.target.files?.[0]?.name ?? '')} />
           </div>
 
           {/* 해설 PDF — 선택. 지금 없으면 나중에 시험 카드의 해설 버튼으로 붙일 수 있다 */}
           <div className="flex items-center gap-3">
             <Label className="w-16 shrink-0 text-right text-sm text-gray-500">해설</Label>
-            <input
-              ref={explanationRef}
-              type="file"
-              accept=".pdf"
-              className="hidden"
-              onChange={(e) => setExplanationName(e.target.files?.[0]?.name ?? '')}
-            />
-            <button
-              type="button"
-              onClick={() => explanationRef.current?.click()}
-              className="flex flex-1 items-center gap-2 rounded-md border border-dashed border-gray-300 px-3 py-2 text-sm text-gray-500 hover:border-amber-400 hover:bg-amber-50 transition-colors"
-            >
-              <BookOpen className="h-4 w-4 shrink-0 text-gray-400" />
-              <span className="truncate">{explanationName || '해설 PDF 선택 (선택사항)'}</span>
-            </button>
+            <FileUpload className="flex-1" label="해설 PDF 선택" description="PDF · 선택 사항" accept=".pdf" inputRef={explanationRef} disabled={uploading} fileName={explanationName} onChange={(e) => setExplanationName(e.target.files?.[0]?.name ?? '')} />
           </div>
           <p className="pl-[76px] text-xs text-gray-400">
             해설을 같이 올리면 문항 추출 후 이어서 해설·AI 풀이·어휘까지 처리합니다. 나중에 붙여도 됩니다.

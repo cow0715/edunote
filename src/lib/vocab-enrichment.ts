@@ -1,5 +1,5 @@
 import type { SupabaseServerClient } from '@/lib/api'
-import { callClaudeText, MODELS, parseJsonArrayResponse } from '@/lib/llm/client'
+import { callLlmText, createLlmExecution, isTaskConfigured, parseJsonArrayResponse, type TaskCallOptions } from '@/lib/llm/client'
 
 export type VocabEnrichmentCandidate = {
   normalized_word: string
@@ -16,7 +16,6 @@ export type VocabEnrichmentResult = {
   similar_words: string[]
 }
 
-const ENRICHMENT_MODEL = MODELS.light
 const TOPICS = ['과학/기술', '환경/생태', '경제/사회', '심리/인지', '예술/문화', '교육/학습', '일상/실용', '어휘', '어법', '기타']
 
 type VocabDbRow = VocabEnrichmentCandidate & {
@@ -82,8 +81,8 @@ function parseEnrichmentResponse(raw: string, candidates: VocabEnrichmentCandida
   return rows
 }
 
-async function generateEnrichments(candidates: VocabEnrichmentCandidate[]) {
-  if (candidates.length === 0 || !process.env.ANTHROPIC_API_KEY) return []
+async function generateEnrichments(candidates: VocabEnrichmentCandidate[], options: TaskCallOptions) {
+  if (candidates.length === 0 || !isTaskConfigured('vocab.enrich', options.execution)) return []
 
   const prompt = `다음 수능/모의고사 영어 어휘를 단어장용으로 보강하세요.
 
@@ -116,14 +115,15 @@ ${JSON.stringify(candidates.map((candidate) => ({
   }
 ]`
 
-  const raw = await callClaudeText({ model: ENRICHMENT_MODEL, maxTokens: 6000, content: prompt })
+  const raw = await callLlmText({ task: 'vocab.enrich', execution: options.execution, maxTokens: 6000, content: prompt })
   return parseEnrichmentResponse(raw, candidates)
 }
 
 export async function enrichExamQuestionVocabulary(
   supabase: SupabaseServerClient,
-  options: { normalizedWords?: string[]; limit?: number; batchSize?: number } = {},
+  options: TaskCallOptions & { normalizedWords?: string[]; limit?: number; batchSize?: number } = {},
 ) {
+  const execution = options.execution ?? createLlmExecution()
   const normalizedWords = [...new Set((options.normalizedWords ?? []).filter(Boolean))]
   let query = supabase
     .from('exam_bank_question_vocab')
@@ -155,7 +155,7 @@ export async function enrichExamQuestionVocabulary(
   const generated: VocabEnrichmentResult[] = []
   const batchSize = options.batchSize ?? 40
   for (let i = 0; i < candidates.length; i += batchSize) {
-    generated.push(...await generateEnrichments(candidates.slice(i, i + batchSize)))
+    generated.push(...await generateEnrichments(candidates.slice(i, i + batchSize), { execution }))
   }
 
   let updated = 0

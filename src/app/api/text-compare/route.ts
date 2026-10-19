@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { buildFileBlock, callClaudeText, MODELS, parseJsonObjectResponse } from '@/lib/llm/client'
+import { buildFileBlock, callLlmText, createLlmExecution, parseJsonObjectResponse, type LlmExecution } from '@/lib/llm/client'
 import { err, getAuth, getTeacherId, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 
@@ -63,7 +63,6 @@ const synthesisSchema = z.object({
 type OutlineResult = z.infer<typeof outlineSchema>
 type PassageDetail = z.infer<typeof passageDetailSchema>
 
-const ANALYSIS_MODEL = MODELS.explanation
 
 function buildOutlinePrompt(feedback?: string) {
   const retrySection = feedback
@@ -244,9 +243,11 @@ async function requestWithDocuments<T>(
   originalBase64: string,
   examBase64: string,
   prompt: string,
+  execution: LlmExecution,
 ) {
-  const rawText = await callClaudeText({
-    model: ANALYSIS_MODEL,
+  const rawText = await callLlmText({
+    task: 'textCompare.analyze',
+    execution,
     maxTokens: 6000,
     content: [
       buildFileBlock(originalBase64, 'application/pdf'),
@@ -257,8 +258,8 @@ async function requestWithDocuments<T>(
   return requestJsonPromptResult(schema, rawText.trim())
 }
 
-async function requestTextOnly<T>(schema: z.ZodType<T>, prompt: string) {
-  const rawText = await callClaudeText({ model: ANALYSIS_MODEL, maxTokens: 4000, content: prompt })
+async function requestTextOnly<T>(schema: z.ZodType<T>, prompt: string, execution: LlmExecution) {
+  const rawText = await callLlmText({ task: 'textCompare.analyze', execution, maxTokens: 4000, content: prompt })
   return requestJsonPromptResult(schema, rawText.trim())
 }
 
@@ -457,6 +458,7 @@ export async function POST(request: Request) {
     ])
 
     let outline: OutlineResult | null = null
+    const execution = createLlmExecution()
     let outlineFeedback: string | undefined
 
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -465,6 +467,7 @@ export async function POST(request: Request) {
         originalBase64,
         examBase64,
         buildOutlinePrompt(outlineFeedback),
+        execution,
       )
       const outlineIssues = describeOutlineIssues(candidate)
       if (outlineIssues.length === 0) {
@@ -486,6 +489,7 @@ export async function POST(request: Request) {
           originalBase64,
           examBase64,
           buildPassageBatchPrompt(batch),
+          execution,
         )
 
         const missingRanges = batch
@@ -522,6 +526,7 @@ export async function POST(request: Request) {
     const synthesis = await requestTextOnly(
       synthesisSchema,
       buildSynthesisPrompt(normalizedPassages),
+      execution,
     )
 
     const avgSurfaceChangeScore =

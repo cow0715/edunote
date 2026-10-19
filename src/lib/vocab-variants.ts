@@ -1,4 +1,4 @@
-import { callClaudeText, MODELS, parseJsonArrayResponse } from '@/lib/llm/client'
+import { callLlmText, createLlmExecution, isTaskConfigured, parseJsonArrayResponse, type TaskCallOptions } from '@/lib/llm/client'
 import type { ParsedVocabEntry } from '@/lib/vocab-xlsx'
 
 export type VocabVariantRelationType = 'original' | 'synonym' | 'derivative' | 'antonym'
@@ -240,11 +240,13 @@ function mergeAiVariant(base: VocabVariantInput, ai?: AiVariant): VocabVariantIn
   }
 }
 
-export async function generateVariantMeanings(candidates: VocabVariantMeaningCandidate[]): Promise<VocabVariantMeaningResult[]> {
-  if (candidates.length === 0 || !process.env.ANTHROPIC_API_KEY) return []
+export async function generateVariantMeanings(candidates: VocabVariantMeaningCandidate[], options: TaskCallOptions = {}): Promise<VocabVariantMeaningResult[]> {
+  const execution = options.execution ?? createLlmExecution()
+  if (candidates.length === 0 || !isTaskConfigured('vocab.enrich', execution)) return []
 
-  const raw = await callClaudeText({
-    model: MODELS.light,
+  const raw = await callLlmText({
+    task: 'vocab.enrich',
+    execution,
     maxTokens: 2500,
     content: `You fill Korean meanings for English vocabulary variants used by Korean middle/high school students. Return JSON only.
 
@@ -301,8 +303,8 @@ Output:
   })
 }
 
-async function enrichVariantsWithAi(entries: VocabEntryWithVariants[]) {
-  if (!process.env.ANTHROPIC_API_KEY) return entries
+async function enrichVariantsWithAi(entries: VocabEntryWithVariants[], options: TaskCallOptions) {
+  if (!isTaskConfigured('vocab.enrich', options.execution)) return entries
 
   const payload = entries.map((entry) => ({
     source_word: entry.english_word,
@@ -318,8 +320,9 @@ async function enrichVariantsWithAi(entries: VocabEntryWithVariants[]) {
     })),
   }))
 
-  const raw = await callClaudeText({
-    model: MODELS.light,
+  const raw = await callLlmText({
+    task: 'vocab.enrich',
+    execution: options.execution,
     maxTokens: 12000,
     content: `You normalize English vocabulary for Korean students. Return JSON only.
 
@@ -369,7 +372,7 @@ Output shape:
   }))
 }
 
-export async function normalizeVocabEntries(entries: ParsedVocabEntry[], options: { useAi?: boolean } = {}) {
+export async function normalizeVocabEntries(entries: ParsedVocabEntry[], options: TaskCallOptions & { useAi?: boolean } = {}) {
   const withVariants = entries.map((entry) => ({
     ...entry,
     variants: buildRuleBasedVariants(entry),
@@ -377,12 +380,13 @@ export async function normalizeVocabEntries(entries: ParsedVocabEntry[], options
 
   if (!options.useAi) return withVariants
 
+  const execution = options.execution ?? createLlmExecution()
   const normalized: VocabEntryWithVariants[] = []
   const batchSize = 40
   for (let i = 0; i < withVariants.length; i += batchSize) {
     const batch = withVariants.slice(i, i + batchSize)
     try {
-      normalized.push(...await enrichVariantsWithAi(batch))
+      normalized.push(...await enrichVariantsWithAi(batch, { execution }))
     } catch (error) {
       console.error('[vocab-variants] AI normalization failed; using rule-based variants', error)
       normalized.push(...batch)

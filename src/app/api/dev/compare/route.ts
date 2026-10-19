@@ -1,135 +1,127 @@
-import { NextRequest } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
-import { jsonrepair } from 'jsonrepair'
-import {
-  PARSE_ANSWER_SHEET_RULES,
-  EXAM_BANK_PARSE_RULES,
-  VOCAB_PDF_PROMPT,
-  buildVocabGradingPrompt,
-} from '@/lib/prompts'
-import { err, ok, getAuth } from '@/lib/api'
+import { err, ok, getAuth, getTeacherId } from '@/lib/api'
+import { createLlmExecution } from '@/lib/llm/client'
+import { getModelCatalog, estimateLlmCost } from '@/lib/llm/models'
+import { parseExamBankPageRanged } from '@/lib/llm/exam-bank'
+import { gradeVocabItemsDetailed, parseVocabPdf, type VocabItem } from '@/lib/llm/vocab'
+import { fetchTeacherTagContext, parseAnswerSheetDocument } from '@/lib/week-reading-import'
+import { VOCAB_GRADING_RULES } from '@/lib/prompts'
+import { createHash } from 'node:crypto'
+import type { LlmExecution, LlmUsage } from '@/lib/llm/types'
+import type { LlmTask } from '@/lib/llm/tasks'
 
 export const maxDuration = 300
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const FUNCTION_TASKS = {
+  parseAnswerSheet: 'week.parseAnswers',
+  parseExamBankPage: 'examBank.parseQuestions',
+  parseVocabPdf: 'vocab.parsePdf',
+  gradeVocabItems: 'vocab.gradeMeaning',
+} satisfies Record<string, LlmTask>
 
-export const PRICES: Record<string, { input: number; output: number }> = {
-  'claude-haiku-4-5-20251001': { input: 0.8, output: 4 },
-  'claude-sonnet-4-6': { input: 3, output: 15 },
-  'claude-opus-4-6': { input: 15, output: 75 },
-}
+type CompareFunction = keyof typeof FUNCTION_TASKS
 
-function calcCost(model: string, inputTokens: number, outputTokens: number) {
-  const p = PRICES[model]
-  if (!p) return 0
-  return (inputTokens / 1_000_000) * p.input + (outputTokens / 1_000_000) * p.output
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeFileContent(fileData: string, mimeType: string): any {
-  if (mimeType.startsWith('image/')) {
-    return { type: 'image', source: { type: 'base64', media_type: mimeType, data: fileData } }
+function summarizeExecution(execution: LlmExecution) {
+  const calls = execution.calls
+  const sum = (key: keyof LlmUsage): number | null => {
+    if (!calls.length || calls.some((call) => call.usage?.[key] == null)) return null
+    return calls.reduce((total, call) => total + call.usage![key]!, 0)
   }
-  return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileData } }
+  const costs = calls.map((call) => call.usage ? estimateLlmCost(call.requestedModel, call.usage) : null)
+  return {
+    inputTokens: sum('inputTokens'),
+    outputTokens: sum('outputTokens'),
+    cacheReadTokens: sum('cacheReadTokens'),
+    cacheWriteTokens: sum('cacheWriteTokens'),
+    cost: costs.length && costs.every((cost) => cost != null)
+      ? costs.reduce<number>((total, cost) => total + cost!, 0)
+      : null,
+    calls,
+  }
 }
 
-function parseJson(raw: string): unknown {
-  return JSON.parse(jsonrepair(raw.replace(/```json\n?|\n?```/g, '').trim()))
+function readVocabItems(value: unknown): VocabItem[] {
+  const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value
+  if (!Array.isArray(parsed) || parsed.some((item: unknown) => {
+    if (!item || typeof item !== 'object') return true
+    const candidate = item as Record<string, unknown>
+    return !Number.isFinite(candidate.number)
+      || typeof candidate.english_word !== 'string'
+      || (candidate.student_answer !== null && typeof candidate.student_answer !== 'string')
+      || (candidate.correct_answer != null && typeof candidate.correct_answer !== 'string')
+  })) throw new Error('채점 항목의 번호·단어·학생 답안을 확인해주세요.')
+  // 재시험은 모든 number가 0일 수 있다. 고유 번호를 강제하거나 입력 순서를 변경하지 않는다.
+  return parsed as VocabItem[]
 }
 
-export async function POST(request: NextRequest) {
-  const { user } = await getAuth()
+export async function POST(request: Request) {
+  const { user, supabase } = await getAuth()
   if (!user) return err('인증 필요', 401)
 
-  const body = await request.json()
-  const { fn, model, fileData, mimeType, jsonInput } = body
+  let body: Record<string, unknown>
+  try {
+    const parsed: unknown = await request.json()
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return err('입력을 확인해주세요.')
+    body = parsed as Record<string, unknown>
+  } catch {
+    return err('JSON 입력을 확인해주세요.')
+  }
 
-  if (!PRICES[model]) return err('지원하지 않는 모델')
+  const { fn, model, fileData, mimeType, jsonInput, customRules } = body
+  if (typeof fn !== 'string' || !Object.hasOwn(FUNCTION_TASKS, fn)) return err('지원하지 않는 함수')
+  if (typeof model !== 'string' || !getModelCatalog().some((candidate) => candidate.id === model)) {
+    return err('지원하지 않는 모델')
+  }
+  if (customRules != null && typeof customRules !== 'string') return err('채점 규칙을 확인해주세요.')
 
+  const functionId = fn as CompareFunction
+  const task = FUNCTION_TASKS[functionId]
   const start = Date.now()
+  // 비교 요청 하나의 작업만 덮어쓴다. 운영 설정과 다른 요청의 모델 연결은 유지된다.
+  const execution = createLlmExecution({ [task]: model })
+  let gradingRulesHash: string | null = null
 
   try {
     let result: unknown
-    let usage: { input_tokens: number; output_tokens: number }
-
-    switch (fn) {
-      case 'parseAnswerSheet': {
-        if (!fileData || !mimeType) throw new Error('파일 필요')
-        const fileContent = makeFileContent(fileData, mimeType)
-        const prompt = `이 답안해설지에서 각 문항의 정답과 해설을 추출하세요.
-
-${PARSE_ANSWER_SHEET_RULES}
-- question_type: 해설지에 명시된 문제 유형명 한국어 추출. 없으면 null.
-
-JSON 배열만 출력 (다른 텍스트 없이):
-[{"question_number":1,"sub_label":null,"question_style":"objective","question_type":"가정법","correct_answer":3,"correct_answer_text":null,"grading_criteria":null,"explanation":"...","question_text":"..."}]`
-        const res = await client.messages.create({
-          model,
-          max_tokens: 16384,
-          messages: [{ role: 'user', content: [fileContent, { type: 'text', text: prompt }] }],
-        })
-        usage = res.usage
-        result = parseJson(res.content[0].type === 'text' ? res.content[0].text : '')
-        break
+    if (functionId === 'gradeVocabItems') {
+      const items = readVocabItems(jsonInput)
+      let resolvedRules = customRules as string | undefined
+      if (customRules == null) {
+        // 운영 채점과 같은 저장된 맞춤 규칙을 읽는다. 비교 실행은 결과를 저장하지 않는다.
+        const { data: promptRow } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
+        resolvedRules = promptRow?.content ?? undefined
       }
-
-      case 'parseExamBankPage': {
-        if (!fileData || !mimeType) throw new Error('파일 필요')
-        const fileContent = makeFileContent(fileData, mimeType)
-        const res = await client.messages.create({
-          model,
-          max_tokens: 32768,
-          messages: [{ role: 'user', content: [fileContent, { type: 'text', text: EXAM_BANK_PARSE_RULES }] }],
-        })
-        usage = res.usage
-        result = parseJson(res.content[0].type === 'text' ? res.content[0].text : '')
-        break
+      gradingRulesHash = createHash('sha256').update(resolvedRules ?? VOCAB_GRADING_RULES).digest('hex')
+      const detailed = await gradeVocabItemsDetailed(items, resolvedRules, { execution })
+      result = detailed.results
+    } else {
+      if (typeof fileData !== 'string' || !fileData || typeof mimeType !== 'string' || !mimeType) {
+        throw new Error('파일 필요')
       }
-
-      case 'parseVocabPdf': {
-        if (!fileData || !mimeType) throw new Error('파일 필요')
-        const fileContent = makeFileContent(fileData, mimeType)
-        const res = await client.messages.create({
-          model,
-          max_tokens: 4096,
-          messages: [{ role: 'user', content: [fileContent, { type: 'text', text: VOCAB_PDF_PROMPT }] }],
-        })
-        usage = res.usage
-        result = parseJson(res.content[0].type === 'text' ? res.content[0].text : '')
-        break
+      switch (functionId) {
+        case 'parseAnswerSheet': {
+          const teacherId = await getTeacherId(supabase, user.id)
+          const { tagCategories } = await fetchTeacherTagContext(supabase, teacherId)
+          const parsed = await parseAnswerSheetDocument([{ fileData, mimeType }], tagCategories, { execution })
+          result = parsed.answers
+          break
+        }
+        case 'parseExamBankPage': {
+          const parsed = await parseExamBankPageRanged(fileData, mimeType, { execution })
+          result = parsed.items
+          break
+        }
+        case 'parseVocabPdf':
+          result = await parseVocabPdf(fileData, mimeType, { execution })
+          break
       }
-
-      case 'gradeVocabItems': {
-        if (!jsonInput) throw new Error('JSON 입력 필요')
-        const items = typeof jsonInput === 'string' ? JSON.parse(jsonInput) : jsonInput
-        const prompt = buildVocabGradingPrompt(items)
-        const res = await client.messages.create({
-          model,
-          max_tokens: 4096,
-          messages: [{ role: 'user', content: prompt }],
-        })
-        usage = res.usage
-        result = parseJson(res.content[0].type === 'text' ? res.content[0].text : '')
-        break
-      }
-
-      default:
-        throw new Error(`지원하지 않는 함수: ${fn}`)
     }
-
+    return ok({ result, gradingRulesHash, ...summarizeExecution(execution), durationMs: Date.now() - start })
+  } catch (error: unknown) {
+    // 실패한 호출도 받은 사용량은 비용에 포함한다. 미확인 사용량을 0으로 표시하지 않는다.
     return ok({
-      result,
-      inputTokens: usage.input_tokens,
-      outputTokens: usage.output_tokens,
-      cost: calcCost(model, usage.input_tokens, usage.output_tokens),
-      durationMs: Date.now() - start,
-    })
-  } catch (e: unknown) {
-    return ok({
-      error: e instanceof Error ? e.message : String(e),
-      inputTokens: 0,
-      outputTokens: 0,
-      cost: 0,
+      error: error instanceof Error ? error.message : String(error),
+      gradingRulesHash,
+      ...summarizeExecution(execution),
       durationMs: Date.now() - start,
     })
   }

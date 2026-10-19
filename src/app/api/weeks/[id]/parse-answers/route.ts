@@ -1,5 +1,6 @@
 import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
+import { createLlmExecution } from '@/lib/llm/client'
 import {
   createTagMatcher,
   fetchTeacherTagContext,
@@ -79,10 +80,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     let parsedAnswers
+    const execution = createLlmExecution()
     let skippedPages: number[] = []
     let skippedQuestions: number[] = []
     try {
-      const parsed = await parseAnswerSheetDocument([{ fileData, mimeType, fileName }], tagCategories)
+      const parsed = await parseAnswerSheetDocument([{ fileData, mimeType, fileName }], tagCategories, { execution })
       parsedAnswers = parsed.answers
       skippedPages = parsed.skipped.map((entry) => entry.startPage)
       skippedQuestions = parsed.skippedQuestionNumbers ?? []
@@ -101,6 +103,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       weekId,
       parsedAnswers,
       matchTagId,
+      execution,
     })
 
     // 해설 안전망(빈 해설 채우기)은 여기서 돌리지 않는다 — 파싱 209초 + 해설 생성이 한 함수에

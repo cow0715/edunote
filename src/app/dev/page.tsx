@@ -8,6 +8,7 @@ import Link from 'next/link'
 const ModelCompare = dynamic(() => import('@/components/dev/model-compare'), { ssr: false })
 const OcrTest = dynamic(() => import('@/components/dev/ocr-test'), { ssr: false })
 const RadarCompare = dynamic(() => import('@/components/dev/radar-compare'), { ssr: false })
+const ShareDesignGallery = dynamic(() => import('@/components/dev/share-design-gallery'), { ssr: false })
 // 단독 라우트(/dev/vocab-print-preview)와 같은 컴포넌트 — 그쪽은 headless 캡처용으로 남겨둔다.
 const VocabPrintPreview = dynamic(() => import('@/app/dev/vocab-print-preview/preview'), { ssr: false })
 
@@ -106,14 +107,12 @@ function Badge({ children, color }: { children: React.ReactNode; color: 'green' 
   return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{children}</span>
 }
 
-const TABS = ['개발 도구', '모델 비교', 'OCR 테스트', '단어 화면', '차트 비교'] as const
+const TABS = ['개발 도구', 'Share 디자인', '모델 비교', 'OCR 테스트', '단어 화면', '차트 비교'] as const
 type Tab = (typeof TABS)[number]
 
 export default function DevPage() {
   const [isDark, setIsDark] = useState(false)
   const [db, setDb] = useState<DbStatus | null>(null)
-  const [shareToken, setShareToken] = useState('')
-  const [previewToken, setPreviewToken] = useState('')
   const [tab, setTab] = useState<Tab>('개발 도구')
 
   useEffect(() => {
@@ -127,7 +126,7 @@ export default function DevPage() {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold">⚙ 개발자 도구</h1>
-            <p className="text-xs text-muted-foreground">환경 확인 · 모델/OCR 테스트 · 단어 화면 · 차트 비교 · Share 테스트</p>
+            <p className="text-xs text-muted-foreground">환경 확인 · Share 디자인 이력 · 모델/OCR 테스트 · 단어 화면 · 차트 비교</p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -140,7 +139,7 @@ export default function DevPage() {
         </div>
 
         {/* 탭 */}
-        <div className="mb-6 flex gap-1 rounded-xl border border-border bg-muted/40 p-1 w-fit">
+        <div className="mb-6 flex w-fit max-w-full flex-wrap gap-1 rounded-xl border border-border bg-muted/40 p-1">
           {TABS.map((t) => (
             <button
               key={t}
@@ -157,6 +156,7 @@ export default function DevPage() {
         </div>
 
         {tab === '모델 비교' && <ModelCompare />}
+        {tab === 'Share 디자인' && <ShareDesignGallery embedded />}
         {tab === 'OCR 테스트' && <OcrTest />}
         {tab === '단어 화면' && <VocabPrintPreview embedded />}
         {tab === '차트 비교' && <RadarCompare isDark={isDark} />}
@@ -194,44 +194,10 @@ export default function DevPage() {
             )}
           </Section>
 
-          {/* Share 프리뷰 */}
-          <Section title="🔗 Share 페이지 프리뷰">
-            <div className="flex gap-2">
-              <input
-                value={shareToken}
-                onChange={(e) => setShareToken(e.target.value)}
-                placeholder="share 토큰 입력"
-                className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring"
-              />
-              <button
-                onClick={() => setPreviewToken(shareToken.trim())}
-                className="rounded-lg bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:opacity-90"
-              >
-                미리보기
-              </button>
-              {previewToken && (
-                <a
-                  href={`/share/${previewToken}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-lg border border-border px-3 py-1.5 text-xs hover:bg-muted"
-                >
-                  새탭 ↗
-                </a>
-              )}
-            </div>
-            {previewToken && (
-              <div className="mt-3 overflow-hidden rounded-xl border border-border">
-                <iframe
-                  src={`/share/${previewToken}`}
-                  className="h-[320px] w-full"
-                  title="share preview"
-                />
-              </div>
-            )}
-            {!previewToken && (
-              <p className="mt-3 text-center text-xs text-muted-foreground">토큰을 입력하면 여기에 학부모 페이지가 표시됩니다</p>
-            )}
+          <Section title="Share 디자인 이력">
+            <p className="mb-4 text-xs leading-relaxed text-muted-foreground">목록 중심·추이 중심·보완 중심 시안을 같은 학생 기록으로 바꿔 볼 수 있어요. 홈부터 단어까지 전체 화면이 연결됩니다.</p>
+            <button type="button" onClick={() => setTab('Share 디자인')} className="mr-2 min-h-10 rounded-xl bg-muted px-4 text-xs font-semibold">Share 디자인 탭 열기</button>
+            <Link href="/dev/share-design" target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center rounded-xl border border-border px-4 text-xs">새 창으로 보기 ↗</Link>
           </Section>
 
           {/* 차트 갤러리 — 스코어 트렌드 */}

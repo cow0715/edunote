@@ -1,5 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/server'
-import { callClaudeText, MODELS, parseJsonObjectResponse } from '@/lib/llm/client'
+import { callLlmText, parseJsonObjectResponse } from '@/lib/llm/client'
 import { SHARE_CLOSED_ERROR, SHARE_EXPIRED_ERROR, canViewShareByStudentId, resolveShareToken } from '@/lib/share-access'
 import { NextResponse } from 'next/server'
 
@@ -19,8 +19,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
   const word = new URL(req.url).searchParams.get('word')
   if (!word) return NextResponse.json({ error: 'missing word' }, { status: 400 })
 
-  const raw = await callClaudeText({
-    model: MODELS.light,
+  const raw = await callLlmText({
+    task: 'vocab.hint',
     maxTokens: 150,
     content: `영어 단어 "${word}"를 사용한 자연스러운 예문 1개.
 JSON만 출력: {"sentence":"영어 예문","translation":"한국어 번역"}`,

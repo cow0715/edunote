@@ -2,7 +2,7 @@
 
 import { EXAM_BANK_PARSE_RULES } from '../prompts'
 import type { ParsedExplanation } from '../explanation-parser'
-import { buildFileBlock, callClaudeText, MODELS, parseJsonArrayResponse } from './client'
+import { buildFileBlock, callLlmText, createLlmExecution, parseJsonArrayResponse, type TaskCallOptions } from './client'
 import { prewarmPdfCache, rangedParseCallIsolated, sliceNumbers, type RangedCallStats } from './ranged'
 
 export type ExamBankParsedQuestion = {
@@ -17,11 +17,13 @@ export type ExamBankParsedQuestion = {
 export async function parseExamBankPage(
   fileData: string,
   mimeType: string,
+  options: TaskCallOptions = {},
 ): Promise<ExamBankParsedQuestion[]> {
   const fileContent = buildFileBlock(fileData, mimeType, '지원하지 않는 파일 형식 (PDF 또는 이미지만 가능)')
 
-  const raw = await callClaudeText({
-    model: MODELS.parse,
+  const raw = await callLlmText({
+    task: 'examBank.parseQuestions',
+    execution: options.execution,
     maxTokens: 32768,
     stream: true,
     content: [fileContent, { type: 'text', text: EXAM_BANK_PARSE_RULES }],
@@ -59,16 +61,18 @@ export function isChartShellQuestion(question: Pick<ExamBankParsedQuestion, 'pas
 export async function parseExamBankPageRanged(
   fileData: string,
   mimeType: string,
+  options: TaskCallOptions = {},
 ): Promise<ExamBankRangedResult> {
   // sonnet-5: 4-6 대비 단가 33% 낮고(2/10 vs 3/15) 신세대라 필터 거절이 stop_reason 으로 온다 (2026-08-27 전환)
-  const model = MODELS.parse
+  const task = 'examBank.parseQuestions' as const
+  const execution = options.execution ?? createLlmExecution()
   const files = [{ fileData, mimeType }]
-  const warmStats = await prewarmPdfCache({ files, model, prompt: EXAM_BANK_PARSE_RULES })
+  const warmStats = await prewarmPdfCache({ files, task, execution, prompt: EXAM_BANK_PARSE_RULES })
 
   // 필터 격리: 그룹이 필터에 걸리면 문항 단위로 재시도 — 진짜 걸린 문항만 결손
   const parts = await Promise.all(EXAM_BANK_NUMBER_GROUPS.map((numbers) =>
     rangedParseCallIsolated<ExamBankParsedQuestion>({
-      files, model, maxTokens: 8192,
+      files, task, execution, maxTokens: 8192,
       prompt: EXAM_BANK_PARSE_RULES, scope: { numbers }, label: 'parseExamBankPageRanged',
     })))
 
@@ -106,15 +110,17 @@ async function parseExplanationsRanged(
   base64: string,
   prompt: string,
   label: string,
+  options: TaskCallOptions,
 ): Promise<ExplanationParseDetail> {
   // sonnet-5(parse 역할): 문항당 1콜 전 병렬에서 캐시 읽기·출력 단가가 opus 의 40% — 시험당 ~$2.8→$1.1.
   // 해설 "작성"도 원문 풀이 기반 확장이라 부담이 작고, 주차 해설 보강과 같은 모델로 품질 기준이 일관된다.
-  const model = MODELS.parse
+  const task = 'examBank.extractExplanations' as const
+  const execution = options.execution ?? createLlmExecution()
   const files = [{ fileData: base64, mimeType: 'application/pdf' }]
-  const warmStats = await prewarmPdfCache({ files, model, prompt })
+  const warmStats = await prewarmPdfCache({ files, task, execution, prompt })
 
   const parts = await Promise.all(EXAM_BANK_NUMBER_GROUPS.map((numbers) =>
-    rangedParseCallIsolated<ParsedExplanation>({ files, model, maxTokens: 16000, prompt, scope: { numbers }, label })))
+    rangedParseCallIsolated<ParsedExplanation>({ files, task, execution, maxTokens: 16000, prompt, scope: { numbers }, label })))
 
   const byNumber = new Map<number, ParsedExplanation>()
   for (const part of parts) {
@@ -187,9 +193,10 @@ JSON 배열만 출력 (다른 텍스트 없이):
 /** 평가원형 해설 PDF 출력 범위 분할 파싱 (통째 입력 + 캐싱 + 범위 병렬) */
 export async function parsePdfExplanationsWithClaudeRanged(
   buffer: ArrayBuffer,
+  options: TaskCallOptions = {},
 ): Promise<ExplanationParseDetail> {
   const base64 = Buffer.from(buffer).toString('base64')
-  return parseExplanationsRanged(base64, SUNEUNG_EXPLANATION_PROMPT, 'parsePdfExplanationsWithClaudeRanged')
+  return parseExplanationsRanged(base64, SUNEUNG_EXPLANATION_PROMPT, 'parsePdfExplanationsWithClaudeRanged', options)
 }
 
 const HAKPYUNG_EXPLANATION_PROMPT = `이 PDF는 교육청 학력평가(학평) 영어 해설지입니다.
@@ -219,7 +226,8 @@ JSON 배열만 출력:
 /** 학평형 해설 PDF 출력 범위 분할 파싱 (통째 입력 + 캐싱 + 범위 병렬) */
 export async function parsePdfExplanationsHakpyungRanged(
   buffer: ArrayBuffer,
+  options: TaskCallOptions = {},
 ): Promise<ExplanationParseDetail> {
   const base64 = Buffer.from(buffer).toString('base64')
-  return parseExplanationsRanged(base64, HAKPYUNG_EXPLANATION_PROMPT, 'parsePdfExplanationsHakpyungRanged')
+  return parseExplanationsRanged(base64, HAKPYUNG_EXPLANATION_PROMPT, 'parsePdfExplanationsHakpyungRanged', options)
 }

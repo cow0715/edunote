@@ -115,7 +115,7 @@ export function useActivateClassPeriod(classId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['class-periods', classId] })
       qc.invalidateQueries({ queryKey: ['weeks', classId] })
-      toast.success('현재 기간이 변경되었습니다')
+      toast.success('공유 기본 기간이 변경되었습니다')
     },
     onError: (e: Error) => toast.error(e.message),
   })

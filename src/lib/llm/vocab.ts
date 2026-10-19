@@ -7,7 +7,7 @@ import {
 } from '../prompts'
 import { reconstructClovaLayout, ClovaField } from '../clova-layout'
 import { gradeBlankAnswer, gradeChoiceAnswer } from '../vocab-blank-grading'
-import { buildFileBlock, callClaudeText, callClaudeTextDetailed, MODELS, parseJsonArrayResponse, parseJsonObjectResponse } from './client'
+import { buildFileBlock, callLlmText, callLlmTextDetailed, createLlmExecution, parseJsonArrayResponse, parseJsonObjectResponse, type TaskCallOptions } from './client'
 
 export type VocabGradingResult = {
   number: number
@@ -61,7 +61,7 @@ async function callClovaOCR(fileData: string, mimeType: string): Promise<string 
   return reconstructClovaLayout(fields, (msg) => console.log(msg))
 }
 
-export type GradeVocabPhotoOptions = {
+export type GradeVocabPhotoOptions = TaskCallOptions & {
   /** 번호 → 정답 (뜻쓰기·예문뜻: 한글 뜻 / 예문빈칸: 영어 표면형) */
   correctAnswers?: Map<number, string | null>
   customRules?: string
@@ -77,6 +77,7 @@ export async function gradeVocabPhoto(
   options: GradeVocabPhotoOptions = {},
 ): Promise<VocabGradingResult[]> {
   const { correctAnswers, customRules, exampleItems, expectedItems } = options
+  const execution = options.execution ?? createLlmExecution()
   const fileContent = buildFileBlock(fileData, mimeType, '지원하지 않는 파일 형식 (이미지 또는 PDF만 가능)')
 
   // ── Step 1: OCR ───────────────────────────────────────────────────────
@@ -91,8 +92,9 @@ export async function gradeVocabPhoto(
   if (clovaText !== null) {
     // CLOVA OCR 성공 → Claude Vision으로 구조 파싱 + 동그라미 감지
     console.log(`[gradeVocabPhoto] CLOVA OCR 사용, 텍스트 길이: ${clovaText.length} (${tOcr - t0}ms)`)
-    const parsed = await callClaudeTextDetailed({
-      model: MODELS.parse,
+    const parsed = await callLlmTextDetailed({
+      task: 'vocab.answerOcr',
+      execution,
       maxTokens: 8192,
       content: [fileContent, { type: 'text', text: buildVocabOcrClovaPrompt(clovaText, exampleItems, expectedItems) }],
     })
@@ -103,8 +105,9 @@ export async function gradeVocabPhoto(
   } else {
     // CLOVA 미설정 → Claude Vision으로 직접 OCR
     console.log('[gradeVocabPhoto] Claude Vision OCR fallback')
-    const visionParsed = await callClaudeTextDetailed({
-      model: MODELS.parse,
+    const visionParsed = await callLlmTextDetailed({
+      task: 'vocab.answerOcr',
+      execution,
       maxTokens: 8192,
       content: [fileContent, { type: 'text', text: buildVocabOcrVisionPrompt(exampleItems, expectedItems) }],
     })
@@ -136,28 +139,37 @@ export async function gradeVocabPhoto(
       : gradeBlankAnswer(item.student_answer, item.correct_answer ?? null),
   }))
   const tGrade = Date.now()
-  const meaningResults = meaningItems.length > 0 ? await gradeVocabItems(meaningItems, customRules) : []
+  const meaningResults = meaningItems.length > 0 ? await gradeVocabItems(meaningItems, customRules, { execution }) : []
   console.log(`[gradeVocabPhoto] 채점 완료: LLM ${meaningItems.length}개 + 코드 ${codeGradedItems.length}개 (${Date.now() - tGrade}ms) · 총 ${Date.now() - t0}ms`)
   return [...meaningResults, ...codeResults].sort((a, b) => a.number - b.number)
 }
 
-type VocabItem = { number: number; english_word: string; student_answer: string | null; correct_answer?: string | null }
+export type VocabItem = { number: number; english_word: string; student_answer: string | null; correct_answer?: string | null }
 
 /**
  * 단어 뜻 채점은 light(Haiku) 를 쓴다 (2026-08-18 전환).
  * 42개 경계 사례(다의어·유사어·품사·오타·-ing/-ed) 3회 비교: Sonnet 40/42 · Haiku 39/42, 시간 11.3s → 4.9s.
  * 유일한 차이는 오타 관용(가셜→가설)이 Haiku 가 약간 박한 것. 채점이 짜다는 불만이 생기면
- * 이 model 기본값만 MODELS.parse 로 바꾼다.
+ * vocab.gradeMeaning 작업의 모델 설정만 바꾼다.
  */
-export async function gradeVocabItems(items: VocabItem[], customRules?: string, model: string = MODELS.light): Promise<{ number: number; english_word: string; student_answer: string | null; is_correct: boolean }[]> {
-  const res = await callClaudeTextDetailed({
-    model,
+export async function gradeVocabItems(items: VocabItem[], customRules?: string, options: string | TaskCallOptions = {}): Promise<VocabGradingResult[]> {
+  return (await gradeVocabItemsDetailed(items, customRules, options)).results
+}
+
+/** 비교 도구도 운영과 같은 프롬프트·출력 한도·후처리를 실행한다. */
+export async function gradeVocabItemsDetailed(items: VocabItem[], customRules?: string, options: string | TaskCallOptions = {}) {
+  const execution = typeof options === 'string'
+    ? createLlmExecution({ 'vocab.gradeMeaning': options })
+    : options.execution ?? createLlmExecution()
+  const res = await callLlmTextDetailed({
+    task: 'vocab.gradeMeaning',
+    execution,
     maxTokens: 8192,
     content: buildVocabGradingPrompt(items, customRules),
   })
   // 잘린 배열을 부분 복구하면 뒷번호 채점이 조용히 사라진다 — 실패로 처리
   if (res.stopReason === 'max_tokens') throw new Error('채점 응답이 길이 제한에 잘렸습니다. 다시 시도해주세요.')
-  return parseJsonArrayResponse(res.text, 'gradeVocabItems')
+  return { ...res, results: parseJsonArrayResponse<VocabGradingResult>(res.text, 'gradeVocabItems') }
 }
 
 // ── 단어 시험지 이름란 판독 (일괄 채점 매칭용) ─────────────────────────────
@@ -190,7 +202,7 @@ function withinOneChar(a: string, b: string): boolean {
  * (명단만 주고 고르게 했더니 명단에 없는 이름도 가장 비슷한 학생에 붙이는 걸 확인함.
  *  잘못 매칭이 미매칭보다 훨씬 나쁘므로 확신 없으면 null — 강사가 확인 단계에서 직접 고른다.)
  */
-export async function readVocabSheetName(fileData: string, mimeType: string, candidateNames: string[]): Promise<VocabSheetNameResult> {
+export async function readVocabSheetName(fileData: string, mimeType: string, candidateNames: string[], options: TaskCallOptions = {}): Promise<VocabSheetNameResult> {
   const fileContent = buildFileBlock(fileData, mimeType)
 
   const prompt = `이 시험지 상단 "이름" 칸에 손으로 쓴 학생 이름을 읽으세요.
@@ -204,8 +216,9 @@ export async function readVocabSheetName(fileData: string, mimeType: string, can
 이름 칸이 비었거나 못 읽으면 둘 다 null.
 JSON 만 출력: {"rawName": "홍길동", "name": "홍길동"} / {"rawName": "홍길둥", "name": null} / {"rawName": null, "name": null}`
 
-  const raw = await callClaudeText({
-    model: MODELS.light,
+  const raw = await callLlmText({
+    task: 'vocab.sheetName',
+    execution: options.execution,
     maxTokens: 120,
     content: [fileContent, { type: 'text', text: prompt }],
   })
@@ -248,9 +261,10 @@ export type VocabWordEnrichment = {
   antonyms: string[]
 }
 
-export async function parseVocabPdf(fileData: string, mimeType: string): Promise<VocabWordEnrichment[]> {
-  const raw = await callClaudeText({
-    model: MODELS.parse,
+export async function parseVocabPdf(fileData: string, mimeType: string, options: TaskCallOptions = {}): Promise<VocabWordEnrichment[]> {
+  const raw = await callLlmText({
+    task: 'vocab.parsePdf',
+    execution: options.execution,
     maxTokens: 4096,
     content: [buildFileBlock(fileData, mimeType), { type: 'text', text: VOCAB_PDF_PROMPT }],
   })
@@ -260,11 +274,13 @@ export async function parseVocabPdf(fileData: string, mimeType: string): Promise
 // ── 단어 예문 생성 ───────────────────────────────────────────────────────
 
 export async function generateVocabExamples(
-  words: { id: string; english_word: string }[]
+  words: { id: string; english_word: string }[],
+  options: TaskCallOptions = {},
 ): Promise<{ id: string; sentence: string; translation: string; distractor: string | null }[]> {
   const wordList = words.map((w, i) => `${i}. ${w.english_word}`).join('\n')
-  const raw = await callClaudeText({
-    model: MODELS.light,
+  const raw = await callLlmText({
+    task: 'vocab.generateExamples',
+    execution: options.execution,
     maxTokens: 8000,
     content: `아래 단어들 각각에 대해 자연스러운 영어 예문 1개와 한국어 번역, 그리고 선택형 오답 후보 1개를 만들어줘.
 

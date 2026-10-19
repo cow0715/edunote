@@ -63,7 +63,7 @@ export function VocabSourceRatioPanel({
                 type="button"
                 onClick={() => onSelectPreset(preset.ratio)}
                 className={`rounded-full px-2 py-1 text-[11px] font-bold transition-colors ${
-                  active ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-blue-50 hover:text-blue-700'
+                  active ? 'bg-[var(--control-selected)] text-[var(--control-on-selected)] ring-1 ring-border' : 'bg-gray-100 text-gray-500 hover:bg-blue-50 hover:text-blue-700'
                 }`}
               >
                 {preset.label}

@@ -1,12 +1,11 @@
 // ── 모의고사: 성적표용 메타데이터 파싱 + 답안지/OMR 인식 ──────────────────────
 
-import type { TextBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
 import { buildExamOcrVisionPrompt, ExamOcrQuestion } from '../prompts'
 import { runParsePipeline } from './pipeline'
 import {
-  buildFileBlock, callClaudeText, MODELS,
+  buildFileBlock, callLlmText, createLlmExecution,
   parseJsonArrayResponse, parseJsonObjectResponse,
-  type ContentBlock,
+  type ContentBlock, type TaskCallOptions,
 } from './client'
 
 export type { ExamOcrQuestion }
@@ -115,6 +114,7 @@ const MOCK_EXAM_FILE_ERROR = '지원하지 않는 파일 형식입니다. PDF �
 
 export async function parseMockExamMetadataFiles(
   files: MockExamMetadataFileInput[],
+  options: TaskCallOptions = {},
 ): Promise<MockExamMetadataQuestion[]> {
   if (files.length === 0) return []
   const content: ContentBlock[] = [
@@ -134,16 +134,17 @@ export async function parseMockExamMetadataFiles(
     content.push(buildFileBlock(file.fileData, file.mimeType, MOCK_EXAM_FILE_ERROR))
   }
 
-  const raw = await callClaudeText({ model: MODELS.parse, maxTokens: 8192, content })
+  const raw = await callLlmText({ task: 'mockExam.parseMetadata', execution: options.execution, maxTokens: 8192, content })
   return parseJsonArrayResponse<MockExamMetadataQuestion>(raw, 'parseMockExamMetadataFiles')
 }
 
 export async function parseMockExamAnswerKeyFiles(
   files: MockExamMetadataFileInput[],
+  options: TaskCallOptions = {},
 ): Promise<MockExamMetadataQuestion[]> {
   if (files.length === 0) return []
   const content: ContentBlock[] = [
-    { type: 'text', text: MOCK_EXAM_ANSWER_KEY_RULES } satisfies TextBlockParam,
+    { type: 'text', text: MOCK_EXAM_ANSWER_KEY_RULES },
   ]
 
   for (const [index, file] of files.entries()) {
@@ -151,16 +152,18 @@ export async function parseMockExamAnswerKeyFiles(
     content.push(buildFileBlock(file.fileData, file.mimeType, MOCK_EXAM_FILE_ERROR))
   }
 
-  const raw = await callClaudeText({ model: MODELS.parse, maxTokens: 4096, content })
+  const raw = await callLlmText({ task: 'mockExam.parseMetadata', execution: options.execution, maxTokens: 4096, content })
   return parseJsonArrayResponse<MockExamMetadataQuestion>(raw, 'parseMockExamAnswerKeyFiles')
 }
 
 export async function parseMockExamMetadataFile(
   fileData: string,
   mimeType: string,
+  options: TaskCallOptions = {},
 ): Promise<MockExamMetadataQuestion[]> {
-  const raw = await callClaudeText({
-    model: MODELS.parse,
+  const raw = await callLlmText({
+    task: 'mockExam.parseMetadata',
+    execution: options.execution,
     maxTokens: 8192,
     content: [
       buildFileBlock(fileData, mimeType, MOCK_EXAM_FILE_ERROR),
@@ -170,9 +173,10 @@ export async function parseMockExamMetadataFile(
   return parseJsonArrayResponse<MockExamMetadataQuestion>(raw, 'parseMockExamMetadataFile')
 }
 
-export async function parseMockExamMetadataText(rawText: string): Promise<MockExamMetadataQuestion[]> {
-  const raw = await callClaudeText({
-    model: MODELS.parse,
+export async function parseMockExamMetadataText(rawText: string, options: TaskCallOptions = {}): Promise<MockExamMetadataQuestion[]> {
+  const raw = await callLlmText({
+    task: 'mockExam.parseMetadata',
+    execution: options.execution,
     maxTokens: 8192,
     content: `${MOCK_EXAM_METADATA_RULES}
 
@@ -188,12 +192,14 @@ export async function ocrExamAnswers(
   fileData: string,
   mimeType: string,
   questions: ExamOcrQuestion[],
+  options: TaskCallOptions = {},
 ): Promise<ExamOcrResult[]> {
   const fileContent = buildFileBlock(fileData, mimeType, MOCK_EXAM_FILE_ERROR)
 
   console.log('[ocrExamAnswers] Claude Vision OCR 사용')
-  const raw = await callClaudeText({
-    model: MODELS.parse,
+  const raw = await callLlmText({
+    task: 'mockExam.answerOcr',
+    execution: options.execution,
     maxTokens: 4096,
     content: [fileContent, { type: 'text', text: buildExamOcrVisionPrompt(questions) }],
   })
@@ -380,12 +386,14 @@ async function ocrExamOmrPage(
   mimeType: string,
   questions: ExamOcrQuestion[],
   pageNumber: number,
+  options: TaskCallOptions,
 ): Promise<ExamOmrPageResult> {
   const fileContent = buildFileBlock(fileData, mimeType, MOCK_EXAM_FILE_ERROR)
 
   async function readOmr(strict: boolean) {
-    const raw = await callClaudeText({
-      model: MODELS.parse,
+    const raw = await callLlmText({
+      task: 'mockExam.answerOcr',
+      execution: options.execution,
       maxTokens: 4096,
       content: [fileContent, { type: 'text', text: buildExamOmrVisionPrompt(questions, pageNumber, strict) }],
     })
@@ -394,8 +402,9 @@ async function ocrExamOmrPage(
   }
 
   async function readNameOnly() {
-    const raw = await callClaudeText({
-      model: MODELS.parse,
+    const raw = await callLlmText({
+      task: 'mockExam.answerOcr',
+      execution: options.execution,
       maxTokens: 1024,
       content: [fileContent, { type: 'text', text: buildExamOmrNameVisionPrompt(pageNumber) }],
     })
@@ -441,12 +450,14 @@ async function ocrExamOmrPage(
 export async function ocrExamOmrBatch(
   files: ExamOcrBatchInput[],
   questions: ExamOcrQuestion[],
+  options: TaskCallOptions = {},
 ): Promise<{ results: ExamOmrPageResult[]; pagesProcessed: number }> {
+  const execution = options.execution ?? createLlmExecution()
   const { items, chunkCount } = await runParsePipeline<ExamOmrPageResult, ExamOmrPageResult>({
     label: 'mock-exam-omr',
     chunk: { kind: 'single-page' },
     concurrency: 3,
-    parseChunk: async (file) => [await ocrExamOmrPage(file.fileData, file.mimeType, questions, (file.pageOffset ?? 0) + 1)],
+    parseChunk: async (file) => [await ocrExamOmrPage(file.fileData, file.mimeType, questions, (file.pageOffset ?? 0) + 1, { execution })],
     finalize: (pages) => pages.map((page, index) => ({ ...page, page_number: index + 1 })),
   }, files)
   return { results: items, pagesProcessed: chunkCount }

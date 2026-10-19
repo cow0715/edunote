@@ -1,7 +1,7 @@
 // ── SMS 생성 ─────────────────────────────────────────────────────────────
 
 import { SMS_RULES } from '../prompts'
-import { callClaudeText, MODELS, parseJsonArrayResponse } from './client'
+import { callLlmText, parseJsonArrayResponse, type TaskCallOptions } from './client'
 
 export type SmsStudentInput = {
   student_name: string
@@ -27,6 +27,7 @@ export type SmsResult = {
 export async function refineSmsTemplateMessage(
   templateMessage: string,
   rules: string = SMS_RULES,
+  options: TaskCallOptions = {},
 ): Promise<string> {
   const prompt = `다음은 학부모 문자에 들어갈 강사 공통 문구입니다.
 학생별 이름, 링크, 인사말, 마무리 상담 문구는 다른 단계에서 자동으로 붙습니다.
@@ -44,8 +45,9 @@ ${rules}
 [강사 공통 문구]
 ${templateMessage.trim()}`
 
-  const raw = await callClaudeText({
-    model: MODELS.light,
+  const raw = await callLlmText({
+    task: 'sms.write',
+    execution: options.execution,
     maxTokens: 1024,
     content: prompt,
   })
@@ -63,7 +65,8 @@ ${templateMessage.trim()}`
 export async function generateSmsMessages(
   weekInfo: { week_number: number; week_label?: string | null; class_name: string; start_date?: string | null },
   students: SmsStudentInput[],
-  customPrompt?: string
+  customPrompt?: string,
+  options: TaskCallOptions = {},
 ): Promise<SmsResult[]> {
   if (students.length === 0) return []
 
@@ -110,8 +113,9 @@ ${customPrompt ?? SMS_RULES}
 JSON 배열만 출력 (다른 텍스트 없이):
 [{"student_name": "이름", "message": "문자내용"}]`
 
-  const raw = await callClaudeText({
-    model: MODELS.light,
+  const raw = await callLlmText({
+    task: 'sms.write',
+    execution: options.execution,
     maxTokens: 4096,
     content: prompt,
   })
