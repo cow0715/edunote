@@ -1,3 +1,4 @@
+import { collectPages } from '@/lib/collect-pages'
 import { getAuth, getTeacherId, assertClassOwner, err, ok } from '@/lib/api'
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -7,9 +8,15 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const teacherId = await getTeacherId(supabase, user.id)
   if (!teacherId) return err('강사 정보 없음', 404)
   if (!await assertClassOwner(supabase, classId, teacherId)) return err('접근 권한 없음', 403)
-  const { data, error } = await supabase.from('class_student').select('*, student(*)').eq('class_id', classId).is('left_at', null).order('joined_at')
-  if (error) { console.error('[GET /api/classes/[id]/students]', error); return err(error.message, 500) }
-  return ok(data)
+  try {
+    const data = await collectPages((from, to) => supabase.from('class_student')
+      .select('*, student(*)').eq('class_id', classId).is('left_at', null)
+      .order('joined_at').order('id').range(from, to))
+    return ok(data)
+  } catch (error) {
+    console.error('[GET /api/classes/[id]/students]', error)
+    return err('수업 학생 목록 조회 실패', 500)
+  }
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {

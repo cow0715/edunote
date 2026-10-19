@@ -78,7 +78,9 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error((await res.json()).error ?? '저장 실패')
       toast.success('저장되었습니다')
       refetch()
-    }, (e) => toast.error(errorMessage(e, '저장 실패')))
+    }, (e) => toast.error(e instanceof TypeError
+      ? '연결이 끊겨 저장 결과를 확인하지 못했습니다. 새로고침 후 내용을 확인해 주세요.'
+      : errorMessage(e, '저장 실패')))
   }
 
   if (isLoading) {
