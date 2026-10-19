@@ -23,7 +23,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from './theme-toggle'
@@ -109,6 +109,7 @@ export function MobileNav() {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="left" className="flex w-56 flex-col p-0">
           <SheetTitle className="sr-only">메뉴</SheetTitle>
+          <SheetDescription className="sr-only">이동할 관리 화면을 선택하세요.</SheetDescription>
           <div className="flex items-center gap-2 border-b px-4 py-5">
             <GraduationCap className="h-6 w-6 text-primary" />
             <span className="font-semibold text-gray-900">학원 관리</span>
