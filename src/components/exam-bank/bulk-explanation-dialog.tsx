@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import { Upload, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { safeJson, confirmAiWork } from './constants'
+import { examPdfUploadPath, resolvePdfImport } from '@/lib/pdf-import/client'
 import type { ExamBank } from './types'
 
 // ── 일괄 해설 업로드 다이얼로그 ───────────────────────────────────────────
@@ -89,21 +90,24 @@ export function BulkExplanationDialog({
       await runOrReport(async () => {
         const supabase = createClient()
         const safeFileName = it.file.name.replace(/[^\w.\-]/g, '_')
-        const storagePath = `${Date.now()}_bulk_${safeFileName}`
+        const storagePath = await examPdfUploadPath(supabase, safeFileName)
         const { error: uploadErr } = await supabase.storage
           .from('exam-pdf-temp')
           .upload(storagePath, it.file, { contentType: 'application/pdf' })
         if (uploadErr) throw new Error(`업로드 실패: ${uploadErr.message}`)
 
         // PDF 파싱
-        const { ok: pdfOk, data } = await safeJson(
+        const { ok: pdfOk, data: accepted } = await safeJson(
           await fetch(`/api/exam-bank/${exam.id}/upload-explanation`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ storagePath }),
           })
         )
-        if (!pdfOk) throw new Error((data.error as string) || '파싱 실패')
+        if (!pdfOk) throw new Error((accepted.error as string) || '파싱 실패')
+        const data = await resolvePdfImport(accepted, (job) => {
+          setItems((prev) => prev.map((item, idx) => idx === index ? { ...item, message: `${job.stage} · 저장된 처리 결과 ${job.completed_calls}개` } : item))
+        })
 
         // 추출 + AI 풀이·어휘 보완이 한 콜로 처리된다. 필터 결손 문항은 번호로 표시.
         const skipped = Array.isArray(data.skipped_questions) ? data.skipped_questions as number[] : []

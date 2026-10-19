@@ -25,11 +25,11 @@ import { toast } from 'sonner'
 import { Upload, FileText, File} from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { MONTHS, safeJson } from './constants'
+import { examPdfUploadPath, resolvePdfImport } from '@/lib/pdf-import/client'
 
 // ── 업로드 다이얼로그 ─────────────────────────────────────────────────────
-// 신규 등록은 문제지 + 해설지를 한 번에 받는다. 서버는 기존 두 라우트 그대로고
-// (문항 INSERT / 해설 UPDATE 는 선후 의존이라 합칠 수 없다) 브라우저가 순차로 부른다.
-// 각 콜이 독립적으로 maxDuration 300s 예산을 쓰므로 벽시계 여유도 두 배다.
+// 신규 등록은 문제지 + 해설지를 함께 받는다. 워커 모드에서는 한 작업이 순차 처리한다.
+// 기존 동기 모드에서는 브라우저가 문항 등록 후 해설 API를 호출한다.
 // 해설을 나중에 붙이는 경로(시험 카드 📖 · 일괄 해설)는 그대로 남아 있다.
 export function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const queryClient = useQueryClient()
@@ -42,6 +42,7 @@ export function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   // 해설 단계로 넘어가면 문제지 단계 문구 대신 해설 진행을 보여준다
   const [explaining, setExplaining] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const [workerMessage, setWorkerMessage] = useState('')
   const [form, setForm] = useState({
     exam_year: new Date().getFullYear(),
     exam_month: 4,
@@ -56,23 +57,24 @@ export function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChan
 
   // 문제지 파싱 성공 뒤에만 부른다. 여기서 던지면 문항까지 롤백돼 보이므로
   // 실패는 토스트로만 알리고 시험은 살린다 — 해설은 📖 버튼으로 재시도할 수 있다.
-  const uploadExplanation = async (examId: string, file: File) => {
+  const uploadExplanation = async (examId: string, file: File, existingPath?: string) => {
     const supabase = createClient()
     const safeFileName = file.name.replace(/[^\w.\-]/g, '_')
-    const storagePath = `${Date.now()}_explanation_${safeFileName}`
-    const { error: uploadErr } = await supabase.storage
+    const storagePath = existingPath ?? await examPdfUploadPath(supabase, safeFileName)
+    const { error: uploadErr } = existingPath ? { error: null } : await supabase.storage
       .from('exam-pdf-temp')
       .upload(storagePath, file, { contentType: file.type || 'application/pdf' })
     if (uploadErr) throw new Error(`해설 파일 업로드 실패: ${uploadErr.message}`)
 
-    const { ok, data } = await safeJson(
+    const { ok, data: accepted } = await safeJson(
       await fetch(`/api/exam-bank/${examId}/upload-explanation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ storagePath }),
       })
     )
-    if (!ok) throw new Error((data.error as string) || '해설 파싱 실패')
+    if (!ok) throw new Error((accepted.error as string) || '해설 파싱 실패')
+    const data = await resolvePdfImport(accepted, (job) => setWorkerMessage(`${job.stage} · 저장된 처리 결과 ${job.completed_calls}개`))
 
     toast.success(`해설 ${data.updated}/${data.total}문항 적용 완료 (AI 풀이·어휘 포함)`)
     const skipped = Array.isArray(data.skipped_questions) ? data.skipped_questions as number[] : []
@@ -105,15 +107,23 @@ export function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChan
       setUploadStep(0)
       setExplaining(false)
       setElapsed(0)
+      setWorkerMessage('')
     }, async () => {
       // PDF를 Supabase Storage에 직접 업로드 (Vercel 4.5MB body 한도 우회)
       const supabase = createClient()
       const safeFileName = file.name.replace(/[^\w.\-]/g, '_')
-      const storagePath = `${Date.now()}_${safeFileName}`
+      const storagePath = await examPdfUploadPath(supabase, safeFileName)
       const { error: uploadErr } = await supabase.storage
         .from('exam-pdf-temp')
         .upload(storagePath, file, { contentType: file.type || 'application/pdf' })
       if (uploadErr) throw new Error(`파일 업로드 실패: ${uploadErr.message}`)
+
+      let explanationStoragePath: string | undefined
+      if (explanationFile) {
+        explanationStoragePath = await examPdfUploadPath(supabase, explanationFile.name)
+        const { error } = await supabase.storage.from('exam-pdf-temp').upload(explanationStoragePath, explanationFile, { contentType: 'application/pdf' })
+        if (error) throw new Error(`해설 파일 업로드 실패: ${error.message}`)
+      }
 
       const res = await fetch('/api/exam-bank', {
         method: 'POST',
@@ -123,26 +133,39 @@ export function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           title: autoTitle,
           storagePath,
           mimeType: file.type || 'application/pdf',
+          explanationStoragePath,
         }),
       })
 
 
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || '업로드 실패')
+      const accepted = await res.json()
+      if (!res.ok) throw new Error(accepted.error || '업로드 실패')
+      const data = await resolvePdfImport(accepted, (job) => {
+        clearTimeout(step2)
+        clearTimeout(step3)
+        clearTimeout(step4)
+        setWorkerMessage(`${job.stage} · 저장된 처리 결과 ${job.completed_calls}개`)
+      })
 
       // 콘텐츠 필터에 걸린 페이지는 서버가 페이지 단위로 재파싱하며 건너뛴다. 몇 쪽인지 알려줘야 손으로 채울 수 있다.
-      const skippedMsg = data.skipped_pages?.length ? ` · ${data.skipped_pages.join(', ')}쪽 건너뜀` : ''
-      const statsMsg = data.stats_fetched > 0 ? ` · 메가스터디 통계 ${data.stats_fetched}문항` : ''
+      const skipped = Array.isArray(data.skipped_pages) ? data.skipped_pages : []
+      const skippedMsg = skipped.length ? ` · ${skipped.join(', ')}번 건너뜀` : ''
+      const statsMsg = Number(data.stats_fetched) > 0 ? ` · 메가스터디 통계 ${data.stats_fetched}문항` : ''
       toast.success(`${data.question_count}개 문항 추출 완료${statsMsg}${skippedMsg}`)
+      if (data.explanation_result && typeof data.explanation_result === 'object') {
+        const explanation = data.explanation_result as { updated?: number; skipped_questions?: number[] }
+        toast.success(`해설 ${explanation.updated ?? 0}문항 반영 완료`)
+        if (explanation.skipped_questions?.length) toast.warning(`해설 ${explanation.skipped_questions.join(', ')}번은 인식하지 못했습니다.`)
+      }
 
       // 2단계 — 해설지를 같이 골랐으면 이어서. 실패해도 1단계 결과는 유지한다.
-      if (explanationFile) {
+      if (explanationFile && !accepted.job_id) {
         clearTimeout(step2)
         clearTimeout(step3)
         clearTimeout(step4)
         setExplaining(true)
         await runOrReport(
-          () => uploadExplanation(data.exam_id as string, explanationFile),
+          () => uploadExplanation(data.exam_id as string, explanationFile, explanationStoragePath),
           (e) => toast.error(`${errorMessage(e, '해설 파싱 실패')} — 문항은 저장됐습니다. 시험 카드의 해설 버튼으로 다시 시도해주세요.`),
         )
       }
@@ -252,7 +275,7 @@ export function UploadDialog({ open, onOpenChange }: { open: boolean; onOpenChan
             해설을 같이 올리면 문항 추출 후 이어서 해설·AI 풀이·어휘까지 처리합니다. 나중에 붙여도 됩니다.
           </p>
 
-          {uploading && <UploadProgress step={uploadStep} elapsed={elapsed} explaining={explaining} />}
+          {uploading && <UploadProgress step={uploadStep} elapsed={elapsed} explaining={explaining} message={workerMessage} />}
 
           <Button className="w-full" onClick={handleUpload} disabled={uploading}>
             {uploading ? (
@@ -287,7 +310,7 @@ const EXPLANATION_STEP = {
   sub: '출제의도·해석은 원문 그대로, 풀이·어휘는 AI가 이어서 채웁니다',
 }
 
-function UploadProgress({ step, elapsed, explaining }: { step: number; elapsed: number; explaining: boolean }) {
+function UploadProgress({ step, elapsed, explaining, message }: { step: number; elapsed: number; explaining: boolean; message?: string }) {
   const current = explaining ? EXPLANATION_STEP : (UPLOAD_STEPS[step - 1] ?? UPLOAD_STEPS[0])
   // 실측 40~50초/단계 (2026-08-27 기록) — 해설까지면 두 단계라 기준을 늘려 잡는다
   const progress = Math.min((elapsed / (explaining ? 240 : 120)) * 100, 95)
@@ -298,16 +321,16 @@ function UploadProgress({ step, elapsed, explaining }: { step: number; elapsed: 
   return (
     <div className={`rounded-lg border p-4 space-y-3 ${tone.box}`}>
       <div className="flex items-center justify-between">
-        <p className={`text-sm font-medium ${tone.title}`}>{current.label}</p>
+        <p className={`text-sm font-medium ${tone.title}`}>{message || current.label}</p>
         <span className={`text-xs ${tone.text}`}>{elapsed}초</span>
       </div>
-      <p className={`text-xs ${tone.text}`}>{current.sub}</p>
-      <div className={`h-1.5 w-full rounded-full ${tone.track}`}>
+      <p className={`text-xs ${tone.text}`}>{message ? '접수한 작업은 이 화면을 닫아도 계속 처리됩니다.' : current.sub}</p>
+      {!message && <div className={`h-1.5 w-full rounded-full ${tone.track}`}>
         <div
           className={`h-1.5 rounded-full transition-all duration-1000 ${tone.bar}`}
           style={{ width: `${progress}%` }}
         />
-      </div>
+      </div>}
     </div>
   )
 }

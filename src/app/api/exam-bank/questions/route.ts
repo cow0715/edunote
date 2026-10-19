@@ -58,7 +58,7 @@ export async function GET(request: Request) {
   let qQuery = supabase
     .from('exam_bank_question')
     .select(
-      '*, exam_bank!inner(title, exam_year, exam_month, grade, source)',
+      '*, exam_bank!inner(title, exam_year, exam_month, grade, source, material_kind)',
       wantCount ? { count: 'exact' } : undefined,
     )
     .in('exam_bank_id', examIds)

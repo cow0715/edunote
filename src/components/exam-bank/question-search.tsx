@@ -1,5 +1,7 @@
 'use client'
 
+import { questionSourceLabel } from '@/lib/book-pdf/labels'
+
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { errorMessage, runWithLoading } from '@/lib/async-ui'
 import { useQuery, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query'
@@ -62,6 +64,7 @@ function buildFilterParams(f: typeof EMPTY_FILTERS) {
   if (f.months.length) params.set('month', f.months.join(','))
   if (f.kind === '수능') params.set('source', '수능')
   else if (f.kind === '모의고사') params.set('source', '모의고사')
+  else if (f.kind === '교재') params.set('source', '교재')
   if (f.points) params.set('points', f.points)
   if (f.difficulties.length) params.set('difficulty', f.difficulties.join(','))
   if (f.max_correct_rate) params.set('max_correct_rate', f.max_correct_rate)
@@ -80,7 +83,7 @@ function filtersFromParams(sp: URLSearchParams): typeof EMPTY_FILTERS {
     grade: sp.get('grade') ?? '',
     year_from: sp.get('year_from') ?? '',
     year_to: sp.get('year_to') ?? '',
-    kind: src === '수능' ? '수능' : src === '모의고사' ? '모의고사' : '',
+    kind: src === '수능' || src === '모의고사' || src === '교재' ? src : '',
     months,
     points: sp.get('points') ?? '',
     difficulties: (sp.get('difficulty') ?? '').split(',').map((s) => s.trim()).filter(Boolean),
@@ -134,7 +137,7 @@ export function QuestionSearch() {
   const yearOptions = useMemo(() => {
     const years = new Set<number>([CURRENT_YEAR])
     for (const exam of examsForYears ?? []) {
-      if (Number.isFinite(exam.exam_year)) years.add(exam.exam_year)
+      if (typeof exam.exam_year === 'number' && Number.isFinite(exam.exam_year)) years.add(exam.exam_year)
     }
     for (const value of [filters.year_from, filters.year_to, appliedFilters.year_from, appliedFilters.year_to]) {
       const year = Number(value)
@@ -222,10 +225,7 @@ export function QuestionSearch() {
     return (json.data ?? []) as ExamBankQuestion[]
   }
 
-  const getExamLabel = (q: ExamBankQuestion) =>
-    q.exam_bank
-      ? `${q.exam_bank.exam_year}년 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade} ${q.exam_bank.source} ${q.question_number}번`
-      : `${q.question_number}번`
+  const getExamLabel = questionSourceLabel
 
   const buildAllQText = (list: ExamBankQuestion[]) =>
     list.map((q) => buildQuestionCopyText(q, getExamLabel(q))).join('\n\n---\n\n')
@@ -394,7 +394,7 @@ export function QuestionSearch() {
             <Select value={filters.kind || 'all'} onValueChange={set('kind')}>
               <SelectTrigger className="h-8 text-xs w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {[['all','전체'],['수능','수능'],['모의고사','모의고사']].map(([v,l]) => (
+                {[['all','전체'],['수능','수능'],['모의고사','모의고사'],['교재','교재']].map(([v,l]) => (
                   <SelectItem key={v} value={v}>{l}</SelectItem>
                 ))}
               </SelectContent>

@@ -3,11 +3,12 @@
 export type ExamBank = {
   id: string
   title: string
-  exam_year: number
-  exam_month: number
-  grade: number
+  exam_year: number | null
+  exam_month: number | null
+  grade: number | null
   source: string
-  form_type: string
+  form_type: string | null
+  material_kind?: 'past_exam' | 'textbook'
   created_at: string
   exam_bank_question: { count: number }[]
 }
@@ -30,30 +31,39 @@ export type ExamBankQuestion = {
   explanation_translation: string | null
   explanation_solution: string | null
   explanation_vocabulary: string | null
+  source_key?: string | null
+  source_label?: string | null
+  source_group_key?: string | null
+  source_pages?: number[]
+  source_document_id?: string | null
   exam_bank?: {
     title: string
-    exam_year: number
-    exam_month: number
-    grade: number
+    exam_year: number | null
+    exam_month: number | null
+    grade: number | null
     source: string
+    material_kind?: 'past_exam' | 'textbook'
   }
 }
 
 export type VocabSource = {
-  year: number
-  month: number
-  grade: number
+  year: number | null
+  month: number | null
+  grade: number | null
   source: string
   question_number: number
   question_numbers?: number[]
+  source_title?: string
+  source_label?: string
 }
 
 export type VocabCollection = {
   id: string
   title: string
-  grade: number
-  year_from: number
-  year_to: number
+  grade: number | null
+  year_from: number | null
+  year_to: number | null
+  source_document_id?: string | null
   months: number[]
   item_count: number
   created_at: string

@@ -3,6 +3,8 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { parseExamBankPageRanged } from '@/lib/anthropic'
 import type { PipelineFile } from '@/lib/llm/pipeline'
 import { getMegastudyStats } from '@/lib/megastudy'
+import { workerEnabled } from '@/lib/pdf-import/types'
+import { registerPdfImport } from '@/lib/pdf-import/server'
 
 export const maxDuration = 300
 
@@ -92,6 +94,15 @@ export async function POST(request: Request) {
   }
   if (!storagePath || !mimeType) {
     return err('파일 필요')
+  }
+
+  if (workerEnabled()) {
+    try {
+      const job = await registerPdfImport({ kind: 'bank_questions', teacherId, authId: user.id, storagePath,
+        explanationStoragePath: typeof body.explanationStoragePath === 'string' ? body.explanationStoragePath : undefined,
+        payload: { title, exam_year, exam_month, grade, source, form_type, mimeType } })
+      return ok(job, { status: 202 })
+    } catch (error) { return err(error instanceof Error ? error.message : '작업 등록 실패', 503) }
   }
 
   const serviceClient = createServiceClient()

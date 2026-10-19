@@ -57,3 +57,11 @@ supabase/.temp/
 
 # Claude Design 프로토타입용 실데이터 (학생 실명 포함)
 design-data/
+
+# Google Cloud dispatcher credentials must stay outside the repository.
+.gcp-keys/
+*service-account*.json
+*-gcp-key.json
+
+# Local PDF audit outputs contain the user's original document text.
+tmp/pdfs/

@@ -9,6 +9,7 @@ import { QuestionSearch } from '@/components/exam-bank/question-search'
 import { VocabCollections } from '@/components/exam-bank/vocab-collections'
 import { UploadDialog } from '@/components/exam-bank/upload-dialog'
 import { BulkExplanationDialog } from '@/components/exam-bank/bulk-explanation-dialog'
+import { BookImportPanel } from '@/components/exam-bank/book-import-panel'
 
 // ── 메인 페이지 ──────────────────────────────────────────────────────────
 
@@ -27,7 +28,7 @@ export default function ExamBankPage() {
           </Button>
           <Button onClick={() => setUploadOpen(true)}>
             <Upload className="mr-2 h-4 w-4" />
-            PDF 업로드
+            기출 PDF 업로드
           </Button>
         </div>
       </div>
@@ -37,6 +38,7 @@ export default function ExamBankPage() {
           <TabsTrigger value="list">시험 목록</TabsTrigger>
           <TabsTrigger value="search">문제 검색</TabsTrigger>
           <TabsTrigger value="vocab">단어장</TabsTrigger>
+          <TabsTrigger value="book">교재 등록·처리</TabsTrigger>
         </TabsList>
 
         <TabsContent value="list" className="mt-4">
@@ -50,6 +52,7 @@ export default function ExamBankPage() {
         <TabsContent value="vocab" className="mt-4">
           <VocabCollections />
         </TabsContent>
+        <TabsContent value="book" className="mt-4"><BookImportPanel /></TabsContent>
       </Tabs>
 
       <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} />

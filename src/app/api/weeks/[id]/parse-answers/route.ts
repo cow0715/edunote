@@ -1,6 +1,8 @@
 import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { createLlmExecution } from '@/lib/llm/client'
+import { workerEnabled } from '@/lib/pdf-import/types'
+import { registerPdfImport, weekImportSnapshot } from '@/lib/pdf-import/server'
 import {
   createTagMatcher,
   fetchTeacherTagContext,
@@ -65,6 +67,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     // 큰 파일은 body(4.5MB 제한) 대신 임시 스토리지 경유 — 감지 단계에서 올린 파일 재사용
     const storagePath = typeof body.storagePath === 'string' ? body.storagePath : null
+    if (workerEnabled()) {
+      if (!storagePath || !mimeType) return err('파일을 스토리지에 올린 뒤 다시 등록해주세요.')
+      if (requestedMode === 'problem_sheet') return err('문제지형 PDF는 시험지 가져오기를 사용해 주세요.', 422)
+      try {
+        const job = await registerPdfImport({ kind: 'week_answers', teacherId, authId: user.id, targetId: weekId,
+          storagePath, payload: { mimeType, fileName, snapshot: await weekImportSnapshot(createServiceClient(), weekId) } })
+        return ok(job, { status: 202 })
+      } catch (error) { return err(error instanceof Error ? error.message : '작업 등록 실패', 503) }
+    }
     if (!fileData && storagePath) {
       const serviceClient = createServiceClient()
       const { data, error } = await serviceClient.storage.from('exam-pdf-temp').download(storagePath)

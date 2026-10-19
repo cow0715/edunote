@@ -1,0 +1,16 @@
+*
+!package.json
+!package-lock.json
+!tsconfig.json
+!Dockerfile.worker
+!src/
+!src/**
+!scripts/
+!scripts/pdf-worker.ts
+!scripts/build-pdf-worker.mjs
+**/.env*
+**/*.pdf
+**/*.pem
+**/*.key
+**/*service-account*.json
+**/*-gcp-key.json

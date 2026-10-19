@@ -4,6 +4,8 @@ import { parsePdfExplanationsHakpyungRanged, parsePdfExplanationsWithClaudeRange
 import { createLlmExecution } from '@/lib/llm/client'
 import { mergeExamVocabularyText, syncExamQuestionVocabulary } from '@/lib/exam-vocabulary'
 import { enrichExamQuestionVocabulary } from '@/lib/vocab-enrichment'
+import { workerEnabled } from '@/lib/pdf-import/types'
+import { registerPdfImport } from '@/lib/pdf-import/server'
 
 export const maxDuration = 300
 
@@ -32,12 +34,20 @@ export async function POST(
   // 소유권 + 시험 월 확인
   const { data: exam } = await supabase
     .from('exam_bank')
-    .select('id, exam_month')
+    .select('id, exam_month, material_kind')
     .eq('id', id)
     .eq('teacher_id', teacherId)
     .single()
 
   if (!exam) return err('시험을 찾을 수 없습니다', 404)
+  if (exam.material_kind === 'textbook') return err('교재 해설은 교재 원문 검토에서 확인해주세요.')
+
+  if (workerEnabled()) {
+    try {
+      return ok(await registerPdfImport({ kind: 'bank_explanation', teacherId, authId: user.id, targetId: id,
+        storagePath, payload: { mimeType: 'application/pdf' } }), { status: 202 })
+    } catch (error) { return err(error instanceof Error ? error.message : '작업 등록 실패', 503) }
+  }
 
   const hakpyung = isHakpyung(exam.exam_month)
 

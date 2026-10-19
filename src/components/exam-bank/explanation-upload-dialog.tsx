@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import { File, Loader2, BookOpen } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { safeJson } from './constants'
+import { examPdfUploadPath, resolvePdfImport } from '@/lib/pdf-import/client'
 
 // ── 해설 PDF 업로드 다이얼로그 ──────────────────────────────────────────────
 // 저장 버튼 하나로 해설 추출 → AI 풀이·어휘 생성까지 이어서 실행한다 (별도 생성 버튼 없음).
@@ -38,7 +39,7 @@ export function ExplanationUploadDialog({
   const uploadToStorage = async (file: File) => {
     const supabase = createClient()
     const safeFileName = file.name.replace(/[^\w.\-]/g, '_')
-    const storagePath = `${Date.now()}_explanation_${safeFileName}`
+    const storagePath = await examPdfUploadPath(supabase, safeFileName)
     const { error: uploadErr } = await supabase.storage
       .from('exam-pdf-temp')
       .upload(storagePath, file, { contentType: file.type || 'application/pdf' })
@@ -63,14 +64,15 @@ export function ExplanationUploadDialog({
     }, async () => {
       setPhase('해설 추출 + AI 풀이·어휘 보완을 한 번에 처리하고 있습니다.')
       const storagePath = await uploadToStorage(file)
-      const { ok: pdfOk, data } = await safeJson(
+      const { ok: pdfOk, data: accepted } = await safeJson(
         await fetch(`/api/exam-bank/${examId}/upload-explanation`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ storagePath }),
         })
       )
-      if (!pdfOk) throw new Error((data.error as string) || '해설 파싱 실패')
+      if (!pdfOk) throw new Error((accepted.error as string) || '해설 파싱 실패')
+      const data = await resolvePdfImport(accepted, (job) => setPhase(`${job.stage} · 저장된 처리 결과 ${job.completed_calls}개`))
       toast.success(`해설 ${data.updated}/${data.total}문항 적용 완료 (AI 풀이·어휘 포함)`)
       const skipped = Array.isArray(data.skipped_questions) ? data.skipped_questions as number[] : []
       if (skipped.length > 0) {

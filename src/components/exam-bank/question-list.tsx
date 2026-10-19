@@ -16,10 +16,11 @@ import { QUESTION_TYPE_LABELS, DIFFICULTY_STYLE } from './constants'
 import { MarkdownText, buildQuestionCopyText, buildQuestionCopyHtml, copyRich } from './markdown'
 import { QuestionEditDialog } from './question-edit-dialog'
 import type { ExamBankQuestion } from './types'
+import { questionSourceLabel } from '@/lib/book-pdf/labels'
 
 // ── 문항 목록 (펼침) ──────────────────────────────────────────────────────
 
-export function QuestionList({ examId }: { examId: string }) {
+export function QuestionList({ examId, bookMode = false }: { examId: string; bookMode?: boolean }) {
   const queryClient = useQueryClient()
   const [editTarget, setEditTarget] = useState<ExamBankQuestion | null | 'new'>(null)
 
@@ -58,7 +59,7 @@ export function QuestionList({ examId }: { examId: string }) {
             question={q}
             onEdit={() => setEditTarget(q)}
             onDelete={() => {
-              if (confirm(`${q.question_number}번 문항을 삭제하시겠습니까?`)) {
+              if (confirm(`${q.source_label ?? `${q.question_number}번`} 문항을 삭제하시겠습니까?`)) {
                 deleteMutation.mutate(q.id)
               }
             }}
@@ -68,6 +69,7 @@ export function QuestionList({ examId }: { examId: string }) {
 
       <QuestionEditDialog
         examId={examId}
+        bookMode={bookMode}
         target={editTarget}
         onClose={() => setEditTarget(null)}
       />
@@ -143,9 +145,7 @@ export const QuestionCard = memo(function QuestionCard({
   const saveExplanation = () => saveExplanationMutation.mutate()
 
   // 시험 출처 레이블 (복사 헤더용)
-  const examLabel = q.exam_bank
-    ? `${q.exam_bank.exam_year}년 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade} ${q.exam_bank.source} ${q.question_number}번`
-    : `${q.question_number}번`
+  const examLabel = questionSourceLabel(q)
 
   const buildQuestionText = useCallback(() => {
     return buildQuestionCopyText(q, examLabel)
@@ -156,7 +156,7 @@ export const QuestionCard = memo(function QuestionCard({
   }, [q, examLabel])
 
   const buildExplanationText = useCallback(() => {
-    const header = q.exam_bank ? `[${examLabel} 해설]\n` : `[${q.question_number}번 해설]\n`
+    const header = `[${examLabel} 해설]\n`
     const parts = [
       q.explanation_intent ? `[출제의도] ${q.explanation_intent}` : '',
       q.explanation_translation ? `[해석]\n${q.explanation_translation}` : '',
@@ -167,7 +167,7 @@ export const QuestionCard = memo(function QuestionCard({
   }, [q, examLabel])
 
   const buildExplanationHtml = useCallback(() => {
-    const header = q.exam_bank ? `<p><strong>[${examLabel} 해설]</strong></p>` : `<p><strong>[${q.question_number}번 해설]</strong></p>`
+    const header = `<p><strong>[${examLabel} 해설]</strong></p>`
     return header
       + (q.explanation_intent ? `<p><strong>[출제의도]</strong> ${q.explanation_intent}</p>` : '')
       + (q.explanation_translation ? `<p><strong>[해석]</strong><br>${q.explanation_translation.replace(/\n/g, '<br>')}</p>` : '')
@@ -216,8 +216,9 @@ export const QuestionCard = memo(function QuestionCard({
           )}
           {/* 문항번호 */}
           <span className="flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-bold shrink-0">
-            {q.question_number}
+            {q.source_label ? '교재' : q.question_number}
           </span>
+          {q.source_label && <span className="text-xs font-medium text-gray-700">{q.source_label}</span>}
           {/* 유형 */}
           <span className="text-xs font-medium text-gray-500 bg-gray-100 rounded-full px-2.5 py-0.5">
             {QUESTION_TYPE_LABELS[q.question_type] || q.question_type}
@@ -240,11 +241,12 @@ export const QuestionCard = memo(function QuestionCard({
           {/* 출처 */}
           {showExamInfo && q.exam_bank && (
             <span className="text-xs text-gray-400">
-              {q.exam_bank.exam_year}년 {q.exam_bank.exam_month}월 고{q.exam_bank.grade} {q.exam_bank.source}
+              {q.source_label || q.exam_bank.material_kind === 'textbook' ? q.exam_bank.title : `${q.exam_bank.exam_year}년 ${q.exam_bank.exam_month}월 고${q.exam_bank.grade} ${q.exam_bank.source}`}
             </span>
           )}
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
+          {q.source_document_id && <a className="px-2 text-xs text-blue-600 underline" href={`/api/book-pdf/${q.source_document_id}/source?page=${q.source_pages?.[0] ?? 1}`} target="_blank" rel="noreferrer">원본 PDF</a>}
           {/* 복사 드롭다운 */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

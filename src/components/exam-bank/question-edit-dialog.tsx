@@ -36,10 +36,12 @@ const EMPTY_FORM = {
 
 export function QuestionEditDialog({
   examId,
+  bookMode = false,
   target,
   onClose,
 }: {
   examId: string
+  bookMode?: boolean
   target: ExamBankQuestion | null | 'new'
   onClose: () => void
 }) {
@@ -111,17 +113,18 @@ export function QuestionEditDialog({
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isNew ? '문항 추가' : `${(target as ExamBankQuestion)?.question_number}번 문항 수정`}</DialogTitle>
+          <DialogTitle>{isNew ? '문항 추가' : `${(target as ExamBankQuestion)?.source_label ?? `${(target as ExamBankQuestion)?.question_number}번`} 문항 수정`}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>문항 번호</Label>
+              <Label>{bookMode ? '저장 순번' : '문항 번호'}</Label>
               <Input
                 type="number"
-                min={18}
-                max={45}
+                min={bookMode ? 1 : 18}
+                max={bookMode ? undefined : 45}
+                readOnly={bookMode && !isNew}
                 value={form.question_number}
                 onChange={(e) => setForm({ ...form, question_number: e.target.value })}
                 placeholder="예: 38"

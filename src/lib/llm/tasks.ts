@@ -2,6 +2,10 @@ import { MODEL_IDS } from './models'
 
 /** Change an individual task's model here; business prompts and limits stay at their call sites. */
 const TASK_DEFINITIONS = {
+  'book.mapSource': { label: '교재 원문 연결', model: MODEL_IDS.sonnet55, promptVersion: 'book-map-v1', schemaVersion: 'book-map-v1' },
+  'book.auditSource': { label: '교재 이미지 검증과 복구', model: MODEL_IDS.sonnet55, promptVersion: 'book-audit-v1', schemaVersion: 'book-audit-v1' },
+  'book.enrichMaterial': { label: '검증된 교재 풀이와 어휘 보완', model: MODEL_IDS.sonnet55, promptVersion: 'book-enrich-v1', schemaVersion: 'book-enrich-v1' },
+  'book.verifyLegacy': { label: '기존 교재 검증 호환', model: MODEL_IDS.sonnet55, promptVersion: 'book-legacy-v1', schemaVersion: 'book-legacy-v1' },
   'vocab.gradeMeaning': { label: '단어 뜻 채점', model: MODEL_IDS.haiku, promptVersion: 'vocab-grade-v1', schemaVersion: 'vocab-grade-v1' },
   'week.gradeSubjective': { label: '서술형 채점', model: MODEL_IDS.sonnet, promptVersion: 'subjective-grade-v1', schemaVersion: 'subjective-grade-v1' },
   'vocab.answerOcr': { label: '단어 답안 판독', model: MODEL_IDS.sonnet, promptVersion: 'vocab-ocr-v1', schemaVersion: 'vocab-ocr-v1' },

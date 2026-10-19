@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { jsonrepair } from 'jsonrepair'
+import { checkpointCall, getPdfWorkerContext } from '../pdf-import/context'
 import { LlmError } from './errors'
 import { getModel, getModelCatalog } from './models'
 import { callAnthropic, isAnthropicConfigured } from './providers/anthropic'
@@ -73,6 +75,24 @@ function record(execution: LlmExecution, entry: LlmCallRecord) {
 }
 
 export async function callLlmTextDetailed(options: CallLlmOptions): Promise<LlmDetailedResult> {
+  const context = getPdfWorkerContext()
+  if (!context) return callLlmTextUncached(options)
+  const execution = options.execution ?? createLlmExecution()
+  const workerOptions = { ...options, execution, signal: options.signal ? AbortSignal.any([options.signal, context.signal]) : context.signal }
+  // Execution IDs and AbortSignals are transient. Routing and prompts determine reuse.
+  if (options.phase === 'prewarm') return callLlmTextUncached(workerOptions)
+  return checkpointCall({ version: 2, ...options, execution: undefined, signal: undefined,
+    configVersion: execution.configVersion, model: execution.taskBindings[options.task] },
+  () => callLlmTextUncached(workerOptions), (result) => {
+    if (result.finishReason !== 'complete') return false
+    try {
+      const value = JSON.parse(jsonrepair(result.text.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')))
+      return Array.isArray(value) ? value.length > 0 : value !== null && typeof value === 'object'
+    } catch { return false }
+  })
+}
+
+async function callLlmTextUncached(options: CallLlmOptions): Promise<LlmDetailedResult> {
   if (!isLlmTask(options.task)) throw new LlmError('configuration', `알 수 없는 LLM 작업: ${options.task}`)
   const execution = options.execution ?? createLlmExecution()
   const model = getModel(execution.taskBindings[options.task])

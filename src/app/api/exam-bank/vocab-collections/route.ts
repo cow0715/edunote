@@ -9,7 +9,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('vocab_collection')
-    .select('id, title, grade, year_from, year_to, months, item_count, created_at')
+    .select('id, title, grade, year_from, year_to, months, item_count, created_at, source_document_id')
     .eq('teacher_id', teacherId)
     .order('created_at', { ascending: false })
 

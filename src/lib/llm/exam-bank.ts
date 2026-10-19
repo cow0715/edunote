@@ -4,6 +4,7 @@ import { EXAM_BANK_PARSE_RULES } from '../prompts'
 import type { ParsedExplanation } from '../explanation-parser'
 import { buildFileBlock, callLlmText, createLlmExecution, parseJsonArrayResponse, type TaskCallOptions } from './client'
 import { prewarmPdfCache, rangedParseCallIsolated, sliceNumbers, type RangedCallStats } from './ranged'
+import { EXPLANATION_WRITING_RULES } from './material-enrichment-contract'
 
 export type ExamBankParsedQuestion = {
   question_number: number
@@ -136,18 +137,6 @@ async function parseExplanationsRanged(
 }
 
 /** 풀이·어휘 작성 규칙 — 두 형식 프롬프트가 공유 (추출과 생성을 한 콜에 통합, 2026-08-27) */
-const EXPLANATION_WRITING_RULES = `━━━ solution (풀이) 작성 규칙 ━━━
-- 정답 근거: 지문에서 정답의 단서가 되는 핵심 문장/표현을 한국어로 짚어줄 것
-- 오답 포인트: 주요 오답 선지가 왜 틀렸는지 구체적으로 설명
-- 핵심 어구/구문: 지문의 중요 표현이나 논리 흐름을 추가 설명
-- 학생이 다음에 유사 문항을 맞힐 수 있도록 풀이 전략 중심으로, 4~6문장으로 충분히 상세하게
-
-━━━ vocabulary (Words & Phrases) 작성 규칙 ━━━
-- 지문에 등장하는 고2~고3 수준의 학습 중요 단어/숙어만 선별, 등장 순서대로
-- 형식: "단어 뜻" — 한 줄에 모두 나열 (줄바꿈 없이), 단어 사이 3칸 띄어쓰기
-  (예: "eliminate 제거하다   gradual 점진적인   be prone to ~하기 쉽다")
-- 포함: 수능/모의고사 빈출 어휘, 고2~3 교과 수준 단어
-- 제외: the, is, have 등 기초 어휘 / obscure, ostensible 등 최상위 어휘 (고3 수준 초과)`
 
 const SUNEUNG_EXPLANATION_PROMPT = `이 PDF는 수능/모의고사 영어 해설지입니다.
 18번~45번 문항의 해설을 추출하고, 풀이와 어휘는 원문을 기반으로 보완해 주세요.

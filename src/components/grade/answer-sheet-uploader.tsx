@@ -18,6 +18,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useUploadStore, type AnswerSheetStatus } from '@/store/upload-store'
+import { resolvePdfImport } from '@/lib/pdf-import/client'
+import { PdfImportJobList } from '@/components/pdf-import/job-list'
 
 const IDLE_STATUS: AnswerSheetStatus = { type: 'idle' }
 
@@ -78,8 +80,9 @@ function parseJsonSafely(raw: string): Record<string, unknown> {
 }
 
 function AnswerParseProgress({ elapsed, message }: { elapsed: number; message?: string }) {
+  const worker = message?.includes('저장된 처리 결과')
   const idx = elapsed < 15 ? 0 : elapsed < 60 ? 1 : 2
-  const current = message ? { label: message, sub: ANSWER_STEPS[idx].sub } : ANSWER_STEPS[idx]
+  const current = message ? { label: message, sub: worker ? '접수한 작업은 이 화면을 닫아도 계속 처리됩니다.' : ANSWER_STEPS[idx].sub } : ANSWER_STEPS[idx]
   const progress = Math.min((elapsed / 120) * 100, 95)
 
   return (
@@ -89,12 +92,12 @@ function AnswerParseProgress({ elapsed, message }: { elapsed: number; message?: 
         <span className="text-xs text-blue-700 dark:text-slate-300">{elapsed}초</span>
       </div>
       <p className="text-xs text-blue-700 dark:text-slate-300">{current.sub}</p>
-      <div className="h-1.5 w-full rounded-full bg-blue-200 dark:bg-slate-700">
+      {!worker && <div className="h-1.5 w-full rounded-full bg-blue-200 dark:bg-slate-700">
         <div
           className="h-1.5 rounded-full bg-blue-600 transition-all duration-1000"
           style={{ width: `${progress}%` }}
         />
-      </div>
+      </div>}
     </div>
   )
 }
@@ -241,12 +244,14 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
       })
 
       const raw = await response.text()
-      const data = parseJsonSafely(raw)
+      let data = parseJsonSafely(raw)
 
       if (!response.ok) {
         setStatus(weekId, { type: 'error', message: String(data.error ?? '처리에 실패했습니다.') })
         return
       }
+
+      data = await resolvePdfImport(data, (job) => setStatus(weekId, { type: 'loading', step: `${job.stage} · 저장된 처리 결과 ${job.completed_calls}개` }))
 
       const questionsParsed = Number(data.questions_parsed ?? 0)
       const studentsRegraded = Number(data.students_regraded ?? 0)
@@ -263,7 +268,6 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
         toast.warning(`${skippedQuestions.join(', ')}번 문항은 인식하지 못했습니다 — 직접 추가하거나 파일을 다시 올려주세요.`)
       }
 
-      // 해설 보완은 파싱 콜에 통합됨 (프롬프트가 원문 해설을 기반으로 보강 작성) — 별도 드레인 없음
       setStatus(weekId, {
         type: 'done',
         questions_parsed: questionsParsed,
@@ -303,6 +307,7 @@ export function AnswerSheetUploader({ weekId, savedFilePath }: Props) {
   return (
     <>
       <div className="space-y-4">
+      <PdfImportJobList weekId={weekId} />
       {savedFilePath && status.type !== 'done' && (
         <button
           type="button"

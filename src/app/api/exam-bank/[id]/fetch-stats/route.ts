@@ -16,12 +16,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const { data: exam, error: examErr } = await supabase
     .from('exam_bank')
-    .select('id, exam_year, exam_month, grade')
+    .select('id, exam_year, exam_month, grade, material_kind')
     .eq('id', id)
     .eq('teacher_id', teacherId)
     .single()
 
   if (examErr || !exam) return err('시험을 찾을 수 없습니다', 404)
+  if (exam.material_kind === 'textbook') return err('교재에는 기출 통계를 적용할 수 없습니다.')
 
   let stats
   try {

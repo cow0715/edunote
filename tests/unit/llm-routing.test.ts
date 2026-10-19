@@ -11,12 +11,55 @@ vi.mock('@anthropic-ai/sdk', () => ({
 import { buildFileBlock, callLlmText, callLlmTextDetailed, createLlmExecution, isContentFilterError, isTaskConfigured, LlmError } from '../../src/lib/llm/client'
 import * as models from '../../src/lib/llm/models'
 import { parseJsonObjectResponse } from '../../src/lib/llm/json'
+import { createCallLimiter, withPdfWorkerContext, type PdfWorkerContext } from '../../src/lib/pdf-import/context'
 
 const response = (overrides: Record<string, unknown> = {}) => ({
   model: 'provider-resolved-snapshot', stop_reason: 'end_turn',
   content: [{ type: 'text', text: 'first' }, { type: 'thinking', thinking: 'private' }, { type: 'text', text: 'second' }],
   usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 200, cache_creation_input_tokens: 300 },
   ...overrides,
+})
+
+function workerContext() {
+  const saved = new Map<string, unknown>()
+  const controller = new AbortController()
+  const context: PdfWorkerContext = { signal: controller.signal, concurrency: 2, execute: createCallLimiter(2),
+    read: async <T>(key: string) => (saved.get(key) ?? null) as T | null,
+    write: async (key, value) => { saved.set(key, value) }, stage: vi.fn() }
+  return { context, saved, controller }
+}
+
+describe('worker integration with task routing', () => {
+  it('reuses complete JSON across executions but separates model changes', async () => {
+    sdk.create.mockResolvedValue(response({ content: [{ type: 'text', text: '{"items":[1]}' }] }))
+    const { context } = workerContext()
+    const options = { task: 'book.mapSource', maxTokens: 1000, content: 'source' } as const
+    await withPdfWorkerContext(context, () => callLlmTextDetailed(options))
+    await withPdfWorkerContext(context, () => callLlmTextDetailed(options))
+    expect(sdk.create).toHaveBeenCalledTimes(1)
+    expect(sdk.create.mock.calls[0][0].model).toBe(models.MODEL_IDS.sonnet55)
+    expect(sdk.create.mock.calls[0][1]).toEqual(expect.objectContaining({ timeout: 180_000, maxRetries: 2, signal: context.signal }))
+    await withPdfWorkerContext(context, () => callLlmTextDetailed({ ...options,
+      execution: createLlmExecution({ 'book.mapSource': models.MODEL_IDS.opus55 }) }))
+    expect(sdk.create).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not reuse truncated output or cache warmups and respects lease loss', async () => {
+    const { context, saved, controller } = workerContext()
+    sdk.create.mockResolvedValue(response({ stop_reason: 'max_tokens', content: [{ type: 'text', text: '{"items":[1]}' }] }))
+    const options = { task: 'book.mapSource', maxTokens: 1000, content: 'source' } as const
+    await withPdfWorkerContext(context, () => callLlmTextDetailed(options))
+    await withPdfWorkerContext(context, () => callLlmTextDetailed(options))
+    expect(saved.size).toBe(0)
+    const warmup = { task: 'week.parseAnswers', phase: 'prewarm', maxTokens: 0, cacheBoundary: 0,
+      content: [buildFileBlock('pdf', 'application/pdf')] } as const
+    await withPdfWorkerContext(context, () => callLlmTextDetailed({ ...warmup, content: [...warmup.content] }))
+    await withPdfWorkerContext(context, () => callLlmTextDetailed({ ...warmup, content: [...warmup.content] }))
+    expect(sdk.create).toHaveBeenCalledTimes(4)
+    controller.abort(Error('lease lost'))
+    await expect(withPdfWorkerContext(context, () => callLlmTextDetailed(options))).rejects.toThrow('lease lost')
+    expect(sdk.create).toHaveBeenCalledTimes(4)
+  })
 })
 
 beforeEach(() => {

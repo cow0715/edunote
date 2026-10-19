@@ -1,0 +1,18 @@
+FROM node:24-bookworm-slim AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY tsconfig.json ./
+COPY src ./src
+COPY scripts ./scripts
+RUN npm run build:worker
+
+FROM node:24-bookworm-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+RUN apt-get update && apt-get install -y --no-install-recommends libfontconfig1 fonts-dejavu-core fonts-noto-cjk poppler-utils && rm -rf /var/lib/apt/lists/*
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=builder /app/build/pdf-worker.cjs ./build/pdf-worker.cjs
+USER node
+CMD ["node", "build/pdf-worker.cjs"]

@@ -20,6 +20,7 @@ import { getPdfPageCount } from '@/lib/pdf'
 import { runParsePipeline, type PipelineFile, type SkippedRange } from '@/lib/llm/pipeline'
 import { createLlmExecution, isContentFilterError, type LlmExecution, type TaskCallOptions } from '@/lib/llm/client'
 import { coerceQuestionNumber } from '@/lib/llm/postprocess'
+import { getPdfWorkerContext, reportPdfStage } from '@/lib/pdf-import/context'
 
 export type MatchTagId = (questionType: string | null, questionStyle?: string | null) => string | null
 
@@ -596,6 +597,7 @@ export async function parseAnswerSheetDocument(
       }
       console.warn('[week-answer-sheet] 범위 분할 결과 0건 — 통짜 폴백')
     } catch (error) {
+      getPdfWorkerContext()?.signal.throwIfAborted()
       console.warn('[week-answer-sheet] 범위 분할 실패 — 통짜 폴백:',
         error instanceof Error ? error.message : error)
     }
@@ -611,16 +613,19 @@ export async function saveWeekAnswerSheetFile(
   fileName?: string,
 ) {
   try {
-    const safeName = (fileName as string | undefined)
+    const originalName = (fileName as string | undefined)
       ?.replace(/[^\x00-\x7F]/g, '_')
       .replace(/[/\\?%*:|"<>\s]/g, '_')
       .replace(/_+/g, '_')
       ?? `${weekId}.bin`
 
+    // Keep each import's original independently of other weeks or repeated filenames.
+    const safeName = `${weekId}/${crypto.randomUUID()}-${originalName}`
+
     const fileBuffer = Buffer.from(fileData, 'base64')
     const { error: storageErr } = await supabase.storage
       .from('answer-sheets')
-      .upload(safeName, fileBuffer, { contentType: mimeType, upsert: true })
+      .upload(safeName, fileBuffer, { contentType: mimeType, upsert: false })
 
     if (storageErr) {
       console.error('[week-reading-import] storage upload failed:', storageErr)
@@ -890,6 +895,7 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
 
   const questionResults = await Promise.all(
     parsedAnswers.map(async (answer) => {
+      getPdfWorkerContext()?.signal.throwIfAborted()
       const style: QuestionStyle = VALID_STYLES.includes(answer.question_style as QuestionStyle)
         ? answer.question_style as QuestionStyle
         : 'objective'
@@ -973,6 +979,7 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
   }
 
   if (deleteMissingQuestions) {
+    await reportPdfStage('사라진 문항과 답안을 정리하는 중')
     const removedQuestions = (existingQuestions ?? []).filter(
       (question) => !parsedKeys.has(`${question.question_number}|${question.sub_label ?? ''}`),
     )
@@ -1006,6 +1013,7 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
   }
 
   const tagInserts: { exam_question_id: string; concept_tag_id: string }[] = []
+  await reportPdfStage('문항 태그와 채점을 갱신하는 중')
   for (const question of questions) {
     const parsed = parsedAnswers.find(
       (answer) =>

@@ -52,7 +52,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const { id } = await params
   const { data: collection, error: collectionError } = await supabase
     .from('vocab_collection')
-    .select('id, title, grade, year_from, year_to, months, item_count, created_at')
+    .select('id, title, grade, year_from, year_to, months, item_count, created_at, source_document_id')
     .eq('id', id)
     .eq('teacher_id', teacherId)
     .single()

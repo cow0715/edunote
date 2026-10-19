@@ -9,6 +9,7 @@ import { Trash2, ChevronDown, ChevronUp, FileText, BarChart2, Loader2, BookOpen 
 import { QuestionList } from './question-list'
 import { ExplanationUploadDialog } from './explanation-upload-dialog'
 import type { ExamBank } from './types'
+import { PdfImportJobList } from '@/components/pdf-import/job-list'
 
 // ── 메가스터디 통계 버튼 ──────────────────────────────────────────────────
 
@@ -57,8 +58,13 @@ export function ExamList() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) =>
-      fetch(`/api/exam-bank/${id}`, { method: 'DELETE' }).then((r) => r.json()),
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/exam-bank/${id}`, { method: 'DELETE' })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || '삭제 실패')
+      return data
+    },
+    onError: (error) => toast.error(error.message),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['exam-bank'] })
       toast.success('삭제되었습니다')
@@ -66,10 +72,11 @@ export function ExamList() {
   })
 
   if (isLoading) return <p className="text-sm text-gray-500">불러오는 중...</p>
-  if (!exams?.length) return <p className="text-sm text-gray-500">등록된 기출 시험이 없습니다.</p>
+  if (!exams?.length) return <><PdfImportJobList /><p className="text-sm text-gray-500">등록된 자료가 없습니다.</p></>
 
   return (
     <div className="space-y-3">
+      <PdfImportJobList />
       {exams.map((exam) => {
         const isExpanded = expandedId === exam.id
         const qCount = exam.exam_bank_question?.[0]?.count ?? 0
@@ -90,7 +97,7 @@ export function ExamList() {
                   <span className="text-xs text-gray-400 shrink-0">{exam.form_type}</span>
                 </div>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-xs text-gray-400">{exam.exam_year}년 {exam.exam_month}월 · 고{exam.grade}</span>
+                  <span className="text-xs text-gray-400">{exam.material_kind === 'textbook' ? `교재${exam.exam_year ? ` · ${exam.exam_year}학년도` : ''}` : `${exam.exam_year}년 ${exam.exam_month}월 · 고${exam.grade}`}</span>
                   <span className="text-xs font-medium text-blue-600">{qCount}문항</span>
                 </div>
               </div>
@@ -102,7 +109,8 @@ export function ExamList() {
                 >
                   {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </button>
-                <FetchStatsButton examId={exam.id} formType={exam.form_type || '홀수형'} />
+                {exam.material_kind !== 'textbook' && <FetchStatsButton examId={exam.id} formType={exam.form_type || '홀수형'} />}
+                {exam.material_kind !== 'textbook' && (
                 <button
                   onClick={() => setExplanationTarget(exam.id)}
                   className="p-1.5 rounded-lg text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
@@ -110,6 +118,7 @@ export function ExamList() {
                 >
                   <BookOpen className="h-4 w-4" />
                 </button>
+                )}
                 <button
                   onClick={() => { if (confirm('이 시험과 모든 문항을 삭제하시겠습니까?')) deleteMutation.mutate(exam.id) }}
                   className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
@@ -120,7 +129,7 @@ export function ExamList() {
             </div>
             {isExpanded && (
               <div className="border-t border-gray-100">
-                <QuestionList examId={exam.id} />
+                <QuestionList examId={exam.id} bookMode={exam.material_kind === 'textbook'} />
               </div>
             )}
           </div>

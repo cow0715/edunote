@@ -7,27 +7,21 @@ import Underline from '@tiptap/extension-underline'
 import { Markdown, type MarkdownStorage } from 'tiptap-markdown'
 import { Label } from '@/components/ui/label'
 import type { ExamBankQuestion } from './types'
+import { materialInlineHtml, materialInlinePlain, parseMaterialInline, type MaterialInline } from '@/lib/material-inline'
 
 // ── 마크다운 인라인 렌더러 ────────────────────────────────────────────────
 // **bold**, *italic*, <u>underline</u>을 React 요소로 변환
 
 // 각주 마커(* word, ** word)와 구분: 여는 * 뒤에 공백 없음, 닫는 * 앞에 공백 없음
-const MD_TOKEN_RE = /(\*\*(?!\s)[^*]+(?<!\s)\*\*|\*(?!\s)(?!\*)[^*]+(?<!\s)\*|<u>[^<]+<\/u>)/g
 
 // 마크다운 → HTML (한글/워드 붙여넣기용)
 export function mdToHtml(text: string): string {
-  return text
-    .replace(/\*\*(?!\s)([^*]+?)(?<!\s)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(?!\s)(?!\*)([^*]+?)(?<!\s)\*/g, '<em>$1</em>')
-    .replace(/\n/g, '<br>')
+  return materialInlineHtml(parseMaterialInline(text))
 }
 
 // 마크다운 기호 제거 (plain text용)
 export function mdToPlain(text: string): string {
-  return text
-    .replace(/\*\*(?!\s)([^*]+?)(?<!\s)\*\*/g, '$1')
-    .replace(/\*(?!\s)(?!\*)([^*]+?)(?<!\s)\*/g, '$1')
-    .replace(/<u>([^<]+)<\/u>/g, '$1')
+  return materialInlinePlain(parseMaterialInline(text))
 }
 
 function normalizeCopyBlock(text: string) {
@@ -89,24 +83,10 @@ export async function copyRich(plainText: string, htmlText: string) {
   }
 }
 
-function renderLine(line: string, lineKey: number) {
-  const parts = line.split(MD_TOKEN_RE)
-  return (
-    <span key={lineKey}>
-      {parts.map((part, i) => {
-        if (part.startsWith('**') && part.endsWith('**')) {
-          return <strong key={i}>{part.slice(2, -2)}</strong>
-        }
-        if (part.startsWith('*') && part.endsWith('*')) {
-          return <em key={i}>{part.slice(1, -1)}</em>
-        }
-        if (part.startsWith('<u>') && part.endsWith('</u>')) {
-          return <u key={i}>{part.slice(3, -4)}</u>
-        }
-        return part
-      })}
-    </span>
-  )
+function renderInline(nodes: MaterialInline[]): React.ReactNode {
+  return nodes.map((node, i) => node.kind === 'text' ? node.text : node.kind === 'bold'
+    ? <strong key={i}>{renderInline(node.children)}</strong> : node.kind === 'italic'
+      ? <em key={i}>{renderInline(node.children)}</em> : <u key={i}>{renderInline(node.children)}</u>)
 }
 
 export function MarkdownText({ text, className }: { text: string; className?: string }) {
@@ -115,7 +95,7 @@ export function MarkdownText({ text, className }: { text: string; className?: st
     const lines = text.split('\n')
     return lines.map((line, i) => (
       <span key={i}>
-        {renderLine(line, i)}
+        {renderInline(parseMaterialInline(line))}
         {i < lines.length - 1 && <br />}
       </span>
     ))

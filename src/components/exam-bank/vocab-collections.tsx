@@ -32,6 +32,7 @@ function csvCell(value: string | number) {
 }
 
 function sourceLabel(source: VocabSource) {
+  if (source.source_title) return `${source.source_title} · ${source.source_label ?? `${source.question_number}번`}`
   const numbers = source.question_numbers?.length
     ? source.question_numbers
     : [source.question_number]
@@ -213,7 +214,7 @@ export function VocabCollections() {
   const yearOptions = useMemo(() => {
     const years = new Set<number>([currentYear, defaultYearTo])
     for (const exam of examsForYears ?? []) {
-      if (Number.isFinite(exam.exam_year)) years.add(exam.exam_year)
+      if (typeof exam.exam_year === 'number' && Number.isFinite(exam.exam_year)) years.add(exam.exam_year)
     }
     for (const value of [yearFrom, yearTo]) {
       const year = Number(value)
@@ -377,7 +378,7 @@ export function VocabCollections() {
                     <button className="min-w-0 flex-1 text-left" onClick={() => setSelectedId(collection.id)}>
                       <p className="truncate text-sm font-semibold">{collection.title}</p>
                       <p className="mt-0.5 text-xs text-gray-400">
-                        {collection.year_from}-{collection.year_to}년 · {collection.item_count}개
+                        {collection.source_document_id ? '교재 어휘' : `${collection.year_from}-${collection.year_to}년`} · {collection.item_count}개
                       </p>
                     </button>
                     <button
@@ -412,7 +413,7 @@ export function VocabCollections() {
               <div className="min-w-0">
                 <h2 className="truncate text-base font-bold text-gray-900">{selectedCollection.title}</h2>
                 <p className="mt-0.5 text-xs text-gray-400">
-                  {selectedCollection.year_from}-{selectedCollection.year_to}년 · {selectedCollection.months.map((m) => m === 11 ? '수능' : `${m}월`).join(', ')}
+                  {selectedCollection.source_document_id ? '교재 어휘 · 빈도는 공유 지문 묶음 기준' : `${selectedCollection.year_from}-${selectedCollection.year_to}년 · ${selectedCollection.months.map((m) => m === 11 ? '수능' : `${m}월`).join(', ')}`}
                   <span className="mx-1.5">·</span>
                   {displayedItems.length}/{selectedCollection.items.length}개 표시
                 </p>

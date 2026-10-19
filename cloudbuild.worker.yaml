@@ -1,0 +1,8 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ['build', '-f', 'Dockerfile.worker', '-t', '${_IMAGE}', '.']
+images: ['${_IMAGE}']
+options:
+  # User-managed builds write only to the dedicated log bucket supplied at submit time.
+  logging: GCS_ONLY
+timeout: 1200s

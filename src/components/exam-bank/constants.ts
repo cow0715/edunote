@@ -25,6 +25,7 @@ export const QUESTION_TYPE_LABELS: Record<string, string> = {
   long_insert: '장문 삽입',
   long_content_match: '장문 내용 일치',
   long_title: '장문 제목/주제',
+  chart: '도표',
   other: '기타',
 }
 

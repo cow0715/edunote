@@ -5,6 +5,8 @@ export const MODEL_IDS = Object.freeze({
   haiku: 'claude-haiku-4-5-20251001',
   sonnet: 'claude-sonnet-5',
   opus: 'claude-opus-5',
+  sonnet55: 'claude-sonnet-5-5',
+  opus55: 'claude-opus-5-5',
   sonnet46: 'claude-sonnet-4-6',
   opus46: 'claude-opus-4-6',
 } as const)
@@ -48,6 +50,8 @@ const MODEL_CATALOG: readonly LlmModel[] = Object.freeze([
   model(MODEL_IDS.haiku, 'Haiku 4.5', true, { input: 1, output: 5 }),
   model(MODEL_IDS.sonnet, 'Sonnet 5', false, { input: 2, output: 10 }),
   model(MODEL_IDS.opus, 'Opus 5', false, { input: 5, output: 25 }),
+  model(MODEL_IDS.sonnet55, 'Sonnet 5.5', false),
+  model(MODEL_IDS.opus55, 'Opus 5.5', false),
   model(MODEL_IDS.sonnet46, 'Sonnet 4.6', true, { input: 3, output: 15 }),
   model(MODEL_IDS.opus46, 'Opus 4.6', true, { input: 5, output: 25 }),
 ])
