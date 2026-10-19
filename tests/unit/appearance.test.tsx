@@ -2,7 +2,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ThemeProvider } from '@/components/providers/theme-provider'
-import { ThemeSelect } from '@/components/layout/theme-select'
 import { ThemeToggle } from '@/components/layout/theme-toggle'
 
 const route = vi.hoisted(() => ({ pathname: '/share/test' }))
@@ -35,18 +34,16 @@ describe('appearance preference', () => {
     expect(localStorage.getItem('edunote-appearance')).toBe('light')
   })
 
-  it('switches through the menu, persists the choice and restores it on another screen', async () => {
-    const view = render(<ThemeProvider><ThemeSelect /></ThemeProvider>)
-    fireEvent.keyDown(screen.getByRole('button', { name: /화면 모드/ }), { key: 'Enter' })
-    fireEvent.click(await screen.findByRole('menuitemradio', { name: '다크' }))
+  it('persists the share toggle choice and restores it on another screen', async () => {
+    const view = render(<ThemeProvider><ThemeToggle /></ThemeProvider>)
+    fireEvent.click(screen.getByRole('switch', { name: '다크 모드' }))
     await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(true))
     expect(localStorage.getItem('edunote-appearance')).toBe('dark')
     view.unmount()
     route.pathname = '/dashboard'
-    render(<ThemeProvider><ThemeSelect /></ThemeProvider>)
-    expect(screen.getByRole('button', { name: '화면 모드: 다크' })).toBeTruthy()
-    fireEvent.keyDown(screen.getByRole('button', { name: /화면 모드/ }), { key: 'Enter' })
-    fireEvent.click(await screen.findByRole('menuitemradio', { name: '라이트' }))
+    render(<ThemeProvider><ThemeToggle /></ThemeProvider>)
+    expect(screen.getByRole('switch', { name: '다크 모드' }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(screen.getByRole('switch', { name: '다크 모드' }))
     await waitFor(() => expect(document.documentElement.classList.contains('light')).toBe(true))
     expect(localStorage.getItem('edunote-appearance')).toBe('light')
   })
@@ -54,12 +51,12 @@ describe('appearance preference', () => {
   it('keeps print routes light without overwriting the saved preference', async () => {
     localStorage.setItem('edunote-appearance', 'dark')
     route.pathname = '/dashboard/class/weeks/week/answer-sheet/print'
-    const view = render(<ThemeProvider><ThemeSelect /></ThemeProvider>)
+    const view = render(<ThemeProvider><ThemeToggle /></ThemeProvider>)
     await waitFor(() => expect(document.documentElement.classList.contains('light')).toBe(true))
-    expect((screen.getByRole('button') as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('switch') as HTMLButtonElement).disabled).toBe(true)
     expect(localStorage.getItem('edunote-appearance')).toBe('dark')
     route.pathname = '/share/test'
-    view.rerender(<ThemeProvider><ThemeSelect /></ThemeProvider>)
+    view.rerender(<ThemeProvider><ThemeToggle /></ThemeProvider>)
     await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(true))
   })
 })
