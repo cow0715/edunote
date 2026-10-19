@@ -1,6 +1,11 @@
+import { randomUUID } from 'node:crypto'
+import { sql } from 'drizzle-orm'
+import { captureWeekVersion, saveWeekPlan, readingTotals } from '@/lib/services/week-save'
+import { insertRows, updateRows, deleteRows, type Statement } from '@/lib/db/statements'
+import { saveErrorResponse, SaveError } from '@/lib/db/errors'
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeSubjectiveAnswers, SubjectiveStudentAnswer } from '@/lib/anthropic'
-import { recalcReadingCorrect, gradeMultiSelect } from '@/lib/grade-utils'
+import { gradeMultiSelect } from '@/lib/grade-utils'
 import { gradeOXAnswer, parseOXStudentInput } from '@/lib/ox-grading'
 import { assignFindErrorAnswers, type FindErrorAssignment } from '@/lib/find-error-grading'
 import { gradeObjective } from '@/lib/objective-grading'
@@ -22,12 +27,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { student_id, homework_done, memo } = await request.json()
   if (!student_id) return err('student_id 필요')
 
-  await supabase
-    .from('week_score')
-    .upsert(
+  try {
+    const version = await captureWeekVersion(user.id, weekId, [student_id])
+    await saveWeekPlan(user.id, weekId, version, insertRows('week_score', [
       { week_id: weekId, student_id, homework_done: homework_done ?? null, memo: memo || null },
-      { onConflict: 'week_id,student_id' }
-    )
+    ], ['week_id', 'student_id']), [student_id])
+  } catch (error) { return saveErrorResponse(error) }
 
   return ok({ ok: true })
 }
@@ -133,9 +138,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     return await handlePost(request, params)
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    console.error('[POST /api/weeks/[id]/grade] unhandled error', e)
-    return err(msg, 500)
+    return saveErrorResponse(e)
   }
 }
 
@@ -182,12 +185,20 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     return err('요청 데이터 파싱 실패')
   }
 
+  if (!Array.isArray(rows) || rows.some(row => !row.student_id || !Array.isArray(row.answers))) throw new SaveError('채점 데이터가 올바르지 않습니다.')
+  if (new Set(rows.map(row => row.student_id)).size !== rows.length) throw new SaveError('학생이 중복되었습니다.')
+  const version = await captureWeekVersion(user.id, weekId, rows.map(row => row.student_id))
+  const statements: Statement[] = []
+  const { data: existingScores, error: existingError } = await supabase.from('week_score').select('id,student_id').eq('week_id', weekId)
+  if (existingError) throw new SaveError('채점 자료 조회 실패', 503)
+  const scoreMap = new Map((existingScores ?? []).map(score => [score.student_id, score.id]))
   // 이 주차의 모든 문항 정보 한 번에 조회 (style, correct_answer, 모범답안)
-  const { data: allQuestions } = await supabase
+  const { data: allQuestions, error: questionsError } = await supabase
     .from('exam_question')
     .select('id, question_number, sub_label, correct_answer, extra_correct_answers, all_correct, correct_answer_text, grading_criteria, question_style')
     .eq('week_id', weekId)
 
+  if (questionsError) throw new SaveError('문항 조회 실패', 503)
   const questionMap = new Map(allQuestions?.map((q) => [q.id, q]) ?? [])
 
   // 서술형/오류교정 배치 채점용 수집 (모두 AI 경로)
@@ -196,30 +207,14 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
 
   for (const row of rows) {
     if (!row.present) {
-      await supabase
-        .from('week_score')
-        .delete()
-        .eq('week_id', weekId)
-        .eq('student_id', row.student_id)
+      statements.push(deleteRows('week_score', sql`week_id=${weekId}::uuid and student_id=${row.student_id}::uuid`))
       continue
     }
-
-    // reading_present=false이면 reading_correct를 null로 강제
-    const readingCorrectForUpsert = row.reading_present === false ? null : row.reading_correct
-
-    const { data: score, error: scoreError } = await supabase
-      .from('week_score')
-      .upsert(
-        { week_id: weekId, student_id: row.student_id, vocab_correct: row.vocab_correct, reading_correct: readingCorrectForUpsert, homework_done: row.homework_done, memo: row.memo || null },
-        { onConflict: 'week_id,student_id' }
-      )
-      .select()
-      .single()
-
-    if (scoreError) {
-      console.error('[POST /api/weeks/[id]/grade] week_score upsert', scoreError)
-      return err(scoreError.message, 500)
-    }
+    if (row.answers.some(answer => !questionMap.has(answer.exam_question_id))) throw new SaveError('다른 주차의 문항을 저장할 수 없습니다.', 403)
+    const score = { id: scoreMap.get(row.student_id) ?? randomUUID() }
+    statements.push(...insertRows('week_score', [{ id: score.id, week_id: weekId, student_id: row.student_id,
+      vocab_correct: row.vocab_correct, reading_correct: row.reading_present === false ? null : row.reading_correct,
+      homework_done: row.homework_done, memo: row.memo || null }], ['week_id','student_id']))
 
     // reading_present=false이면 answers 처리 스킵 + reading_correct=null 이미 upsert됨
     if (row.reading_present === false) continue
@@ -340,14 +335,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         }
       })
 
-      const { error: answerError } = await supabase
-        .from('student_answer')
-        .upsert(answersToUpsert, { onConflict: 'week_score_id,exam_question_id' })
-
-      if (answerError) {
-        console.error('[POST /api/weeks/[id]/grade] student_answer upsert', answerError)
-        return err(answerError.message, 500)
-      }
+      statements.push(...insertRows('student_answer', answersToUpsert, ['week_score_id','exam_question_id']))
 
       // AI 배치 채점 수집 — subjective 전부 + find_error 중 코드가 확정 못한 것('ai')만
       for (const a of row.answers) {
@@ -371,6 +359,8 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     }
   }
 
+  let aiFailure: string | undefined
+  const aiStatements: Statement[] = []
   // 서술형/오류교정 AI 배치 채점 (skip_ai=true이면 건너뜀)
   if (!skipAI && subjectiveForGrading.length > 0) {
     const uniqueKeys = [...new Set(subjectiveForGrading.map((a) => `${a.question_number}__${a.sub_label ?? ''}`))]
@@ -393,34 +383,22 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     if (subjectiveQuestions.length > 0) {
       try {
         const gradingResults = await gradeSubjectiveAnswers(subjectiveQuestions, subjectiveForGrading)
-
+        const expectedPairs = new Set(subjectiveForGrading.map(answer => `${answer.week_score_id}:${answer.exam_question_id}`))
         for (const result of gradingResults) {
-          await supabase
-            .from('student_answer')
-            .update({ is_correct: result.is_correct, needs_review: result.needs_review, ai_feedback: result.ai_feedback })
-            .eq('week_score_id', result.week_score_id)
-            .eq('exam_question_id', result.exam_question_id)
+          if (!expectedPairs.has(`${result.week_score_id}:${result.exam_question_id}`)) throw new SaveError('AI 채점 응답이 올바르지 않습니다.', 422)
+          aiStatements.push(updateRows('student_answer', { is_correct: result.is_correct, needs_review: result.needs_review, ai_feedback: result.ai_feedback },
+            sql`week_score_id=${result.week_score_id}::uuid and exam_question_id=${result.exam_question_id}::uuid`, true))
         }
       } catch (e) {
-        const errMsg = e instanceof Error ? e.message : String(e)
-        console.error('[POST /api/weeks/[id]/grade] AI grading failed', e)
-        // AI 실패해도 저장은 성공으로 처리 (reading_correct는 객관식만 반영됨)
-        await recalcReadingCorrect(supabase, processedScoreIds)
-        return ok({ ok: true, ai_grading_failed: true, ai_error: errMsg })
+        aiStatements.length = 0
+        aiFailure = e instanceof Error ? e.message : 'AI 채점 실패'
+
       }
     }
   }
 
-  // student_answer.is_correct 기준으로 reading_correct 자동 계산 (답안 없으면 null)
-  await recalcReadingCorrect(supabase, processedScoreIds)
-
-  // reading_total이 0인데 문항이 있으면 자동 업데이트
-  if (allQuestions && allQuestions.length > 0) {
-    const { data: week } = await supabase.from('week').select('reading_total').eq('id', weekId).single()
-    if (week && week.reading_total === 0) {
-      await supabase.from('week').update({ reading_total: allQuestions.length }).eq('id', weekId)
-    }
-  }
-
-  return ok({ ok: true })
+  statements.push(...aiStatements, ...readingTotals(processedScoreIds))
+  if (allQuestions?.length) statements.push(updateRows('week', { reading_total: allQuestions.length }, sql`id=${weekId}::uuid and reading_total=0`))
+  await saveWeekPlan(user.id, weekId, version, statements, rows.map(row => row.student_id))
+  return ok({ ok: true, ...(aiFailure ? { ai_grading_failed: true, ai_error: aiFailure } : {}) })
 }

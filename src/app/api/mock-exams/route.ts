@@ -1,5 +1,7 @@
+import { withTeacherTransaction } from '@/lib/db/transaction'
+import { saveErrorResponse } from '@/lib/db/errors'
+import { createMockExam } from '@/lib/services/mock-questions'
 import { assertClassOwner, err, getAuth, getTeacherId, ok } from '@/lib/api'
-import { buildDefaultMockExamQuestions, DEFAULT_ENGLISH_GRADE_CUTOFFS } from '@/lib/mock-exam'
 
 type MockExamCreateBody = {
   title?: string
@@ -56,35 +58,10 @@ export async function POST(request: Request) {
     return err('수업 접근 권한이 없습니다', 403)
   }
 
-  const { data: exam, error: examError } = await supabase
-    .from('mock_exam')
-    .insert({
-      teacher_id: teacherId,
-      class_id: classId,
-      title,
-      exam_year: examYear,
-      exam_month: examMonth,
-      grade: body.grade ? Number(body.grade) : null,
-      source: body.source?.trim() || '교육청',
-      exam_date: body.exam_date || null,
-      total_score: 100,
-      grade_cutoffs: DEFAULT_ENGLISH_GRADE_CUTOFFS,
-      status: 'draft',
-    })
-    .select()
-    .single()
-
-  if (examError) return err(examError.message, 500)
-
-  const questionRows = buildDefaultMockExamQuestions().map((question) => ({
-    mock_exam_id: exam.id,
-    ...question,
-  }))
-  const { error: questionError } = await supabase.from('mock_exam_question').insert(questionRows)
-  if (questionError) {
-    await supabase.from('mock_exam').delete().eq('id', exam.id)
-    return err(questionError.message, 500)
-  }
-
-  return ok(exam, { status: 201 })
+  try {
+    const exam=await withTeacherTransaction(user.id,context=>createMockExam(context,{
+      ...body,title,exam_year:examYear,exam_month:examMonth,class_id:classId,
+    }))
+    return ok(exam,{status:201})
+  } catch (error) { return saveErrorResponse(error) }
 }

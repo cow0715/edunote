@@ -1,3 +1,8 @@
+import { randomUUID } from 'node:crypto'
+import { sql } from 'drizzle-orm'
+import { captureWeekVersion, saveWeekPlan } from '@/lib/services/week-save'
+import { insertRows, updateRows, type Statement } from '@/lib/db/statements'
+import { saveErrorResponse, SaveError } from '@/lib/db/errors'
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeVocabPhoto } from '@/lib/anthropic'
 import type { VocabOcrExampleItem, VocabOcrExpectedItem } from '@/lib/prompts'
@@ -35,7 +40,11 @@ function one<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null
 }
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, args: { params: Promise<{ id: string }> }) {
+  try { return await handlePost(request, args) } catch (error) { return saveErrorResponse(error) }
+}
+
+async function handlePost(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
@@ -48,6 +57,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!teacherId) return err('강사 정보 없음', 404)
   if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
+  const version = await captureWeekVersion(user.id, weekId, [studentId])
+  const statements: Statement[] = []
   const { data: weekRow } = await supabase
     .from('week')
     .select('class_id, vocab_source_type')
@@ -63,7 +74,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!classStudent) return err('해당 수업 학생이 아닙니다', 403)
 
   // ── 1. 활성 시험지가 있으면 시험지 문항 기준, 없으면 기존 vocab_word 기준 ──
-  const { data: activeTest } = await supabase
+  const { data: activeTest, error: testReadError } = await supabase
     .from('vocab_test')
     .select('id, item_count')
     .eq('week_id', weekId)
@@ -72,21 +83,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .limit(1)
     .maybeSingle()
 
+  if (testReadError) throw new SaveError('시험지 조회 실패', 503)
   let testItems: VocabTestItemForGrading[] = []
   if (activeTest) {
-    const { data } = await supabase
+    const { data, error: itemsReadError } = await supabase
       .from('vocab_test_item')
       .select('test_number, sort_order, prompt_source, prompt_text, vocab_word(id, number, english_word, correct_answer, example_sentence), vocab_word_variant(id, word, meaning, relation_type)')
       .eq('vocab_test_id', activeTest.id)
       .order('sort_order')
+    if (itemsReadError) throw new SaveError('시험 문항 조회 실패', 503)
     testItems = (data ?? []) as unknown as VocabTestItemForGrading[]
   }
 
-  const { data: existingVocabWords } = await supabase
+  const { data: existingVocabWords, error: wordsReadError } = await supabase
     .from('vocab_word')
     .select('id, number, english_word, correct_answer')
     .eq('week_id', weekId)
 
+  if (wordsReadError) throw new SaveError('단어 조회 실패', 503)
   if (!activeTest && weekRow.vocab_source_type && weekRow.vocab_source_type !== 'legacy' && (existingVocabWords?.length ?? 0) > 0) {
     return err('시험용 단어를 먼저 선택해주세요', 422)
   }
@@ -185,25 +199,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const existingNumbers = new Set(gradingWords.map((w) => w.number))
     const newWordRows = results.filter((r) => !existingNumbers.has(r.number))
     if (!activeTest && newWordRows.length > 0) {
-      const { data: inserted } = await supabase
-        .from('vocab_word')
-        .insert(newWordRows.map((r) => ({ week_id: weekId, number: r.number, english_word: r.english_word })))
-        .select('id, number')
+      const inserted = newWordRows.map(r => ({ id: randomUUID(), week_id: weekId, number: r.number, english_word: r.english_word }))
+      statements.push(...insertRows('vocab_word', inserted))
       for (const w of inserted ?? []) vocabWordMap.set(w.number, w.id)
     }
   } else {
-    const { data: vocabWords, error: vocabWordError } = await supabase
-      .from('vocab_word')
-      .upsert(
-        results.map((r) => ({ week_id: weekId, number: r.number, english_word: r.english_word })),
-        { onConflict: 'week_id,number' }
-      )
-      .select('id, number')
-
-    if (vocabWordError) {
-      console.error('[grade-vocab-photo] vocab_word upsert 실패', vocabWordError)
-      return err(vocabWordError.message, 500)
-    }
+    const vocabWords = results.map(r => ({ id: randomUUID(), week_id: weekId, number: r.number, english_word: r.english_word }))
+    statements.push(...insertRows('vocab_word', vocabWords))
     vocabWordMap = new Map((vocabWords ?? []).map((w) => [w.number, w.id]))
   }
 
@@ -211,36 +213,30 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // 먼저 기존 row 조회, 없으면 생성
   let score: { id: string }
   {
-    const { data: existing } = await supabase
+    const { data: existing, error: scoreReadError } = await supabase
       .from('week_score')
       .select('id')
       .eq('week_id', weekId)
       .eq('student_id', studentId)
       .maybeSingle()
 
+    if (scoreReadError) throw new SaveError('기존 성적 조회 실패', 503)
     if (existing) {
       score = existing
     } else {
-      const { data: created, error: createError } = await supabase
-        .from('week_score')
-        .insert({ week_id: weekId, student_id: studentId })
-        .select('id')
-        .single()
-      if (createError || !created) {
-        console.error('[grade-vocab-photo] week_score 생성 실패', createError)
-        return err('week_score 생성 실패', 500)
-      }
-      score = created
+      score = { id: randomUUID() }
+      statements.push(...insertRows('week_score', [{ id: score.id, week_id: weekId, student_id: studentId }]))
     }
   }
 
   // ── 5. student_vocab_answer upsert ─────────────────────────────────────
   // teacher_locked=true 항목은 AI 결과로 덮어쓰지 않음 (is_correct + student_answer 모두 보존)
-  const { data: lockedAnswers } = await supabase
+  const { data: lockedAnswers, error: lockedError } = await supabase
     .from('student_vocab_answer')
     .select('vocab_word_id, is_correct, student_answer, test_number')
     .eq('week_score_id', score.id)
     .eq('teacher_locked', true)
+  if (lockedError) throw new SaveError('확정 답안 조회 실패', 503)
   const lockedMap = new Map(
     (lockedAnswers ?? []).map((a) => [a.vocab_word_id, { is_correct: a.is_correct, student_answer: a.student_answer, test_number: a.test_number as number | null }])
   )
@@ -280,40 +276,32 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
 
-  if (answerInserts.length > 0) {
-    const { error: answerError } = await supabase
-      .from('student_vocab_answer')
-      .upsert(answerInserts, { onConflict: 'week_score_id,vocab_word_id' })
-    if (answerError) console.error('[grade-vocab-photo] student_vocab_answer upsert 실패', answerError)
-  }
+  statements.push(...insertRows('student_vocab_answer', answerInserts, ['week_score_id','vocab_word_id']))
 
   // ── 4-b. vocab_correct 계산 후 업데이트 (매핑 성공 항목만, teacher_locked 반영) ──
   const vocabCorrect = answerInserts.filter((a) => a.is_correct).length
-  await supabase.from('week_score').update({ vocab_correct: vocabCorrect }).eq('id', score.id)
+  statements.push(updateRows('week_score', { vocab_correct: vocabCorrect }, sql`id=${score.id}::uuid`, true))
 
   // ── 6. week.vocab_total 자동 업데이트 ────────────────────────────────
   // 기존 단어가 있으면 그 수를 기준으로, 없으면 OCR 결과 수 사용
   const vocabTotal = gradingWords.length > 0 ? gradingWords.length : results.length
-  await supabase.from('week').update({ vocab_total: vocabTotal }).eq('id', weekId)
+  statements.push(updateRows('week', { vocab_total: vocabTotal }, sql`id=${weekId}::uuid`, true))
 
-  // ── 7. 사진 Storage 업로드 (채점과 독립적으로 처리) ───────────────────
-  // 경로는 확장자 없이 {weekId}/{studentId} — 확장자를 붙이면 png→jpg 재채점 때 파일이 2개가 돼 upsert 가 안 된다.
-  // contentType 은 업로드 시 따로 주므로 서명 URL 로 볼 때 문제 없다.
-  // 예전 형식(.jpg/.png)으로 저장된 파일이 있으면 같이 지운다 (DB 경로는 새 것으로 갱신되니 참조 안 됨).
+  // Upload a new immutable object outside the transaction; only publish its
+  // path together with answers/totals. A stale result never replaces live media.
+  const storagePath = `${weekId}/${studentId}/${randomUUID()}`
+  const bucket = supabase.storage.from('vocab-photos')
+  let uploaded = false
   try {
-    const storagePath = `${weekId}/${studentId}`
-    const buffer = Buffer.from(fileData, 'base64')
-    const bucket = supabase.storage.from('vocab-photos')
-    const { error: uploadError } = await bucket.upload(storagePath, buffer, { contentType: mimeType, upsert: true })
-    if (!uploadError) {
-      await supabase.from('week_score').update({ vocab_photo_path: storagePath }).eq('id', score.id)
-      // 구 형식 잔여 파일 정리 (없으면 remove 가 조용히 무시)
-      void bucket.remove([`${storagePath}.jpg`, `${storagePath}.png`])
-    } else {
-      console.error('[grade-vocab-photo] 사진 업로드 실패', uploadError)
-    }
-  } catch (e) {
-    console.error('[grade-vocab-photo] 사진 업로드 예외', e)
+    const { error } = await bucket.upload(storagePath, Buffer.from(fileData, 'base64'), { contentType: mimeType })
+    uploaded = !error
+  } catch { /* Photo upload is optional; grading can still be saved. */ }
+  if (uploaded) statements.push(updateRows('week_score', { vocab_photo_path: storagePath }, sql`id=${score.id}::uuid`, true))
+  try {
+    await saveWeekPlan(user.id, weekId, version, statements, [studentId])
+  } catch (error) {
+    if (uploaded) await bucket.remove([storagePath]).catch(() => undefined)
+    throw error
   }
 
   // 결손 보고 — 시험지 문항 중 저장까지 못 간 번호. 예전엔 50문항 중 35개만 와도
