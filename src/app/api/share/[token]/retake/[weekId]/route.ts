@@ -1,6 +1,7 @@
 import { createServiceClient } from '@/lib/supabase/server'
 import { SHARE_CLOSED_ERROR, SHARE_EXPIRED_ERROR, SHARE_NOT_FOUND_ERROR, canViewShareByStudentId, resolveShareToken } from '@/lib/share-access'
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { gradeVocabItems } from '@/lib/anthropic'
 import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
 import { gradeBlankAnswer, gradeChoiceAnswer } from '@/lib/vocab-blank-grading'
@@ -216,10 +217,14 @@ export async function POST(request: Request, { params }: { params: Promise<Param
     return NextResponse.json({ error: '공유가 종료되었습니다' }, { status: 403 })
   }
 
-  const { answers } = await request.json() as {
-    answers: { answer_id: string; english_word: string; retake_answer: string }[]
+  const parsed = z.object({ answers: z.array(z.object({
+    answer_id: z.string().uuid(), english_word: z.string().max(1000), retake_answer: z.string().max(5000),
+  })).min(1).max(500) }).safeParse(await request.json().catch(() => null))
+  if (!parsed.success) return NextResponse.json({ error: '답안을 확인해 주세요' }, { status: 400 })
+  const { answers } = parsed.data
+  if (new Set(answers.map(a => a.answer_id)).size !== answers.length) {
+    return NextResponse.json({ error: '중복된 답안입니다' }, { status: 400 })
   }
-  if (!answers?.length) return NextResponse.json({ error: '답안 없음' }, { status: 400 })
 
   // vocab grading rules
   const { data: promptRow } = await supabase
@@ -230,10 +235,19 @@ export async function POST(request: Request, { params }: { params: Promise<Param
   const customRules = promptRow?.content ?? undefined
 
   // 정답·유형 조회. 예문빈칸/선택은 활성 시험지 prompt_text 로 정답 영어를 역산한다
-  const { data: answerDetails } = await supabase
+  const { data: answerDetails, error: detailError } = await supabase
     .from('student_vocab_answer')
     .select('id, test_source, vocab_word_id, vocab_word(english_word, correct_answer, example_sentence), vocab_word_variant(meaning)')
     .in('id', answers.map((a) => a.answer_id))
+    .eq('week_score_id', score.id)
+    .eq('is_correct', false)
+
+  // Service-role reads must be scoped to the token's student and requested week.
+  // Reject the entire submission before grading or writes if any ID is foreign.
+  if (detailError) return NextResponse.json({ error: '답안을 불러오지 못했습니다' }, { status: 503 })
+  if (!answerDetails || answerDetails.length !== answers.length) {
+    return NextResponse.json({ error: '재시험 대상이 아닌 답안입니다' }, { status: 400 })
+  }
 
   const detailRows = (answerDetails ?? []) as unknown as Array<{
     id: string
@@ -304,30 +318,43 @@ export async function POST(request: Request, { params }: { params: Promise<Param
   }
 
   // 채점 결과 저장 (이전 시도 덮어씌우기)
-  await Promise.all(
+  const saved = await Promise.all(
     answers.map((a) => {
       const is_correct = resultMap.get(a.answer_id) ?? false
       return supabase
         .from('student_vocab_answer')
         .update({ retake_answer: a.retake_answer || null, retake_is_correct: is_correct })
         .eq('id', a.answer_id)
+        .eq('week_score_id', score.id)
+        .eq('is_correct', false)
+        .select('id')
     })
   )
 
+  if (saved.some(r => r.error || r.data?.length !== 1)) {
+    return NextResponse.json({ error: '답안을 저장하지 못했습니다. 다시 시도해 주세요' }, { status: 503 })
+  }
+
   // 전체 누적 통계 재계산
-  const { data: allAnswersAfter } = await supabase
+  const { data: allAnswersAfter, error: statsError } = await supabase
     .from('student_vocab_answer')
     .select('retake_is_correct')
     .eq('week_score_id', score.id)
     .eq('is_correct', false)
 
+  if (statsError) return NextResponse.json({ error: '결과를 불러오지 못했습니다' }, { status: 503 })
+
   const totalMastered = (allAnswersAfter ?? []).filter((a) => a.retake_is_correct === true).length
   const remaining = (allAnswersAfter ?? []).filter((a) => a.retake_is_correct !== true).length
 
-  await supabase
+  const { data: savedScore, error: scoreError } = await supabase
     .from('week_score')
     .update({ vocab_retake_correct: totalMastered })
     .eq('id', score.id)
+    .select('id')
+  if (scoreError || savedScore?.length !== 1) {
+    return NextResponse.json({ error: '결과를 저장하지 못했습니다. 다시 시도해 주세요' }, { status: 503 })
+  }
 
   const results = answers.map((a) => ({
     answer_id: a.answer_id,
