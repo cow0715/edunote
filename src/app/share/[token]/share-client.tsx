@@ -339,7 +339,7 @@ export function ShareReport({ data, token, selectedPeriodId, onSelectPeriod, onS
               <span className="text-[10px] text-[var(--share-muted2)]">▾</span>
             </button>
           )}
-          <ThemeToggle />
+          <ThemeToggle compact />
         </div>
       </header>
 
