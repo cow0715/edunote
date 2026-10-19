@@ -301,7 +301,7 @@ export default function StudentsPage() {
         <div className="relative w-44">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <Input
-            placeholder="이름 검색"
+            placeholder="이름 검색" aria-label="이름 검색"
             value={searchName}
             onChange={(e) => setSearchName(e.target.value)}
             className="pl-9"
@@ -310,14 +310,14 @@ export default function StudentsPage() {
         <div className="relative w-44">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <Input
-            placeholder="전화번호 검색"
+            placeholder="전화번호 검색" aria-label="전화번호 검색" type="tel"
             value={searchPhone}
             onChange={(e) => setSearchPhone(e.target.value)}
             className="pl-9"
           />
         </div>
         <select
-          value={searchGrade}
+          aria-label="학년 필터" value={searchGrade}
           onChange={(e) => setSearchGrade(e.target.value)}
           className="rounded-md border border-input bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
         >
@@ -327,7 +327,7 @@ export default function StudentsPage() {
           ))}
         </select>
         <select
-          value={searchClass}
+          aria-label="반 필터" value={searchClass}
           onChange={(e) => setSearchClass(e.target.value)}
           className="rounded-md border border-input bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
         >
@@ -337,7 +337,7 @@ export default function StudentsPage() {
           ))}
         </select>
         <select
-          value={searchStatus}
+          aria-label="재원 상태 필터" value={searchStatus}
           onChange={(e) => setSearchStatus(e.target.value as 'all' | 'active' | 'withdrawn')}
           className="rounded-md border border-input bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
         >
@@ -376,62 +376,44 @@ export default function StudentsPage() {
             <table className="w-full text-sm">
               <thead className="border-b border-gray-100 bg-gray-50/70">
                 <tr>
-                  <th
-                    className={thSortClass}
-                    onClick={() => handleSort('name')}
-                  >
-                    <span className="flex items-center">
+                  <th className={thSortClass} aria-sort={sortKey === 'name' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <button type="button" className="flex items-center focus-visible:outline-2 focus-visible:outline-ring" onClick={() => handleSort('name')}>
                       이름
                       <SortIcon col="name" sortKey={sortKey} sortDir={sortDir} />
-                    </span>
+                    </button>
                   </th>
-                  <th
-                    className={thSortClass}
-                    onClick={() => handleSort('school')}
-                  >
-                    <span className="flex items-center">
+                  <th className={thSortClass} aria-sort={sortKey === 'school' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <button type="button" className="flex items-center focus-visible:outline-2 focus-visible:outline-ring" onClick={() => handleSort('school')}>
                       학교
                       <SortIcon col="school" sortKey={sortKey} sortDir={sortDir} />
-                    </span>
+                    </button>
                   </th>
-                  <th
-                    className={thSortClass}
-                    onClick={() => handleSort('grade')}
-                  >
-                    <span className="flex items-center">
+                  <th className={thSortClass} aria-sort={sortKey === 'grade' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <button type="button" className="flex items-center focus-visible:outline-2 focus-visible:outline-ring" onClick={() => handleSort('grade')}>
                       학년
                       <SortIcon col="grade" sortKey={sortKey} sortDir={sortDir} />
-                    </span>
+                    </button>
                   </th>
                   <th className={thClass}>학생 연락처</th>
                   <th className={thClass}>부 연락처</th>
                   <th className={thClass}>모 연락처</th>
-                  <th
-                    className={thSortClass}
-                    onClick={() => handleSort('class')}
-                  >
-                    <span className="flex items-center">
+                  <th className={thSortClass} aria-sort={sortKey === 'class' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <button type="button" className="flex items-center focus-visible:outline-2 focus-visible:outline-ring" onClick={() => handleSort('class')}>
                       반
                       <SortIcon col="class" sortKey={sortKey} sortDir={sortDir} />
-                    </span>
+                    </button>
                   </th>
-                  <th
-                    className={thSortClass}
-                    onClick={() => handleSort('joined_at')}
-                  >
-                    <span className="flex items-center">
+                  <th className={thSortClass} aria-sort={sortKey === 'joined_at' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <button type="button" className="flex items-center focus-visible:outline-2 focus-visible:outline-ring" onClick={() => handleSort('joined_at')}>
                       입원일
                       <SortIcon col="joined_at" sortKey={sortKey} sortDir={sortDir} />
-                    </span>
+                    </button>
                   </th>
-                  <th
-                    className={thSortClass}
-                    onClick={() => handleSort('left_at')}
-                  >
-                    <span className="flex items-center">
+                  <th className={thSortClass} aria-sort={sortKey === 'left_at' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <button type="button" className="flex items-center focus-visible:outline-2 focus-visible:outline-ring" onClick={() => handleSort('left_at')}>
                       퇴원일
                       <SortIcon col="left_at" sortKey={sortKey} sortDir={sortDir} />
-                    </span>
+                    </button>
                   </th>
                   <th className={thClass}>상태</th>
                   <th className={`${thClass} text-right`}>액션</th>
@@ -501,7 +483,8 @@ export default function StudentsPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-7 px-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="h-7 px-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                            aria-label={`${s.name} 정보 수정`}
                             onClick={() => handleEdit(s)}
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -509,8 +492,9 @@ export default function StudentsPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-7 px-2 text-red-500 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="h-7 px-2 text-red-500 hover:text-red-600 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                             disabled={deleteStudent.isPending}
+                            aria-label={`${s.name} 삭제`}
                             onClick={() => handleDelete(s.id)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />

@@ -21,7 +21,7 @@ interface TeacherProfile {
 }
 
 export default function SettingsPage() {
-  const { data, refetch, isLoading } = useQuery({
+  const { data, refetch, isLoading, isError } = useQuery({
     queryKey: ['teacher-profile'],
     queryFn: async (): Promise<TeacherProfile> => {
       const res = await fetch('/api/teacher/profile')
@@ -58,12 +58,16 @@ export default function SettingsPage() {
   }
 
   async function handleSave() {
+    if (!form.name.trim()) {
+      toast.error('담당 강사 이름을 입력해 주세요')
+      return
+    }
     await runWithLoading(setSaving, async () => {
       const res = await fetch('/api/teacher/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: form.name || null,
+          name: form.name.trim(),
           academy_name: form.academy_name || null,
           academy_english_name: form.academy_english_name || null,
           academy_address: form.academy_address || null,
@@ -81,6 +85,16 @@ export default function SettingsPage() {
     return <div className="p-6 text-sm text-gray-500">불러오는 중...</div>
   }
 
+  if (isError || !data) {
+    return (
+      <div className="p-6 max-w-2xl space-y-4">
+        <h1 className="text-xl font-bold text-gray-900">학원 정보 설정</h1>
+        <p role="alert" className="text-sm text-destructive">설정을 불러오지 못했습니다. 다시 시도해 주세요.</p>
+        <Button onClick={() => { void refetch() }}>다시 시도</Button>
+      </div>
+    )
+  }
+
   return (
     <div className="p-6 max-w-2xl space-y-6">
       <div>
@@ -91,8 +105,8 @@ export default function SettingsPage() {
       <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-4">
         <h2 className="text-sm font-semibold text-gray-900">담당 강사</h2>
         <div className="space-y-2">
-          <Label htmlFor="name" className="text-xs">담당 강사 이름</Label>
-          <Input id="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="예: 김선생" />
+          <Label htmlFor="name" className="text-xs">담당 강사 이름 (필수)</Label>
+          <Input id="name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="예: 김선생" />
         </div>
       </div>
 
@@ -112,7 +126,7 @@ export default function SettingsPage() {
         </div>
         <div className="space-y-2">
           <Label htmlFor="academy_phone" className="text-xs">전화번호</Label>
-          <Input id="academy_phone" value={form.academy_phone} onChange={(e) => setForm({ ...form, academy_phone: e.target.value })} placeholder="예: 02-1234-5678" />
+          <Input id="academy_phone" type="tel" autoComplete="tel" value={form.academy_phone} onChange={(e) => setForm({ ...form, academy_phone: e.target.value })} placeholder="예: 02-1234-5678" />
         </div>
         <div className="space-y-2">
           <Label htmlFor="director_name" className="text-xs">원장 이름</Label>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -107,6 +107,7 @@ export function StudentFormDialog({ open, onClose, editTarget }: Props) {
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{isEdit ? '학생 정보 수정' : '학생 등록'}</DialogTitle>
+          <DialogDescription className="sr-only">학생 이름은 필수이며 연락처와 수업 배정은 선택 사항입니다.</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3 pt-2">
