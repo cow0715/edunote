@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -9,8 +9,11 @@ import { ExamQuestion } from '@/lib/types'
 import { GradeRow } from '@/hooks/use-grade'
 import { StyleBadge } from './question-inputs'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { FocusReview } from './focus-review'
 import { buildReviewQueue, type ReviewDraft } from '@/lib/review-workflow'
+
+import { cacheReviewDrafts, restoreReviewDrafts, removeCachedReviewDrafts } from '@/lib/review-draft-cache'
 
 type Override = ReviewDraft
 
@@ -54,19 +57,40 @@ export function SubjectiveReviewPanel({
   // 검토 대기 건이 있으면 그것만 모아 보여주는 게 기본 — 전체는 칩으로 전환
   const [filterChoice, setFilterChoice] = useState<'review' | 'all' | null>(null)
   const [focusMode, setFocusMode] = useState(false)
+  const [pendingHref, setPendingHref] = useState<string | null>(null)
+  const pendingLink = useRef<HTMLAnchorElement | null>(null)
+  const allowNavigation = useRef(false)
+  const [restoredCount, setRestoredCount] = useState(0)
   const [sessionWeek, setSessionWeek] = useState<string | null>(null)
   if (sessionWeek !== weekId) {
     setSessionWeek(weekId)
-    setOverrides(new Map())
+    const restored = restoreReviewDrafts(weekId, questions, rows)
+    setOverrides(restored)
+    setRestoredCount(restored.size)
     setFilterChoice(null)
     setFocusMode(false)
+    setPendingHref(null)
   }
   const reviewQueue = buildReviewQueue(questions, rows)
+  useEffect(() => { cacheReviewDrafts(weekId, overrides, questions, rows) }, [weekId, overrides, questions, rows])
   useEffect(() => {
     if (!overrides.size) return
     function warn(event: BeforeUnloadEvent) { event.preventDefault(); event.returnValue = '' }
+    function protectLink(event: MouseEvent) {
+      if (allowNavigation.current || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      const link = event.target instanceof Element ? event.target.closest('a[href]') : null
+      if (!(link instanceof HTMLAnchorElement) || link.hasAttribute('download') || (link.target && link.target !== '_self')) return
+      const destination = new URL(link.href, location.href)
+      if (destination.protocol !== 'http:' && destination.protocol !== 'https:') return
+      if (destination.origin === location.origin && destination.pathname === location.pathname && destination.search === location.search) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      pendingLink.current = link
+      setPendingHref(link.href)
+    }
+    document.addEventListener('click', protectLink, true)
     window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
+    return () => { window.removeEventListener('beforeunload', warn); document.removeEventListener('click', protectLink, true) }
   }, [overrides.size])
   const onlyReview = (filterChoice ?? (needsReviewTotal > 0 ? 'review' : 'all')) === 'review'
 
@@ -92,6 +116,8 @@ export function SubjectiveReviewPanel({
     mutationFn: async () => {
       const body = [...overrides.values()]
       if (body.length === 0) return
+      const valid = restoreReviewDrafts(weekId, questions, rows)
+      if (body.some(draft => valid.get(getKey(draft.student_id, draft.exam_question_id))?.is_correct !== draft.is_correct)) throw new Error('답안 또는 채점 기준이 변경되었습니다. 임시 판정을 취소한 뒤 다시 검토해 주세요.')
       const res = await fetch(`/api/weeks/${weekId}/grade-confirm`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -103,6 +129,7 @@ export function SubjectiveReviewPanel({
       return body
     },
     onSuccess: async (saved) => {
+      removeCachedReviewDrafts(weekId, saved ?? [])
       await qc.refetchQueries({ queryKey: ['grade', weekId] })
       setOverrides(previous => {
         const next = new Map(previous)
@@ -122,6 +149,17 @@ export function SubjectiveReviewPanel({
 
   return (
     <fieldset disabled={confirm.isPending} className="min-w-0 space-y-5">
+      <Dialog open={pendingHref !== null} onOpenChange={open => { if (!open) setPendingHref(null) }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>저장하지 않은 판정이 있습니다</DialogTitle><DialogDescription>임시 판정 {pendingCount}건은 성적에 반영되지 않았습니다. 이 탭에서 1시간 안에 돌아오면 변경되지 않은 답안의 판정을 복원합니다. 다른 화면으로 이동할까요?</DialogDescription></DialogHeader>
+          <DialogFooter className="gap-2"><Button type="button" className="min-h-11" variant="outline" onClick={() => setPendingHref(null)}>계속 검토</Button><Button type="button" className="min-h-11" onClick={() => {
+            setPendingHref(null)
+            const link = pendingLink.current
+            if (link?.isConnected) { allowNavigation.current = true; try { link.click() } finally { allowNavigation.current = false } }
+          }}>저장하지 않고 이동</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {restoredCount > 0 && pendingCount > 0 && <p role="status" className="text-sm text-muted-foreground">이동 전 임시 판정 {restoredCount}건을 복원했습니다. 저장해야 성적에 반영됩니다.</p>}
       {/* 헤더: 검토 대기 배지 + 필터 칩 */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">

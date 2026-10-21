@@ -3,11 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SubjectiveReviewPanel } from '@/components/grade/subjective-review-panel'
+import { clearReviewDraftCache } from '@/lib/review-draft-cache'
 import type { ExamQuestion } from '@/lib/types'
 import type { GradeRow } from '@/hooks/use-grade'
 
 afterEach(() => {
   cleanup()
+  clearReviewDraftCache()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -243,4 +246,53 @@ it('keeps review locked until the refreshed grade query finishes', async () => {
     refreshDone()
     await screen.findByRole('button', { name: '변경 없음' })
   } finally { refresh.mockRestore() }
+})
+
+it('can cancel a route link and restores drafts after the panel unmounts', () => {
+ const first=renderPanel([makeRow('s1','학생',{text:'답',needs_review:true})])
+ fireEvent.click(screen.getByRole('button',{name:'정답'}))
+ const link=document.createElement('a');link.href='/students';document.body.append(link)
+ const event=new MouseEvent('click',{bubbles:true,cancelable:true})
+ fireEvent(link,event)
+ expect(event.defaultPrevented).toBe(true)
+ expect(screen.getByRole('dialog')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'계속 검토'}))
+ expect(screen.queryByRole('dialog')).toBeNull()
+ link.remove();first.unmount()
+ renderPanel([makeRow('s1','학생',{text:'답',needs_review:true})])
+ expect(screen.getByText(/임시 판정 1건을 복원/)).toBeTruthy()
+ expect(screen.getByRole('button',{name:'검토 완료 저장 (1건)'})).toBeTruthy()
+})
+it('does not restore saved decisions on reopening the panel', async () => {
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({ok:true})}))
+ const rows=[makeRow('s1','학생',{text:'답',needs_review:true})]
+ const view=renderPanel(rows)
+ fireEvent.click(screen.getByRole('button',{name:'정답'}))
+ fireEvent.click(screen.getByRole('button',{name:'검토 완료 저장 (1건)'}))
+ await screen.findByRole('button',{name:'변경 없음'})
+ view.unmount();renderPanel(rows)
+ expect(screen.queryByText(/임시 판정 1건을 복원/)).toBeNull()
+})
+
+it('blocks saving a decision if its original answer changed while reviewing',async()=>{
+ const fetchMock=vi.fn();vi.stubGlobal('fetch',fetchMock)
+ const qc=new QueryClient()
+ const content=(text:string)=><QueryClientProvider client={qc}><SubjectiveReviewPanel weekId="source-change" questions={[makeQuestion()]} rows={[makeRow('s1','학생',{text,needs_review:true})]}/></QueryClientProvider>
+ const view=render(content('원래 답안'))
+ fireEvent.click(screen.getByRole('button',{name:'정답'}))
+ view.rerender(content('서버에서 바뀐 답안'))
+ fireEvent.click(screen.getByRole('button',{name:'검토 완료 저장 (1건)'}))
+ await waitFor(()=>expect((screen.getByRole('button',{name:'검토 완료 저장 (1건)'}) as HTMLButtonElement).disabled).toBe(false))
+ expect(fetchMock).not.toHaveBeenCalled()
+})
+
+it('still allows an explicit correction of a previously confirmed answer',async()=>{
+ const fetchMock=vi.fn().mockResolvedValue({ok:true,json:async()=>({ok:true})});vi.stubGlobal('fetch',fetchMock)
+ const row=makeRow('s1','학생',{text:'이전에 확정한 답안',needs_review:false,is_correct:true})
+ row.answers[0].teacher_confirmed=true
+ renderPanel([row])
+ fireEvent.click(screen.getByRole('button',{name:'오답'}))
+ fireEvent.click(screen.getByRole('button',{name:'검토 완료 저장 (1건)'}))
+ await waitFor(()=>expect(fetchMock).toHaveBeenCalledOnce())
+ expect(JSON.parse(fetchMock.mock.calls[0][1].body)[0].is_correct).toBe(false)
 })

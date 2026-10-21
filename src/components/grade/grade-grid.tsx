@@ -11,6 +11,7 @@ import { formatOXStudentInput, oxNotation } from '@/lib/ox-grading'
 import { cn } from '@/lib/utils'
 import { VocabSheetContent, VocabAnswerRow } from './vocab-sheet-content'
 import { ExamSheetContent } from './exam-sheet-content'
+import { MobileGradeCards } from './mobile-grade-cards'
 import { SubjectiveReviewPanel } from './subjective-review-panel'
 import { VocabBatchGradeDialog } from './vocab-batch-grade-dialog'
 import { ExamBatchGradeDialog } from './exam-batch-grade-dialog'
@@ -337,12 +338,12 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
 
       {/* 일괄 사진 처리 */}
       {(showVocab || questions.length > 0) && (
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {questions.length > 0 && (
             <button
               type="button"
               onClick={() => setExamBatchOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-border bg-[var(--control-bg)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+              className="flex min-h-11 items-center gap-1.5 rounded-lg border border-border bg-[var(--control-bg)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
             >
               <Camera className="h-3.5 w-3.5" />
               답안지 일괄 판독
@@ -352,7 +353,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           <button
             type="button"
             onClick={() => setBatchOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-[var(--control-bg)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+            className="flex min-h-11 items-center gap-1.5 rounded-lg border border-border bg-[var(--control-bg)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
           >
             <Images className="h-3.5 w-3.5" />
             단어 시험지 일괄 채점
@@ -406,8 +407,11 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           </div>
         )}
 
+      <MobileGradeCards rows={rows} vocabTotal={vocabTotal} readingTotal={effectiveReadingTotal} homeworkTotal={homeworkTotal} showExam={showExam} saving={saveGrade.isPending}
+        onUpdate={updateRow} onScoreSave={row => saveWeekScore.mutate({ student_id: row.student_id, homework_done: row.homework_done, memo: row.memo })}
+        onOpen={(type,studentIndex) => setSheetView({ type, studentIndex })} />
       {/* 테이블 */}
-      <div className="rounded-xl border bg-white overflow-hidden">
+      <div className="hidden overflow-x-auto rounded-xl border bg-card md:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-gray-50/80">
