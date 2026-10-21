@@ -8,6 +8,7 @@ import { bookFingerprint, bookProofMatches, bookSourceFingerprint } from './proo
 import { publishVerifiedBook } from './publish'
 import type { BookDocument, BookDraftUnit } from './types'
 import { processNativeBookUnit, type NativeBookResult } from './native-pipeline'
+import { NATIVE_RECOVERY_REVISION, needsUpdatedNativeRecovery } from './recovery-policy'
 
 export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, bytes: Uint8Array) {
   const pdfHash = createHash('sha256').update(bytes).digest('hex')
@@ -32,7 +33,12 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
     if (document.manifest && !document.manifest.errors.length && data?.length === document.manifest.units.length && data.every((u) => bookProofMatches(u as BookDraftUnit))) {
       return { document_id: document.id, exam_id: await publishVerifiedBook(client, document), auto_published: true }
     }
-    return { document_id: document.id, auto_published: false, verification_unresolved: true }
+    if (document.manifest && !document.manifest.errors.length && data?.some((u) => needsUpdatedNativeRecovery((u as BookDraftUnit).verification))) {
+      // Keep accepted units and checkpoints; only a new deployed policy may
+      // reopen an exhausted hold. A same-version restart keeps its budget.
+      const resumed = await client.from('book_pdf_document').update({ status: 'processing' }).eq('id', document.id).eq('status', 'review')
+      if (resumed.error) throw new Error(resumed.error.message)
+    } else return { document_id: document.id, auto_published: false, verification_unresolved: true, recovery_revision: NATIVE_RECOVERY_REVISION }
   }
   await reportPdfStage('원문 문항·정답·연결 페이지를 조사하는 중')
   const manifest = inventoryBook(await readBookPages(bytes), String(job.payload.fileName ?? ''))
@@ -43,7 +49,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   if (saved.error) throw new Error(saved.error.message)
   if (manifest.errors.length) {
     await stage(null, null)
-    return { document_id: job.target_id, auto_published: false, inventory_errors: manifest.errors, verification_unresolved: true }
+    return { document_id: job.target_id, auto_published: false, inventory_errors: manifest.errors, verification_unresolved: true, recovery_revision: NATIVE_RECOVERY_REVISION }
   }
   const inserted = await client.from('book_pdf_unit').upsert(manifest.units.map((m) => ({ document_id: job.target_id,
     unit_key: m.key, unit_order: m.order, manifest: m })), { onConflict: 'document_id,unit_key', ignoreDuplicates: true })
@@ -56,7 +62,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
     if (old && bookProofMatches(old) && old.verification.pdf_hash === pdfHash) return false
     // A restart for another unit's network failure must not reset this unit's
     // exhausted repair budget or pay to replay its rejected candidates again.
-    if (old?.verification?.status === 'unresolved' && (old.verification.protocol === 2 ? old.verification.exhausted : old.verification.attempts >= 3)
+    if (old?.verification?.status === 'unresolved' && !needsUpdatedNativeRecovery(old.verification) && (old.verification.protocol === 2 ? old.verification.exhausted : old.verification.attempts >= 3)
       && old.verification.pdf_hash === pdfHash && old.verification.source_hash === bookSourceFingerprint(unit)
       && old.verification.extraction_hash === (old.extraction ? bookFingerprint(old.extraction) : null)) return false
     return true
@@ -76,7 +82,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   if (error) throw new Error(error.message)
   const unresolved = (final as BookDraftUnit[]).filter((u) => !bookProofMatches(u))
   if (unresolved.length) return { document_id: job.target_id, auto_published: false, verification_unresolved: true,
-    unresolved_units: unresolved.map((u) => u.unit_key), question_count: manifest.question_count, unit_count: manifest.units.length }
+    unresolved_units: unresolved.map((u) => u.unit_key), question_count: manifest.question_count, unit_count: manifest.units.length, recovery_revision: NATIVE_RECOVERY_REVISION }
   return { document_id: job.target_id, exam_id: await publishVerifiedBook(client, finished), auto_published: true,
     question_count: manifest.question_count, unit_count: manifest.units.length }
 }

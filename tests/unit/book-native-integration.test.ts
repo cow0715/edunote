@@ -27,9 +27,29 @@ describe('real mapping/audit/enrichment adapters connected inside the worker uni
     expect(r.enrichment?.questions[0].solution).toBe('추가 설명')
   })
   it('withholds publication when enrichment attempts to replace a source answer', async () => {
-    mocks.call.mockResolvedValueOnce(response({questions:[{...f.enrichment.questions[0],answer:5}]}))
+    mocks.call.mockResolvedValue(response({questions:[{...f.enrichment.questions[0],answer:5}]}))
     const r=await processNativeBookUnit({unit:f.unit,pdfHash,bytes:pdfBytes})
     expect(r.verification.status).toBe('unresolved');expect(r.enrichment).toBeNull()
     expect(r.extraction?.questions[0].answer).toBe(2)
+  })
+  it('sends mapped decoding concerns to image repair and requires a fresh pass', async () => {
+    mocks.call.mockReset()
+    f.mapping.issues = ['PDF.js text contains invisible letters.']
+    const expectedPassage = f.pages[0].lines[0].text
+    f.pages[0].lines[0].text += ' invisiblejunk'
+    const target = {g:0,q:null,field:'passage',choice:null}
+    mocks.call.mockResolvedValueOnce(response(f.mapping))
+      .mockResolvedValueOnce(response({status:'repair',checks:{content:false,mapping:true,formatting:true,inventory:true},issues:[{target,kind:'native_text',pages:[9],reason:'Extra native letters absent from image.'}]}))
+      .mockResolvedValueOnce(response({edits:[{target,mode:'text',text:expectedPassage,pages:[9]}],issues:[]}))
+      .mockResolvedValueOnce(response({status:'pass',checks:{content:true,mapping:true,formatting:true,inventory:true},issues:[]}))
+      .mockResolvedValueOnce(response({questions:f.enrichment.questions}))
+    const result = await processNativeBookUnit({unit:f.unit,pdfHash,bytes:pdfBytes})
+    expect(result.verification.status).toBe('passed')
+    expect(result.extraction?.passage).not.toContain('invisiblejunk')
+    expect(result.extraction?.passage).toBe(expectedPassage)
+    expect(result.verification.audit?.rounds).toBe(2)
+    expect(mocks.call).toHaveBeenCalledTimes(5)
+    const auditRequest=JSON.parse(mocks.call.mock.calls[1][0].content.at(-1).text)
+    expect(auditRequest.mapping.issues).toEqual(f.mapping.issues)
   })
 })

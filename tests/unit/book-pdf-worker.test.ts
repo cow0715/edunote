@@ -5,6 +5,7 @@ import type { BookDraftUnit } from '@/lib/book-pdf/types'
 import { document, draft, extraction, manifest, pdfBytes, verification } from '../fixtures/book-pdf'
 import { nativeFixture } from '../fixtures/book-native'
 import { bookFingerprint, bookSourceFingerprint } from '@/lib/book-pdf/proof'
+import { NATIVE_RECOVERY_REVISION } from '@/lib/book-pdf/recovery-policy'
 const mocks = vi.hoisted(() => ({ verify: vi.fn(), warm: vi.fn(), read: vi.fn(), slice: vi.fn(), inventory: vi.fn(), publish: vi.fn() }))
 vi.mock('@/lib/book-pdf/pdf', () => ({ readBookPages: mocks.read, bookPageSlice: mocks.slice }))
 vi.mock('@/lib/book-pdf/inventory', () => ({ inventoryBook: mocks.inventory }))
@@ -101,10 +102,26 @@ describe('automatic textbook worker', () => {
   })
   it('does not repeat exhausted native-image quality recovery after a platform retry', async () => {
     const db = database('processing', true), f = nativeFixture()
-    db.rows[0].verification = { ...f.proof, source_hash: bookSourceFingerprint(db.rows[0].manifest), status: 'unresolved', exhausted: true,
+    db.rows[0].verification = { ...f.proof, recovery_revision: NATIVE_RECOVERY_REVISION, source_hash: bookSourceFingerprint(db.rows[0].manifest), status: 'unresolved', exhausted: true,
       extraction_hash: bookFingerprint(db.rows[0].extraction), issues: ['unreadable'] }
     db.rows[0].verified_version = null
     expect(await importBookPdf(db.client, job, pdfBytes)).toMatchObject({ verification_unresolved: true })
     expect(mocks.verify).not.toHaveBeenCalled(); expect(mocks.publish).not.toHaveBeenCalled()
+  })
+  it('reopens a previous policy hold and reuses accepted source on a new recovery revision', async () => {
+    const db = database('review', true), f = nativeFixture()
+    db.rows[0].verification = { ...f.proof, status: 'unresolved', exhausted: true, recovery_revision: NATIVE_RECOVERY_REVISION - 1,
+      source_hash: bookSourceFingerprint(db.rows[0].manifest), extraction_hash: bookFingerprint(db.rows[0].extraction) }
+    db.rows[0].verified_version = null
+    expect(await importBookPdf(db.client, job, pdfBytes)).toMatchObject({ auto_published: true })
+    expect(mocks.verify).toHaveBeenCalledTimes(1)
+    expect(mocks.publish).toHaveBeenCalledTimes(1)
+  })
+  it('does not reopen a same-policy quality hold in review', async () => {
+    const db = database('review', true), f = nativeFixture()
+    db.rows[0].verification = { ...f.proof, status: 'unresolved', exhausted: true, recovery_revision: NATIVE_RECOVERY_REVISION }
+    db.rows[0].verified_version = null
+    expect(await importBookPdf(db.client, job, pdfBytes)).toMatchObject({ verification_unresolved: true, recovery_revision: NATIVE_RECOVERY_REVISION })
+    expect(mocks.verify).not.toHaveBeenCalled()
   })
 })

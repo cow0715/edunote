@@ -29,4 +29,21 @@ describe('shared supplementary explanation and vocabulary', () => {
     mock.call.mockResolvedValue({ text: JSON.stringify(supplement), stopReason:'max_tokens' })
     await expect(enrichVerifiedMaterial(extraction)).rejects.toThrow('완결')
   })
+  it('repairs a malformed supplement once without repeating source extraction', async () => {
+    const bad = { questions: [{ ...supplement.questions[0], ' vocabulary': '' }] }
+    mock.call.mockResolvedValueOnce({ text: JSON.stringify(bad), stopReason: 'end_turn' })
+      .mockResolvedValueOnce({ text: JSON.stringify(supplement), stopReason: 'end_turn' })
+    expect(await enrichVerifiedMaterial(extraction)).toEqual(supplement)
+    expect(mock.call).toHaveBeenCalledTimes(2)
+    expect(mock.call.mock.calls[1][0].content.at(-1).text).toContain('previous')
+    expect(mock.call.mock.calls[1][0].content.every((c: {type: string}) => c.type === 'text')).toBe(true)
+  })
+  it('holds after one failed supplement repair and propagates network errors directly', async () => {
+    mock.call.mockResolvedValue({ text: JSON.stringify({questions:[{...supplement.questions[0],answer:5}]}), stopReason:'end_turn' })
+    await expect(enrichVerifiedMaterial(extraction)).rejects.toThrow()
+    expect(mock.call).toHaveBeenCalledTimes(2)
+    mock.call.mockReset().mockRejectedValue(Error('network'))
+    await expect(enrichVerifiedMaterial(extraction)).rejects.toThrow('network')
+    expect(mock.call).toHaveBeenCalledTimes(1)
+  })
 })

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PdfImportJob } from '@/lib/pdf-import/types'
+import { NATIVE_RECOVERY_REVISION } from '@/lib/book-pdf/recovery-policy'
 
 const mocks = vi.hoisted(() => ({
   previous: null as Record<string, unknown> | null,
@@ -70,7 +71,8 @@ describe('PDF job reservation', () => {
       stage: '추출', attempt: 1, result: null, error: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
     const result = publicPdfJob(job)
     expect(result.can_retry).toBe(true)
-    expect(publicPdfJob({ ...job, kind: 'bank_book', status: 'failed', result: { verification_unresolved: true } }).can_retry).toBe(false)
+    expect(publicPdfJob({ ...job, kind: 'bank_book', status: 'failed', result: { verification_unresolved: true } }).can_retry).toBe(true)
+    expect(publicPdfJob({ ...job, kind: 'bank_book', status: 'failed', result: { verification_unresolved: true, recovery_revision: NATIVE_RECOVERY_REVISION } }).can_retry).toBe(false)
     expect(result).not.toHaveProperty('lease_token')
     expect(result).not.toHaveProperty('payload')
     expect(result).not.toHaveProperty('source_path')

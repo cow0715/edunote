@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { dispatchPdfJob } from '@/lib/pdf-import/gcp'
 import { publicPdfJob } from '@/lib/pdf-import/server'
 import { isUuid, workerEnabled, type PdfImportJob } from '@/lib/pdf-import/types'
+import { bookQualityRetryBlocked } from '@/lib/book-pdf/recovery-policy'
 
 async function ownedJob(id: string) {
   const { supabase, user } = await getAuth()
@@ -25,7 +26,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   const outcome = await ownedJob((await params).id)
   if (outcome.response) return outcome.response
   const job = outcome.job!
-  if (job.kind === 'bank_book' && job.result?.verification_unresolved === true) return err('자동 복구 한도 내에 원문 일치를 확정하지 못했습니다. 같은 결과를 그대로 재실행하지 않습니다.', 409)
+  if (bookQualityRetryBlocked(job)) return err('자동 복구 한도 내에 원문 일치를 확정하지 못했습니다. 같은 결과를 그대로 재실행하지 않습니다.', 409)
   try {
     const client = createServiceClient()
     const { data, error } = await client.rpc('pdf_import_retry', { p_id: job.id })

@@ -10,6 +10,7 @@ import { bindBookMapping, nativeBookExtraction, validateNativeBookUnit } from '.
 import { bookFingerprint, bookSourceFingerprint, bookSourceProofMatches } from './proof'
 import { renderBookSourceImages } from './render-source'
 import { resolveSourceMap, sourceMapSchema } from './source-map'
+import { NATIVE_RECOVERY_REVISION } from './recovery-policy'
 import type { BookEnrichment, BookExtraction, BookUnitManifest, BookValidation, BookVerification } from './types'
 
 type SourceResult = { extraction: BookExtraction | null; validation: BookValidation; verification: BookVerification }
@@ -40,14 +41,14 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
     return { ...source, enrichment, verification: { ...source.verification, enrichment_hash: bookFingerprint(enrichment) } }
   } catch (error) {
     if (!qualityError(error)) throw error
-    return { ...source, enrichment: null, verification: { ...source.verification, status: 'unresolved', exhausted: true,
+    return { ...source, enrichment: null, verification: { ...source.verification, status: 'unresolved', exhausted: true, recovery_revision: NATIVE_RECOVERY_REVISION,
       issues: ['원문 검증은 완료했지만 풀이·어휘 보완 응답을 확정하지 못했습니다.'] } }
   }
 
   async function parseSource(): Promise<SourceResult> {
     let extraction: BookExtraction | null = null
     const base: BookVerification = { protocol: 2, pipeline: 'native-image-v1', status: 'unresolved', attempts: 0,
-      exhausted: true, models: [MODEL_IDS.sonnet55], issues: [], source_hash: bookSourceFingerprint(unit), pdf_hash: pdfHash, extraction_hash: null, checks: null }
+      exhausted: true, recovery_revision: NATIVE_RECOVERY_REVISION, models: [MODEL_IDS.sonnet55], issues: [], source_hash: bookSourceFingerprint(unit), pdf_hash: pdfHash, extraction_hash: null, checks: null }
     function unresolved(issues: string[]) {
       return { extraction, validation: { errors: issues, warnings: [], english_coverage: 0, translation_coverage: 0 },
         verification: { ...base, issues, extraction_hash: extraction ? bookFingerprint(extraction) : null } }

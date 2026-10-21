@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceClient } from '../supabase/service'
 import { dispatchPdfJob, gcpWorkerConfig } from './gcp'
 import type { PdfImportJob, PdfImportKind } from './types'
+import { bookQualityRetryBlocked } from '../book-pdf/recovery-policy'
 
 export async function weekImportSnapshot(client: SupabaseClient, weekId: string) {
   const { data: questions, error } = await client.from('exam_question').select('*').eq('week_id', weekId).eq('exam_type', 'reading').order('id')
@@ -72,7 +73,7 @@ export function publicPdfJob(job: PdfImportJob) {
   return { id: job.id, kind: job.kind, target_id: job.target_id, status: job.status,
     stage: job.stage, completed_calls: job.completed_calls, attempt: job.attempt,
     lease_expires_at: job.lease_expires_at, result: job.result, error: job.error,
-    can_retry: (job.status === 'failed' && !(job.kind === 'bank_book' && job.result?.verification_unresolved === true)) || (job.status === 'running' && !!job.lease_expires_at && new Date(job.lease_expires_at).getTime() < Date.now()) ||
+    can_retry: (job.status === 'failed' && !bookQualityRetryBlocked(job)) || (job.status === 'running' && !!job.lease_expires_at && new Date(job.lease_expires_at).getTime() < Date.now()) ||
       (job.status === 'queued' && (!!job.error || Date.now() - new Date(job.updated_at).getTime() > 180_000)),
     created_at: job.created_at, updated_at: job.updated_at }
 }

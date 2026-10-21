@@ -29,7 +29,7 @@ export type BookBlindCheck = z.infer<typeof bookBlindCheckSchema>
 export type BookVerification = {
   protocol: 1 | 2; status: 'pending' | 'passed' | 'unresolved'; attempts: number; models: string[]; issues: string[];
   source_hash: string; pdf_hash: string; extraction_hash: string | null; checks: BookBlindCheck['checks'] | null
-  pipeline?: 'native-image-v1'; exhausted?: boolean; enrichment_hash?: string;
+  pipeline?: 'native-image-v1'; exhausted?: boolean; enrichment_hash?: string; recovery_revision?: number;
   audit?: { pages: number[]; image_hashes: Record<string, string>; native_hash: string; mapping_hash: string;
     rounds: number; last_status: 'pass' | 'repair' | 'unreadable'; extraction_hash: string }
 }

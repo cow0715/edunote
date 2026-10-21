@@ -79,7 +79,28 @@ describe('native source mapping', () => {
   })
   it('propagates scan, text decoding and model uncertainty rather than approving it', () => {
     const { pages, mapping } = fixture(); pages[0].issues = ['requires_ocr']; mapping.issues = ['boundary_uncertain']
-    expect(resolveSourceMap(pages, mapping).errors).toEqual(['requires_ocr', 'boundary_uncertain'])
+    const result = resolveSourceMap(pages, mapping)
+    expect(result.errors).toEqual(['requires_ocr'])
+    expect(result.warnings).toEqual(['boundary_uncertain'])
+    expect(result.status).toBe('unresolved')
+  })
+  it('keeps model decoding concerns for image repair without hiding structural errors', () => {
+    const { pages, mapping } = fixture()
+    mapping.issues = ['native text is garbled', 'g0:passage:invalid_source_range']
+    mapping.groups[0].passage = [{ s: 999, e: 1000 }]
+    const result = resolveSourceMap(pages, mapping)
+    expect(result.warnings).toEqual(mapping.issues)
+    expect(result.errors).toContain('g0:passage:invalid_source_range')
+  })
+  it('recognizes a decoded heading missing its closing bracket without hiding content', () => {
+    const { pages, mapping } = fixture()
+    const id = Math.max(...pages[0].lines.map((l) => l.id)) + 1
+    const heading = { ...pages[0].lines[0], id, text: '[소재 ' }
+    pages[0].lines.push(heading)
+    mapping.ignored.push({ refs: [{ s: id, e: id }], reason: 'field_label' })
+    expect(resolveSourceMap(pages, mapping).errors).toEqual([])
+    heading.text = '[소재 hidden source sentence'
+    expect(resolveSourceMap(pages, mapping).errors).toContain('ignored0:not_a_field_label')
   })
   it('does not let the model substitute free text for native spans', () => {
     const { mapping } = fixture()

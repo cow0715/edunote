@@ -37,7 +37,7 @@ function marked(line: SourceLine, start: number, end: number) {
  * independently of the model. This does not prove the semantic role is correct. */
 export function resolveSourceMap(pages: SourcePage[], input: SourceMap) {
   const lines = pages.flatMap((p) => p.lines), byId = new Map(lines.map((l, i) => [l.id, { line: l, index: i }]))
-  const owners = new Map<string, string>(), errors = [...pages.flatMap((p) => p.issues), ...input.issues]
+  const owners = new Map<string, string>(), errors = [...pages.flatMap((p) => p.issues)]
   const allKeys = input.groups.flatMap((g) => g.questions.map((q) => q.id))
   if (new Set(lines.map((l) => l.id)).size !== lines.length) errors.push('duplicate_native_line_id')
   if (new Set(allKeys).size !== allKeys.length) errors.push('duplicate_question_id')
@@ -90,7 +90,9 @@ export function resolveSourceMap(pages: SourcePage[], input: SourceMap) {
   for (const [i, ignored] of input.ignored.entries()) {
     const text = read(ignored.refs, `ignored${i}`, true, true)
     // Label-only omissions must not hide a source sentence.
-    if (ignored.reason === 'field_label' && !/^\s*(?:\[(?:정답|해석|해설|풀이|어휘|소재|Answer|Translation|Explanation|Vocabulary)\]\s*)+$/.test(text)) errors.push(`ignored${i}:not_a_field_label`)
+    // A missing closing bracket can be a PDF decoding defect. Only an exact
+    // known heading is allowed; any trailing source content still blocks it.
+    if (ignored.reason === 'field_label' && !/^\s*(?:\[(?:정답|해석|해설|풀이|어휘|소재|Answer|Translation|Explanation|Vocabulary)\]?\s*)+$/.test(text)) errors.push(`ignored${i}:not_a_field_label`)
     if (ignored.reason === 'vocabulary_bullet' && !/^[\so□▪▫◦○●]+$/.test(text)) errors.push(`ignored${i}:not_a_list_bullet`)
     if (ignored.reason === 'page_furniture' && ignored.refs.some((r) => {
       const l = byId.get(r.s)?.line, p = pages.find((p) => p.page === l?.page)
@@ -102,8 +104,10 @@ export function resolveSourceMap(pages: SourcePage[], input: SourceMap) {
     return missing ? [line.id] : []
   })
   if (uncovered.length) errors.push(`unassigned_native_lines:${uncovered.join(',')}`)
-  return { groups, errors: [...new Set(errors)], uncovered, nativeLineCount: lines.length,
-    status: errors.length ? 'unresolved' as const : 'mapped' as const }
+  // Model concerns are advisory until the independent image audit. Mixing them
+  // with structural errors prevented garbled native text from reaching repair.
+  return { groups, errors: [...new Set(errors)], warnings: [...input.issues], uncovered, nativeLineCount: lines.length,
+    status: errors.length || input.issues.length ? 'unresolved' as const : 'mapped' as const }
 }
 
 /** Compact layout evidence without a fixed left/right meaning. */
