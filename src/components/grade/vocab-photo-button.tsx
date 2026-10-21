@@ -50,11 +50,14 @@ export function VocabPhotoButton({ weekId, studentId, disabled, hasExistingData,
     }, () => setError('네트워크 오류'))
   }
 
+  const beforeSelect = () => !hasExistingData || window.confirm('이미 채점된 데이터가 있습니다.\n재촬영하면 교사 확정(잠금) 항목을 제외한 기존 결과가 덮어씌워집니다.\n계속하시겠습니까?')
+
   return (
-    <>
-      <FileUpload compact label={loading ? '채점 중...' : hasExistingData ? '재채점' : '사진 채점'} accept="image/*,application/pdf" inputRef={fileRef} onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={() => !hasExistingData || window.confirm('이미 채점된 데이터가 있습니다.\n재촬영하면 교사 확정(잠금) 항목을 제외한 기존 결과가 덮어씌워집니다.\n계속하시겠습니까?')} />
+    <div className="flex flex-wrap gap-2 [&_button]:min-h-12">
+      <FileUpload compact label="카메라로 촬영 채점" accept="image/*" capture="environment" onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect} />
+      <FileUpload compact label={loading ? '채점 중...' : hasExistingData ? '파일로 재채점' : '사진·PDF 선택 채점'} accept="image/*,application/pdf" inputRef={fileRef} onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect} />
       {error && <span className="text-xs text-red-400">{error}</span>}
       {warning && <span className="text-xs font-medium text-amber-600">⚠ {warning}</span>}
-    </>
+    </div>
   )
 }

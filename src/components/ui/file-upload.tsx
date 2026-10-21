@@ -8,6 +8,7 @@ type FileUploadProps = {
   label: string
   description?: string
   accept: string
+  capture?: 'user' | 'environment'
   multiple?: boolean
   inputRef?: RefObject<HTMLInputElement | null>
   onChange: ChangeEventHandler<HTMLInputElement>
@@ -23,7 +24,7 @@ type FileUploadProps = {
 
 /** Selection only: existing callers own validation, upload, confirmation and progress. */
 export function FileUpload({
-  label, description, accept, multiple = false, inputRef, onChange, fileName,
+  label, description, accept, capture, multiple = false, inputRef, onChange, fileName,
   disabled = false, loading = false, compact = false, className, preview, onClear, beforeSelect,
 }: FileUploadProps) {
   const localRef = useRef<HTMLInputElement>(null)
@@ -41,7 +42,7 @@ export function FileUpload({
 
   return (
     <div className={cn('min-w-0', !compact && 'w-full', className)} data-slot="file-upload">
-      <input ref={ref} type="file" accept={accept} multiple={multiple} disabled={unavailable}
+      <input ref={ref} type="file" accept={accept} capture={capture} multiple={multiple} disabled={unavailable}
         className="hidden" aria-label={label} onChange={onChange} />
       <button
         type="button" disabled={unavailable} aria-label={label} aria-busy={loading}

@@ -51,7 +51,10 @@ export function ExamPhotoButton({ weekId, studentId, disabled, onResult }: {
 
   return (
     <>
-      <FileUpload compact label={loading ? 'OCR 중...' : '답안지 촬영'} accept="image/*" inputRef={fileRef} onChange={handleFile} disabled={disabled} loading={loading} />
+      <div className="flex flex-wrap gap-2">
+      <FileUpload compact className="[&_button]:min-h-12" label="카메라로 촬영" accept="image/*" capture="environment" onChange={handleFile} disabled={disabled} loading={loading} />
+      <FileUpload compact className="[&_button]:min-h-12" label={loading ? 'OCR 중...' : '사진 선택'} accept="image/*" inputRef={fileRef} onChange={handleFile} disabled={disabled} loading={loading} />
+      </div>
       {error && <span className="text-xs text-red-400">{error}</span>}
     </>
   )

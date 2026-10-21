@@ -538,12 +538,12 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       </div>
 
       {/* 저장 버튼 영역 */}
-      <div className="flex items-center justify-between pt-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
         <p className="text-xs text-gray-400">
           채점 {rows.filter((r) => r.present).length} / 전체 {rows.length}명
           {hasSubjective && ' · 서술형 포함'}
         </p>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {hasSubjective && (() => {
             const needsReviewCount = rows.reduce(
               (n, r) => n + r.answers.filter((a) => a.needs_review).length, 0
@@ -553,7 +553,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                 type="button"
                 onClick={() => setShowReviewPanel((v) => !v)}
                 className={cn(
-                  'flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors',
+                  'flex min-h-11 items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors',
                   showReviewPanel
                     ? 'bg-amber-50 border-amber-200 text-amber-700'
                     : 'border-gray-200 text-gray-500 hover:bg-gray-50'
