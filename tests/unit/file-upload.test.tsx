@@ -7,6 +7,14 @@ import { FileUpload } from '@/components/ui/file-upload'
 afterEach(cleanup)
 
 describe('shared file selection', () => {
+  it('requests the rear camera only for the explicit camera picker', () => {
+    const camera = createRef<HTMLInputElement>()
+    const album = createRef<HTMLInputElement>()
+    render(<><FileUpload label="촬영" accept="image/*" capture="environment" inputRef={camera} onChange={vi.fn()} /><FileUpload label="앨범" accept="image/*" inputRef={album} onChange={vi.fn()} /></>)
+    expect(camera.current?.getAttribute('capture')).toBe('environment')
+    expect(album.current?.hasAttribute('capture')).toBe(false)
+  })
+
   it('opens the picker without submitting the enclosing form', () => {
     const ref = createRef<HTMLInputElement>()
     const submit = vi.fn()

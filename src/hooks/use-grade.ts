@@ -27,6 +27,8 @@ export function useGradeData(weekId: string) {
 
 export function useSaveWeekScore(weekId: string) {
   return useMutation({
+    // Keep blur/clear edits in order so a slower earlier PATCH cannot overwrite a later edit.
+    scope: { id: `week-score:${weekId}` },
     mutationFn: async ({ student_id, homework_done, memo }: { student_id: string; homework_done?: number | null; memo?: string }) => {
       const res = await fetch(`/api/weeks/${weekId}/grade`, {
         method: 'PATCH',

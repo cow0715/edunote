@@ -151,6 +151,7 @@ export default function WeekDetailPage({ params }: { params: Promise<{ classId: 
 
         <TabsContent value="grade" forceMount className="data-[state=inactive]:hidden">
           <GradeGrid
+            key={weekId}
             weekId={weekId}
             vocabTotal={week.vocab_total}
             readingTotal={week.reading_total}
