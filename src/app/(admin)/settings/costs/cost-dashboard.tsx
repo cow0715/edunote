@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { services, summarize, koreanMonth, snapshotLabel, snapshotValue, type CostEntry, type UsageGroup } from '@/lib/costs/model'
@@ -13,11 +13,11 @@ const surface = 'rounded-[20px] bg-[var(--share-card)] p-5'
 const selectStyle = 'h-9 rounded-md border bg-background px-3 text-sm'
 
 export function CostDashboard() {
+  const queryClient = useQueryClient()
   const [month, setMonth] = useState(koreanMonth)
   const [environment, setEnvironment] = useState('production')
   const [notice, setNotice] = useState('')
   const [saving, setSaving] = useState(false)
-  const [syncing, setSyncing] = useState(false)
   const [provider, setProvider] = useState('claude')
   const [kind, setKind] = useState('actual')
   const [currency, setCurrency] = useState('USD')
@@ -30,7 +30,8 @@ export function CostDashboard() {
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || '비용을 불러오지 못했습니다.')
       return data
-    }, retry: false,
+    }, retry: false, staleTime: 60_000, refetchOnWindowFocus: true,
+    refetchInterval: month === koreanMonth() ? 60_000 : false, refetchIntervalInBackground: false,
   })
   const connections = useQuery({
     queryKey: ['cost-connections', month],
@@ -40,6 +41,19 @@ export function CostDashboard() {
       if (!response.ok) throw new Error(data.error || '연결 상태 조회 실패')
       return data
     }, retry: false,
+  })
+  const providerRefresh = useQuery({
+    queryKey: ['cost-provider-refresh', month],
+    enabled: month === koreanMonth() && (connections.data?.configured.length ?? 0) > 0,
+    queryFn: async ({ signal }): Promise<{ message: string }> => {
+      const response = await fetch('/api/admin/costs/sync', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month }) })
+      const data = await response.json()
+      // Reload saved snapshots even when provider synchronization failed.
+      await queryClient.invalidateQueries({ queryKey: ['cost-connections', month] })
+      if (!response.ok) throw new Error(data.error || '업체 비용 갱신에 실패했습니다.')
+      return data
+    }, retry: false, staleTime: 300_000, refetchOnWindowFocus: true,
+    refetchInterval: month === koreanMonth() ? 300_000 : false, refetchIntervalInBackground: false,
   })
   async function save(event: FormEvent) {
     event.preventDefault()
@@ -65,15 +79,9 @@ export function CostDashboard() {
     finally { setSaving(false) }
   }
   async function sync() {
-    setSyncing(true); setNotice('')
-    try {
-      const response = await fetch('/api/admin/costs/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month }) })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error)
-      setNotice(data.message)
-      await connections.refetch()
-    } catch (error) { setNotice(error instanceof Error ? error.message : '동기화에 실패했습니다.') }
-    finally { setSyncing(false) }
+    setNotice('')
+    const result = await providerRefresh.refetch()
+    setNotice(result.error?.message ?? result.data?.message ?? '조회 결과가 없습니다.')
   }
   const entries = query.data?.entries ?? []
   return <div className="mx-auto max-w-6xl space-y-5 text-[var(--share-ink)]">
@@ -82,23 +90,26 @@ export function CostDashboard() {
       <div className="flex flex-wrap gap-2">
         <Input className="w-40" type="month" aria-label="조회 월" value={month} onChange={e => setMonth(e.target.value)} />
         <select aria-label="환경" className={selectStyle} value={environment} onChange={e => setEnvironment(e.target.value)}>{Object.entries(environmentLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
-        <Button variant="outline" onClick={() => { void query.refetch(); void connections.refetch() }}>새로고침</Button>
+        <Button variant="outline" onClick={() => { void query.refetch(); void sync() }}>새로고침</Button>
       </div>
     </div>
+    <p className="text-xs text-[var(--share-muted)]">{month === koreanMonth() ? '화면이 활성화된 동안 사용량은 1분, 업체 비용은 5분마다 자동 갱신합니다.' : '과거 월은 새로고침으로 갱신할 수 있습니다.'} 업체 청구 데이터는 반영이 늦을 수 있으며, GCP는 Google 내보내기 기준입니다.{query.dataUpdatedAt > 0 && <> · 사용량 조회 {new Date(query.dataUpdatedAt).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul' })}</>}</p>
+    <div className="grid gap-3 md:grid-cols-3">{services.filter(service => ['claude', 'naver', 'gcp'].includes(service.id)).sort((a, b) => ['claude', 'naver', 'gcp'].indexOf(a.id) - ['claude', 'naver', 'gcp'].indexOf(b.id)).map(service => {
+      const snapshot = connections.data?.snapshots.find(row => row.provider === service.id && row.metric === 'monthly_cost')
+      return <section key={service.id} className={surface} aria-label={service.name + ' 조회액'}>
+        <h2 className="text-sm font-semibold">{service.name}</h2>
+        <p className="mt-2 text-xl font-bold tabular-nums">{snapshot?.amount != null ? snapshotValue(snapshot.amount, snapshot.currency) : connections.isPending ? '불러오는 중…' : '조회값 없음'}</p>
+        <p className="mt-2 text-xs text-[var(--share-muted)]">업체 월 조회액 · {snapshot?.status === 'ok' ? '조회 성공' : snapshot?.amount != null ? '갱신 실패 · 이전 값' : service.id === 'gcp' ? '청구 데이터 반영·연결 확인 필요' : '연결·청구서 반영 확인 필요'}</p>
+        {snapshot && <p className="mt-1 text-xs text-[var(--share-muted)]">{new Date(snapshot.updated_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</p>}
+      </section>
+    })}</div>
     {query.isPending && <p role="status">비용 데이터를 불러오는 중입니다.</p>}
     {query.error && <p role="alert" className="rounded-xl bg-[var(--share-red-bg)] p-4 text-sm text-[var(--share-red)]">{query.error.message}</p>}
-    {query.data && <>
-      <div className="grid gap-3 md:grid-cols-2">{summarize(entries).map(total => <section key={total.currency} className={surface}>
-        <h2 className="text-sm font-semibold">{total.currency} 등록 비용 합계</h2>
-        <p className="mt-2 text-xl font-bold tabular-nums">{entries.some(e => e.currency === total.currency && (e.kind === 'actual' || e.kind === 'estimate')) ? money(total.total, total.currency) : '미등록'}</p>
-        <p className="mt-2 text-xs text-[var(--share-muted)]">확정 {money(total.actual, total.currency)} · 예상 {money(total.estimate, total.currency)} · 충전액 합계 제외</p>
-        <p className="mt-2 text-sm">예산 {total.budget ? money(total.budget, total.currency) : '미설정'}{total.budget > 0 && <span className={total.total > total.budget ? 'text-[var(--share-red)]' : ''}> · {Math.round(total.total / total.budget * 100)}% 사용{total.total > total.budget ? ' · 예산 초과' : ''}</span>}</p>
-      </section>)}</div>
-      <p className="text-xs text-[var(--share-muted)]">등록된 업체만 합산합니다. 같은 업체·통화의 확정 청구액이 있으면 예상액은 제외합니다. 통화는 합산하지 않습니다.</p>
-    </>}
     <section className={surface}>
-      <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-[15px] font-extrabold">서비스별 비용·연결</h2><Button disabled={syncing} variant="outline" onClick={() => void sync()}>{syncing ? '조회 중…' : '업체 데이터 동기화'}</Button></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-[15px] font-extrabold">서비스별 비용·연결</h2><Button disabled={providerRefresh.isFetching} variant="outline" onClick={() => void sync()}>{providerRefresh.isFetching ? '조회 중…' : '업체 데이터 동기화'}</Button></div>
       <p className="mt-2 text-xs text-[var(--share-muted)]">업체 조회값은 계정 전체 기준이며 아래 등록 비용 합계에 자동 포함하지 않습니다. 앱 사용액과 범위를 확인한 뒤 등록하세요.</p>
+      {providerRefresh.error && <p role="alert" className="mt-2 text-sm text-[var(--share-red)]">{providerRefresh.error.message}</p>}
+      {providerRefresh.data?.message && <p className="mt-2 text-xs text-[var(--share-muted)]">{providerRefresh.data.message}</p>}
       {connections.error && <p role="alert" className="mt-2 text-sm text-[var(--share-red)]">{connections.error.message}</p>}
       <div className="mt-4 divide-y divide-[var(--share-line)]">{services.map(service => {
         const rows = entries.filter(e => e.provider === service.id && (e.kind === 'actual' || e.kind === 'estimate'))
@@ -112,6 +123,15 @@ export function CostDashboard() {
         </div>
       })}</div>
     </section>
+    {query.data && <>
+      <div className="grid gap-3 md:grid-cols-2">{summarize(entries).map(total => <section key={total.currency} className={surface}>
+        <h2 className="text-sm font-semibold">{total.currency} 등록 비용 합계</h2>
+        <p className="mt-2 text-xl font-bold tabular-nums">{entries.some(e => e.currency === total.currency && (e.kind === 'actual' || e.kind === 'estimate')) ? money(total.total, total.currency) : '미등록'}</p>
+        <p className="mt-2 text-xs text-[var(--share-muted)]">확정 {money(total.actual, total.currency)} · 예상 {money(total.estimate, total.currency)} · 충전액 합계 제외</p>
+        <p className="mt-2 text-sm">예산 {total.budget ? money(total.budget, total.currency) : '미설정'}{total.budget > 0 && <span className={total.total > total.budget ? 'text-[var(--share-red)]' : ''}> · {Math.round(total.total / total.budget * 100)}% 사용{total.total > total.budget ? ' · 예산 초과' : ''}</span>}</p>
+      </section>)}</div>
+      <p className="text-xs text-[var(--share-muted)]">등록된 업체만 합산합니다. 같은 업체·통화의 확정 청구액이 있으면 예상액은 제외합니다. 통화는 합산하지 않습니다.</p>
+    </>}
     <section className={surface}><h2 className="text-[15px] font-extrabold">비용·예산 등록</h2>
       <p className="mt-2 text-xs text-[var(--share-muted)]">선택한 월·환경의 업체별 총액을 입력합니다. 같은 항목은 덮어씁니다. 충전액과 실제 사용액은 별도로 관리하세요.</p>
       <form onSubmit={save} className="mt-4 flex flex-wrap items-end gap-3">
