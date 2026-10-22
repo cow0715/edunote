@@ -85,9 +85,9 @@ export default function DashboardPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {classes?.map((cls) => (
-              <Card key={cls.id} className={`relative rounded-2xl border-0 shadow-none ${styles.classCard}`}>
-                <Link href={`/dashboard/${cls.id}`} className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-2 focus-visible:outline-primary" aria-label={`${cls.name} 수업 열기`} />
-                <CardHeader className="pb-2">
+              <Card key={cls.id} className={`relative rounded-[20px] border-0 shadow-none ${styles.classCard}`}>
+                <Link href={`/dashboard/${cls.id}`} className="absolute inset-0 z-0 cursor-pointer rounded-[20px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:bg-accent" aria-label={`${cls.name} 수업 열기`} />
+                <CardHeader className="pointer-events-none pb-2">
                   <CardTitle className="flex items-center gap-2 text-base">
                     {cls.name}
                     {cls.class_type === 'special' && (
@@ -105,14 +105,14 @@ export default function DashboardPage() {
                     <p className="text-xs text-gray-500 line-clamp-1">{cls.description}</p>
                   )}
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pointer-events-none">
                   <div className="flex items-center gap-1.5 text-xs text-gray-400">
                     <Calendar className="h-3.5 w-3.5" />
                     <span>{formatDate(cls.start_date)} ~ {formatDate(cls.end_date)}</span>
                   </div>
                   <div className="relative z-10 mt-3 flex justify-end">
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild><Button variant="ghost" className="h-11 w-11" aria-label={`${cls.name} 관리`}><MoreHorizontal className="h-5 w-5" /></Button></DropdownMenuTrigger>
+                      <DropdownMenuTrigger asChild><Button variant="ghost" className="pointer-events-auto h-11 w-11 cursor-pointer rounded-xl hover:bg-[var(--control-selected)] dark:hover:bg-[var(--control-selected)] data-[state=open]:bg-[var(--control-selected)]" aria-label={`${cls.name} 관리`}><MoreHorizontal className="h-5 w-5" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="shadow-none">
                         <DropdownMenuItem className="min-h-11" onSelect={() => handleEdit(cls)}><Pencil className="h-4 w-4" />수업 수정</DropdownMenuItem>
                         <DropdownMenuItem className="min-h-11" disabled={archiveClass.isPending} onSelect={() => setArchiveTarget(cls)}>{cls.archived_at ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}{cls.archived_at ? '운영 중으로 복원' : '수업 보관'}</DropdownMenuItem>
