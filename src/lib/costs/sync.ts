@@ -2,6 +2,7 @@ import { SolapiMessageService } from 'solapi'
 import { err, ok } from '@/lib/api'
 import { fetchClaudeReport } from '@/lib/costs/claude-report-fetch'
 import { fetchVercelCost, fetchNaverCost } from '@/lib/costs/cloud-connectors'
+import { fetchGcpWorkerUsage } from '@/lib/costs/gcp-worker-usage'
 import { fetchGcpCost } from '@/lib/costs/gcp-connector'
 import { createServiceClient } from '@/lib/supabase/service'
 import { costEnvironment } from '@/lib/costs/record'
@@ -53,7 +54,16 @@ export async function syncCostMonth(month: string) {
         else if (provider === 'vercel') amount = await fetchVercelCost(month)
         else if (provider === 'naver') amount = await fetchNaverCost(month)
         else if (provider === 'gcp') {
-          const value = await fetchGcpCost(month)
+          // Usage can succeed while the billing export is still empty. Read both independently.
+          const [usageResult, costResult] = await Promise.allSettled([fetchGcpWorkerUsage(month), fetchGcpCost(month)])
+          if (usageResult.status === 'fulfilled') {
+            const saved = await db.from('cost_provider_snapshot').upsert(Object.entries(usageResult.value).map(([metric, amount]) => ({ provider, month, metric, amount, currency: metric.endsWith('seconds') ? 'SECONDS' : 'COUNT', status: 'ok', updated_at: new Date().toISOString() })))
+            if (saved.error) throw new Error('usage_write_failed')
+          } else {
+            await db.from('cost_provider_snapshot').update({ status: 'error' }).eq('provider', provider).eq('month', month).like('metric', 'worker_%')
+          }
+          if (costResult.status === 'rejected') throw new Error('billing_data_unavailable')
+          const value = costResult.value
           amount = value.amount; gcpCurrency = value.currency
         }
         else {

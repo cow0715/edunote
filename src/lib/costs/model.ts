@@ -30,6 +30,8 @@ export function monthBounds(month: string) {
 }
 export function snapshotLabel(metric: string) {
   const labels: Record<string, string> = {
+    console_monthly_cost: '콘솔 수동 확인액 · 자동 수신 대기',
+    worker_executions: 'Worker 실행 횟수', worker_succeeded: 'Worker 성공', worker_failed: 'Worker 실패·취소', worker_running: 'Worker 진행 중', worker_wall_seconds: 'Worker 실행 시간 합계',
     balance: '조회 시점 계정 잔액', monthly_cost: '업체 월 조회액',
     db_bytes_production: '운영 DB 크기', db_bytes_development: '개발 DB 크기',
     storage_bytes_production: '운영 Storage 크기', storage_bytes_development: '개발 Storage 크기',
@@ -44,6 +46,7 @@ export function snapshotLabel(metric: string) {
 }
 export function snapshotValue(amount: number | null, currency: string) {
   if (amount === null) return '조회값 없음'
+  if (currency === 'SECONDS') return `${(amount / 60).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}분`
   if (currency === 'BYTES') return `${(amount / 1024 / 1024).toLocaleString('ko-KR', { maximumFractionDigits: 2 })} MiB`
   if (currency === 'COUNT') return `${amount.toLocaleString('ko-KR')}개`
   return new Intl.NumberFormat('ko-KR', { style: 'currency', currency, maximumFractionDigits: currency === 'KRW' ? 0 : 2 }).format(amount)
