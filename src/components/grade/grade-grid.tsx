@@ -337,7 +337,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
 
       {/* 일괄 사진 처리 */}
       {(showVocab || questions.length > 0) && (
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {questions.length > 0 && (
             <button
               type="button"
