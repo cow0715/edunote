@@ -87,7 +87,7 @@ function TodayClasses() {
     <div className="flex flex-wrap gap-2">
       {weeks.map((w) => (
         <SmsSheet key={w.id} weekId={w.id} weekNumber={w.week_number} weekLabel={w.display_label}>
-          <div className="flex items-center gap-3 rounded-xl bg-white border border-gray-100 shadow-[0px_4px_16px_rgba(0,75,198,0.06)] px-4 py-3 cursor-pointer hover:border-blue-200 hover:shadow-[0px_4px_16px_rgba(0,75,198,0.12)] transition-all">
+          <div className="flex items-center gap-3 rounded-xl bg-card border border-border shadow-none px-4 py-3 cursor-pointer hover:bg-[var(--control-bg)] transition-colors">
             <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50">
               <BookOpen className="h-4 w-4 text-blue-600" />
             </div>
@@ -118,7 +118,7 @@ function ClinicShortcut({ date, label }: { date: string; label: string }) {
 
   return (
     <ClinicSmsSheet date={date}>
-      <div className="flex items-center gap-3 rounded-xl bg-white border border-gray-100 shadow-[0px_4px_16px_rgba(0,75,198,0.06)] px-4 py-3 cursor-pointer hover:border-blue-200 hover:shadow-[0px_4px_16px_rgba(0,75,198,0.12)] transition-all">
+      <div className="flex items-center gap-3 rounded-xl bg-card border border-border shadow-none px-4 py-3 cursor-pointer hover:bg-[var(--control-bg)] transition-colors">
         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50">
           <CalendarCheck className="h-4 w-4 text-blue-600" />
         </div>

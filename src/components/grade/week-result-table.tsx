@@ -74,7 +74,7 @@ export function WeekResultTable({ weekId, classId, startDate, vocabTotal, readin
             const notAbsent = attendance && attendance !== 'absent'
 
             return (
-              <tr key={cs.student_id} className="hover:bg-gray-50">
+              <tr key={cs.student_id} className="hover:bg-[var(--control-bg)]">
                 <td className="px-3 py-2 font-medium text-gray-900 whitespace-nowrap">{cs.student?.name}</td>
 
                 {effectiveReadingTotal > 0 && (

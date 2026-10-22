@@ -274,7 +274,7 @@ export default function ReportCardDetailPage({ params }: { params: Promise<{ stu
             <Button variant="outline" className="rounded-full" onClick={() => setSendDialogOpen(false)} disabled={sending}>
               취소
             </Button>
-            <Button className="rounded-full bg-[#2463EB]" onClick={handleConfirmSendLink} disabled={sending || !sendPhone.trim()}>
+            <Button variant="action" className="rounded-full" onClick={handleConfirmSendLink} disabled={sending || !sendPhone.trim()}>
               <Send className="mr-2 h-4 w-4" />
               {sending ? '전송 중...' : '확인 후 전송'}
             </Button>

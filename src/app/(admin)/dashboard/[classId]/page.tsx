@@ -1076,7 +1076,7 @@ export default function ClassDetailPage({ params }: { params: Promise<{ classId:
               {unenrolled.map((s) => (
                 <button
                   key={s.id}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-gray-50 transition-colors"
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-[var(--control-bg)] transition-colors"
                   onClick={() => setAddStep({ studentId: s.id, name: s.name, joinedAt: new Date().toISOString().slice(0, 10) })}
                 >
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">

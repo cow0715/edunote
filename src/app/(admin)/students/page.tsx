@@ -375,7 +375,7 @@ export default function StudentsPage() {
                 {filtered.map((s) => {
                   const withdrawn = isWithdrawn(s)
                   return (
-                    <tr key={s.id} className="hover:bg-gray-50/50 transition-colors group">
+                    <tr key={s.id} className="hover:bg-[var(--control-bg)] transition-colors group">
                       <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">
                         {s.name}
                       </td>

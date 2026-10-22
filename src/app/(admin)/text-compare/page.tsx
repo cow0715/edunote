@@ -585,7 +585,8 @@ export default function TextComparePage() {
             <Button
               onClick={handleAnalyze}
               disabled={loading || !originalFile || !examFile}
-              className="rounded-full bg-[#2463EB] px-6 py-6 text-sm font-semibold hover:bg-[#1f56ca]"
+              variant="action"
+              className="rounded-full px-6 py-6 text-sm font-semibold"
             >
               {loading ? '분석 중...' : '시험 변형 분석 시작'}
             </Button>

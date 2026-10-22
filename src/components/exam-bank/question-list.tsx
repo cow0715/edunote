@@ -371,7 +371,7 @@ export const QuestionCard = memo(function QuestionCard({
                   <button
                     onClick={() => setEditingExplanation(false)}
                     disabled={expSaving}
-                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 transition-colors"
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-[var(--control-bg)] transition-colors"
                   >
                     취소
                   </button>

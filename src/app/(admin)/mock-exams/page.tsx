@@ -1,5 +1,7 @@
 'use client'
 
+import hoverStyles from '@/components/ui/backoffice-interactions.module.css'
+
 import { FileUpload } from '@/components/ui/file-upload'
 
 import { useMemo, useRef, useState } from 'react'
@@ -598,9 +600,10 @@ export default function MockExamsPage() {
               {gradeTabs.map((item) => (
                 <button
                   key={item.value}
+                  aria-pressed={grade === item.value}
                   onClick={() => changeGrade(item.value)}
                   className={cn(
-                    'rounded-full px-4 py-2 text-sm font-bold transition',
+                    'rounded-full px-4 py-2 text-sm font-bold transition', hoverStyles.choice, hoverStyles.compactChoice,
                     grade === item.value ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground shadow-sm' : 'text-slate-500 hover:text-slate-900',
                   )}
                 >
@@ -616,7 +619,7 @@ export default function MockExamsPage() {
         </section>
 
         <section className="grid gap-5 lg:grid-cols-[320px_1fr]">
-          <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+          <Card className="min-w-0 rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">시험</CardTitle>
             </CardHeader>
@@ -654,12 +657,13 @@ export default function MockExamsPage() {
                     key={exam.id}
                     role="button"
                     tabIndex={0}
+                    aria-pressed={effectiveExamId === exam.id}
                     onClick={() => handleSelectExam(exam.id)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') handleSelectExam(exam.id)
                     }}
                     className={cn(
-                      'w-full rounded-2xl p-4 text-left transition',
+                      'w-full rounded-2xl p-4 text-left transition', hoverStyles.choice,
                       effectiveExamId === exam.id ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground' : 'bg-slate-50 text-slate-700 hover:bg-blue-50',
                     )}
                   >
@@ -677,7 +681,7 @@ export default function MockExamsPage() {
                         className={cn(
                           'h-8 shrink-0 rounded-full px-2',
                           effectiveExamId === exam.id
-                            ? 'text-blue-100 hover:bg-white/10 hover:text-white'
+                            ? 'text-white dark:text-muted-foreground hover:bg-[var(--share-red-bg)] hover:text-[var(--share-red)]'
                             : 'text-slate-400 hover:bg-red-50 hover:text-red-500',
                         )}
                         onClick={(event) => {
@@ -696,7 +700,7 @@ export default function MockExamsPage() {
           </Card>
 
           <div className="space-y-5">
-            <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+            <Card className="min-w-0 rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
               <CardContent className="p-5">
                 {!selectedExam ? (
                   <div className="rounded-2xl bg-slate-50 p-8 text-center text-sm font-medium text-[var(--legacy-muted)]">
@@ -740,7 +744,7 @@ export default function MockExamsPage() {
             </Card>
 
             {selectedExam && mode === 'setup' && (
-              <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+              <Card className="min-w-0 rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-lg">시험지 / 메타데이터</CardTitle>
                   <Button size="sm" variant="outline" className="rounded-full" onClick={openAnswerSheet}>
@@ -827,8 +831,8 @@ export default function MockExamsPage() {
             )}
 
             {selectedExam && mode === 'grading' && (
-              <section className="grid gap-5 xl:grid-cols-[360px_1fr]">
-                <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)] xl:col-span-2">
+              <section className="grid gap-5 2xl:grid-cols-[320px_minmax(0,1fr)]">
+                <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)] 2xl:col-span-2">
                   <CardContent className="p-5">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                       <div className="min-w-0">
@@ -892,7 +896,7 @@ export default function MockExamsPage() {
                   </CardContent>
                 </Card>
 
-                <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+                <Card className="min-w-0 rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
                   <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-lg">
                       <Users className="h-5 w-5 text-[var(--legacy-blue)]" />
@@ -911,9 +915,10 @@ export default function MockExamsPage() {
                         return (
                           <button
                             key={student.id}
+                            aria-pressed={selectedStudentId === student.id}
                             onClick={() => handleSelectStudent(student)}
                             className={cn(
-                              'rounded-2xl p-4 text-left transition',
+                              'rounded-2xl p-4 text-left transition', hoverStyles.choice,
                               selectedStudentId === student.id ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground' : 'bg-slate-50 hover:bg-blue-50',
                             )}
                           >
@@ -931,7 +936,7 @@ export default function MockExamsPage() {
                   </CardContent>
                 </Card>
 
-                <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+                <Card className="min-w-0 rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
                   <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <CardTitle className="text-lg">{selectedStudent?.name ?? '학생 선택'}</CardTitle>
@@ -1030,9 +1035,9 @@ export default function MockExamsPage() {
                               </Button>
                             </div>
                           </div>
-                          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                          <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))] gap-2">
                             {activeQuestions.filter((question) => !question.is_void).map((question) => (
-                              <div key={question.question_number} className="grid grid-cols-[2rem_1fr] items-center gap-2 rounded-2xl bg-white p-2">
+                              <div key={question.question_number} className="grid min-w-0 grid-cols-[2rem_minmax(0,1fr)] items-center gap-2 rounded-2xl bg-white p-2">
                                 <div className="text-center text-sm font-extrabold text-[var(--legacy-ink)]">{question.question_number}</div>
                                 <div className="grid grid-cols-5 gap-1">
                                   {[1, 2, 3, 4, 5].map((choice) => {
@@ -1042,9 +1047,10 @@ export default function MockExamsPage() {
                                       <button
                                         key={choice}
                                         type="button"
+                                        aria-pressed={selected}
                                         onClick={() => updateManualAnswer(question.question_number, value)}
                                         className={cn(
-                                          'h-8 rounded-full text-xs font-extrabold transition',
+                                          'h-8 rounded-full text-xs font-extrabold transition', hoverStyles.choice, hoverStyles.compactChoice,
                                           selected ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground' : 'bg-slate-100 text-slate-500 hover:bg-blue-50 hover:text-[var(--legacy-blue)]',
                                         )}
                                       >
@@ -1065,7 +1071,7 @@ export default function MockExamsPage() {
             )}
 
             {selectedExam && mode === 'reports' && (
-              <Card className="rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
+              <Card className="min-w-0 rounded-[24px] border-0 bg-white shadow-[0px_10px_40px_rgba(0,75,198,0.03)]">
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <CardTitle className="text-lg">학생별 성적표</CardTitle>
@@ -1126,9 +1132,10 @@ export default function MockExamsPage() {
                                 <button
                                   key={recipient}
                                   type="button"
+                                  aria-pressed={reportRecipients[recipient]}
                                   onClick={() => toggleReportRecipient(recipient)}
                                   className={cn(
-                                    'rounded-full px-3 py-2 text-sm font-bold transition',
+                                    'rounded-full px-3 py-2 text-sm font-bold transition', hoverStyles.choice, hoverStyles.compactChoice,
                                     reportRecipients[recipient] ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground' : 'bg-white text-slate-500 hover:bg-blue-50',
                                   )}
                                 >

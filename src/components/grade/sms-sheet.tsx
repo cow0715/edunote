@@ -429,7 +429,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
               <button
                 type="button"
                 onClick={() => setPromptOpen((v) => !v)}
-                className="flex w-full items-center justify-between px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-50"
+                className="flex w-full items-center justify-between px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-[var(--control-bg)]"
               >
                 <span className="flex items-center gap-1.5">
                   문자 프롬프트 수정

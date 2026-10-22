@@ -409,7 +409,7 @@ export function QuestionSearch() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-8 w-full justify-between rounded-lg border-gray-200 bg-white px-3 text-xs font-normal text-gray-700 hover:bg-gray-50"
+                  className="h-8 w-full justify-between rounded-lg border-gray-200 bg-white px-3 text-xs font-normal text-gray-700 hover:bg-[var(--control-bg)]"
                 >
                   <span className="truncate">{monthFilterLabel}</span>
                   <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 text-gray-400" />

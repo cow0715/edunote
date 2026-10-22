@@ -1,0 +1,24 @@
+/* Scoped to backoffice choices: selected colors and semantic statuses stay intact. */
+.compactChoice {
+  --choice-hover-bg: color-mix(in srgb, var(--control-selected) 55%, var(--control-bg));
+}
+
+.choice:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.row[aria-selected='true'] {
+  background-color: var(--share-blue-bg);
+}
+
+@media (hover: hover) {
+  .choice[aria-pressed='false']:not(:disabled):hover {
+    background-color: var(--choice-hover-bg, var(--control-bg));
+    color: var(--control-fg);
+  }
+
+  .row:not([aria-selected='true']):hover {
+    background-color: var(--control-bg);
+  }
+}

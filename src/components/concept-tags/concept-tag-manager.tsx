@@ -15,7 +15,7 @@ import { runWithLoading } from '@/lib/async-ui'
 
 function TagRow({ tag, onEdit, onDelete, deleteDisabled }: { tag: ConceptTag; onEdit: (t: ConceptTag) => void; onDelete: (id: string) => void; deleteDisabled?: boolean }) {
   return (
-    <div className="flex items-center gap-2 py-1.5 pl-8 pr-2 hover:bg-gray-50 rounded">
+    <div className="flex items-center gap-2 py-1.5 pl-8 pr-2 hover:bg-[var(--control-bg)] rounded">
       <span className="flex-1 text-sm text-gray-700">{tag.name}</span>
       <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => onEdit(tag)}>
         <Pencil className="h-3 w-3 text-gray-400" />

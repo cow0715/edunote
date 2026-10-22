@@ -1,5 +1,7 @@
 'use client'
 
+import hoverStyles from '@/components/ui/backoffice-interactions.module.css'
+
 import { useState } from 'react'
 import { runWithLoading } from '@/lib/async-ui'
 import { AlertCircle, BarChart3, CalendarCheck, ChevronDown, ChevronLeft, ChevronRight, Clock, Loader2, Save, Search, Users, X } from 'lucide-react'
@@ -400,8 +402,9 @@ export default function ClinicPage() {
             <div className="flex gap-1.5 overflow-x-auto pb-1">
               <button
                 type="button"
+                aria-pressed={classFilter === 'all'}
                 onClick={() => setClassFilter('all')}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                className={`${hoverStyles.choice} shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
                   classFilter === 'all' ? 'bg-blue-600 text-white dark:bg-accent dark:text-accent-foreground' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
                 }`}
               >
@@ -411,8 +414,9 @@ export default function ClinicPage() {
                 <button
                   key={cls.id}
                   type="button"
+                  aria-pressed={classFilter === cls.id}
                   onClick={() => setClassFilter(cls.id)}
-                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                  className={`${hoverStyles.choice} shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
                     classFilter === cls.id ? 'bg-blue-600 text-white dark:bg-accent dark:text-accent-foreground' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
                   }`}
                 >
@@ -469,9 +473,10 @@ export default function ClinicPage() {
                         <button
                           key={slot.id}
                           type="button"
+                          aria-pressed={isSelected}
                           onClick={() => requestEnrollmentChange(student, slot.id, !isSelected)}
                           disabled={saveEnrollment.isPending}
-                          className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                          className={`${hoverStyles.choice} rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
                             isSelected
                               ? 'bg-blue-600 text-white dark:bg-accent dark:text-accent-foreground'
                               : 'bg-gray-50 text-gray-500 hover:bg-blue-50 hover:text-blue-700'
@@ -563,8 +568,9 @@ export default function ClinicPage() {
                               <button
                                 key={item}
                                 type="button"
+                                aria-pressed={status === item}
                                 onClick={() => changeAttendance(student.id, item)}
-                                className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
+                                className={`${hoverStyles.choice} rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
                                   status === item
                                     ? item === 'present'
                                       ? 'bg-blue-600 text-white dark:bg-accent dark:text-accent-foreground'
