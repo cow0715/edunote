@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ db: vi.fn(), claude: vi.fn() }))
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: mocks.db }))
-vi.mock('@/lib/costs/connectors', () => ({ fetchClaudeCost: mocks.claude }))
+vi.mock('@/lib/costs/claude-report-fetch', () => ({ fetchClaudeReport: mocks.claude }))
 import { syncCostMonth } from '@/lib/costs/sync'
+import { costReportFixture } from '../fixtures/cost-report'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -28,5 +29,13 @@ describe('shared provider synchronization', () => {
     expect(await response.json()).toMatchObject({ succeeded: 0, total: 1 })
     expect(chain.update).toHaveBeenCalledWith({ status: 'error' })
     expect(chain.upsert).not.toHaveBeenCalled()
+  })
+  it('saves organization history separately and keeps the settled snapshot separate from estimates', async () => {
+    const chain = { select: vi.fn().mockReturnThis(), limit: vi.fn().mockResolvedValue({ error: null }), upsert: vi.fn().mockResolvedValue({ error: null }) }
+    mocks.db.mockReturnValue({ from: () => chain })
+    mocks.claude.mockResolvedValue(costReportFixture())
+    expect(await (await syncCostMonth('2026-10')).json()).toMatchObject({ succeeded: 1, total: 1 })
+    expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ month: '2026-10', report: expect.objectContaining({ pending: .5 }) }))
+    expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude', amount: 1 }))
   })
 })

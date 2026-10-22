@@ -1,6 +1,6 @@
 import { SolapiMessageService } from 'solapi'
 import { err, ok } from '@/lib/api'
-import { fetchClaudeCost } from '@/lib/costs/connectors'
+import { fetchClaudeReport } from '@/lib/costs/claude-report-fetch'
 import { fetchVercelCost, fetchNaverCost } from '@/lib/costs/cloud-connectors'
 import { fetchGcpCost } from '@/lib/costs/gcp-connector'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -43,7 +43,13 @@ export async function syncCostMonth(month: string) {
         }
         let amount: number
         let gcpCurrency: string | undefined
-        if (provider === 'claude') amount = await fetchClaudeCost(month)
+        if (provider === 'claude') {
+          const report = await fetchClaudeReport(month)
+          const saved = await db.from('cost_claude_report').upsert({ month, report, updated_at: report.fetchedAt })
+          if (saved.error) throw new Error('report_write_failed')
+          if (report.costThrough === report.start) throw new Error('cost_data_pending')
+          amount = report.reported
+        }
         else if (provider === 'vercel') amount = await fetchVercelCost(month)
         else if (provider === 'naver') amount = await fetchNaverCost(month)
         else if (provider === 'gcp') {

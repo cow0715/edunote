@@ -9,6 +9,7 @@ vi.mock('@/lib/api', () => ({
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: mocks.db }))
 import { GET, POST, DELETE } from '@/app/api/admin/costs/route'
 import { GET as getSync, POST as sync } from '@/app/api/admin/costs/sync/route'
+import { costReportFixture } from '../fixtures/cost-report'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -39,5 +40,15 @@ describe('cost API authorization and failure handling', () => {
     const response = await GET(new Request('http://local/api?month=2026-10&environment=production'))
     expect(response.status).toBe(503)
     expect(await response.text()).not.toContain('private config')
+  })
+  it('reads only app events after both organization coverage boundaries for the live addition', async () => {
+    const report = costReportFixture()
+    const chain = { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), order: vi.fn().mockResolvedValue({ data: [], error: null }), maybeSingle: vi.fn().mockResolvedValue({ data: { report }, error: null }) }
+    const rpc = vi.fn().mockResolvedValue({ data: [], error: null })
+    mocks.db.mockReturnValue({ from: () => chain, rpc })
+    const response = await GET(new Request('http://local/api?month=2026-10&environment=production'))
+    expect(response.status).toBe(200)
+    expect(rpc).toHaveBeenLastCalledWith('cost_usage_summary', { p_start: report.usageThrough, p_end: report.end, p_environment: 'production' })
+    expect(await response.json()).toMatchObject({ claudeReport: { month: '2026-10', reported: 1 }, claudeTail: [] })
   })
 })
