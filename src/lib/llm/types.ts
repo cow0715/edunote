@@ -31,6 +31,9 @@ export type LlmCallMetadata = {
   schemaVersion: string
   /** The SDK handles retries internally; its actual retry count is not exposed. */
   sdkRetryCount: number | null
+  transport?: 'batch'
+  batchId?: string
+  callKey?: string
 }
 
 export type LlmCallRecord = LlmCallMetadata & {

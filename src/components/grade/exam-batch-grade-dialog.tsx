@@ -1,6 +1,6 @@
 'use client'
 
-import { FileUpload } from '@/components/ui/file-upload'
+import { BatchGradePanel, type BatchPhotoView } from './batch-grade-panel'
 
 // 진단평가 답안지 일괄 판독 — 반 전체 답안지 사진을 한 번에 넣고, 이름 자동 매칭을 확인한 뒤,
 // 병렬로 OCR 해 학생별 답안을 그리드에 채운다 (임시저장까지. AI 채점은 "채점 저장" 한 번으로).
@@ -15,10 +15,6 @@ import { FileUpload } from '@/components/ui/file-upload'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { runOrReport } from '@/lib/async-ui'
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Trash2, XCircle } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
 import { compressImageForUpload } from '@/lib/image-compress'
 import type { ExamOcrResult } from './exam-photo-button'
 
@@ -72,7 +68,7 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
 }) {
   const [phase, setPhase] = useState<Phase>('pick')
   const [items, setItems] = useState<Item[]>([])
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [captureBusy, setCaptureBusy] = useState(false)
 
   const patch = useCallback((id: string, changes: Partial<Item>) => {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...changes } : it)))
@@ -110,7 +106,7 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
       duplicateName: false,
       status: 'idle',
     }))
-    setItems((prev) => [...prev, ...fresh])
+    setItems(fresh)
     setPhase('matching')
 
     // base64 인코딩 + 이름 판독 (병렬)
@@ -153,7 +149,6 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
     return new Set([...count.entries()].filter(([, n]) => n > 1).map(([id]) => id))
   }, [items])
 
-  const unmatched = items.filter((it) => !it.studentId).length
   const readyToRead = items.filter((it) => it.studentId && it.b64)
   const overwriteCount = readyToRead.filter((it) => students.find((s) => s.student_id === it.studentId)?.hasExisting).length
 
@@ -176,7 +171,7 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
   }, [weekId, questionCount, onApplied, patch])
 
   async function startReading() {
-    if (readyToRead.length === 0) return
+    if (readyToRead.length === 0 || duplicateStudentIds.size > 0) return
     if (overwriteCount > 0) {
       const ok = window.confirm(`${overwriteCount}명은 이미 입력된 답안이 있습니다.\n판독 결과로 화면의 답안이 덮어씌워집니다 (저장은 "채점 저장" 때 확정).\n계속하시겠습니까?`)
       if (!ok) return
@@ -194,129 +189,22 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
     setPhase('done')
   }
 
-  const doneCount = items.filter((it) => it.status === 'done').length
-  const errorCount = items.filter((it) => it.status === 'error').length
-  const isBusy = phase === 'matching' || phase === 'reading'
+  const isBusy = captureBusy || phase === 'matching' || phase === 'reading'
 
-  /** 닫기 요청 처리 — vocab 다이얼로그와 같은 규칙 */
+  // Every intake path is now backed by the same local draft; closing keeps the photos.
   function requestClose() {
-    if (isBusy) return
-    const pendingCount = items.filter((it) => it.status !== 'done').length
-    if (items.length > 0 && pendingCount > 0) {
-      const msg = phase === 'done'
-        ? `실패 ${errorCount}건이 남아 있습니다. 닫으면 목록이 사라집니다. (완료된 ${doneCount}명은 그리드에 반영됨)\n닫을까요?`
-        : `넣어둔 사진 ${items.length}장이 사라집니다. 닫을까요?`
-      if (!window.confirm(msg)) return
-    }
-    onOpenChange(false)
+    if (!isBusy) onOpenChange(false)
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) requestClose(); else onOpenChange(v) }}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-hidden p-0" showCloseButton={false}>
-        <DialogHeader className="border-b px-5 py-4">
-          <DialogTitle className="text-base">답안지 일괄 판독</DialogTitle>
-          <p className="text-xs text-gray-500">
-            {phase === 'pick' && '학생들 답안지 사진을 한 번에 넣으면 이름을 읽어 자동으로 매칭합니다.'}
-            {phase === 'matching' && '이름란을 읽는 중…'}
-            {phase === 'review' && '매칭을 확인하세요. 판독 결과는 그리드에 채워지고, 채점은 "채점 저장"으로 확정합니다.'}
-            {phase === 'reading' && '답안을 읽는 중…'}
-            {phase === 'done' && `완료 ${doneCount}명${errorCount > 0 ? ` · 실패 ${errorCount}건` : ''} — 그리드에서 확인 후 채점 저장을 눌러주세요.`}
-          </p>
-        </DialogHeader>
-
-        <div className="max-h-[calc(90vh-140px)] overflow-y-auto px-5 py-4">
-          {/* 파일 넣기 영역 */}
-          {(phase === 'pick' || phase === 'review') && (
-            <FileUpload className="mb-4" label="답안지 파일 선택" description="이미지 또는 PDF · 여러 파일 선택 가능 · 학생 한 명당 한 장" accept="image/*,application/pdf" multiple inputRef={inputRef}
-              onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
-          )}
-
-          {/* 항목 목록 */}
-          {items.length > 0 && (
-            <ul className="space-y-2">
-              {items.map((it) => {
-                const student = students.find((s) => s.student_id === it.studentId)
-                const isDupPhoto = !!it.studentId && duplicateStudentIds.has(it.studentId)
-                return (
-                  <li key={it.id} className={cn('flex items-center gap-3 rounded-lg border p-2', it.status === 'error' && 'border-red-200 bg-red-50/40')}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={it.previewUrl} alt="" className="h-12 w-12 shrink-0 rounded object-cover bg-gray-100" />
-
-                    {/* 파일명 + 읽은 이름 */}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium text-gray-700">{it.file.name}</p>
-                      <p className="text-[11px] text-gray-400">
-                        {it.status === 'reading-name' ? '이름 읽는 중…'
-                          : it.duplicateName ? `동명이인(${it.rawName}) — 직접 선택`
-                          : it.rawName ? `읽은 이름: ${it.rawName}`
-                          : it.status === 'ready' || phase !== 'matching' ? '이름을 못 읽음' : ''}
-                      </p>
-                    </div>
-
-                    {/* 학생 매칭 셀렉트 */}
-                    {phase !== 'pick' && (
-                      <select
-                        value={it.studentId ?? ''}
-                        disabled={isBusy || it.status === 'done'}
-                        onChange={(e) => patch(it.id, { studentId: e.target.value || null })}
-                        className={cn(
-                          'h-8 w-32 shrink-0 rounded-md border px-2 text-xs',
-                          !it.studentId ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-gray-200'
-                        )}
-                      >
-                        <option value="">미매칭</option>
-                        {presentStudents.map((s) => (
-                          <option key={s.student_id} value={s.student_id}>{s.student_name}</option>
-                        ))}
-                      </select>
-                    )}
-
-                    {/* 상태 */}
-                    <div className="flex w-24 shrink-0 items-center justify-end gap-1.5 text-xs">
-                      {it.status === 'reading' && <><Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" /><span className="text-indigo-600">판독 중</span></>}
-                      {it.status === 'done' && it.result && <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /><span className="font-semibold text-emerald-700">{it.result.applied}/{it.result.total}문항</span></>}
-                      {it.status === 'error' && <><XCircle className="h-3.5 w-3.5 text-red-400" /><span className="text-red-500">{it.error}</span></>}
-                      {isDupPhoto && it.status !== 'done' && <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />}
-                      {student?.hasExisting && it.status === 'ready' && <span className="text-[10px] text-amber-600">덮어씀</span>}
-                    </div>
-
-                    {!isBusy && it.status !== 'done' && (
-                      <button type="button" onClick={() => removeItem(it.id)} className="shrink-0 rounded p-1 text-gray-300 hover:bg-gray-100 hover:text-gray-500">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </div>
-
-        {/* 하단 액션 */}
-        <div className="flex items-center justify-between border-t px-5 py-3">
-          <p className="text-xs text-gray-400">
-            {items.length > 0 && `${items.length}장 · 매칭 ${items.length - unmatched} · 미매칭 ${unmatched}`}
-            {duplicateStudentIds.size > 0 && ` · 같은 학생 중복 ${duplicateStudentIds.size}명`}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={requestClose} disabled={isBusy}>
-              {phase === 'done' ? '닫기' : '취소'}
-            </Button>
-            {phase === 'done' && errorCount > 0 && (
-              <Button size="sm" variant="outline" onClick={retryFailed}>
-                <RefreshCw className="mr-1 h-3.5 w-3.5" /> 실패 재시도
-              </Button>
-            )}
-            {phase !== 'done' && (
-              <Button size="sm" onClick={startReading} disabled={isBusy || readyToRead.length === 0}>
-                {phase === 'reading' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-                판독 시작{readyToRead.length > 0 ? ` (${readyToRead.length}명)` : ''}
-              </Button>
-            )}
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <BatchGradePanel
+      open={open} kind="exam" draftKey={'exam:' + weekId}
+      phase={phase === 'reading' ? 'processing' : phase}
+      items={items.map<BatchPhotoView>((item) => ({ ...item, status: item.status === 'idle' || item.status === 'reading-name' ? 'matching' : item.status === 'reading' ? 'processing' : item.status, message: item.error ?? (item.result ? `판독 ${item.result.applied}/${item.result.total}문항` : undefined) }))}
+      students={students} busy={isBusy} readyCount={readyToRead.length} duplicateIds={duplicateStudentIds}
+      onClose={requestClose} onBack={() => setPhase('pick')} onConfirm={addFiles} onCaptureBusy={setCaptureBusy}
+      onSelect={(id, studentId) => patch(id, { studentId, confidence: studentId ? 'high' : 'none', duplicateName: false })}
+      onRemove={removeItem} onStart={startReading} onRetry={retryFailed}
+    />
   )
 }

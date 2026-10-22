@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PdfImportJob } from '@/lib/pdf-import/types'
-import { checkpointCall, reportPdfStage } from '@/lib/pdf-import/context'
+import { checkpointCall, getPdfWorkerContext, reportPdfStage } from '@/lib/pdf-import/context'
+import { BookBatchStopped } from '@/lib/book-pdf/batch-policy'
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), run: vi.fn(), single: vi.fn(), read: vi.fn() }))
+const batchMock = vi.hoisted(() => ({ poll: vi.fn(), submit: vi.fn(), call: vi.fn(), wake: vi.fn() }))
+vi.mock('@/lib/book-pdf/batch-transport', () => ({
+  BookBatchTransport: class { poll = batchMock.poll; submit = batchMock.submit; call = batchMock.call },
+  anthropicBookBatchProvider: vi.fn(),
+}))
+vi.mock('@/lib/pdf-import/batch-wake', () => ({ scheduleBookBatchWake: batchMock.wake }))
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({
   rpc: mocks.rpc,
   from: () => {
@@ -23,11 +30,56 @@ beforeEach(() => {
   mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pdf_import_claim' ? [job] : true, error: null }))
   mocks.read.mockResolvedValue({ data: null, error: null })
   mocks.run.mockResolvedValue({ ok: true })
+  batchMock.poll.mockResolvedValue(false)
+  batchMock.submit.mockResolvedValue(undefined)
+  batchMock.wake.mockResolvedValue('2026-10-21T15:00:00Z')
 })
 afterEach(() => { vi.unstubAllEnvs() })
 describe('single-job worker execution', () => {
+  function batchJob() {
+    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pdf_import_claim' ? [{ ...job, kind: 'bank_book', payload: { bookProcessing: 'batch-v1' } }] : true, error: null }))
+  }
+  it('submits textbook requests, schedules continuation, releases its lease and exits without finishing', async () => {
+    batchJob()
+    mocks.run.mockImplementation(async () => {
+      expect(getPdfWorkerContext()?.batchCall).toBe(batchMock.call)
+      return { batch_waiting: true }
+    })
+    await main()
+    expect(batchMock.submit).toHaveBeenCalledTimes(1)
+    expect(batchMock.wake).toHaveBeenCalledTimes(1)
+    expect(batchMock.wake.mock.invocationCallOrder[0]).toBeLessThan(batchMock.submit.mock.invocationCallOrder[0])
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_suspend_batch', expect.objectContaining({ p_id: id }))
+    expect(mocks.rpc.mock.calls.some(([name]) => name === 'pdf_import_finish')).toBe(false)
+  })
+  it('never sends a paid batch when the automatic continuation cannot be scheduled', async () => {
+    batchJob(); mocks.run.mockResolvedValue({ batch_waiting: true }); batchMock.wake.mockRejectedValueOnce(Error('queue IAM missing'))
+    await expect(main()).rejects.toThrow('queue IAM missing')
+    expect(batchMock.submit).not.toHaveBeenCalled()
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'queued' }))
+  })
+  it('checks a pending provider batch without downloading or reparsing the PDF', async () => {
+    batchJob(); batchMock.poll.mockResolvedValue(true)
+    await main()
+    expect(mocks.run).not.toHaveBeenCalled()
+    expect(batchMock.submit).not.toHaveBeenCalled()
+    expect(batchMock.wake).toHaveBeenCalledTimes(1)
+  })
+  it('continues to publication when batch responses are ready', async () => {
+    batchJob(); mocks.run.mockResolvedValue({ auto_published: true, question_count: 119 })
+    await main()
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'succeeded' }))
+    expect(batchMock.wake).not.toHaveBeenCalled()
+  })
+  it('does not automatically retry an uncertain batch submission', async () => {
+    batchJob(); batchMock.poll.mockRejectedValue(new BookBatchStopped('uncertain batch'))
+    await expect(main()).resolves.toBeUndefined()
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'failed', p_result: { batch_stopped: true } }))
+    expect(mocks.run).not.toHaveBeenCalled()
+  })
   it('checks ownership lease for stages, persists checkpoints, and records completion', async () => {
     mocks.run.mockImplementation(async () => {
+      expect(getPdfWorkerContext()?.batchCall).toBeUndefined()
       await reportPdfStage('추출 중')
       await checkpointCall('question 18', async () => ({ passage: 'cached' }))
       return { question_count: 1 }

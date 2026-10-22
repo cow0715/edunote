@@ -26,7 +26,17 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   const outcome = await ownedJob((await params).id)
   if (outcome.response) return outcome.response
   const job = outcome.job!
+  if (job.result?.batch_stopped === true) return err('배치 접수·결과 기록을 먼저 확인해야 합니다. 중복 접수를 막기 위해 재실행을 중단했습니다.', 409)
   if (bookQualityRetryBlocked(job)) return err('자동 복구 한도 내에 원문 일치를 확정하지 못했습니다. 같은 결과를 그대로 재실행하지 않습니다.', 409)
+  if (job.status === 'waiting_batch') {
+    if (!publicPdfJob(job).can_retry) return err('배치를 처리 중이며 자동으로 이어집니다.', 409)
+    try {
+      // Recover a Cloud Tasks delivery outage by waking the same durable job.
+      // Claiming preserves its provider IDs and all request/quality budgets.
+      await dispatchPdfJob(job.id, job.kind)
+      return ok({ accepted: true, job_id: job.id }, { status: 202 })
+    } catch { return err('배치 재개 실행을 요청하지 못했습니다. GCP 설정을 확인해주세요.', 503) }
+  }
   try {
     const client = createServiceClient()
     const { data, error } = await client.rpc('pdf_import_retry', { p_id: job.id })
