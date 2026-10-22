@@ -3,6 +3,7 @@ import { nativeFixture } from '../fixtures/book-native'
 import { pdfBytes, pdfHash } from '../fixtures/book-pdf'
 import { createCallLimiter, withPdfWorkerContext } from '@/lib/pdf-import/context'
 import { bookProofMatches } from '@/lib/book-pdf/proof'
+import { BookBatchPending, BookBatchRequestFailed } from '@/lib/book-pdf/batch-policy'
 const mocks = vi.hoisted(() => ({ read: vi.fn(), map: vi.fn(), render: vi.fn(), audit: vi.fn(), enrich: vi.fn() }))
 vi.mock('@/lib/book-pdf/layout-source', () => ({ readLayoutSource: mocks.read }))
 vi.mock('@/lib/book-pdf/map-source', () => ({ mapBookSource: mocks.map }))
@@ -22,6 +23,39 @@ beforeEach(() => {
 })
 
 describe('native textbook worker pipeline', () => {
+  it('keeps enrichment input identical after JSONB reorders a verified-source checkpoint', async () => {
+    const stored = new Map<string, unknown>()
+    const sorted = (value: unknown): unknown => Array.isArray(value) ? value.map(sorted)
+      : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a],[b]) => a.localeCompare(b)).map(([k,v]) => [k,sorted(v)])) : value
+    const context = { signal: new AbortController().signal, concurrency: 1, execute: createCallLimiter(1),
+      read: async <T,>(key: string) => (stored.get(key) ?? null) as T | null,
+      write: async (key: string, value: unknown) => { stored.set(key, sorted(value)) }, stage: async () => {},
+      batchCall: async () => { throw new BookBatchPending() } }
+    const serialized: string[] = []
+    mocks.enrich.mockImplementation(async (source) => {
+      serialized.push(JSON.stringify(source))
+      if (serialized.length === 1) throw new BookBatchPending()
+      return { questions: fixture.enrichment.questions }
+    })
+    await expect(withPdfWorkerContext(context, () => processNativeBookUnit(input()))).rejects.toBeInstanceOf(BookBatchPending)
+    expect((await withPdfWorkerContext(context, () => processNativeBookUnit(input()))).verification.status).toBe('passed')
+    expect(serialized[0]).toBe(serialized[1])
+    expect(mocks.map).toHaveBeenCalledTimes(1)
+    expect(mocks.audit).toHaveBeenCalledTimes(1)
+  })
+  it('suspends mapping without consuming the correction budget or starting image verification', async () => {
+    mocks.map.mockRejectedValue(new BookBatchPending())
+    await expect(processNativeBookUnit(input())).rejects.toBeInstanceOf(BookBatchPending)
+    expect(mocks.map).toHaveBeenCalledTimes(1)
+    expect(mocks.audit).not.toHaveBeenCalled()
+  })
+  it('holds a permanently failed batch request without spending another correction call', async () => {
+    mocks.map.mockRejectedValue(new BookBatchRequestFailed('배치 재요청 3회 소진'))
+    const result = await processNativeBookUnit(input())
+    expect(result.verification.issues).toEqual(['배치 재요청 3회 소진'])
+    expect(mocks.map).toHaveBeenCalledTimes(1)
+    expect(mocks.audit).not.toHaveBeenCalled()
+  })
   it('maps, image-audits, then enriches without changing the verified original', async () => {
     const result = await processNativeBookUnit(input())
     expect(result.extraction?.questions[0].solution).toBe('원문 해설')

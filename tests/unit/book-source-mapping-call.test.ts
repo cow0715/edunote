@@ -4,6 +4,7 @@ vi.mock('@/lib/llm/client', () => ({ MODELS: { parse: 'test-model' }, callLlmTex
   buildFileBlock: () => ({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'test' } }),
   parseJsonObjectResponse: (text: string) => JSON.parse(text) }))
 import { mapBookSource } from '@/lib/book-pdf/map-source'
+import { sourceAuditFixture } from '../fixtures/book-source-audit'
 
 beforeEach(() => { mock.call.mockReset() })
 describe('source mapping model response handling', () => {
@@ -32,11 +33,19 @@ describe('source mapping model response handling', () => {
     expect(request.content.some((b: object) => 'cache_control' in b)).toBe(false)
     expect(JSON.parse(request.content.at(-1).text)).toEqual({ pages: [] })
   })
-  it('falls back to the unchanged full mapping request when no safe code connections exist', async () => {
-    mock.call.mockResolvedValue({ text: '{}', stopReason: 'end_turn', usage: {} })
-    await mapBookSource({ pages: [], pdf: 'test', mode: 'hybrid' })
+  it('keeps all native lines available when mapping target questions and repairing a candidate', async () => {
+    const { pages, mapping } = sourceAuditFixture()
+    const targets = [{ key: 'q1', label: '1강 Gateway 1번' }]
+    const repair = { previous: { groups: [] }, errors: ['missing_source'] }
+    mock.call.mockResolvedValue({ text: JSON.stringify(mapping), stopReason: 'end_turn', usage: {} })
+    const result = await mapBookSource({ pages, pdf: 'test', targets, repair })
     const request = mock.call.mock.calls[0][0]
-    expect(JSON.parse(request.content.at(-1).text)).toEqual({ pages: [] })
-    expect(request.content[1].text).not.toContain('추가 규칙:')
+    const evidence = JSON.parse(request.content.at(-1).text)
+    expect(evidence.targets).toEqual(targets)
+    expect(evidence.repair).toEqual(repair)
+    expect(evidence.pages[0].lines.map((line: [number, number, number, string]) => line[3])).toEqual(pages[0].lines.map((line) => line.text))
+    expect(evidence).not.toHaveProperty('codeConnections')
+    expect(result.resolved.status).toBe('mapped')
+    expect(result.resolved.groups[0].extraction.questions[0].solution).toBe('해설')
   })
 })

@@ -11,6 +11,8 @@ import { bookFingerprint, bookSourceFingerprint, bookSourceProofMatches } from '
 import { renderBookSourceImages } from './render-source'
 import { resolveSourceMap, sourceMapSchema } from './source-map'
 import { NATIVE_RECOVERY_REVISION } from './recovery-policy'
+import { BookBatchRequestFailed } from './batch-policy'
+import { bookExtractionSchema } from './types'
 import type { BookEnrichment, BookExtraction, BookUnitManifest, BookValidation, BookVerification } from './types'
 
 type SourceResult = { extraction: BookExtraction | null; validation: BookValidation; verification: BookVerification }
@@ -34,15 +36,19 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
     if (source.verification.status === 'passed') await context?.write(sourceKey, source)
   }
   if (!source.extraction || source.verification.status !== 'passed') return { ...source, enrichment: null }
+  // JSONB restores object keys in a different order. Match the fresh extraction's
+  // schema order before JSON.stringify, otherwise a resumed supplement gets a
+  // different request identity and the completed batch response cannot be reused.
+  const enrichmentSource = context?.batchCall ? bookExtractionSchema.parse(source.extraction) : source.extraction
   await reportPdfStage(`${unit.questions[0].label}: 검증된 원문으로 풀이·어휘를 보완하는 중`)
   try {
-    const supplement = await enrichVerifiedMaterial(source.extraction)
+    const supplement = await enrichVerifiedMaterial(enrichmentSource)
     const enrichment: BookEnrichment = { ...supplement, protocol: 1, status: 'complete', source_hash: bookFingerprint(source.extraction), model: MODEL_IDS.sonnet55 }
     return { ...source, enrichment, verification: { ...source.verification, enrichment_hash: bookFingerprint(enrichment) } }
   } catch (error) {
-    if (!qualityError(error)) throw error
+    if (!qualityError(error) && !(error instanceof BookBatchRequestFailed)) throw error
     return { ...source, enrichment: null, verification: { ...source.verification, status: 'unresolved', exhausted: true, recovery_revision: NATIVE_RECOVERY_REVISION,
-      issues: ['원문 검증은 완료했지만 풀이·어휘 보완 응답을 확정하지 못했습니다.'] } }
+      issues: [error instanceof BookBatchRequestFailed ? error.message : '원문 검증은 완료했지만 풀이·어휘 보완 응답을 확정하지 못했습니다.'] } }
   }
 
   async function parseSource(): Promise<SourceResult> {
@@ -68,6 +74,7 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
         mapping = bindBookMapping(unit, sourceMapSchema.parse(mapped.mapping))
         break
       } catch (error) {
+        if (error instanceof BookBatchRequestFailed) return unresolved([error.message])
         if (!qualityError(error) && !(error instanceof Error && /대상 지문|문항 식별자/.test(error.message))) throw error
         errors = [error instanceof Error ? error.message : '원문 매핑 형식 오류']
       }
@@ -89,6 +96,7 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
         audit: { pages: [...unit.pages], image_hashes: Object.fromEntries(images.map((i) => [i.page, i.sha256])), native_hash: bookFingerprint(pages),
           mapping_hash: bookFingerprint(result.mapping), rounds: result.audits.length, last_status: 'pass', extraction_hash: extractionHash } } }
     } catch (error) {
+      if (error instanceof BookBatchRequestFailed) return unresolved([error.message])
       if (!qualityError(error)) throw error
       return unresolved(['원본 이미지 대조·복구 응답이 완결되지 않았습니다.'])
     }

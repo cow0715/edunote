@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { jsonrepair } from 'jsonrepair'
-import { checkpointCall, getPdfWorkerContext } from '../pdf-import/context'
+import { checkpointCall, checkpointKey, getPdfWorkerContext } from '../pdf-import/context'
 import { LlmError } from './errors'
 import { getModel, getModelCatalog } from './models'
 import { callAnthropic, isAnthropicConfigured } from './providers/anthropic'
@@ -81,9 +81,17 @@ export async function callLlmTextDetailed(options: CallLlmOptions): Promise<LlmD
   const workerOptions = { ...options, execution, signal: options.signal ? AbortSignal.any([options.signal, context.signal]) : context.signal }
   // Execution IDs and AbortSignals are transient. Routing and prompts determine reuse.
   if (options.phase === 'prewarm') return callLlmTextUncached(workerOptions)
-  return checkpointCall({ version: 2, ...options, execution: undefined, signal: undefined,
-    configVersion: execution.configVersion, model: execution.taskBindings[options.task] },
-  () => callLlmTextUncached(workerOptions), (result) => {
+  const checkpoint = { version: 2, ...options, execution: undefined, signal: undefined,
+    configVersion: execution.configVersion, model: execution.taskBindings[options.task] }
+  return checkpointCall(checkpoint, () => {
+    if (context.batchCall && options.task.startsWith('book.')) {
+      const model = getModel(execution.taskBindings[options.task])
+      if (!model) throw new LlmError('configuration', '배치 모델 설정이 올바르지 않습니다.')
+      validate(workerOptions, model)
+      return context.batchCall(workerOptions, checkpointKey(checkpoint))
+    }
+    return callLlmTextUncached(workerOptions)
+  }, (result) => {
     if (result.finishReason !== 'complete') return false
     try {
       const value = JSON.parse(jsonrepair(result.text.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')))

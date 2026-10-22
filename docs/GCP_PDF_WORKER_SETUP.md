@@ -252,7 +252,7 @@ gcloud run jobs execute edunote-bank-pdf --region=$PdfRegion --update-env-vars="
 
 `bank_book`은 `20261019110610_book_native_worker_enrichment.sql`을 개발·운영 DB에 적용한 뒤 새 이미지로 배포한다. 교재 테이블이 아직 없는 DB에는 이전 교재 마이그레이션 두 개도 필요하다. `supabase/book_pdf_setup.sql`은 이 세 파일을 순서대로 합친 설치용 SQL이며, 두 DB의 SQL Editor에서 전체를 각각 실행할 수 있다. 원문 경계 조사는 기존 수능특강 좌본문·우해석 식별표기 전용이며, 임의 교재나 스캔 문서의 범용 경계 탐지를 보장하지 않는다. 경계 조사 후 연결 페이지 전체를 지문 묶음으로 복사하고 다음 순서로 처리한다.
 
-1. PDF.js로 글자·좌표·서식을 읽고 Sonnet에 원문 참조 매핑을 요청한다. 장별 예열이나 코드 선연결 실험 옵션은 사용하지 않는다.
+1. PDF.js로 글자·좌표·서식을 읽고 Sonnet에 원문 참조 매핑을 요청한다. 신규 교재 작업은 아래 Batch API 경로로 처리한다. 교재 코드 선연결(hybrid) 실험 경로는 제거했으며, 장별 예열은 사용하지 않는다. 기존 주차별·기출 처리기의 동작은 유지한다.
 2. Poppler(`pdftoppm`, Docker 이미지에 포함)로 원본 페이지를 높이 2000px PNG로 렌더링한다. PDF.js 추출 텍스트와 다른 경로의 시각 기준이다.
 3. 원본 이미지로 내용·연결·서식을 대조하고, 최대 두 차례 해당 필드만 복구한 뒤 새 검증 호출로 확인한다. 매핑 형식/누락 재요청은 한 번으로 제한한다.
 4. 검증된 원문을 별도 체크포인트에 저장하고, 그 텍스트만으로 추가 풀이·어휘를 작성한다. 생성 결과는 `book_pdf_unit.enrichment`, 원문은 `extraction`에 따로 저장한다. 보완 단계의 네트워크 실패로 재시작해도 원문 검증 체크포인트를 재사용한다.
@@ -282,3 +282,50 @@ gcloud run jobs execute edunote-bank-pdf --region=$PdfRegion --update-env-vars="
 매핑 모델이 보고한 PDF.js 글자 깨짐·원문 특이점은 구조 오류와 분리해 원본 이미지 대조로 넘긴다. 범위 초과·본문 누락·중복·잘못된 문항 ID는 계속 차단한다. 본문 내부에 섞인 보이지 않는 잔상 글자는 매핑에서 임의 제외하지 않고 원문 필드에 남겨 별도 이미지 복구로 제거한다. PDF 디코딩으로 닫는 괄호만 빠진 정확한 표제는 허용하되 그 뒤의 본문을 표제로 숨길 수 없다.
 
 보완 JSON의 필드명·문항 대응 오류는 원문 재파싱 없이 텍스트 보완 단계에서 한 번만 피드백 복구한다. 네트워크 실패는 기존 재시도 정책을 유지한다. 새로운 복구 정책 revision이 배포된 경우에만 이전 revision에서 보류된 묶음을 다시 시도하고, 동일 revision의 복구 예산 소진은 계속 재실행을 차단한다. 통과한 묶음·검증된 원문 체크포인트는 재사용하며 동일 PDF를 새 작업으로 업로드하지 않는다.
+
+### 2026-10-21 신규 교재: Batch API와 종료 후 자동 재개
+
+신규 교재 접수 API는 `payload.bookProcessing=batch-v1`을 기록한다. 이 작업의 `book.mapSource`, `book.auditSource`, `book.enrichMaterial`만 Anthropic Message Batches로 전송한다. 모델(Sonnet 5.5)과 원문 대조·복구·풀이/어휘 보완 규칙은 유지한다. 기존 교재 작업에는 이 플래그가 없으므로 원래 경로로 재개하며, 기출·주차별은 기존 예열/실시간 요청을 그대로 사용한다. 코드 선연결 실험은 제거했다.
+
+워커는 빠진 응답을 모아 배치를 제출하고 `book_pdf_batch`에 접수 ID·요청 식별자·결과 코드를 보관한다. PDF base64와 프롬프트는 이 테이블에 저장하지 않는다. 지문별 원문 처리 동시성은 2개, 수집하는 요청 JSON은 실행당 최대 32MiB/1,000개로 제한한다. 나머지는 다음 실행에서 이어간다. 결과는 요청 순서 대신 `custom_id`로 대응하고, 성공한 응답과 검증된 원문은 체크포인트에서 재사용한다. JSONB의 키 순서 차이 때문에 동일한 보완 요청이 다시 과금되지 않도록 입력을 스키마 순서로 정규화한다.
+
+Cloud Tasks에 **5분 뒤 같은 교재 작업 실행**을 먼저 예약한 후 유료 배치를 접수한다. 예약이 실패하면 AI 요청을 보내지 않는다. 이후 DB를 `waiting_batch`로 바꾸면서 lease를 반환한 뒤 종료한다. 대기 중인 컨테이너·폴링 루프는 없다. 예약 실행은 배치가 아직 처리 중이면 원본 PDF를 다운로드하거나 렌더링하지 않고 다음 확인만 예약한다. 모든 배치가 완료되면 기존 파이프라인을 체크포인트부터 재개한다. 단계별 대기가 누적될 수 있으며, 하나의 배치가 26시간 넘게 미완료이면 중단 사유를 기록한다. 실패한 조회/재개 인프라는 기존 Cloud Run 최대 3회 재시도(최초 포함 4번)를 유지한다.
+
+재시도 제한은 별개다:
+
+| 종류 | 한도 |
+|---|---|
+| 일시적인 개별 배치 실패(api_error/overloaded/rate_limit/timeout/expired) | 같은 요청 최초 포함 최대 3회 접수. 성공한 요청은 재접수하지 않음 |
+| 매핑 형식·누락 교정 | 최초 + 교정 1회 |
+| 원본 부분 복구·새 이미지 대조 | 복구 최대 2회, 대조 최대 3회 |
+| 풀이·어휘 JSON 교정 | 최초 + 교정 1회 |
+| 배치 처리 중 상태 확인 | 위 AI 재요청 횟수를 소모하지 않음 |
+
+취소·잘못된 요청 등 영구 오류는 자동 재접수하지 않는다. 배치 생성 POST는 SDK 재시도를 끈다. 응답 단절·DB 저장 실패로 접수 여부가 불확실하면 `batch_stopped`로 중단하고, 운영자가 Anthropic의 실제 배치 ID와 DB 기록을 대조하기 전에는 재실행 버튼을 막는다. `submitting` 행을 지우고 무조건 재접수하면 중복 과금될 수 있다. 한도는 DB 접수 이력과 체크포인트에 남으므로 컨테이너 재시작이나 수동 재실행으로 초기화되지 않는다.
+
+Cloud Tasks의 Job 실행 요청 전달에는 `maxAttempts=5`, `maxRetryDuration=1800s`를 설정한다. Google의 정책상 두 조건을 모두 충족해야 중단되므로 이 값은 엄격한 최대 5회가 아니다. 반면 유료 AI 요청의 3회 한도는 DB에서 별도로 강제한다. 예약 시각보다 30분 넘게 상태 확인이 지연되면 앱에서 사유와 재실행을 제공한다. 이는 같은 작업의 기존 배치 ID를 다시 조회하는 복구이며, 성공 응답을 새로 생성하거나 AI 재요청 한도를 초기화하지 않는다. [Cloud Tasks 재시도 조건](https://docs.cloud.google.com/tasks/docs/reference/rest/v2/RetryConfig).
+
+배포 순서:
+
+1. `20261021150000_book_pdf_batches.sql`을 개발·운영 SQL Editor에 각각 적용한다. 신규 DB용 `supabase/book_pdf_setup.sql`에도 포함돼 있다. `waiting_batch`도 활성 작업으로 취급해 중복 접수와 처리 중 삭제를 막는다.
+2. 다음 Cloud Tasks 큐·전용 dispatcher 권한을 설정한다. 새 JSON 키는 만들지 않는다. 런타임의 `serviceAccountUser`는 이 전용 계정을 작업의 OAuth 계정으로 지정하는 데 필요하다. 전용 dispatcher에는 문제은행 Job 실행 권한만 준다.
+3. 새 워커 이미지를 빌드하고, 문제은행 Job에 아래 환경변수를 추가한 뒤 배포한다. 주차 Job의 설정은 바꾸지 않는다.
+4. 워커 준비 후 새 웹을 배포한다. 기존 115페이지 등록 결과를 다시 업로드할 필요는 없다. 실제 Batch API 전송 테스트는 별도 요청 없이 실행하지 않는다.
+
+```powershell
+$PdfProject = 'edunote-511708'
+$PdfRegion = 'asia-northeast3'
+$BookDispatcher = "edunote-book-batch-dispatcher@${PdfProject}.iam.gserviceaccount.com"
+$PdfRuntime = "edunote-pdf-runtime@${PdfProject}.iam.gserviceaccount.com"
+gcloud services enable cloudtasks.googleapis.com --project=$PdfProject
+gcloud iam service-accounts create edunote-book-batch-dispatcher --project=$PdfProject
+gcloud tasks queues create edunote-book-batch --project=$PdfProject --location=$PdfRegion --max-dispatches-per-second=1 --max-concurrent-dispatches=1 --max-attempts=5 --min-backoff=30s --max-backoff=300s --max-retry-duration=1800s
+gcloud run jobs add-iam-policy-binding edunote-bank-pdf --project=$PdfProject --region=$PdfRegion --member="serviceAccount:$BookDispatcher" --role=roles/run.jobsExecutorWithOverrides
+gcloud iam service-accounts add-iam-policy-binding $BookDispatcher --project=$PdfProject --member="serviceAccount:$PdfRuntime" --role=roles/iam.serviceAccountUser
+gcloud tasks queues add-iam-policy-binding edunote-book-batch --project=$PdfProject --location=$PdfRegion --member="serviceAccount:$PdfRuntime" --role=roles/cloudtasks.enqueuer
+gcloud run jobs update edunote-bank-pdf --project=$PdfProject --region=$PdfRegion --update-env-vars="GCP_PROJECT_ID=$PdfProject,GCP_WORKER_REGION=$PdfRegion,GCP_BANK_PDF_JOB=edunote-bank-pdf,GCP_BOOK_BATCH_QUEUE=edunote-book-batch,GCP_BOOK_BATCH_DISPATCH_ACCOUNT=$BookDispatcher"
+```
+
+위 create 명령은 처음 설정할 때만 실행한다. 같은 이름의 큐·계정이 이미 있으면 재생성하지 않고 설정을 확인한다.
+
+참고: [Anthropic Batch API](https://platform.claude.com/docs/en/build-with-claude/batch-processing), [Cloud Tasks OAuth](https://docs.cloud.google.com/tasks/docs/creating-http-target-tasks), [Job 실행 권한](https://docs.cloud.google.com/iam/docs/roles-permissions/run).

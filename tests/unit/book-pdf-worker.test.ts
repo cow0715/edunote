@@ -6,6 +6,7 @@ import { document, draft, extraction, manifest, pdfBytes, verification } from '.
 import { nativeFixture } from '../fixtures/book-native'
 import { bookFingerprint, bookSourceFingerprint } from '@/lib/book-pdf/proof'
 import { NATIVE_RECOVERY_REVISION } from '@/lib/book-pdf/recovery-policy'
+import { BookBatchPending } from '@/lib/book-pdf/batch-policy'
 const mocks = vi.hoisted(() => ({ verify: vi.fn(), warm: vi.fn(), read: vi.fn(), slice: vi.fn(), inventory: vi.fn(), publish: vi.fn() }))
 vi.mock('@/lib/book-pdf/pdf', () => ({ readBookPages: mocks.read, bookPageSlice: mocks.slice }))
 vi.mock('@/lib/book-pdf/inventory', () => ({ inventoryBook: mocks.inventory }))
@@ -47,6 +48,16 @@ beforeEach(() => {
   mocks.publish.mockResolvedValue('bank')
 })
 describe('automatic textbook worker', () => {
+  it('collects all pending units without moving the document to review or publishing partial work', async () => {
+    mocks.inventory.mockReturnValue({ ...manifest, units: [manifest.units[0], { ...manifest.units[0], key: 'unit-2', order: 2 }] })
+    mocks.verify.mockRejectedValue(new BookBatchPending())
+    const { client, doc, calls } = database()
+    expect(await importBookPdf(client, job, pdfBytes)).toMatchObject({ batch_waiting: true })
+    expect(mocks.verify).toHaveBeenCalledTimes(2)
+    expect(doc.status).toBe('processing')
+    expect(calls).toHaveLength(0)
+    expect(mocks.publish).not.toHaveBeenCalled()
+  })
   it('uses the native unit pipeline without warmup, stores source/supplement and publishes automatically', async () => {
     const { client, calls, doc } = database()
     expect(await importBookPdf(client, job, pdfBytes)).toMatchObject({ auto_published: true, exam_id: 'bank' })

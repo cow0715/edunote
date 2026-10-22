@@ -9,6 +9,7 @@ import { publishVerifiedBook } from './publish'
 import type { BookDocument, BookDraftUnit } from './types'
 import { processNativeBookUnit, type NativeBookResult } from './native-pipeline'
 import { NATIVE_RECOVERY_REVISION, needsUpdatedNativeRecovery } from './recovery-policy'
+import { BookBatchPending } from './batch-policy'
 
 export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, bytes: Uint8Array) {
   const pdfHash = createHash('sha256').update(bytes).digest('hex')
@@ -69,12 +70,16 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   })
   // Bound both native parsing and rasterization, not just paid API calls.
   const unitLimit = createCallLimiter(Math.min(2, getPdfWorkerContext()?.concurrency ?? 2))
-  await Promise.all(pending.map((unit) => unitLimit(async () => {
+  const settled = await Promise.allSettled(pending.map((unit) => unitLimit(async () => {
     getPdfWorkerContext()?.signal.throwIfAborted()
     const smallPdf = await bookPageSlice(bytes, unit.pages)
     const verified = await processNativeBookUnit({ unit, pdfHash, bytes: new Uint8Array(Buffer.from(smallPdf, 'base64')) })
     await stage(verified, unit.key)
   })))
+  const failures = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+  const fatal = failures.find((r) => !(r.reason instanceof BookBatchPending))
+  if (fatal) throw fatal.reason
+  if (failures.length) return { document_id: job.target_id, batch_waiting: true }
   await reportPdfStage('검증 결과를 확정하고 문제은행에 등록하는 중')
   await stage(null, null)
   const finished = await currentDocument()
