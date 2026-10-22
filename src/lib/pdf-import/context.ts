@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
+import type { CallLlmOptions, LlmDetailedResult } from '../llm/types'
 
 /** A worker-scoped checkpoint store. Normal web requests never acquire this context. */
 export type PdfWorkerContext = {
@@ -9,6 +10,7 @@ export type PdfWorkerContext = {
   read: <T>(key: string) => Promise<T | null>
   write: (key: string, value: unknown) => Promise<void>
   stage: (message: string) => Promise<void>
+  batchCall?: (options: CallLlmOptions, key: string) => Promise<LlmDetailedResult>
 }
 const storage = new AsyncLocalStorage<PdfWorkerContext>()
 
@@ -37,7 +39,7 @@ export async function checkpointCall<T>(input: unknown, call: () => Promise<T>, 
   const context = storage.getStore()
   if (!context) return call()
   context.signal.throwIfAborted()
-  const key = createHash('sha256').update(JSON.stringify(input)).digest('hex')
+  const key = checkpointKey(input)
   const saved = await context.read<T>(key)
   context.signal.throwIfAborted()
   if (saved !== null) return saved
@@ -46,6 +48,8 @@ export async function checkpointCall<T>(input: unknown, call: () => Promise<T>, 
   if (cacheable(result)) await context.write(key, result)
   return result
 }
+
+export function checkpointKey(input: unknown) { return createHash('sha256').update(JSON.stringify(input)).digest('hex') }
 
 export async function reportPdfStage(message: string) {
   const context = storage.getStore()

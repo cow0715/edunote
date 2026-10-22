@@ -1,4 +1,5 @@
 import { SolapiMessageService } from 'solapi'
+import { recordUsage } from './costs/record'
 
 const apiKey = process.env.SOLAPI_API_KEY!
 const apiSecret = process.env.SOLAPI_API_SECRET!
@@ -35,6 +36,7 @@ export async function sendMessages(targets: SendTarget[]): Promise<SendResult[]>
     )
   )
 
+  await recordUsage({ provider: 'solapi', feature: '문자 발송 요청', units: targets.length })
   return targets.map((t, i) => {
     const result = settled[i]
     if (result.status === 'fulfilled') {

@@ -55,6 +55,7 @@ export function PdfImportJobList({ weekId }: { weekId?: string }) {
       return <div key={job.id} className="flex items-start justify-between gap-2 text-xs">
         <div>
           <p>{labels[job.kind]} · {job.stage} · 저장된 처리 결과 {job.completed_calls}개</p>
+          {job.status === 'waiting_batch' && <p className="text-gray-500">이 화면을 닫아도 계속 처리되며, 배치 완료 후 자동으로 이어집니다.</p>}
           {job.error && <p className="mt-1 text-red-600">{job.error}</p>}
           {job.status === 'succeeded' && <p className="text-gray-500">{job.kind === 'bank_book' ? job.result?.auto_published ? '자동 검증을 통과해 문제은행과 단어장에 등록했습니다.' : '자동 복구 후에도 확정하지 못한 항목이 있어 등록을 보류했습니다. 처리 결과에 사유를 남겼습니다.' : '완료됐습니다. 자료 목록에 반영했습니다.'}</p>}
           {Array.isArray(skipped) && skipped.length > 0 && <p className="text-red-600">인식하지 못한 문항: {skipped.join(', ')}번</p>}

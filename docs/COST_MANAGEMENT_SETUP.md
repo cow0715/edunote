@@ -1,0 +1,105 @@
+# 비용 관리 설정
+
+비용 관리 화면은 `/settings/costs`에 있다. 승인된 `is_admin` 관리자만 화면과 API에 접근할 수 있다. 운영 서비스 6개와 기타 비용을 관리하며, 테스트용 OpenAI·Typesafe·Google Vision은 운영 집계에 자동 포함하지 않는다.
+
+## 활성화
+
+1. `supabase/migrations/20261021000001_cost_management.sql` 전체를 개발·운영 Supabase SQL Editor에 각각 적용한다. 앱이 스키마를 자동 적용하지 않는다.
+2. 웹 서버 및 운영 Cloud Run Job 두 곳에 `COST_TRACKING_ENABLED=true`, `COST_ENVIRONMENT=production`을 설정한다. 개발 서버는 `development`, 실험은 `test`를 사용한다. 워커는 Vercel 환경변수를 상속하지 않으므로 별도 설정이 필요하다.
+3. 웹과 PDF 워커를 각각 새 코드로 배포한다. 워커 빌드는 기존 `npm run build:worker` 및 `docs/GCP_PDF_WORKER_SETUP.md` 절차를 따른다.
+4. 관리자 로그인 후 설정 → 비용 관리에서 월·환경을 선택하고 업체별 월 비용과 예산을 입력한다. SQL 미적용·연결 실패는 오류로 표시된다.
+
+로컬 기본 설정은 `.env.example`을 참고한다. 기존 `.env.local`의 키는 이 작업에서 변경하지 않는다.
+
+## 자동 조회 자격 증명
+
+모두 서버 전용이다. `NEXT_PUBLIC_` 접두사를 붙이지 않는다. 자격 증명이 없는 서비스도 수동 관리할 수 있다. 버튼을 누를 때만 업체 API를 조회하며, 화면 새로고침은 저장된 조회값만 읽는다. 정기 자동 실행은 아직 연결하지 않았다.
+
+| 서비스 | 설정 | 조회 범위 |
+| --- | --- | --- |
+| Claude | `ANTHROPIC_ADMIN_KEY` | 조직 전체 월 사용액. 일반 모델 호출 키와 별개. Priority Tier 등 공식 Cost API 제외 항목은 포함되지 않을 수 있음 |
+| SOLAPI | 기존 `SOLAPI_API_KEY`, `SOLAPI_API_SECRET` | 조회 시점 계정 현금 잔액. 포인트·월 사용액·충전액은 포함하지 않음 |
+| Vercel | `VERCEL_BILLING_TOKEN`, `VERCEL_BILLING_TEAM_ID` | 지정 팀의 FOCUS `BilledCost` 합계. 프로젝트별 배분 전 팀 전체 금액 |
+| 네이버 | `NCP_BILLING_ACCESS_KEY`, `NCP_BILLING_SECRET_KEY` | 계정의 해당 월 VAT 포함 청구액. OCR 외 다른 NCP 서비스도 포함. 청구서 미발행은 조회값 없음으로 표시 |
+| GCP | 아래 별도 설정 | 지정 프로젝트의 사용 기간 기준 비용 및 크레딧 합계. 청구서 확정액과 다를 수 있음 |
+| Supabase | 수동 등록 | 공개 Management API에서 전체 청구액 조회를 확인하지 못함. 개발·운영 프로젝트와 조직 정액 요금 중복에 주의 |
+
+업체 조회값은 환경을 나누지 않은 별도 참고값이다. 앱/개발/다른 프로젝트의 사용이 섞일 수 있으므로 등록 비용 합계에 자동으로 더하지 않는다. 필요한 환경의 월 총액을 확인해 비용 등록에서 입력한다. 조회 실패 시 마지막 성공 금액과 그 시각을 유지한다. 처음부터 실패하면 금액을 0으로 만들지 않는다.
+
+### GCP 청구 조회
+
+기존 Cloud Run 실행 계정에 청구 권한을 추가하지 않는다. 별도 청구 조회 서비스 계정을 준비한다.
+
+- Cloud Billing의 표준 사용량 내보내기를 BigQuery에 설정한다. 기존 내보내기가 있다면 재사용한다. 내보내기·BigQuery는 추가 비용이 생길 수 있으므로 이 작업에서 리소스를 생성하지 않았다.
+- 청구 조회 계정에 내보내기 데이터셋 읽기 권한과 쿼리 실행 프로젝트의 BigQuery Job User 권한을 부여한다. 기존 Vercel WIF 공급자로 해당 계정을 가장할 권한도 필요하다. 설정은 운영 프로젝트 관리자가 수행한다.
+- `GCP_BILLING_EXPORT_TABLE=프로젝트.데이터셋.gcp_billing_export_v1_...`
+- `GCP_BILLING_SERVICE_ACCOUNT_EMAIL=청구조회계정@프로젝트.iam.gserviceaccount.com`
+- `GCP_BILLING_LOCATION=asia-northeast3` 등 실제 데이터셋 위치
+- 기존 `GCP_WORKLOAD_IDENTITY_AUDIENCE`, 조회 대상 `GCP_PROJECT_ID`도 필요하다.
+- Vercel 요청 OIDC 토큰을 사용하므로 로컬에서는 GCP 자동 조회가 실패할 수 있다. 장기 JSON 키를 추가하지 않았다.
+
+쿼리는 `usage_start_time`의 한국 시간 월 범위와 `project.id`로 제한하고 크레딧을 반영한다. 조회당 `maximumBytesBilled=100000000`(100 MB) 상한을 둔다. 테이블이 크면 조회가 거절될 수 있으며, 이때 상한을 무조건 늘리기보다 비용 집계용 파티션/뷰를 준비한다. 미완료 쿼리·비어 있는 결과·지원하지 않는 통화는 조회 실패로 표시한다. 조회 가능한 통화는 KRW·USD다.
+
+## 집계 기준
+
+- 업체·환경·월·종류·통화가 같은 항목은 수정 저장한다. 추가 항목을 여러 번 더하는 방식이 아니다. 기타 항목도 통화별 월 총액을 입력한다.
+- 확정 청구액이 있으면 같은 업체·통화의 예상액은 합계에서 제외한다. 0원 확정액도 확정으로 취급한다.
+- 충전액은 현금 지출 참고값이며 사용 비용 합계에 포함하지 않는다. 예산도 비용에 포함하지 않는다.
+- 원화와 달러를 분리한다. 환율 환산, 전월 비교, 월말 자동 예측, 기능별 단가 환산, 잔액 임계치 알림은 아직 구현하지 않았다. 월 예산 초과는 화면에 표시한다.
+- Claude 기록은 응답이 돌아온 실제 호출의 입력·출력·캐시 토큰이다. 출력 거절·이후 JSON 파싱 실패도 기록한다. 네트워크 단절·SDK 내부 재시도 등 응답 사용량을 얻지 못한 호출은 누락될 수 있어 업체 조회와 대조한다.
+- 기존 PDF 체크포인트 응답을 재사용하면 호출·토큰을 다시 기록하지 않는다. 기록용 기능 라벨은 기존 체크포인트 키를 변경하지 않는다.
+- 네이버는 응답을 받은 OCR 요청, SOLAPI는 발송 요청 수를 기록한다. 과금 성공 건수·취소·예약 발송 최종 정산과 동일한 값이 아니다.
+- 기록이 켜진 이후 데이터만 보이며 과거 기능별 사용량은 복원하지 않는다. 개발/운영 DB가 독립적이므로 같은 화면에서 다른 DB의 기록을 자동 조회하지 않는다.
+- 사용량 기록 실패는 기존 채점/발송을 실패시키지 않는다. 쓰기는 최대 1.5초 기다리고 안전한 고정 경고만 남긴다. 프롬프트·답안·전화번호·키를 비용 테이블에 저장하지 않는다.
+- 이벤트 테이블의 보존 기간 정리는 아직 자동화하지 않았다. 운영량을 확인한 뒤 보존 기간과 일별 집계/정리 작업을 정한다.
+
+## 검증 및 배포 범위
+
+`npm run check`는 금액 중복 방지·통화 분리·한국 시간 경계·비용 API 권한·조회 오류·API 보고서 파싱·기존 체크포인트 재사용·화면의 빈값/오류 상태를 검증한다. 외부 유료 AI 호출이나 문자 발송 없이 실행한다.
+
+### 2026-10-21 적용 상태
+
+- 개발·운영 Supabase 모두 비용 테이블 및 인프라 사용량 RPC 마이그레이션 적용 완료. RLS와 서비스 전용 접근 확인.
+- 개발 및 Vercel Production 사용량 기록 활성화. GCP PDF 워커 두 개도 기록을 포함한 이미지로 교체하고 도움말 실행 성공 확인.
+- 실조회: 운영 DB 약 85.12 MiB, Storage 111.78 MiB/211파일, SOLAPI 계정 잔액 22,317.21원. 크기와 잔액은 청구액이 아니다.
+- 현재 Supabase Free, Vercel Hobby 기본료 0달러 확인. Vercel Hobby의 청구 API는 조회되지 않아 전체 청구액 0으로 처리하지 않는다.
+- Claude 콘솔의 이번 달 누계 19.85달러(UTC)를 수동 조회값으로 저장. 새 조직 범위 개인 키를 로컬 및 사용자 승인한 Vercel Production `ANTHROPIC_ADMIN_KEY`에 저장했으나 비용 API가 403 `Missing permissions`를 반환했다. 콘솔은 Individual Org이며 공식 문서는 개인 계정의 Admin API를 지원하지 않는다고 명시한다. 자동 비용 조회 완료로 간주하지 않는다. 키 만료일은 2026-11-20이다.
+- Naver 청구 조회 자격 증명과 GCP BigQuery 청구 내보내기/전용 조회 계정은 아직 설정되지 않았다. 기존 OCR 호출 키와 워커 실행 권한만으로 청구액을 조회할 수는 없다.
+- `npm run check`: 개발 소스 102파일/1,136테스트, 운영 배포 소스 104파일/1,114테스트 통과. 유료 LLM 호출·실제 문자 발송은 수행하지 않았다.
+
+운영 배포는 기존 운영 커밋 `0422a1e2cdba9211ec461ca0e9069fbfc80df867`을 `tmp/cost-release`에 추출한 뒤 비용 기능만 반영했다. 작업 디렉터리의 다른 미완료 변경은 배포에 포함하지 않았다. 커밋·푸시는 수행하지 않았다.
+
+### 2026-10-22 Claude 조직 전환 후 검증
+
+- Chrome 재연결 시 이미 EduNote 팀 조직으로 전환된 상태였다. 기존 조직 ID와 `edunote`, `EduNote 비용 조회` 키 두 개가 유지된 것을 확인했다. 이번 검증에서 키를 새로 생성하거나 교체하지 않았다.
+- 잔액은 9.63달러로 표시됐다. 전일 확인값 10.50달러와 같지는 않으므로 전환으로 잔액 변화가 전혀 없었다고 단정하지 않는다. 과거 청구서와 자동 충전 설정은 남아 있으며, 결제 내역에 별도 조직 전환 비용 항목은 보이지 않았다.
+- 기존 조직 범위 키로 비용 API 200 확인. 운영 배포 `dpl_Ewvc7t19JWiR8fyNxWMKwX5Si4am`을 운영 도메인으로 전환하고 관리자 화면에서 동기화 성공(3/3) 확인. Claude 월 조회액 27.75달러가 저장·표시됐다.
+- API 보고액은 한국 시간 월 범위이며 데이터 반영 지연·집계 시점 때문에 콘솔의 UTC 누계와 다를 수 있다. 확정 청구액으로 표시하지 않는다.
+- 자동 조회는 관리자 화면의 업체 데이터 동기화 버튼으로 실행한다. 예약 실행은 설정하지 않았다. 기존 키 만료일 2026-11-20 전에 갱신이 필요하다.
+
+## 공식 조회 문서
+
+### 매일 자동 갱신 및 GCP 설정 (2026-10-22)
+
+- `/api/cron/sync-costs`를 Vercel Cron `0 21 * * *`로 등록했다. 한국 시간 매일 오전 6시대에 실행하며 Hobby 플랜의 실행 시각은 시간대 내에서 지연될 수 있다. 현재 월과 지난 월을 재조회한다.
+- 기존 `CRON_SECRET`으로만 접근한다. 비밀키가 없거나 일치하지 않으면 401이며, 일부 업체 실패는 이전 금액을 유지하고 503을 반환한다. Vercel은 실패한 작업을 자동 재시도하지 않으므로 다음 정기 실행 또는 관리자 수동 동기화로 갱신한다.
+- GCP 표준 청구 내보내기: `edunote-511708.billing_costs`, US 멀티리전, 결제 계정 `01C3ED-4A4DB6-9002E9`. 초기 역방향 데이터 반영은 최대 5일 걸릴 수 있으며 첫 테이블이 없으면 미연동/조회 실패로 표시한다. 금액을 0으로 만들지 않는다.
+- 전용 계정 `edunote-cost-reader@edunote-511708.iam.gserviceaccount.com`: 해당 데이터셋 READER, 프로젝트 BigQuery Job User. 기존 WIF의 `owner:edunote:project:edunote:environment:production` 주체만 계정을 사용할 수 있다. 비밀 JSON 키를 발급하지 않았다.
+- 운영 환경변수에 GCP Billing 테이블·계정·US 위치를 설정했다. 조회당 100MB 제한 및 프로젝트 ID 필터를 유지한다. BigQuery 저장·조회에 사용량 기반 비용이 발생할 수 있다.
+- 개발 검증 104파일/1,142테스트 통과. 운영 소스에는 동시 배포된 `27ec5a9a1889d43f05571d25a1d095c477e8acee`의 모바일 답안 변경 9파일도 보존했다. 린트 오류 0, 기존 경고 수 유지.
+
+- [Claude Usage and Cost API](https://platform.claude.com/docs/en/manage-claude/usage-cost-api)
+- [Vercel FOCUS Billing Charges](https://vercel.com/docs/rest-api/billing/list-focus-billing-charges)
+- [네이버 getDemandCostList](https://api.ncloud-docs.com/docs/platform-costandusage-getdemandcostlist)
+- [GCP Billing BigQuery 내보내기](https://docs.cloud.google.com/billing/docs/how-to/export-data-bigquery)
+
+### 운영 예약 실행 검증
+
+- 2026-10-22 운영에 일일 예약 작업 등록 완료. 이번 달·지난달 각각 3/4 업체 조회 성공. GCP 감사 로그에서 전용 조회 계정의 BigQuery 호출을 확인했고, 실패는 권한 부족이 아니라 내보내기 테이블 미생성(Not found)이었다.
+- 최신 운영 커밋 기반 커밋 대상 소스: `npm run check` 109파일/1,139테스트 통과. 네이버 인증키는 별도 조회 전용 계정·키 생성 및 저장 승인이 필요하다.
+
+### Naver 조회 전용 계정
+
+- 사용자 승인 후 `edunote-cost-reader` 서브 계정을 생성했다. 콘솔 접근은 끄고 API Gateway 접근만 켰으며, `NCP_BILLING_VIEWER`(Billing View Full) 정책 하나만 부여했다.
+- 키 두 개를 Vercel edunote Production의 sensitive Secret 환경변수에 저장했다. 기존 OCR 키는 교체하지 않았다. 로컬 관리자 로그인 후 `.env.local` 저장을 마무리한다.
+- 최신 main `7983e19`의 PDF 배치 변경을 보존한 최종 통합 검증: `npm run check` 112파일/1,158테스트 통과.

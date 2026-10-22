@@ -12,6 +12,7 @@ import { buildFileBlock, callLlmText, callLlmTextDetailed, createLlmExecution, i
 import * as models from '../../src/lib/llm/models'
 import { parseJsonObjectResponse } from '../../src/lib/llm/json'
 import { createCallLimiter, withPdfWorkerContext, type PdfWorkerContext } from '../../src/lib/pdf-import/context'
+import { BookBatchPending } from '@/lib/book-pdf/batch-policy'
 
 const response = (overrides: Record<string, unknown> = {}) => ({
   model: 'provider-resolved-snapshot', stop_reason: 'end_turn',
@@ -30,6 +31,28 @@ function workerContext() {
 }
 
 describe('worker integration with task routing', () => {
+  it('uses textbook batch deliveries and checkpoints while leaving exam requests synchronous', async () => {
+    sdk.create.mockResolvedValue(response({ content: [{ type: 'text', text: '{"groups":[]}' }] }))
+    const options = { task: 'book.mapSource', maxTokens: 1000, content: 'source' } as const
+    const delivery = await callLlmTextDetailed(options)
+    sdk.create.mockClear()
+    const { context } = workerContext()
+    context.batchCall = vi.fn().mockResolvedValue(delivery)
+    await withPdfWorkerContext(context, () => callLlmTextDetailed(options))
+    await withPdfWorkerContext(context, () => callLlmTextDetailed(options))
+    expect(context.batchCall).toHaveBeenCalledTimes(1)
+    expect(sdk.create).not.toHaveBeenCalled()
+    await withPdfWorkerContext(context, () => callLlmTextDetailed({ ...options, task: 'examBank.parseQuestions' }))
+    expect(sdk.create).toHaveBeenCalledTimes(1)
+    expect(context.batchCall).toHaveBeenCalledTimes(1)
+  })
+  it('propagates batch suspension without making or caching a synchronous call', async () => {
+    const { context, saved } = workerContext()
+    context.batchCall = vi.fn().mockRejectedValue(new BookBatchPending())
+    await expect(withPdfWorkerContext(context, () => callLlmTextDetailed({ task: 'book.auditSource', maxTokens: 4000, content: 'source' }))).rejects.toBeInstanceOf(BookBatchPending)
+    expect(sdk.create).not.toHaveBeenCalled()
+    expect(saved.size).toBe(0)
+  })
   it('reuses complete JSON across executions but separates model changes', async () => {
     sdk.create.mockResolvedValue(response({ content: [{ type: 'text', text: '{"items":[1]}' }] }))
     const { context } = workerContext()

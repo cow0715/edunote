@@ -34,7 +34,7 @@ export function createServiceAccountAssertion(key: ServiceAccount, now: number) 
   return `${unsigned}.${createSign('RSA-SHA256').update(unsigned).sign(key.private_key, 'base64url')}`
 }
 
-async function workerAccessToken(config: ReturnType<typeof gcpWorkerConfig>) {
+export async function workerAccessToken(config: { audience?: string; serviceAccount?: string; key?: ServiceAccount }) {
   if (config.audience && config.serviceAccount) {
     // Vercel refreshes this header for each request; a build-time env token expires.
     const { headers } = await import('next/headers')

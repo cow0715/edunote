@@ -52,6 +52,7 @@ const navSections = [
     items: [
       { href: '/settings', label: '학원 정보 설정', icon: Settings },
       { href: '/settings/approvals', label: '가입 승인', icon: ShieldCheck },
+      { href: '/settings/costs', label: '비용 관리', icon: TrendingUp },
     ],
   },
 ]

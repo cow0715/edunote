@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   if (error) return err('교재 검토 DB 설정을 확인해주세요.', 503)
   try {
     const job = await registerPdfImport({ kind: 'bank_book', teacherId: auth.teacherId!, authId: auth.user!.id, targetId: id,
-      storagePath: parsed.data.storagePath, payload: { fileName: parsed.data.fileName, mimeType: 'application/pdf' } })
+      storagePath: parsed.data.storagePath, payload: { fileName: parsed.data.fileName, mimeType: 'application/pdf', bookProcessing: 'batch-v1' } })
     // A retry of the same upload may already target a different reserved draft.
     if (job.target_id !== id) await client.from('book_pdf_document').delete().eq('id', id).eq('status', 'processing')
     return ok({ ...job, document_id: job.target_id }, { status: 202 })

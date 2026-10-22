@@ -1,5 +1,5 @@
 export type PdfImportKind = 'bank_questions' | 'bank_explanation' | 'week_answers' | 'bank_book'
-export type PdfImportStatus = 'queued' | 'running' | 'succeeded' | 'failed'
+export type PdfImportStatus = 'queued' | 'running' | 'waiting_batch' | 'succeeded' | 'failed'
 
 export type PdfImportJob = {
   id: string
@@ -18,6 +18,7 @@ export type PdfImportJob = {
   error: string | null
   created_at: string
   updated_at: string
+  resume_after?: string | null
 }
 
 export function isUuid(value: unknown): value is string {

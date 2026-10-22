@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { createServiceClient } from '../src/lib/supabase/service'
 import { createCallLimiter, withPdfWorkerContext, type PdfWorkerContext } from '../src/lib/pdf-import/context'
 import { isUuid, type PdfImportJob } from '../src/lib/pdf-import/types'
+import { BOOK_BATCH_MODE, BookBatchStopped } from '../src/lib/book-pdf/batch-policy'
+import type { BookBatchTransport } from '../src/lib/book-pdf/batch-transport'
 
 export async function main() {
   if (process.argv.includes('--help')) {
@@ -27,6 +29,7 @@ export async function main() {
     const current = await client.from('pdf_import_job').select('status,lease_expires_at').eq('id', id).single()
     if (current.error) throw new Error('작업을 찾을 수 없습니다.')
     if (current.data.status === 'succeeded') return
+    if (current.data.status === 'waiting_batch') return
     if (current.data.status === 'failed') throw new Error('실패한 작업입니다. 작업 목록에서 재실행해주세요.')
     await new Promise((resolve) => setTimeout(resolve, 5_000))
   }
@@ -56,9 +59,33 @@ export async function main() {
       if (error) throw new Error(error.message)
     },
   }
+  let batch: BookBatchTransport | undefined
+  const suspend = async (submit?: () => Promise<void>) => {
+    // Arrange the future execution before releasing the lease. A crash after
+    // scheduling can create duplicate wakes, never an unowned waiting job.
+    const { scheduleBookBatchWake } = await import('../src/lib/pdf-import/batch-wake')
+    const resumeAt = await scheduleBookBatchWake(id!, token, controller.signal)
+    // Do not incur AI costs until continuation is actually arranged. This also
+    // validates queue/IAM configuration before the first paid batch submission.
+    await submit?.()
+    const { data, error } = await client.rpc('pdf_import_suspend_batch', { p_id: id, p_token: token, p_resume_at: resumeAt })
+    if (error || !data) throw new Error('배치 대기 상태 저장 실패')
+    console.log(`[pdf-worker] batch-waiting ${id}`)
+  }
   try {
+    if (job.kind === 'bank_book' && job.payload.bookProcessing === BOOK_BATCH_MODE) {
+      const { BookBatchTransport, anthropicBookBatchProvider } = await import('../src/lib/book-pdf/batch-transport')
+      batch = new BookBatchTransport(client, { ...job, lease_token: token }, context, anthropicBookBatchProvider(controller.signal))
+      if (await batch.poll()) { await suspend(); return }
+      context.batchCall = batch.call
+    }
     const { runPdfImport } = await import('../src/lib/pdf-import/handlers')
     const result = await withPdfWorkerContext(context, () => runPdfImport(client, job!))
+    if (result.batch_waiting === true) {
+      if (!batch) throw new Error('교재 배치 실행 설정이 없습니다.')
+      await suspend(() => batch!.submit())
+      return
+    }
     const unresolved = job!.kind === 'bank_book' && result.verification_unresolved === true
     const { data, error } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: unresolved ? 'failed' : 'succeeded', p_result: result,
       p_error: unresolved ? Array.isArray(result.inventory_errors) ? '원문 문항 경계를 확정하지 못해 등록을 보류했습니다.' : '자동 대조·복구 후 확정하지 못한 항목이 있어 등록을 보류했습니다.' : null })
@@ -69,6 +96,13 @@ export async function main() {
   } catch (error) {
     controller.abort(error) // Stop any remaining parallel AI calls before releasing the lease.
     const message = error instanceof Error ? error.message : 'PDF 처리 실패'
+    if (error instanceof BookBatchStopped) {
+      const { data, error: finishError } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token,
+        p_status: 'failed', p_result: { batch_stopped: true }, p_error: message.slice(0,500) })
+      if (finishError || !data) throw new Error('배치 중단 상태 저장 실패')
+      console.log(`[pdf-worker] batch-stopped ${id}`)
+      return
+    }
     const attempt = Number(process.env.CLOUD_RUN_TASK_ATTEMPT ?? '3')
     await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: attempt < 3 ? 'queued' : 'failed', p_result: null, p_error: message.slice(0, 500) })
     throw error
