@@ -1,0 +1,47 @@
+.statusFilter {
+  background-color: var(--control-bg);
+}
+
+.statusButton {
+  cursor: pointer;
+  color: var(--share-muted);
+  background-color: transparent;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.statusButton[aria-pressed='true'] {
+  color: var(--control-on-selected);
+  background-color: var(--control-selected);
+}
+
+.statusButton:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.classCard {
+  background-color: var(--share-card);
+  transition: background-color 150ms ease;
+}
+
+.classCard:has(a:focus-visible) {
+  background-color: var(--share-box);
+}
+
+@media (hover: hover) {
+  .statusButton[aria-pressed='false']:hover {
+    color: var(--control-fg);
+    background-color: color-mix(in srgb, var(--control-selected) 55%, transparent);
+  }
+
+  .classCard:hover {
+    background-color: var(--share-box);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statusButton,
+  .classCard {
+    transition: none;
+  }
+}

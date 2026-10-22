@@ -10,6 +10,7 @@ import { useClasses, useDeleteClass, useArchiveClass } from '@/hooks/use-classes
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Class } from '@/lib/types'
+import styles from './class-list.module.css'
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -57,9 +58,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="mt-6 flex gap-1 rounded-2xl bg-gray-100 p-1 w-fit" role="group" aria-label="수업 상태">
+      <div className={`mt-6 flex w-fit gap-1 rounded-2xl p-1 ${styles.statusFilter}`} role="group" aria-label="수업 상태">
         {([['active', '운영 중'], ['archived', '보관된 반'], ['all', '전체']] as const).map(([value, label]) => (
-          <Button key={value} variant="ghost" aria-pressed={filter === value} onClick={() => setFilter(value)} className={`h-11 rounded-xl px-4 ${filter === value ? 'bg-white text-gray-900' : 'text-gray-500'}`}>{label}</Button>
+          <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className={`inline-flex h-11 items-center justify-center rounded-xl px-4 text-sm font-medium ${styles.statusButton}`}>{label}</button>
         ))}
       </div>
       {filter === 'archived' && <p className="mt-3 text-sm text-gray-500">보관한 수업의 기록을 확인하거나 운영 중으로 복원할 수 있어요.</p>}
@@ -84,7 +85,7 @@ export default function DashboardPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {classes?.map((cls) => (
-              <Card key={cls.id} className="relative rounded-2xl border-0 bg-gray-50 shadow-none">
+              <Card key={cls.id} className={`relative rounded-2xl border-0 shadow-none ${styles.classCard}`}>
                 <Link href={`/dashboard/${cls.id}`} className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-2 focus-visible:outline-primary" aria-label={`${cls.name} 수업 열기`} />
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-base">
