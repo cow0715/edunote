@@ -1,3 +1,4 @@
+import { recordUsage } from '../costs/record'
 // ── 단어 시험: 사진 채점 · 이름 판독 · 단어 PDF 파싱 · 예문 생성 ─────────────
 
 import {
@@ -45,6 +46,7 @@ async function callClovaOCR(fileData: string, mimeType: string): Promise<string 
     }),
   })
 
+  await recordUsage({ provider: 'naver', feature: '단어시험 사진 OCR 요청' })
   if (!res.ok) {
     const errText = await res.text()
     throw new Error(`CLOVA OCR API 오류: ${res.status} ${errText}`)

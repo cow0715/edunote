@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { jsonrepair } from 'jsonrepair'
 import { checkpointCall, checkpointKey, getPdfWorkerContext } from '../pdf-import/context'
 import { LlmError } from './errors'
+import { recordUsage } from '../costs/record'
 import { getModel, getModelCatalog } from './models'
 import { callAnthropic, isAnthropicConfigured } from './providers/anthropic'
 import { getDefaultTaskBindings, getTask, getTaskCatalog, isLlmTask, LLM_CONFIG_VERSION, TASK_IDS, type LlmTask } from './tasks'
@@ -68,7 +69,8 @@ function validate(options: CallLlmOptions, model: NonNullable<ReturnType<typeof 
   if (options.signal?.aborted) throw new LlmError('cancelled', 'LLM 호출이 취소되었습니다.')
 }
 
-function record(execution: LlmExecution, entry: LlmCallRecord) {
+async function record(execution: LlmExecution, entry: LlmCallRecord) {
+  if (entry.usage) await recordUsage({ provider: 'claude', feature: entry.task, model: entry.responseModel ?? entry.requestedModel, inputTokens: entry.usage.inputTokens ?? 0, outputTokens: entry.usage.outputTokens ?? 0, cacheReadTokens: entry.usage.cacheReadTokens ?? 0, cacheWriteTokens: entry.usage.cacheWriteTokens ?? 0 })
   execution.calls.push(entry)
   // Only hashes and usage are logged; no student answers, prompts or file contents.
   console.log('[llm]', JSON.stringify(entry))
@@ -121,13 +123,13 @@ async function callLlmTextUncached(options: CallLlmOptions): Promise<LlmDetailed
     metadata.responseModel = result.responseModel
     metadata.durationMs = Date.now() - started
     if (result.finishReason === 'refusal') throw new LlmError('refusal', 'Output blocked by content filtering (refusal)', { usage: result.usage, execution: metadata })
-    record(execution, { ...metadata, usage: result.usage, stopReason: result.stopReason, finishReason: result.finishReason, errorKind: null })
+    await record(execution, { ...metadata, usage: result.usage, stopReason: result.stopReason, finishReason: result.finishReason, errorKind: null })
     return { text: result.text, usage: result.usage, stopReason: result.stopReason, finishReason: result.finishReason, execution: metadata }
   } catch (error) {
     metadata.durationMs = Date.now() - started
     const normalized = error instanceof LlmError ? error : new LlmError('provider', error instanceof Error ? error.message : String(error), { cause: error })
     const wrapped = new LlmError(normalized.kind, normalized.message, { usage: result?.usage ?? normalized.usage, execution: metadata, cause: normalized.cause ?? normalized })
-    record(execution, { ...metadata, usage: wrapped.usage, stopReason: result?.stopReason ?? null, finishReason: result?.finishReason ?? null, errorKind: wrapped.kind })
+    await record(execution, { ...metadata, usage: wrapped.usage, stopReason: result?.stopReason ?? null, finishReason: result?.finishReason ?? null, errorKind: wrapped.kind })
     throw wrapped
   }
 }
