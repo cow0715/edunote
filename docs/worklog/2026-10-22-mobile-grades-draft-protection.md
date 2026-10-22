@@ -47,3 +47,14 @@
 - 모바일 복원 증거: C:/Users/pc/.codex/visualizations/2026/10/19/01a152f2-9714-7f52-8409-052200825a19/mobile-review-restored.png.
 - 추가 제품 코드 결함은 발견하지 않았다. 임시 검증 페이지는 제거하고 배포에 포함하지 않는다. 유료 AI 호출 및 메인 병합 없음.
 - 재실행한 필수 검사 npm run check -- --maxWorkers=2: 104개 파일, 1,118개 테스트 통과, 종료 코드 0. 로그 .next/navigation-e2e-check.log.
+
+## 실제 개발 Preview·DB E2E 완료 (2026-10-22)
+
+- 가상 API 검증과 별개로 로그인된 실제 개발 Preview(7f3f252)와 개발 Supabase otlyfjciikngdoazjusq에서 확인했다. 운영 DB에는 쓰지 않았다.
+- 기존 E2E 가상학생 A/B가 속한 보관 테스트 반에 전용 회차 2f66391d-4b4f-46f5-8946-4491e596da16(week_number 10), 서술형 2문항, 실제 student_answer 4건을 준비했다. 기존 회차/답안은 수정하지 않았다. 재확인을 위해 테스트 회차는 남긴다.
+- PC: 1번 A 정답/B 오답 지정 → 학생 관리 이동 취소 시 유지 → 이동 승인 → 뒤로가기·채점/검토 재진입 시 임시 판정 2건 복원. 저장 전 SQL 조회에서 4건 모두 teacher_confirmed=false, needs_review=true여서 이동만으로 DB 저장되지 않음을 확인했다.
+- 검토 완료 저장으로 실제 grade-confirm PATCH 수행 후 SQL에서 1번 A 정답/B 오답, teacher_confirmed=true, needs_review=false와 A 1점/B 0점 반영을 확인했다. 이동 후 재진입 시 임시 판정 안내가 사라지고 변경 없음이었다.
+- 모바일 375×812: 2번 A 오답/B 정답 지정 → 반 링크 이동 취소/승인 → 뒤로가기·검토 재진입 시 2건 복원 및 각각의 aria-pressed 확인 → 실제 검토 완료 저장.
+- 최종 SQL: 4건 모두 teacher_confirmed=true, needs_review=false. A는 1번 정답/2번 오답, B는 1번 오답/2번 정답이며 두 week_score.reading_correct 모두 1. 이동·뒤로가기·새로고침 후에도 모바일 성적표 1/2씩 유지, 임시 판정 재복원 없음.
+- 브라우저 오류/경고 로그 없음. 유료 채점 저장·답안지 판독·AI 호출은 실행하지 않았다. 추가 제품 결함이 없어 코드 수정 없이 검증했다.
+- 실제 모바일 화면 증거: C:/Users/pc/.codex/visualizations/2026/10/19/01a152f2-9714-7f52-8409-052200825a19/real-dev-grades-saved.png.
