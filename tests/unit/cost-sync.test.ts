@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ db: vi.fn(), claude: vi.fn(), gcpCost: vi.fn(), gcpUsage: vi.fn() }))
+const mocks = vi.hoisted(() => ({ db: vi.fn(), claude: vi.fn(), gcpCost: vi.fn(), gcpUsage: vi.fn(), solapi: vi.fn() }))
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: mocks.db }))
 vi.mock('@/lib/costs/claude-report-fetch', () => ({ fetchClaudeReport: mocks.claude }))
 vi.mock('@/lib/costs/gcp-connector', () => ({ fetchGcpCost: mocks.gcpCost }))
 vi.mock('@/lib/costs/gcp-worker-usage', () => ({ fetchGcpWorkerUsage: mocks.gcpUsage }))
+vi.mock('@/lib/costs/solapi-connector', () => ({ fetchSolapiUsage: mocks.solapi }))
 import { syncCostMonth } from '@/lib/costs/sync'
 import { costReportFixture } from '../fixtures/cost-report'
 
@@ -50,6 +51,19 @@ describe('shared provider synchronization', () => {
     expect(await (await syncCostMonth('2026-10')).json()).toMatchObject({ succeeded: 0, total: 1 })
     expect(chain.upsert).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ metric: 'worker_executions', amount: 15, status: 'ok' })]))
     expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ metric: 'monthly_cost', amount: null, status: 'error' }))
+  })
+
+  it('stores monthly SOLAPI spend and successful sends instead of treating wallet balance as spend', async () => {
+    vi.stubEnv('ANTHROPIC_ADMIN_KEY', ''); vi.stubEnv('SOLAPI_API_KEY', 'test'); vi.stubEnv('SOLAPI_API_SECRET', 'test')
+    const chain = { select: vi.fn().mockReturnThis(), limit: vi.fn().mockResolvedValue({ error: null }), upsert: vi.fn().mockResolvedValue({ error: null }) }
+    mocks.db.mockReturnValue({ from: () => chain })
+    mocks.solapi.mockResolvedValue({ monthly_cost: 12652.2, sms_succeeded: 330, sms_count: 124, point_usage: 10 })
+    expect(await (await syncCostMonth('2026-10')).json()).toMatchObject({ succeeded: 1, total: 1 })
+    expect(chain.upsert).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ metric: 'monthly_cost', amount: 12652.2, currency: 'KRW' }),
+      expect.objectContaining({ metric: 'sms_succeeded', amount: 330, currency: 'COUNT' }),
+      expect.objectContaining({ metric: 'point_usage', currency: 'POINTS' }),
+    ]))
   })
 
 })

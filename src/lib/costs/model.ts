@@ -30,6 +30,8 @@ export function monthBounds(month: string) {
 }
 export function snapshotLabel(metric: string) {
   const labels: Record<string, string> = {
+    message_total: '업체 메시지 총 발송', message_succeeded: '메시지 성공', message_failed: '메시지 실패', sms_succeeded: '문자 성공(SMS·LMS·MMS)', sms_failed: '문자 실패', sms_count: 'SMS 성공', lms_count: 'LMS 성공', mms_count: 'MMS 성공', cash_usage: '캐시 사용액', deposit_usage: '예치금 사용액', point_usage: '포인트 사용', cash_refund: '캐시·예치금 환불(참고)', point_refund: '포인트 환불(참고)',
+    console_cycle_start: '콘솔 청구주기 시작', console_cycle_end: '콘솔 청구주기 종료', console_egress_gb: '조직 전송량(콘솔)', console_cached_egress_gb: '조직 캐시 전송량(콘솔)', console_mau: '조직 MAU(콘솔)', console_storage_gb: '조직 평균 Storage(콘솔)', invoice_last_amount: '최근 발행 청구서 금액', invoice_last_issued_at: '최근 청구서 발행일',
     console_monthly_cost: '콘솔 수동 확인액 · 자동 수신 대기',
     worker_executions: 'Worker 실행 횟수', worker_succeeded: 'Worker 성공', worker_failed: 'Worker 실패·취소', worker_running: 'Worker 진행 중', worker_wall_seconds: 'Worker 실행 시간 합계',
     balance: '조회 시점 계정 잔액', monthly_cost: '업체 월 조회액',
@@ -46,10 +48,13 @@ export function snapshotLabel(metric: string) {
 }
 export function snapshotValue(amount: number | null, currency: string) {
   if (amount === null) return '조회값 없음'
+  if (currency === 'TIMESTAMP') return new Date(amount * 1000).toLocaleDateString('ko-KR', { timeZone: 'UTC' })
+  if (currency === 'GB') return `${amount.toLocaleString('ko-KR', { maximumFractionDigits: 3 })} GB`
+  if (currency === 'POINTS') return `${amount.toLocaleString('ko-KR', { maximumFractionDigits: 2 })} P`
   if (currency === 'SECONDS') return `${(amount / 60).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}분`
   if (currency === 'BYTES') return `${(amount / 1024 / 1024).toLocaleString('ko-KR', { maximumFractionDigits: 2 })} MiB`
   if (currency === 'COUNT') return `${amount.toLocaleString('ko-KR')}개`
-  return new Intl.NumberFormat('ko-KR', { style: 'currency', currency, maximumFractionDigits: currency === 'KRW' ? 0 : 2 }).format(amount)
+  return new Intl.NumberFormat('ko-KR', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount)
 }
 /** A monthly actual replaces estimates for that provider/currency, never adds to them. */
 export function summarize(entries: CostEntry[]) {

@@ -18,7 +18,7 @@ describe('service cost workspace', () => {
     expect(screen.queryByRole('region', { name: 'Claude 상세' })).toBeNull()
     expect(screen.getByText(/실행 시간은 과금 CPU 시간이 아니며/)).toBeTruthy()
     fireEvent.click(list.getByRole('button', { name: 'SOLAPI' }))
-    expect(within(screen.getByRole('region', { name: 'SOLAPI 상세' })).getByText('₩19,733')).toBeTruthy()
+    expect(within(screen.getByRole('region', { name: 'SOLAPI 상세' })).queryByText('₩19,733')).toBeNull()
     expect(screen.getAllByText('미수신 비용·잔액 제외', { exact: false })).toHaveLength(2)
   })
   it('uses a labeled console fallback only until the automatic GCP amount arrives', () => {
@@ -31,4 +31,18 @@ describe('service cost workspace', () => {
     expect(within(screen.getByRole('table', { name: '서비스별 사용량과 비용' })).getByText('₩21')).toBeTruthy()
     expect(screen.queryByText('₩41')).toBeNull()
   })
+  it('shows provider SMS counts and spend while keeping Supabase plan and old invoice outside monthly totals', () => {
+    const snapshot = { provider: 'solapi', metric: 'monthly_cost', currency: 'KRW', amount: 12652.2, status: 'ok', updated_at: '2026-10-23T00:00:00Z' }
+    render(<CostOverview usage={[]} snapshots={[snapshot, { ...snapshot, metric: 'sms_succeeded', currency: 'COUNT', amount: 330 }, { ...snapshot, provider: 'supabase', metric: 'plan_free', currency: 'USD', amount: 0 }, { ...snapshot, provider: 'supabase', metric: 'invoice_last_amount', currency: 'USD', amount: 999 }]} loading={false} tracking failed={false} />)
+    const table = within(screen.getByRole('table', { name: '서비스별 사용량과 비용' }))
+    expect(table.getByText('330건 문자 발송 성공')).toBeTruthy()
+    expect(table.getByText('₩12,652.2')).toBeTruthy()
+    expect(table.getByText('Free · US$0.00')).toBeTruthy()
+    fireEvent.click(table.getByRole('button', { name: 'Supabase' }))
+    expect(screen.getByText(/공개 청구 API가 없어/)).toBeTruthy()
+    expect(screen.getByText(/청구주기.*달력 월과 다릅니다/)).toBeTruthy()
+    expect(within(screen.getByRole('region', { name: 'Supabase 상세' })).getByText(/US\$999.00/)).toBeTruthy()
+    expect(screen.queryByText('US$999.00', { exact: true })).toBeNull()
+  })
+
 })
