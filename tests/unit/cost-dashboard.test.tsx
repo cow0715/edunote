@@ -38,17 +38,17 @@ function requestCount(method: string, includes: string) {
   return vi.mocked(fetch).mock.calls.filter(([url, init]) => (init?.method ?? 'GET') === method && String(url).includes(includes)).length
 }
 describe('active cost dashboard refresh', () => {
-  it('refreshes recorded usage every minute and providers every five minutes, then pauses when hidden', async () => {
+  it('refreshes recorded usage every fifteen seconds and providers every five minutes, then pauses when hidden', async () => {
     vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
     vi.setSystemTime(new Date('2026-10-22T12:00:00Z'))
     focusManager.setFocused(true)
     const client = setup(false, true)
     await waitFor(() => expect(requestCount('POST', '/sync')).toBe(1))
     const initialReads = requestCount('GET', '/api/admin/costs?')
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
     await waitFor(() => expect(requestCount('GET', '/api/admin/costs?')).toBeGreaterThan(initialReads))
     expect(requestCount('POST', '/sync')).toBe(1)
-    await act(async () => { await vi.advanceTimersByTimeAsync(240_000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(285_000) })
     await waitFor(() => expect(requestCount('POST', '/sync')).toBe(2))
     act(() => focusManager.setFocused(false))
     const reads = requestCount('GET', '/api/admin/costs?')
