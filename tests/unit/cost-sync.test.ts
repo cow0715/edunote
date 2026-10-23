@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ db: vi.fn(), claude: vi.fn(), gcpCost: vi.fn(), gcpUsage: vi.fn(), solapi: vi.fn(), metrics: vi.fn() }))
+const mocks = vi.hoisted(() => ({ db: vi.fn(), claude: vi.fn(), gcpCost: vi.fn(), gcpUsage: vi.fn(), solapi: vi.fn(), metrics: vi.fn(), developmentStorage: vi.fn() }))
+vi.mock('@/lib/costs/supabase-storage', () => ({ fetchDevelopmentStorage: mocks.developmentStorage }))
 vi.mock('@/lib/costs/supabase-metrics', () => ({ fetchSupabaseMetrics: mocks.metrics }))
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: mocks.db }))
 vi.mock('@/lib/costs/claude-report-fetch', () => ({ fetchClaudeReport: mocks.claude }))
@@ -17,6 +18,18 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllEnvs())
 describe('shared provider synchronization', () => {
+  it.each([true, false])('stores a complete organization Storage total or keeps the previous total on read failure (%s)', async success => {
+    vi.stubEnv('ANTHROPIC_ADMIN_KEY', ''); vi.stubEnv('COST_ENVIRONMENT', 'production'); vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://rjaawwrcgegfjtiztsou.supabase.co'); vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test')
+    const chain = { select: vi.fn().mockReturnThis(), limit: vi.fn().mockResolvedValue({ error: null }), eq: vi.fn().mockReturnThis(), in: vi.fn().mockReturnThis(), maybeSingle: vi.fn().mockResolvedValue({ data: { amount: 800, updated_at: '2026-10-22T00:00:00Z' } }), like: vi.fn().mockReturnThis(), update: vi.fn().mockReturnThis(), delete: vi.fn().mockReturnThis(), upsert: vi.fn().mockResolvedValue({ error: null }) }
+    mocks.db.mockReturnValue({ from: () => chain, rpc: () => ({ single: async () => ({ data: { db_bytes: 100, storage_bytes: 200, files: 2 } }) }) })
+    mocks.metrics.mockResolvedValue({ connections: 4 })
+    if (success) mocks.developmentStorage.mockResolvedValue({ storage_bytes: 300, files: 3, collected_at: '2026-10-23T00:00:00Z' })
+    else mocks.developmentStorage.mockRejectedValue(new Error('unavailable'))
+    expect(await (await syncCostMonth('2026-10')).json()).toMatchObject({ succeeded: success ? 1 : 0 })
+    if (success) expect(chain.upsert).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ metric: 'storage_bytes_organization', amount: 500, status: 'ok' })]))
+    else expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ metric: 'storage_bytes_organization', amount: 800, status: 'error', updated_at: '2026-10-22T00:00:00Z' }))
+  })
+
   it.each([true, false])('collects official gauges independently and retains DB usage when metrics fail (%s)', async success => {
     vi.stubEnv('ANTHROPIC_ADMIN_KEY', ''); vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://project.supabase.co'); vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test')
     const chain = { select: vi.fn().mockReturnThis(), limit: vi.fn().mockResolvedValue({ error: null }), eq: vi.fn().mockReturnThis(), like: vi.fn().mockReturnThis(), update: vi.fn().mockReturnThis(), delete: vi.fn().mockReturnThis(), upsert: vi.fn().mockResolvedValue({ error: null }) }

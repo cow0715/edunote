@@ -41,7 +41,7 @@ export function snapshotLabel(metric: string) {
     worker_executions: 'Worker 실행 횟수', worker_succeeded: 'Worker 성공', worker_failed: 'Worker 실패·취소', worker_running: 'Worker 진행 중', worker_wall_seconds: 'Worker 실행 시간 합계',
     balance: '조회 시점 계정 잔액', monthly_cost: '업체 월 조회액',
     db_bytes_production: '운영 DB 크기', db_bytes_development: '개발 DB 크기',
-    storage_bytes_production: '운영 Storage 크기', storage_bytes_development: '개발 Storage 크기',
+    storage_bytes_production: '운영 Storage 크기', storage_bytes_development: '개발 Storage 크기', storage_bytes_organization: '조직 Storage 합계 · 운영+개발',
     files_production: '운영 저장 파일', files_development: '개발 저장 파일',
     plan_free: '현재 Free 플랜 기본료',
     plan_hobby: '현재 Hobby 플랜 기본료',

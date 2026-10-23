@@ -5,6 +5,17 @@ import { SupabaseQuota } from '@/app/(admin)/settings/costs/supabase-quota'
 afterEach(cleanup)
 const snapshot = { provider: 'supabase', metric: 'db_bytes_production', amount: 450_000_000, currency: 'BYTES', status: 'ok', updated_at: '2026-10-23T12:00:00Z' }
 describe('Supabase quota display', () => {
+  it('uses the verified organization total regardless of the selected DB environment', () => {
+    render(<SupabaseQuota environment="development" snapshots={[
+      { ...snapshot, metric: 'storage_bytes_production', amount: 400_000_000 },
+      { ...snapshot, metric: 'storage_bytes_development', amount: 500_000_000 },
+      { ...snapshot, metric: 'storage_bytes_organization', amount: 900_000_000 },
+    ]} />)
+    expect(screen.getByRole('alert').textContent).toContain('Storage 90% · 임박')
+    expect(screen.getByText(/운영 400 MB \+ 개발 500 MB/)).toBeTruthy()
+    expect(screen.getByText(/100 MB 남음/)).toBeTruthy()
+    expect(screen.queryByText(/조직 전체 잔여량은 확인 필요/)).toBeNull()
+  })
   it('alerts on nearing the DB limit and excludes other environments', () => {
     render(<SupabaseQuota environment="production" snapshots={[snapshot, { ...snapshot, metric: 'db_bytes_development', amount: 10 }]} />)
     expect(screen.getByRole('alert').textContent).toContain('DB 90% · 임박')
