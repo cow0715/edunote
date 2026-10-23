@@ -11,7 +11,7 @@ export interface TeacherTransaction {
   teacherId: string
 }
 
-/** userId must come from server-verified Auth.getUser(), never request JSON. */
+/** userId comes from verified Auth or the server-resolved owner of a validated share capability; never request JSON. */
 export async function withTeacherTransaction<T>(userId: string, work: (context: TeacherTransaction) => Promise<T>): Promise<T> {
   const client = await getPool().connect()
   let destroy = false
