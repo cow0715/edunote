@@ -4,7 +4,7 @@ import { useState, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { services, summarize, koreanMonth, snapshotLabel, snapshotValue, type CostEntry, type UsageGroup } from '@/lib/costs/model'
+import { services, summarize, koreanMonth, type CostEntry, type UsageGroup } from '@/lib/costs/model'
 import { CostOverview } from './cost-overview'
 import type { ClaudeReport } from '@/lib/costs/claude-report'
 
@@ -102,22 +102,6 @@ export function CostDashboard() {
     {connections.error && <p role="alert" className="text-sm text-[var(--share-red)]">{connections.error.message}</p>}
     {providerRefresh.error && <p role="alert" className="text-sm text-[var(--share-red)]">{providerRefresh.error.message}</p>}
     <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--share-muted)]"><span>{providerRefresh.isFetching ? '업체 비용 갱신 중…' : providerRefresh.data?.message ?? '업체 데이터는 5분마다 갱신됩니다.'}</span><Button disabled={providerRefresh.isFetching} variant="outline" size="sm" onClick={() => void sync()}>{providerRefresh.isFetching ? '조회 중…' : '업체 데이터 동기화'}</Button></div>
-    <details className={surface}>
-      <summary className="cursor-pointer text-[15px] font-extrabold">서비스 연결·업체 조회 내역 <span className="ml-2 text-xs font-normal text-[var(--share-muted)]">{connections.data?.configured.length ?? 0}개 자동 연결</span></summary>
-      <p className="mt-2 text-xs text-[var(--share-muted)]">업체 조회값은 계정 전체 기준이며 아래 등록 비용 합계에 자동 포함하지 않습니다. 앱 사용액과 범위를 확인한 뒤 등록하세요.</p>
-      {providerRefresh.data?.message && <p className="mt-2 text-xs text-[var(--share-muted)]">{providerRefresh.data.message}</p>}
-      <div className="mt-4 grid gap-3 md:grid-cols-2">{services.map(service => {
-        const rows = entries.filter(e => e.provider === service.id && (e.kind === 'actual' || e.kind === 'estimate'))
-        const snapshots = connections.data?.snapshots.filter(s => s.provider === service.id && (service.id !== 'supabase' || /^(db_bytes_|storage_bytes_|files_|metrics_)/.test(s.metric))) ?? []
-        return <div key={service.id} className="rounded-xl bg-[var(--share-box)] p-4">
-          <div><p className="font-semibold">{service.name}</p><p className="text-xs text-[var(--share-muted)]">{service.role}</p>{service.url && <a className="text-xs text-[var(--share-blue)] underline" href={service.url} target="_blank" rel="noreferrer">업체 콘솔 열기</a>}</div>
-          <div className="mt-3 text-sm">{rows.length ? rows.map(row => <p key={row.id}>{kindLabels[row.kind]} {money(row.amount, row.currency)}</p>) : null}
-            <p className="text-xs text-[var(--share-muted)]">{connections.data?.configured.includes(service.id) ? '자동 조회 설정됨' : '수동 관리 · 자동 조회 미연결'}</p>
-            {snapshots.map(snapshot => <p key={snapshot.metric} className="mt-1 text-xs">{snapshotLabel(snapshot.metric)}: {snapshotValue(snapshot.amount, snapshot.currency)} · {snapshot.status === 'ok' ? '조회 성공' : snapshot.amount === null ? '조회 실패·청구서 미발행 또는 설정 확인' : '갱신 실패 · 이전 값'}<br /><span className="text-[var(--share-muted)]">{new Date(snapshot.updated_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</span></p>)}
-          </div>
-        </div>
-      })}</div>
-    </details>
     <details className={surface}><summary className="cursor-pointer text-[15px] font-extrabold">확정 청구액·예산 관리 <span className="ml-2 text-xs font-normal text-[var(--share-muted)]">청구서와 수동 등록 내역</span></summary><div className="mt-5 space-y-4">
     {query.data && <>
       <div className="grid gap-3 md:grid-cols-2">{summarize(entries).map(total => <section key={total.currency} className={surface}>
