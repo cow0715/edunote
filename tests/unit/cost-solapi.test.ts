@@ -1,10 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-const mocks = vi.hoisted(() => ({ stats: vi.fn() }))
-vi.mock('solapi', () => ({ SolapiMessageService: class { getStatistics = mocks.stats } }))
-import { fetchSolapiUsage, parseSolapiStatistics } from '@/lib/costs/solapi-connector'
+const mocks = vi.hoisted(() => ({ stats: vi.fn(), balance: vi.fn() }))
+vi.mock('solapi', () => ({ SolapiMessageService: class { getStatistics = mocks.stats; getBalance = mocks.balance } }))
+import { fetchSolapiBalance, parseSolapiBalance, fetchSolapiUsage, parseSolapiStatistics } from '@/lib/costs/solapi-connector'
 const fixture = { balance: 0, deposit: 12652.2, point: 10, refund: { balance: 0, deposit: 49.5, point: 0 }, total: { total: 331, sms: 124, lms: 207 }, successed: { total: 330, sms: 124, lms: 206 }, failed: { total: 1, lms: 1 } }
 afterEach(() => vi.clearAllMocks())
 describe('SOLAPI provider statistics', () => {
+  it('uses the wallet balance as returned without adding deposit or points to cash', async () => {
+    expect(parseSolapiBalance({ balance: 19733, deposit: 5000, point: 120 })).toEqual({ balance: 19733, point_balance: 120 })
+    expect(parseSolapiBalance({ balance: 0, point: 0 }).balance).toBe(0)
+    expect(() => parseSolapiBalance({})).toThrow()
+    expect(() => parseSolapiBalance({ balance: Infinity, point: 0 })).toThrow()
+    mocks.balance.mockResolvedValue({ balance: 19733, point: 120 })
+    expect(await fetchSolapiBalance()).toEqual({ balance: 19733, point_balance: 120 })
+  })
   it('reads deposit spend, separates points and does not subtract refunds or double-count total', () => {
     expect(parseSolapiStatistics(fixture)).toMatchObject({ monthly_cost: 12652.2, message_total: 331, message_succeeded: 330, message_failed: 1, sms_succeeded: 330, sms_count: 124, lms_count: 206, cash_refund: 49.5, point_usage: 10 })
   })
