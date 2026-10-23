@@ -1,3 +1,5 @@
+import { questionLabel, sortQuestionsByPdf, type QuestionPresentation } from './question-presentation'
+
 // AI 프롬프트 모음 — 여기서 직접 수정하세요
 
 // ── 서술형 채점 ──────────────────────────────────────────────────────────
@@ -83,7 +85,9 @@ export const PARSE_ANSWER_SHEET_RULES = `추출 규칙:
   [해설]
   [해설 내용 ...]
 
-- 문항 번호: 줄 시작의 단독 숫자 (1, 2, 3 …)
+- 문항 번호: 줄 시작의 숫자 (1, 2, 3 …) 또는 '서답형 1', '서술형 1' 같은 구역 접두사가 붙은 번호.
+  별도 번호의 서답형 1과 객관식 1은 서로 다른 문항이다. 호출의 문항 식별 범위가 있으면
+  그 구역·원본 번호를 찾아 지정된 내부 question_number로 출력한다.
 - [정답] : 이후가 correct_answer 또는 correct_answer_text
 - [해설] 이후 전체가 explanation (다음 문항 번호 직전까지)
 
@@ -559,7 +563,7 @@ ${buildVocabOcrExampleSection(exampleItems)}`
 
 // ── 시험 답안지 OCR ───────────────────────────────────────────────────────
 
-export type ExamOcrQuestion = {
+export type ExamOcrQuestion = QuestionPresentation & {
   question_number: number
   sub_label: string | null
   question_style: 'objective' | 'ox' | 'subjective' | 'find_error' | 'multi_select'
@@ -578,18 +582,22 @@ function buildExamQuestionList(questions: ExamOcrQuestion[]): string {
   const labelFor = (q: ExamOcrQuestion) =>
     q.question_style === 'ox' && q.ox_notation === 'TF' ? 'T/F 판단형' : styleLabel[q.question_style]
   const grouped = new Map<number, ExamOcrQuestion[]>()
-  for (const q of questions) {
+  for (const q of sortQuestionsByPdf(questions)) {
     const arr = grouped.get(q.question_number) ?? []
     arr.push(q)
     grouped.set(q.question_number, arr)
   }
   const lines: string[] = []
-  for (const [num, group] of [...grouped.entries()].sort((a, b) => a[0] - b[0])) {
+  for (const [num, group] of grouped) {
     if (group.length === 1 && !group[0].sub_label) {
-      lines.push(`- ${num}번: ${labelFor(group[0])}`)
+      lines.push(group[0].source_question_number
+        ? `- 인쇄 ${questionLabel(group[0])}: ${labelFor(group[0])} → 출력 question_number=${num}, sub_label=null`
+        : `- ${num}번: ${labelFor(group[0])}`)
     } else {
       for (const q of group) {
-        lines.push(`- ${num}번 (${q.sub_label}): ${labelFor(q)}`)
+        lines.push(q.source_question_number
+          ? `- 인쇄 ${questionLabel(q)}: ${labelFor(q)} → 출력 question_number=${num}, sub_label=${JSON.stringify(q.sub_label)}`
+          : `- ${num}번 (${q.sub_label}): ${labelFor(q)}`)
       }
     }
   }
@@ -597,6 +605,8 @@ function buildExamQuestionList(questions: ExamOcrQuestion[]): string {
 }
 
 const EXAM_OCR_RULES = `규칙:
+- 문항 목록에 '인쇄' 표기와 '출력 question_number'가 있으면, 인쇄된 구역·원래 번호로 답안 위치를 찾고 지정된 내부 question_number로 반환한다. 객관식 1번과 서답형 1은 서로 다른 문항이다.
+- 목록은 PDF 배치 순서다. 예: 6번 → 서답형 1(a,b) → 7번을 그대로 따라 읽되 출력 키는 목록의 매핑을 따른다.
 - 객관식: student_answer에 숫자(1~5). 동그라미 또는 숫자 기입 모두 인식
 - 객관식/복수정답에서 X표, 취소선, 지운 흔적이 있는 번호는 취소된 답으로 보고 최종 선택에서 제외. 예: ①에 X표가 있고 ④가 다시 동그라미/색칠되어 있으면 student_answer는 4
 - 단일 객관식에서 여러 표시가 보이면 취소되지 않은 가장 명확한 최종 동그라미/색칠/체크 1개만 student_answer로 반환

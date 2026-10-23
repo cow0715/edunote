@@ -1,5 +1,7 @@
 'use client'
 
+import { questionLabel, sortQuestionsByPdf } from '@/lib/question-presentation'
+
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -44,7 +46,7 @@ export function ExplanationEditor({ weekId }: Props) {
     },
   })
 
-  const readingQuestions = questions.filter((q) => q.exam_type === 'reading')
+  const readingQuestions = sortQuestionsByPdf(questions.filter((q) => q.exam_type === 'reading'))
 
   const [editMap, setEditMap] = useState<Record<string, EditRow>>({})
 
@@ -124,7 +126,7 @@ export function ExplanationEditor({ weekId }: Props) {
       <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
         {readingQuestions.map((q) => {
           const row = editMap[q.id] ?? { explanation: '', correct_answer_text: '', grading_criteria: '' }
-          const label = `${q.question_number}번${q.sub_label ? ` (${q.sub_label})` : ''}`
+          const label = questionLabel(q)
           const styleLabel = STYLE_LABEL[q.question_style] ?? q.question_style
           const answerLabel = ANSWER_TEXT_LABEL[q.question_style]
 

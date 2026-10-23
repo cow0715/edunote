@@ -4,7 +4,8 @@ import { GRADING_SYSTEM, GRADING_RULES, PARSE_ANSWER_SHEET_RULES, QUESTION_MARKU
 import { callLlmTextDetailed,
   buildFileBlock, callLlmText, createLlmExecution, parseJsonArrayResponse, type TaskCallOptions,
 } from './client'
-import { findMissingNumbers, discoverQuestionNumbers, rangedParseCallIsolated, sliceNumbers, type RangedCallStats, type RangedFile } from './ranged'
+import { type RangedCallStats, type RangedFile } from './ranged'
+import { parseWeekInventory } from './week-inventory'
 
 export type SubjectiveQuestion = {
   question_number: number
@@ -34,6 +35,13 @@ export type GradingResult = {
 // ── 해설지 파싱 ──────────────────────────────────────────────────────────
 
 export type ParsedAnswer = {
+  /** Authoritative source identity and expected leaves from the inventory. Not grading style. */
+  source_section?: 'general' | 'written'
+  source_question_number?: number
+  inventory_sub_labels?: (string | null)[]
+  display_order?: number
+  passage_group?: string | null
+  shared_passage?: string | null
   question_number: number
   sub_label: string | null            // 소문항 레이블 (예: 'a', 'b'), 없으면 null
   question_style: 'objective' | 'subjective' | 'ox' | 'multi_select' | 'find_error'
@@ -152,61 +160,8 @@ export async function parseAnswerSheetRanged(
   tagCategories: TagCategory[] = [],
   options: TaskCallOptions = {},
 ): Promise<AnswerSheetRangedResult> {
-  // sonnet-5: 4-6 대비 단가 33% 낮고 신세대라 필터 거절이 stop_reason 으로 온다 (2026-08-27 전환)
-  const task = 'week.parseAnswers' as const
-  const execution = options.execution ?? createLlmExecution()
-  const prompt = buildAnswerSheetPrompt(tagCategories)
-
-  const discovery = await discoverQuestionNumbers({
-    files, task, execution, prompt, label: 'parseAnswerSheetRanged.discover',
-  })
-  if (!discovery.numbers.length) {
-    throw new Error('문항 번호를 발견하지 못했습니다. 파일을 확인해주세요.')
-  }
-  console.log('[parseAnswerSheetRanged] 발견 번호:', discovery.numbers.join(', '))
-
-  // 콜당 문항 수는 코어 공통 상수(NUMBERS_PER_RANGE_CALL) — 문항당 1콜 전 병렬.
-  // 필터에 걸린 문항은 정확히 그 문항만 결손된다.
-  const groups = sliceNumbers(discovery.numbers)
-  const parts = await Promise.all(groups.map((numbers) =>
-    rangedParseCallIsolated<ParsedAnswer>({
-      files, task, execution, maxTokens: 8192,
-      prompt, scope: { numbers }, label: 'parseAnswerSheetRanged',
-    })))
-
-  let items = parts.flatMap((part) => part.items)
-  const calls = [discovery.stats, ...parts.flatMap((part) => part.calls)]
-  const skippedNumbers = parts.flatMap((part) => part.skippedNumbers)
-
-  // 발견은 됐는데 결과에 없는 번호 — 모델이 빼먹었거나 JSON 요소가 깨져 떨어진 것.
-  // 필터와 달리 신호가 없으므로 대조로 잡아 1문항 콜로 한 번 더 받아본다 (캐시 히트라 저렴).
-  // 그래도 없으면 결손으로 보고한다 — 조용히 사라지는 것보다 업로더 토스트에 뜨는 게 낫다.
-  const missing = findMissingNumbers(discovery.numbers, items, skippedNumbers)
-  if (missing.length) {
-    console.warn(`[parseAnswerSheetRanged] 범위 콜 결과에 없는 번호 ${missing.join(', ')} → 1문항 재시도`)
-    const retries = await Promise.all(missing.map((n) =>
-      rangedParseCallIsolated<ParsedAnswer>({
-        files, task, execution, maxTokens: 8192,
-        prompt, scope: { numbers: [n] }, label: 'parseAnswerSheetRanged.retry',
-      })))
-    items = items.concat(retries.flatMap((part) => part.items))
-    calls.push(...retries.flatMap((part) => part.calls))
-    skippedNumbers.push(...retries.flatMap((part) => part.skippedNumbers))
-    const stillMissing = findMissingNumbers(discovery.numbers, items, skippedNumbers)
-    if (stillMissing.length) {
-      console.warn(`[parseAnswerSheetRanged] 재시도에도 없음 → 결손 보고: ${stillMissing.join(', ')}`)
-      skippedNumbers.push(...stillMissing)
-    }
-  }
-
-  items.sort((a, b) => a.question_number - b.question_number
-    || (a.sub_label ?? '').localeCompare(b.sub_label ?? ''))
-  return {
-    items,
-    calls,
-    discoveredNumbers: discovery.numbers,
-    skippedNumbers: [...new Set(skippedNumbers)].sort((a, b) => a - b),
-  }
+  const result = await parseWeekInventory(files, buildAnswerSheetPrompt(tagCategories), options)
+  return { items: result.items, calls: result.calls, discoveredNumbers: result.targets.map((t) => t.question_number), skippedNumbers: [] }
 }
 
 // 정오표 전용 파서(parseProblemSheetAnswerKeyFile)는 삭제됨 — 분리형 업로드 제거(2026-08-27)로

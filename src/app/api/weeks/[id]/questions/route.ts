@@ -1,3 +1,4 @@
+import { sortQuestionsByPdf } from '@/lib/question-presentation'
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import type { SupabaseServerClient } from '@/lib/api'
 import { recalcReadingCorrect, gradeMultiSelect } from '@/lib/grade-utils'
@@ -123,7 +124,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     return err(error.message, 500)
   }
 
-  return ok(data)
+  return ok(sortQuestionsByPdf(data ?? []))
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {

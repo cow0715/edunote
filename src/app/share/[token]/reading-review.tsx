@@ -9,6 +9,7 @@
 // 채점도 서버에 보내지 않는다: 정답이 이미 손에 있고, 이 화면은 성적이 아니라 복습이다.
 
 import { useEffect, useRef, useState } from 'react'
+import { questionLabel } from '@/lib/question-presentation'
 import { FormattedQuestionText } from '@/components/grade/formatted-question-text'
 import { SourceImagePreview } from '@/components/grade/source-image-preview'
 import { oxChoiceLabels, parseOXAnswerKey } from '@/lib/ox-grading'
@@ -19,6 +20,7 @@ import { CountUp } from './share-ui'
 export type ReviewQuestion = {
   id: string
   number: number
+  displayOrder?: number
   /** 화면에 찍는 문항 표기 — 객관식 "18번", 밑줄 OX 는 지문 기호와 맞춘 "①" */
   numberLabel: string
   typeName: string | null
@@ -63,9 +65,10 @@ export function buildReviewQuestions(answers: StudentAnswer[]): ReviewQuestion[]
       const base = {
         id: a.id,
         number: q.question_number,
+        displayOrder: q.display_order ?? q.question_number,
         numberLabel: isUnderlineOX
           ? CIRCLE_NUM[q.question_number - 1] ?? `${q.question_number}번`
-          : `${q.question_number}번${q.sub_label ?? ''}`,
+          : q.source_question_number ? questionLabel(q) : `${q.question_number}번${q.sub_label ?? ''}`,
         typeName: q.exam_question_tag.find((t) => t.concept_tag)?.concept_tag?.name ?? null,
         passage: q.passage?.trim() || null,
         stem: q.question_stem?.trim() || q.question_text?.trim() || `${q.question_number}번`,
@@ -114,7 +117,7 @@ export function buildReviewQuestions(answers: StudentAnswer[]): ReviewQuestion[]
       }
     })
     .filter((q): q is ReviewQuestion => q !== null)
-    .sort((a, b) => a.number - b.number)
+    .sort((a, b) => (a.displayOrder ?? a.number) - (b.displayOrder ?? b.number))
 }
 
 export function ReadingReview({ questions, token, onClose, onGoWrongNote }: {

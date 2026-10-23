@@ -1,3 +1,4 @@
+import { sortQuestionsByPdf } from '@/lib/question-presentation'
 // share 화면 공용 순수 헬퍼 / 타입.
 // 렌더 밖에서만 쓰는 계산은 전부 여기로 모아 탭 컴포넌트들이 서로를 import 하지 않게 한다.
 
@@ -155,7 +156,15 @@ export const SCROLL_OFFSET_CLASS = 'scroll-mt-[69px]'
  */
 export function groupAnswersByQuestion(answers: StudentAnswer[]): StudentAnswer[][] {
   const groups = new Map<string, StudentAnswer[]>()
+  const byWeek = new Map<string, (NonNullable<StudentAnswer['exam_question']> & { answer: StudentAnswer })[]>()
   for (const answer of answers) {
+    if (!answer.exam_question) continue
+    const list = byWeek.get(answer.exam_question.week_id) ?? []
+    list.push({ ...answer.exam_question, answer })
+    byWeek.set(answer.exam_question.week_id, list)
+  }
+  const ordered = [...byWeek.values()].flatMap((list) => sortQuestionsByPdf(list))
+  for (const { answer } of ordered) {
     const q = answer.exam_question
     if (!q) continue
     const key = `${q.week_id}|${q.question_number}`

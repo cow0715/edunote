@@ -1,3 +1,4 @@
+import type { QuestionPresentation } from '@/lib/question-presentation'
 import { createServiceClient } from '@/lib/supabase/server'
 import { buildWeekDisplayMap, getPeriodForWeek, isWeekInPeriod, type ClassPeriod, type WeekForPeriod } from '@/lib/class-periods'
 import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
@@ -30,7 +31,7 @@ type StudentRow = {
   grade: string | null
 }
 
-type ExamQuestionRow = {
+type ExamQuestionRow = QuestionPresentation & {
   id: string
   week_id: string
   question_number: number
@@ -309,7 +310,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
           id, week_score_id, is_correct,
           student_answer, student_answer_text, ox_selection, ai_feedback,
           exam_question(
-            id, week_id, question_number, sub_label,
+            id, week_id, question_number, sub_label, source_section, source_question_number, display_order, passage_group, shared_passage,
             exam_type, question_style,
             correct_answer, correct_answer_text, explanation, question_text,
             question_stem, passage, choices,

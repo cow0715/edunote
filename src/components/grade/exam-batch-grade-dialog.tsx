@@ -161,7 +161,7 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
         body: JSON.stringify({ fileData: it.b64, mimeType: it.mimeType, studentId: it.studentId }),
       })
       const data = await resp.json()
-      if (data.ok) {
+      if (resp.ok && data.ok) {
         const applied = onApplied(it.studentId!, data.results as ExamOcrResult[])
         patch(it.id, { status: 'done', result: { applied, total: questionCount } })
       } else {

@@ -115,7 +115,7 @@ export function BatchGradePanel(props: Props) {
                       {(duplicate || item.duplicateName || !item.studentId || item.confidence === 'low') && <p className="text-xs leading-relaxed text-[var(--share-red)]">{duplicate ? '같은 학생에게 두 장이 연결됐어요. 학생을 바꾸거나 한 장을 제외해주세요.' : item.duplicateName ? '동명이인입니다. 학생을 직접 선택해주세요.' : !item.studentId ? '학생을 선택하지 않으면 이번 처리에서 제외됩니다.' : '이름 판독이 불확실해요. 학생이 맞는지 확인해주세요.'}</p>}
                       {existing && <p className="text-xs text-[var(--share-muted)]">기존 답안이 있습니다. 시작 전에 덮어쓰기를 확인합니다.</p>}
                     </>}
-                    {item.message && <p className={cn('break-words text-sm', item.status === 'error' ? 'text-[var(--share-red)]' : 'text-[var(--share-body)]')}>{item.message}</p>}
+                    {item.message && <p role={item.status === 'error' ? 'alert' : undefined} className={cn('break-words text-sm', item.status === 'error' ? 'text-[var(--share-red)]' : 'text-[var(--share-body)]')}>{item.message}</p>}
                   </li>
                 })}
               </ul>
