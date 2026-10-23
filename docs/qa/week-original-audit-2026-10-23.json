@@ -1,0 +1,4611 @@
+{
+  "auditedAt": "2026-10-23T22:09:43+09:00",
+  "project": "rjaawwrcgegfjtiztsou",
+  "paidAIInvocations": 0,
+  "method": "Read-only server-side unpdf native text extraction; six-English-word signatures >=30 normalized characters against stored passages/stems, every linked week; candidate search includes retained temporary/import-source PDFs. No OCR or LLM. Shared passages can repeat across exams: candidate matches alone do not authorize reassignment. Full match does not certify layout, page numbers, image-only questions or every character. No original PDFs or credentials exported.",
+  "summary": {
+    "totalWeeks": 229,
+    "linkedWeeksAudited": 105,
+    "unlinkedWeeksWithoutQuestions": 124,
+    "pdfsAttempted": 77,
+    "pdfsDownloadedAndExtracted": 74,
+    "allComparableQuestionsMatched": 68,
+    "noComparableQuestionsMatched": 26,
+    "partialMatch": 3,
+    "missingOriginal": 5,
+    "noNativeText": 3
+  },
+  "rootCause": "Before a2ce3c4 (2026-10-19), original files were stored at sanitized filename without week namespace, using upsert:true. Korean names collapsed to underscores; later uploads overwrote PDFs referenced by earlier weeks. Current unique week/UUID keys and upsert:false prevent filename collisions.",
+  "confirmedCase": {
+    "weekId": "4d496721-3532-4c0a-8dc6-29ae25901576",
+    "date": "2026-09-16",
+    "className": "서울여고 고1반",
+    "path": "_week5_(_).pdf",
+    "matched": 0,
+    "comparable": 15,
+    "overwrittenAtUTC": "2026-09-17T09:13:57.288429Z",
+    "currentContentMatches": "숭문고 고1반 2026-09-17, 19/19 comparable questions",
+    "recovery": "Correct original was not identified among retained PDFs; original from user or historical backup required. Student questions/answers/grades unchanged."
+  },
+  "localFixes": [
+    "Fail before question synchronization when original upload or week-link persistence fails.",
+    "Teacher source-image generation now checks legacy PDF identity, uses printed question number/full region and registered fonts; mismatch returns422 before rendering/uploading."
+  ],
+  "deployment": "Release requested after audit. Unique week/UUID filenames and upsert:false prevent replacement on collision; persistence failure and teacher source-identity guards are included in the release. See Git history and deployment for release status.",
+  "weeks": [
+    {
+      "weekId": "5e671b23-faa4-46e3-9979-1d3a8789edcf",
+      "date": "2026-03-01",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_TEST_0301.pdf",
+      "nativeChars": 8852,
+      "total": 4,
+      "eligible": 4,
+      "matched": 4,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "180c82b5-e971-4fe4-a897-da6f60417fa4",
+      "date": "2026-03-03",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_.pdf",
+      "nativeChars": 27989,
+      "total": 16,
+      "eligible": 0,
+      "matched": 0,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "c8cd0074-a4b3-4227-9d08-57a2d6333c2b",
+      "date": "2026-03-08",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_TEST_0308.pdf",
+      "nativeChars": 6911,
+      "total": 4,
+      "eligible": 4,
+      "matched": 4,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "93b666c3-da64-4f2f-9880-f7ac8a2566e8",
+      "date": "2026-03-10",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_TESTweek.pdf",
+      "nativeChars": 2706,
+      "total": 15,
+      "eligible": 10,
+      "matched": 10,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "cf2293ba-f80d-42a4-967d-5b074135e955",
+      "date": "2026-03-11",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_TESTweek.pdf",
+      "nativeChars": 2706,
+      "total": 15,
+      "eligible": 10,
+      "matched": 10,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "96463dd2-456d-493b-8c53-7885dd8cf285",
+      "date": "2026-03-12",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_TESTweek.pdf",
+      "nativeChars": 2706,
+      "total": 15,
+      "eligible": 10,
+      "matched": 10,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "8505e977-1c72-4860-b794-72e45e3b5c58",
+      "date": "2026-03-13",
+      "classId": "1ff92e90-912f-4ea0-89ed-49ab8a7a4977",
+      "path": "_.pdf",
+      "nativeChars": 27989,
+      "total": 14,
+      "eligible": 12,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 7,
+          "id": "c07ac454-a077-45db-8b82-43f42c517650",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "09e5e1a1-8461-41d3-ac6e-4da5bb06b288",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "f1cb2819-6d60-4a94-b53a-7d93edde3f84",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "07e4284c-f79d-49c8-93af-e36ddd50fc6e",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "68806ae4-9af1-49b8-92c6-eac4300726d8",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "c0960dc2-2401-4e5d-9592-c99f471c6ec8",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "f94ddb5d-1c72-4d56-ad73-9196fd91cd6f",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "6cc856d6-ebee-475d-bdc1-42a2f17b6d17",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "749de3ff-f1a6-4e2f-8841-5f4d033580e3",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "f9b56fdb-2752-409d-9cdc-477941db8b85",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "64a339ee-13f9-4851-a186-42cac0fa5a84",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "b7e3a852-4860-432b-ac2f-686be9df2134",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_TESTweek.pdf",
+          "matched": 1
+        }
+      ],
+      "status": "no_match",
+      "className": "test"
+    },
+    {
+      "weekId": "416d0f1e-86a3-43cf-b173-ef4c733f645f",
+      "date": "2026-03-15",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_TEST_0315.pdf",
+      "nativeChars": 7256,
+      "total": 4,
+      "eligible": 4,
+      "matched": 4,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "5d9c2b58-f5c2-47ab-92f9-506c2dd0a3dd",
+      "date": "2026-03-17",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_1_.pdf",
+      "nativeChars": 9515,
+      "total": 13,
+      "eligible": 13,
+      "matched": 13,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "02eadd09-d502-44e9-a06c-8aca4855111e",
+      "date": "2026-03-18",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_(_)_1_.pdf",
+      "nativeChars": 8949,
+      "total": 18,
+      "eligible": 18,
+      "matched": 18,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "7dca3ec8-b582-4a15-88e0-5794aeadf454",
+      "date": "2026-03-19",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_(_)_1_.pdf",
+      "nativeChars": 8949,
+      "total": 18,
+      "eligible": 18,
+      "matched": 18,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "f0f90a2b-3718-4f01-8893-346132a7c707",
+      "date": "2026-03-20",
+      "classId": "1ff92e90-912f-4ea0-89ed-49ab8a7a4977",
+      "path": "_TESTweek.pdf",
+      "nativeChars": 2706,
+      "total": 15,
+      "eligible": 0,
+      "matched": 0,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "test"
+    },
+    {
+      "weekId": "44df78f0-5a96-4f28-8eaf-308c82b60484",
+      "date": "2026-03-22",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_TEST(0322).pdf",
+      "nativeChars": 10211,
+      "total": 6,
+      "eligible": 6,
+      "matched": 6,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "0d34a199-de40-431c-bec9-cc05c3c6e67c",
+      "date": "2026-03-24",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_2_(0324).pdf",
+      "nativeChars": 8705,
+      "total": 21,
+      "eligible": 21,
+      "matched": 21,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "d39e3ada-54c9-4ead-8406-88a815e6127f",
+      "date": "2026-03-25",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_Week4_.pdf",
+      "nativeChars": 15658,
+      "total": 17,
+      "eligible": 17,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 5,
+          "id": "07db6416-4086-4cc9-bfb7-91fff1bfa542",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "e385f161-ee0c-4520-847f-c19b19d43326",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "5e2d528f-ba94-46fe-92bc-ee6d31a59e75",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "29d9d259-a687-4375-bf64-a65085921020",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "818cf214-52bf-41f4-9423-2f4de5c4db07",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "eab41f60-1c50-4ddb-9c9d-2a46574beb74",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "d1e6ede3-fae2-4bb4-9564-4bc6f9780acf",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "d9fba576-4f47-45e5-8be5-e2406b74b494",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "800d3893-54e2-4de3-9720-0a606a115d5c",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "9982c8ce-b740-4000-b0b9-fd353ed32433",
+          "visual": false
+        },
+        {
+          "number": 15,
+          "id": "87902783-7387-4dfa-b50c-78023383a4e2",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "e96569e5-3ce5-455b-b6f7-dd6f3b6f6bdc",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "9e9d4533-a4f1-45b6-8d6c-fe0f789f4f11",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "0d84fbbf-5c97-449e-82ae-1864ee6bdcae",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "f407696b-ee74-4554-8209-e6d5961c811b",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "575932c0-9e9a-4bb9-89f1-ba890936dc10",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "426fc52d-eb76-487e-996a-576c575d74fd",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_Week5_.pdf",
+          "matched": 5
+        },
+        {
+          "path": "_1.pdf",
+          "matched": 3
+        }
+      ],
+      "status": "no_match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "8be58868-cedf-4ee1-a9df-52875fdfca20",
+      "date": "2026-03-26",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_Week4_.pdf",
+      "nativeChars": 15658,
+      "total": 17,
+      "eligible": 17,
+      "matched": 17,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "37dd1b71-96d2-444b-97e9-05c6f3faf640",
+      "date": "2026-03-27",
+      "classId": "1ff92e90-912f-4ea0-89ed-49ab8a7a4977",
+      "path": "_(_)_1_.pdf",
+      "nativeChars": 8949,
+      "total": 18,
+      "eligible": 0,
+      "matched": 0,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "test"
+    },
+    {
+      "weekId": "cc85c60a-1387-4bac-9d6b-b6f48146db74",
+      "date": "2026-03-29",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_TEST(0328).pdf",
+      "nativeChars": 12777,
+      "total": 6,
+      "eligible": 6,
+      "matched": 6,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "84be9654-1c00-4a75-8046-10de86c8d462",
+      "date": "2026-03-31",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_Week5_.pdf",
+      "nativeChars": 18160,
+      "total": 13,
+      "eligible": 13,
+      "matched": 3,
+      "error": null,
+      "bad": [
+        {
+          "number": 6,
+          "id": "48cf0ad3-9b05-44f9-a798-3fbb22d3716b",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "02a74af2-385c-4849-8fb6-d53c74aca3f0",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "157d0794-7dd0-480d-a381-4e8ca3fd5308",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "a1e88279-62a2-4338-a966-14482584a60f",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "ce79619d-24c8-4247-8077-c8e69c0f8f39",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "a5fd2749-358a-410f-b8dc-f606e1db25c7",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "f48bd564-cee0-4887-a1e4-a8df72b51875",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "f2ac8f1f-cabd-4cf9-898f-bb9a807ffe5e",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "1e182086-a8a3-42eb-910b-56da738c6526",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "ce4f9568-f5dd-49ec-8189-c8651b92f273",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_.pdf",
+          "matched": 11
+        },
+        {
+          "path": "_2_(0324).pdf",
+          "matched": 4
+        }
+      ],
+      "status": "partial",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "4bbcd798-e0a9-4a0e-b299-72b40c631900",
+      "date": "2026-04-01",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_Week5_.pdf",
+      "nativeChars": 18160,
+      "total": 16,
+      "eligible": 16,
+      "matched": 16,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "51aba85d-194c-4183-a269-1902ed70739b",
+      "date": "2026-04-02",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "Week5_.pdf",
+      "nativeChars": 17133,
+      "total": 20,
+      "eligible": 20,
+      "matched": 20,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "098085f2-2724-49bf-84eb-a30c41e5020a",
+      "date": "2026-04-03",
+      "classId": "1ff92e90-912f-4ea0-89ed-49ab8a7a4977",
+      "path": "_week7_.pdf",
+      "nativeChars": 12929,
+      "total": 16,
+      "eligible": 16,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 8,
+          "id": "fcaf2671-1eff-4d10-9f38-a55532d87efd",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "26bfb4f9-a535-4c1e-9b83-3815e33c1374",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "c2bcc08d-b153-4a20-a662-d4e83c262405",
+          "visual": false
+        },
+        {
+          "number": 15,
+          "id": "a7b0c33f-fac1-4782-a1c4-c2aa41bc1c68",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "3f71a53f-99b3-4c19-bae0-8545ec0bdfd5",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "e6ad0f1f-5141-4649-b601-3ff3c74be9dd",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "dc96c9c5-1221-4e5f-a1f9-5b90c2c566a7",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "db937d25-e924-4e9f-84dc-5b816d0f659c",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "b53f8710-c962-49c9-9bd7-b1d50184baa0",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "aea1b0bd-6004-4742-9184-fa159125628c",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "b8929777-2700-4423-bf89-c361d6becc76",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "37ea5ce4-7417-4803-818b-f5fbdf7c545f",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "4ccdd9d4-10a0-4c21-99f0-2775d8e32170",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "006c662d-255c-40cb-b17d-de4ea55ba0a8",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "4839381e-46af-4955-9723-72f49af0eec5",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "67dbc6ad-a689-40ca-b746-0c66512e939a",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_1.pdf",
+          "matched": 6
+        },
+        {
+          "path": "_Week5_.pdf",
+          "matched": 5
+        }
+      ],
+      "status": "no_match",
+      "className": "test"
+    },
+    {
+      "weekId": "e3bc804c-0df2-458d-9f66-de990fe16b1f",
+      "date": "2026-04-05",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_TEST(_).pdf",
+      "nativeChars": 5214,
+      "total": 6,
+      "eligible": 6,
+      "matched": 6,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "ed69f69f-c50b-4976-97e7-97d5c80a76ac",
+      "date": "2026-04-07",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "Week6_.pdf",
+      "nativeChars": 16431,
+      "total": 28,
+      "eligible": 28,
+      "matched": 28,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "9deec8e3-eef8-4e6a-bd78-c2ae384bb588",
+      "date": "2026-04-08",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_Week6_.pdf",
+      "nativeChars": 13904,
+      "total": 25,
+      "eligible": 25,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 8,
+          "id": "60f7b820-911b-4d41-bd93-7c387cafee9c",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "5f07cc09-430a-4c50-82f0-2e0c930e8251",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "1ee19aac-dd81-48f0-85df-9c9504e362ca",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "57a8ec76-e9e4-4d79-916f-f7a9f93d553b",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "5429a058-84af-490e-a981-ca60e733c8f7",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "3f804862-5205-4216-9ed4-bb2a78d8b21b",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "ac2db067-c597-4cf6-9d25-bad4fba6fa32",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "d802c6bf-d274-4d98-b762-7152afe392c7",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "1c9cff79-2c9d-422b-bcdb-bd0c236201ac",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "ce57da21-d85a-457c-b087-1d354888aa3d",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "2f48cbe1-6bc0-4cff-99f0-1cf43eaaee80",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "cd6b5753-52b5-4f6a-b123-9310fdd4b6eb",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "16a0226e-c630-4078-88cd-ff5fd599d3c9",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "1c298390-b16d-468d-96c5-7d0b20e74825",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "4da99d97-cdd0-4860-9929-b837149071ca",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "37680a2e-d308-449b-81d9-2334f79111bd",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "5e60bd25-f9f9-49d4-9a52-f5128317e729",
+          "visual": false
+        },
+        {
+          "number": 15,
+          "id": "96d4f43a-89cc-4d75-8c3b-290bf01b3970",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "9a44c847-ee23-4449-b87a-7ffc98e6460a",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "d29f6abf-dcff-4254-92f0-e0066015bab6",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "d38a3590-33b4-4fd1-9511-a9b06feaa4d4",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "c967c90a-bb37-4a7b-be07-b5daf5ddea7d",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "5192babe-8f80-4c09-995a-09143bd524c6",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "170e26a4-9807-4daa-be1f-6b52597ee5dc",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "1af951b0-8ae0-47a3-83c3-e681d0e8b145",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "Week6_.pdf",
+          "matched": 15
+        },
+        {
+          "path": "_1.pdf",
+          "matched": 13
+        },
+        {
+          "path": "_.pdf",
+          "matched": 11
+        }
+      ],
+      "status": "no_match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "59d0d2d7-ec43-40ec-9a48-474fbc97ce98",
+      "date": "2026-04-09",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_Week6_.pdf",
+      "nativeChars": 13904,
+      "total": 19,
+      "eligible": 19,
+      "matched": 19,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "65517992-403c-486b-b1f5-5abbddb805a7",
+      "date": "2026-04-10",
+      "classId": "1ff92e90-912f-4ea0-89ed-49ab8a7a4977",
+      "path": "_1.pdf",
+      "nativeChars": 28575,
+      "total": 30,
+      "eligible": 30,
+      "matched": 30,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "test"
+    },
+    {
+      "weekId": "6a672868-5549-40ea-ba72-866200d2bde7",
+      "date": "2026-04-12",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "week7_TEST.pdf",
+      "nativeChars": 6072,
+      "total": 6,
+      "eligible": 6,
+      "matched": 6,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "226259a2-587b-4ddf-a08a-4cc524b3f3c9",
+      "date": "2026-04-14",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_week7_.pdf",
+      "nativeChars": 12929,
+      "total": 18,
+      "eligible": 18,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 15,
+          "id": "77e99789-9ca3-443b-8756-f9134842e51a",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "ea3d9b14-1ede-436d-9fe6-6dec90c4343a",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "bfb21702-ecbd-40b9-9b7f-a440635719fe",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "ba22da06-f7e9-4bc3-9d6a-b4e6a7efae14",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "30399092-afbf-4ecf-a7d2-46ac96186df3",
+          "visual": false
+        },
+        {
+          "number": 16,
+          "id": "874c3173-c9db-483a-9b20-608a60dde51b",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "9cb809b7-c265-49ab-91ac-7c5222463d2a",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "b5dfd1fe-5fe6-4d1f-82be-e0c3eefc338c",
+          "visual": false
+        },
+        {
+          "number": 17,
+          "id": "34367324-701c-450e-8ba7-eb1f90ea40ba",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "1ca81a5f-926e-4d20-8b84-e5eb2b457b54",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "cb484255-87e6-445a-ba7d-563a4f33475b",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "a0eb2d5a-3f98-4a7b-9b44-13f07d60072f",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "4934203a-0638-440e-a202-f60a72eb628a",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "b7697996-8ba4-4211-aa92-2eb6ccfef0be",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "6d9a9504-f196-4984-b99c-c4b1ad90e16f",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "b1a8842f-cada-42af-9252-7b8b34d7543d",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "31d1e668-4a8a-485d-ba1e-b2034eaa58bc",
+          "visual": false
+        },
+        {
+          "number": 17,
+          "id": "5a60af6d-6ab8-48a7-a5e7-0b77323f3a4f",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_.pdf",
+          "matched": 12
+        },
+        {
+          "path": "_2_(0324).pdf",
+          "matched": 5
+        },
+        {
+          "path": "_Week5_.pdf",
+          "matched": 4
+        }
+      ],
+      "status": "no_match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "537601bc-0531-4ab0-b474-7c49e33d67e4",
+      "date": "2026-04-15",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_week7_.pdf",
+      "nativeChars": 12929,
+      "total": 16,
+      "eligible": 16,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 3,
+          "id": "a442d830-9b44-4724-bb8e-5ecf1d717348",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "dfa29464-fdf8-4d65-8481-abab83f18140",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "9a1a3e94-1912-4e6c-8fe3-088ce4865e67",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "6a5396c3-6837-49d6-9e31-06edce496f71",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "0361e1e0-5a16-4d26-9d70-156160f03495",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "65b48667-6c19-489d-a846-3025cd491082",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "3acff246-b78d-4cf8-88dc-701d7b2d1484",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "b78ff04f-9ded-4f54-bf11-75825c97895d",
+          "visual": false
+        },
+        {
+          "number": 15,
+          "id": "e32240a0-8bc6-4fde-a2a7-f84ba3ad4aaf",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "eaedd785-260c-40de-8e69-cdfb33afc6a5",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "fc2db112-8be8-4135-8d67-ab265e864a18",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "c9f7735e-d479-4945-bedb-fe00f5c0f8f7",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "8e42446b-1ff6-4a87-b181-39e4dfa6fc09",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "5270ff50-6da4-4de1-9452-4e3b5fe44c4f",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "2a445c15-8c99-4cb1-9e9e-a93161ad2f0d",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "167fceb1-a071-460b-9b6a-0c80944371aa",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_Week5_.pdf",
+          "matched": 5
+        },
+        {
+          "path": "_1.pdf",
+          "matched": 5
+        }
+      ],
+      "status": "no_match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "7de6f4c9-4b3d-4819-b71d-24d4572f0dad",
+      "date": "2026-04-16",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_week7_.pdf",
+      "nativeChars": 12929,
+      "total": 15,
+      "eligible": 15,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 5,
+          "id": "76767d99-adbd-49bb-ab93-31c7a038688f",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "3c4fe271-f0ee-48ef-a3f8-b2472d404350",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "77a89811-6fca-426f-829d-56887a5d4275",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "27e94b00-222d-432f-890a-8cde6d6477aa",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "739a4489-4b45-4fac-821f-04bd2e7f18af",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "9a681fa0-0160-4d31-92fc-da328ceb3cf1",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "18af0911-b5fe-4548-8508-2cdb03c361de",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "8a6a029d-a1ae-4d7f-a76c-d5c4238658ec",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "2a5acf85-bddb-4a4a-a7e2-78e4b3190338",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "366ccb07-9b27-4a2d-9dc3-711d52facf51",
+          "visual": false
+        },
+        {
+          "number": 15,
+          "id": "79fb0e0a-403d-4c21-9066-fa25f8a0b593",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "63feca89-703e-4d69-9e35-015275cf90bc",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "4c59e2da-0cf2-475e-be94-ed48df1f9bd8",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "cf2158ad-1aaf-46cb-af1d-306e3c96ce10",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "f33f4cb0-0144-4fa4-ad54-8fa620784b37",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_Week4_.pdf",
+          "matched": 6
+        },
+        {
+          "path": "_(_)_1_.pdf",
+          "matched": 5
+        },
+        {
+          "path": "_Week6_.pdf",
+          "matched": 5
+        }
+      ],
+      "status": "no_match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "bd8ab137-2af8-45ef-9b00-74b605ce269c",
+      "date": "2026-04-19",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "week8_test_.pdf",
+      "nativeChars": 6240,
+      "total": 7,
+      "eligible": 7,
+      "matched": 7,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "69f08dff-23b9-4b7e-8522-ffceebe0e4cb",
+      "date": "2026-04-19",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "0419_(_).pdf",
+      "nativeChars": 0,
+      "total": 23,
+      "eligible": 20,
+      "matched": 0,
+      "error": "{}",
+      "bad": [
+        {
+          "number": 6,
+          "id": "bb163b3c-0b81-4f39-9612-33a9456505a9",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "69722b48-dafc-48bc-8331-996bffb9775a",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "47062e39-ce47-4ba1-8a6b-0ec45a7d2318",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "afd1b8f6-9a56-47b3-9b0f-36a11ed6de37",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "fca9bdc0-89ad-4e9c-b052-497791ccf80c",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "0f4e58a6-5055-4b01-9ed6-ee5bd5fb5f39",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "cf030776-6f33-479a-b8c5-548c2f73c3a4",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "ae82f1c1-fef3-4a0e-ba2c-9724164fa08f",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "9c4b2cfc-de73-4a52-a6c2-2ea2e739a4cf",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "edbe5074-5bd9-47e7-9654-61e8e023d186",
+          "visual": false
+        },
+        {
+          "number": 16,
+          "id": "7ed08694-d031-4e02-8bb4-ad9d16713fb8",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "d5250c66-8e4f-48f6-89d2-476369dad32c",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "69f4c5db-e9ec-4b1a-a589-956face8910f",
+          "visual": false
+        },
+        {
+          "number": 17,
+          "id": "6797f45c-dce2-439b-ac25-08c357b74e9e",
+          "visual": false
+        },
+        {
+          "number": 15,
+          "id": "99692a39-d51b-4c20-853b-42408545f4b2",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "c2c564c1-8dd3-46b5-8f38-a211353ce1b6",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "76ad03b3-038c-4abe-8d44-93a29e2de52d",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "7801828b-f61d-4302-93ac-4200dcfbd38f",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "ef2b8167-335b-4ce8-a8f7-886baffceaa7",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "63025539-bbb7-4ad5-93f7-a16cdbf2d32a",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_.pdf",
+          "matched": 8
+        },
+        {
+          "path": "_Week4_.pdf",
+          "matched": 5
+        },
+        {
+          "path": "_Week6_.pdf",
+          "matched": 5
+        }
+      ],
+      "status": "missing",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "3a91522f-9c78-4410-818e-5ea4d0e7228a",
+      "date": "2026-04-21",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_Week8_.pdf",
+      "nativeChars": 13972,
+      "total": 21,
+      "eligible": 20,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 2,
+          "id": "40df8dfa-8500-499e-a72f-d402d865e731",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "65b57fc3-41df-4726-82f3-2a3b0d578d2a",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "d42fd601-b7e5-4902-8b1d-88720fa8e49a",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "5d257d30-53ac-40e2-acfd-47b4b0b997e7",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "c43f69d2-6927-4607-9bef-a439c6f24229",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "78b83467-f465-4f85-b58c-47b6831e2c70",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "d619b8b5-5be7-4098-b33d-02ee5fb710f4",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "e72567ba-ddde-4ee2-b4fc-df625ea87de7",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "461ef578-ea76-410d-910c-c5f2b2d24e3c",
+          "visual": false
+        },
+        {
+          "number": 16,
+          "id": "b596b94f-1776-42eb-ba85-87d5dd612182",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "75c249f7-f183-47e2-ad1d-d0cfee5e955c",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "ba029b2d-b734-4c54-b2d8-e9e54969ad7b",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "32dbfa00-69c2-4342-a3ac-a6422e3a2113",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "62cfc573-b515-4a9f-80c2-f6adba013bc3",
+          "visual": false
+        },
+        {
+          "number": 15,
+          "id": "5b06fbe0-616b-4d70-9130-23836be94972",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "905eb7c5-e631-41ea-8dc3-094caf487b03",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "6dbd5ae4-7594-4563-8d90-bde92e722fb7",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "74b69f3a-e32c-4244-b180-00ff1bcf0da1",
+          "visual": false
+        },
+        {
+          "number": 17,
+          "id": "9177a2bc-e6d2-44b4-87dc-a21d4688717f",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "275c47dd-aedd-4f5f-8dc6-992f0d0ad293",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_.pdf",
+          "matched": 15
+        },
+        {
+          "path": "Week6_.pdf",
+          "matched": 6
+        },
+        {
+          "path": "_1.pdf",
+          "matched": 6
+        }
+      ],
+      "status": "no_match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "4e39281f-6296-40a9-9b9a-4def76722538",
+      "date": "2026-04-24",
+      "classId": "1ff92e90-912f-4ea0-89ed-49ab8a7a4977",
+      "path": "_1.pdf",
+      "nativeChars": 28575,
+      "total": 30,
+      "eligible": 30,
+      "matched": 25,
+      "error": null,
+      "bad": [
+        {
+          "number": 45,
+          "id": "d69c7ec0-5ad5-4309-b7f3-e8a174c9ca6e",
+          "visual": false
+        },
+        {
+          "number": 41,
+          "id": "3fa910a5-329a-4a17-b084-737846f6998d",
+          "visual": false
+        },
+        {
+          "number": 42,
+          "id": "2c852f9a-a2d2-423e-9bbc-507b2245ecb7",
+          "visual": false
+        },
+        {
+          "number": 44,
+          "id": "4eab6722-8a76-452b-ba15-ee94f63cd5fd",
+          "visual": false
+        },
+        {
+          "number": 43,
+          "id": "32c303e4-8734-4365-af75-9b89c53d72e6",
+          "visual": false
+        }
+      ],
+      "candidates": [],
+      "status": "partial",
+      "className": "test"
+    },
+    {
+      "weekId": "1898fc69-d64b-496f-b428-ff76eaa3d8eb",
+      "date": "2026-04-26",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_(0426).pdf",
+      "nativeChars": 0,
+      "total": 13,
+      "eligible": 13,
+      "matched": 0,
+      "error": "{}",
+      "bad": [
+        {
+          "number": 2,
+          "id": "20389f1b-31da-4e1d-aa5c-597979ff35c8",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "9bdf763b-a2aa-4332-bec2-960b891a8cec",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "13f58c6b-f6ec-4815-ad99-f90ecb5d3488",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "a700eb6d-8e16-430f-927f-d169e30ec1f9",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "8155fb77-ab52-4adf-a6e9-e7272933c95c",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "37270f9b-2116-44ab-b452-35f6860bd47b",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "52a87bc8-4799-41cb-acc8-8ce115685671",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "29d26c9d-a541-4f50-a0e7-d67c517db569",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "8ed085c1-28c8-47c3-9b59-c626c7dabb22",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "1b03cccc-f097-452f-9958-d8b44de4f605",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "e9ba37ab-cbc6-4c2e-82a3-55a1fef737d2",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "2cad8da2-6e78-44e4-80e1-ebb9b2c0954d",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "70dfd028-9dbe-435c-9056-8843bba369f2",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_week9_.pdf",
+          "matched": 1
+        }
+      ],
+      "status": "missing",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "8b86335a-5ce3-4b06-919c-cd04bd179712",
+      "date": "2026-05-01",
+      "classId": "1ff92e90-912f-4ea0-89ed-49ab8a7a4977",
+      "path": "_.pdf",
+      "nativeChars": 27989,
+      "total": 30,
+      "eligible": 30,
+      "matched": 30,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "test"
+    },
+    {
+      "weekId": "ee3cb2ac-75d4-4223-8e6a-9bdd16067137",
+      "date": "2026-05-03",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_test0502.pdf",
+      "nativeChars": 9770,
+      "total": 6,
+      "eligible": 6,
+      "matched": 6,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "0c415622-1507-465d-bf1a-c7d08e720959",
+      "date": "2026-05-05",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "week1_(_).pdf",
+      "nativeChars": 9778,
+      "total": 11,
+      "eligible": 11,
+      "matched": 11,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "85449df9-c09c-4677-ac6d-59816ed88809",
+      "date": "2026-05-06",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "week1_.pdf",
+      "nativeChars": 24449,
+      "total": 10,
+      "eligible": 10,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 3,
+          "id": "d6078612-f899-4b18-a38c-1326472303f2",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "1d57d949-9cd8-4779-b193-bf1c7acf9297",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "69ffd5a3-7396-497c-a34f-3b52ba2c6df5",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "4c60434d-ffe0-4771-b040-532163253b2f",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "33c72b0b-a4da-4075-8d3b-7a2a54342a17",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "c1abd4f2-f1cf-4b95-a4c3-a1ea814b2625",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "6d40f2bb-c61d-4014-bffb-52c9891985b7",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "4c35a330-64ca-455c-a2f7-66d599d81cff",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "88be5fd8-f10b-4d2a-b912-b1ce9f96e75c",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "23bc7392-41a0-4016-8b08-e60cbe635ce4",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_Week1_(25_6_).pdf",
+          "matched": 8
+        },
+        {
+          "path": "week1_(_).pdf",
+          "matched": 8
+        },
+        {
+          "path": "@exam-pdf-temp/week-import/469e4b06-a8fb-4c17-b8d0-407ab8478980/1782721459702_2dg1v6uknpu__3(_).pdf",
+          "matched": 7
+        }
+      ],
+      "status": "no_match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "02becd77-76de-4532-9976-04befaeaf6e3",
+      "date": "2026-05-10",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_week2test(0509).pdf",
+      "nativeChars": 5981,
+      "total": 6,
+      "eligible": 6,
+      "matched": 6,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "7fd9db54-44a2-4be9-935d-8c124050774f",
+      "date": "2026-05-12",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_Week1_(25_6_).pdf",
+      "nativeChars": 11767,
+      "total": 17,
+      "eligible": 17,
+      "matched": 17,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "d4483e96-8e2b-4f07-9c5c-33f15536568f",
+      "date": "2026-05-13",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_week2_.pdf",
+      "nativeChars": 16651,
+      "total": 11,
+      "eligible": 11,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 10,
+          "id": "b69be023-d68a-4232-9b63-1766dc85d77b",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "ec8b3497-f0f3-46c9-9904-c9b661e9993d",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "694d6aa2-4c6e-4bb4-95c6-e9adb5a8eb88",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "3c8be87b-e6cc-4e2a-9e15-23d54602dfb3",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "dc8b5317-e9bb-4b4e-9530-820c7e2a7339",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "40183292-cd8e-44d8-a5b4-913e00c0ed45",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "a51cd505-2601-4a9b-a039-37f9a42c1b1b",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "51e38058-8e97-4808-9924-6196c615c80e",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "bd89bac9-7e0f-4451-8a66-ff5647dddf99",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "c06e8944-4c4c-4289-bb41-6e7368298687",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "64aaf808-2f6e-4717-bb69-f23a56cf3c61",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_Week1_(25_6_).pdf",
+          "matched": 11
+        },
+        {
+          "path": "week1_(_).pdf",
+          "matched": 10
+        },
+        {
+          "path": "_Final1.pdf",
+          "matched": 9
+        }
+      ],
+      "status": "no_match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "c5562176-a579-46cc-9edf-7fbf9e3ba581",
+      "date": "2026-05-14",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_week2_(_).pdf",
+      "nativeChars": 13177,
+      "total": 11,
+      "eligible": 11,
+      "matched": 11,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "b0344f0f-6586-44e1-b32b-a68b393ed441",
+      "date": "2026-05-17",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "weeek3_test.pdf",
+      "nativeChars": 9725,
+      "total": 9,
+      "eligible": 9,
+      "matched": 9,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "4808c40b-f64a-4771-a850-688407b61cc4",
+      "date": "2026-05-19",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_week3_-_.pdf",
+      "nativeChars": 16004,
+      "total": 12,
+      "eligible": 12,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 6,
+          "id": "acd630bd-3d7e-44fe-b5fe-5e2fdfe1c07f",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "d1470f5e-8abf-45e1-b246-deba56a0d3ab",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "0fc93f55-e5ff-443b-b0d5-d8d356425c0b",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "092b187a-3499-4662-94a1-58b4d498e19d",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "85f4b7d9-c9f6-4614-a35b-d7452ee733b2",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "053ee81e-1277-4f8a-9cac-761c8487a26f",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "61035eb2-1eb7-4022-be18-ae238a1af8a9",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "beb20ad4-38ed-4e70-a904-1a5c51313b68",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "ec5bc583-9ab0-4218-97cc-e27aed69378b",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "09fc0a10-8e9d-4296-a4a6-2423f2c95b3e",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "ebe24af7-96dc-4784-b9fe-d52236bc39c5",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "793d7f33-2822-474c-81b1-0565b7a716c7",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_week3_(_).pdf",
+          "matched": 9
+        },
+        {
+          "path": "@exam-pdf-temp/week-import/469e4b06-a8fb-4c17-b8d0-407ab8478980/1782721459702_2dg1v6uknpu__3(_).pdf",
+          "matched": 8
+        },
+        {
+          "path": "_Final1.pdf",
+          "matched": 7
+        }
+      ],
+      "status": "no_match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "f4333997-be06-4816-a895-c6698d69a7e0",
+      "date": "2026-05-20",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_week3_(_).pdf",
+      "nativeChars": 15309,
+      "total": 14,
+      "eligible": 14,
+      "matched": 14,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "77d8a23b-1147-4fe7-95c7-b4d8c586216a",
+      "date": "2026-05-21",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_week3_-_.pdf",
+      "nativeChars": 16004,
+      "total": 16,
+      "eligible": 16,
+      "matched": 16,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "b34ed6e3-8a5f-4a09-9614-fa98a2cd6e52",
+      "date": "2026-05-26",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_Week4_(_).pdf",
+      "nativeChars": 0,
+      "total": 17,
+      "eligible": 17,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 11,
+          "id": "7aa8ad5b-d62c-47cd-9a96-81c7d4ce2584",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "7f1078ec-4992-4298-bd49-2168a2841519",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "8f9dc047-53fb-4fd1-960a-f7e1273dcf7a",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "8c12c101-f390-42b8-904a-fdb9c96b553c",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "58d8a8cb-5dd9-4717-baf6-fb273feacb11",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "3b8a7019-a2a4-48fe-a7ca-48df4abce4a9",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "73a71753-e271-4858-88ad-3cb1007c9189",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "fc6013ee-5aad-43d2-896f-5ec9286656f3",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "6240b778-5b78-487e-99b1-9ebce52ec1e3",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "7bf67183-0f5d-40a3-bf9b-5848da338eaf",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "304749a6-0bb6-4b87-bd62-209e78147680",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "93c23457-1947-4dbb-b0ba-4348f9bc2ffc",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "760e8a2b-26db-4f5b-bd82-ba859bcfdb29",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "dfd2a0a6-996b-4410-a1d5-df64126a850f",
+          "visual": false
+        },
+        {
+          "number": 15,
+          "id": "f7d979ae-9cf0-45ca-a647-dd7f2d97ea55",
+          "visual": false
+        },
+        {
+          "number": 16,
+          "id": "8bab4444-06e5-44a0-8afa-5f672ee78c42",
+          "visual": false
+        },
+        {
+          "number": 17,
+          "id": "fbefd5b1-c4bb-4825-b354-5a920a2f65a5",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "@exam-pdf-temp/week-import/469e4b06-a8fb-4c17-b8d0-407ab8478980/1782721459702_2dg1v6uknpu__3(_).pdf",
+          "matched": 4
+        },
+        {
+          "path": "_Week1_(25_6_).pdf",
+          "matched": 4
+        },
+        {
+          "path": "week1_(_).pdf",
+          "matched": 4
+        }
+      ],
+      "status": "no_native_text",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "f9379ca9-da99-4850-82cf-dd4041039a4c",
+      "date": "2026-05-27",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_week4_(_).pdf",
+      "nativeChars": 22743,
+      "total": 13,
+      "eligible": 13,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 5,
+          "id": "4be3dbc2-081d-48be-a5e2-419dcfc93b56",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "b937f78e-4d77-4dd8-b565-e91d4b47f9e1",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "32935293-b1f8-4de0-a326-5d38360906c2",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "3182c1a2-38dc-403a-9d6d-89c2c7b8fd5c",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "85192d3f-c061-49d8-bcb1-dfbefa4b1988",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "14a195df-4f39-499a-90a5-a4ce5f8a2057",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "4bc59ebb-a2ff-4800-8bfa-fc1f281b2ca8",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "7be34758-7082-4918-a5e9-ed9f01973134",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "8e4ab9ed-cf40-46e2-ad6b-0ed1351ed871",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "542102b7-b898-4641-af65-bf12be4a6a8a",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "96f28494-7686-45c4-a664-15ed2781e773",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "c8d46cbe-b826-40de-a256-b59a5b7d76ec",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "fa85a476-7509-41e6-ab39-4e9373036ccf",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_final2(_).pdf",
+          "matched": 5
+        },
+        {
+          "path": "@exam-pdf-temp/week-import/469e4b06-a8fb-4c17-b8d0-407ab8478980/1782721459702_2dg1v6uknpu__3(_).pdf",
+          "matched": 4
+        },
+        {
+          "path": "_Final1.pdf",
+          "matched": 4
+        }
+      ],
+      "status": "no_match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "591cdf86-b0af-40d8-996b-0df4d67ccfa9",
+      "date": "2026-05-28",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_week4_.pdf",
+      "nativeChars": 24317,
+      "total": 13,
+      "eligible": 13,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 8,
+          "id": "bd316666-5306-4bec-8b5a-9f1c57af0299",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "3f8cf21a-2bcf-4494-92b6-e59647af1a3f",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "86a35f83-ef34-4c33-a175-0387b27864c8",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "6b989052-0af6-40c0-9c88-efdac4719a4c",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "345406cc-75e8-4206-ac01-2a55773d8c84",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "7081df0a-2186-489c-86df-ecbe90689dc5",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "4f38ec95-9098-4c44-866c-9eaeed62458b",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "7c1d5ecc-3e91-40a0-a758-420a8f51a22c",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "7efd1d69-f24b-4ba2-82bc-c454991dd9e0",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "17bcca13-5e61-4dde-b37b-549f287ed3e9",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "00233d2c-ee5b-4417-ad65-eeb6fc098f66",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "a57f54b8-f970-4cbb-b17d-5427ef9f04a6",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "2bcabce3-1e02-485e-a035-7384d28730e6",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_final2.pdf",
+          "matched": 6
+        },
+        {
+          "path": "_week7_.pdf",
+          "matched": 4
+        },
+        {
+          "path": "_week2_(_).pdf",
+          "matched": 4
+        }
+      ],
+      "status": "no_match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "892feff0-fd46-45df-b4ea-8b5f3d2bfbe9",
+      "date": "2026-05-29",
+      "classId": "1ff92e90-912f-4ea0-89ed-49ab8a7a4977",
+      "path": "problem-sheet-1777220144634.pdf",
+      "nativeChars": 0,
+      "total": 30,
+      "eligible": 30,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 6,
+          "id": "e1be5663-c99c-40bb-bec0-b472de1f1bdf",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "f8af45ff-cbe2-448e-9cd3-93b088881f11",
+          "visual": false
+        },
+        {
+          "number": 17,
+          "id": "e643346c-6f52-4e9e-ab09-178811845a2f",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "f8dc3a13-590e-4ecf-af23-98145f814920",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "39641180-bbfc-4662-b20c-4c892687993b",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "5b792cad-7e02-43c9-9bb2-67710a29b897",
+          "visual": false
+        },
+        {
+          "number": 29,
+          "id": "86cb265e-a6b0-4187-b289-b31c592d087d",
+          "visual": false
+        },
+        {
+          "number": 24,
+          "id": "fffe4242-3a12-4970-ba9d-ea513a71e5d1",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "855c4385-ecb0-46c7-8c39-ba01806f2108",
+          "visual": false
+        },
+        {
+          "number": 18,
+          "id": "bd789e3d-5625-47df-ab6e-e72a189bc681",
+          "visual": false
+        },
+        {
+          "number": 25,
+          "id": "cbe8169a-9ffb-4950-89e3-b7de3f1d8240",
+          "visual": false
+        },
+        {
+          "number": 23,
+          "id": "5f96387e-f446-4d34-9614-7e94de7ca804",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "fd075329-f16b-40d6-ba9d-dcc929ebbd7a",
+          "visual": false
+        },
+        {
+          "number": 20,
+          "id": "e423d747-2ba5-4024-ad43-f64c0980dd9f",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "d9fd9589-fe05-4d8f-9c54-7fbd00244576",
+          "visual": false
+        },
+        {
+          "number": 27,
+          "id": "1150054f-1354-4270-aa3a-28e953e4057d",
+          "visual": false
+        },
+        {
+          "number": 22,
+          "id": "c8a1e4b0-3450-4d9f-a585-371c0f01d001",
+          "visual": false
+        },
+        {
+          "number": 28,
+          "id": "a985f317-0363-444e-8e62-5692b4bc938a",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "a7fe6100-d3fb-407e-b484-25350d227c78",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "35961fca-8c93-4962-b48a-5db6737a29fc",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "8787ab21-d2bb-4393-87dc-fe8b3f43a200",
+          "visual": false
+        },
+        {
+          "number": 26,
+          "id": "2a8f5980-58fa-4524-8ec1-0066fb3e458d",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "5ddb53cb-0d72-4c07-a553-a2c62d1b7c01",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "11496e4a-162c-4dec-8ebf-f8793af2970a",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "5c98a7ec-3b7a-42c0-be8a-12b100aded4d",
+          "visual": false
+        },
+        {
+          "number": 15,
+          "id": "29530d9f-2dd4-4db2-9bb7-af18f3372b72",
+          "visual": false
+        },
+        {
+          "number": 16,
+          "id": "e75ed27a-d4aa-464f-b3c2-71350b9c771e",
+          "visual": false
+        },
+        {
+          "number": 19,
+          "id": "549ab661-cd8c-4f73-90b0-bebcb97e9d48",
+          "visual": false
+        },
+        {
+          "number": 21,
+          "id": "04ffa27b-5fb9-4b02-822e-0b626c2c651c",
+          "visual": false
+        },
+        {
+          "number": 30,
+          "id": "1c8bbdda-159f-49e7-80f1-d93cdf96c3ac",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_.pdf",
+          "matched": 30
+        },
+        {
+          "path": "_1.pdf",
+          "matched": 9
+        },
+        {
+          "path": "Week6_.pdf",
+          "matched": 4
+        }
+      ],
+      "status": "no_native_text",
+      "className": "test"
+    },
+    {
+      "weekId": "2b35bb37-4534-41be-9840-b84102d49edb",
+      "date": "2026-05-31",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "week5_(_).pdf",
+      "nativeChars": 0,
+      "total": 12,
+      "eligible": 12,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 4,
+          "id": "c32bf897-ad40-41be-80f4-6e362d4e37d3",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "8b9320ae-1ce0-4515-bdc8-7b1373dcbcff",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "c9a48aac-4173-41cc-ae88-c269abdff9a3",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "741a487a-d883-4acf-8536-ceb840a8a66f",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "01431802-ed8a-45ab-a9c6-e19538ae3439",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "7d10cfcc-da22-4f43-bd39-d4ea07838d45",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "3f983fd1-5a48-442e-b603-7fb463f9349c",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "67fae341-7825-4246-bf87-e9b5d9ea2596",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "fe3050c7-28b1-40dc-a338-e400639a44ba",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "ee2fc954-1c27-4842-85e8-566b669648e4",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "a0eff5de-a10f-40d7-850e-dc098df72d53",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "7f760c80-7770-4abd-bfc5-54d0c334adb3",
+          "visual": false
+        }
+      ],
+      "candidates": [],
+      "status": "no_native_text",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "1ace132e-9b0c-4f7d-a828-27e0a4f8c484",
+      "date": "2026-06-02",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_week5_unlocked.pdf",
+      "nativeChars": 11795,
+      "total": 13,
+      "eligible": 13,
+      "matched": 13,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "e443a50d-fefb-4339-bcff-8c86e7084feb",
+      "date": "2026-06-03",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_week5_.pdf",
+      "nativeChars": 17886,
+      "total": 14,
+      "eligible": 14,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 14,
+          "id": "ed095f52-93dc-4112-b265-e07763291be0",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "ca058229-623b-4f95-8c23-bc6c898a9e9f",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "2e71d9b1-cf72-45d3-949a-95811d9d58d3",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "c910b2fd-c3a4-441f-98c5-7787f457d999",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "d6bb0326-8bb8-49df-9b06-986838a53b3a",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "1b527881-302f-497b-9d25-e7e59f3e161e",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "49cafba6-3040-4ca4-a9f1-d1be43cb2200",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "7c45772e-fae2-4a47-9ad4-7c086431bd8b",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "98c7e837-cbc6-435d-b11a-4d0a6b7cc2ad",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "4e4c69b6-7d36-409b-81b3-f5bba2f542eb",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "314ba094-d9e6-4b57-bfa6-4d5aa8eb3f36",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "f2ee4e38-628b-440c-a104-d932921e77cd",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "508a4c4e-66bd-43a0-9835-4f9475b8639e",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "40ba0fe9-6f83-47df-b9e0-6ee9e52b0db5",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_week2_(_).pdf",
+          "matched": 11
+        },
+        {
+          "path": "@exam-pdf-temp/week-import/469e4b06-a8fb-4c17-b8d0-407ab8478980/1782721459702_2dg1v6uknpu__3(_).pdf",
+          "matched": 9
+        },
+        {
+          "path": "_final2.pdf",
+          "matched": 7
+        }
+      ],
+      "status": "no_match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "a55b7ebd-4da3-4c5c-9862-1b5aecd48658",
+      "date": "2026-06-04",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_week5_(_).pdf",
+      "nativeChars": 18052,
+      "total": 11,
+      "eligible": 10,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 2,
+          "id": "3524bc78-7dad-4c44-ae33-855f3d52519c",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "d4177d92-b606-4524-88ce-a7c2337984cf",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "90c36390-a450-472e-bde2-02aaf04d1432",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "db553e4e-291f-4410-8d1a-1e0ffde676d0",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "17b60597-5513-4dbe-beae-e47da750adda",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "c6c37fc7-efe9-4713-84f8-81167d1ed032",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "a9827c79-ef12-4c26-b081-49c9e157b824",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "e1ebeae7-9ffc-4a6f-a5c2-1d4f94f29979",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "60cc757a-86fe-4b1c-89d6-b6edc03144db",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "3dd2df6a-1afb-4fbe-8ecf-2a61e9345d1c",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_final2.pdf",
+          "matched": 4
+        },
+        {
+          "path": "_week7_.pdf",
+          "matched": 3
+        },
+        {
+          "path": "_week2_(_).pdf",
+          "matched": 2
+        }
+      ],
+      "status": "no_match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "ee4f75fb-c311-493f-a2c9-c9d4b9ee953f",
+      "date": "2026-06-05",
+      "classId": "1ff92e90-912f-4ea0-89ed-49ab8a7a4977",
+      "path": "_week7_.pdf",
+      "nativeChars": 12929,
+      "total": 16,
+      "eligible": 16,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 9,
+          "id": "98307a67-27b2-4b5e-9ef8-62116157211c",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "448b54d6-b15b-4f8c-a404-e4bf42d0de07",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "1e29f9a8-6613-4910-9dae-05b9ad806d55",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "77bd5eca-6226-4a01-8167-89445975209e",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "7b0831ab-0818-489b-b9d6-0587dc4532a7",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "4e2be78e-65b4-40e6-b9b3-83eef29a21eb",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "c64594af-f065-4ac7-a331-3d8447f1c40f",
+          "visual": false
+        },
+        {
+          "number": 16,
+          "id": "65139057-d6d3-43ab-8e5d-47abe90547b4",
+          "visual": false
+        },
+        {
+          "number": 15,
+          "id": "6a6a3b52-114a-4f24-b217-729fbf704d45",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "51f909b8-41ca-4e27-8c80-3d41776455f0",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "e7e846d7-5a01-4919-90b1-be169d0634b8",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "7b5e56a5-2501-41af-820b-fe74b0b73546",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "7ca9666a-877e-44e8-8eb2-8954a9bcc6c6",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "1685cbda-0ace-4d09-a7a0-420d95bf4a27",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "7de78e34-cad1-4128-b95f-5c17e3849deb",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "c9d2d994-eb72-4c95-b279-51cb76ff235d",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_1.pdf",
+          "matched": 6
+        },
+        {
+          "path": "_Week5_.pdf",
+          "matched": 5
+        }
+      ],
+      "status": "no_match",
+      "className": "test"
+    },
+    {
+      "weekId": "757d5567-4a56-4f37-822a-4a6f041c775b",
+      "date": "2026-06-07",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_week6_.pdf",
+      "nativeChars": 20683,
+      "total": 6,
+      "eligible": 6,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 6,
+          "id": "23b3e256-e42b-4bf3-ad3b-2e601daec17d",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "3c0d52e1-e5ab-464e-8725-810a84c672ed",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "938b1bd0-6c53-43e9-bf2c-f12a0cd3a359",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "d8752cea-c70b-4720-abd8-0e30daa1e7c1",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "bc000770-1ca1-4d1e-afcf-5ca797bd2887",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "48923353-68be-4c19-b70e-bfe574aa2cf6",
+          "visual": false
+        }
+      ],
+      "candidates": [],
+      "status": "no_match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "77f7f069-cf3e-4e4a-aa2f-d64c23f523e5",
+      "date": "2026-06-09",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_Week_6_unlocked.pdf",
+      "nativeChars": 12919,
+      "total": 14,
+      "eligible": 14,
+      "matched": 14,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "ae9ba20e-5fe7-4472-8a3d-0fea3e72051b",
+      "date": "2026-06-10",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_week6_(_).pdf",
+      "nativeChars": 10440,
+      "total": 15,
+      "eligible": 15,
+      "matched": 15,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "77c5b018-ff9a-4cec-8fa7-878cac70718b",
+      "date": "2026-06-11",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_week6_.pdf",
+      "nativeChars": 20683,
+      "total": 13,
+      "eligible": 12,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 2,
+          "id": "d30a9bb7-6970-4150-8d24-71fa4fb61804",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "7bb2c9b5-31c1-440e-961e-1c0046ccf449",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "322bd387-8f73-4ff9-a71b-186ead7b6fca",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "e3d633f1-e313-45c8-9fa7-04d39586f7b7",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "c95a4a36-e074-45c5-a879-479d1322f974",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "4b756819-950b-46e3-819e-70b99b78508b",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "2ca83041-879b-4bc6-a5ca-0cb14aa4a792",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "885f071c-ca79-47be-ab56-0d53e9567a13",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "63122083-524b-4a67-8fa2-c3534661a48d",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "d284270f-4fe9-49be-adcc-151eca58f51d",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "99669af3-50f4-44ec-a02c-9af0724074d3",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "897abb6f-6eba-42f2-b092-644aae7635c4",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_final2.pdf",
+          "matched": 4
+        },
+        {
+          "path": "_week7_.pdf",
+          "matched": 3
+        },
+        {
+          "path": "@exam-pdf-temp/week-import/469e4b06-a8fb-4c17-b8d0-407ab8478980/1782721459702_2dg1v6uknpu__3(_).pdf",
+          "matched": 2
+        }
+      ],
+      "status": "no_match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "535e9caf-ca33-4798-8039-90a8a3bc1ce1",
+      "date": "2026-06-14",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_week6_.pdf",
+      "nativeChars": 20683,
+      "total": 18,
+      "eligible": 18,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 2,
+          "id": "9b6cdc68-67fe-4876-90c3-7eaab689e5ad",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "e99afcf8-9ae6-485c-856c-bd010e18368c",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "5864e6e5-0d4d-4ce5-b86a-c7a3daffbd5f",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "7c5750cc-f19c-4bd5-b5c4-32ab293c38aa",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "3e4cb3e6-ebd1-41f6-9f79-7b846186b2c0",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "7595abb9-f8ed-4db6-b971-9bb0f103efa2",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "b0799ca6-d527-434e-841f-65cdc0a5e268",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "c37129d1-776c-4586-9f77-c909c6f428c5",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "8c0fe816-0d0d-4ca1-a18f-2a455a4bcbdf",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "bd44c774-1923-4b8d-942c-08a3da5c0d39",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "74074b32-82d3-493b-a80c-baab6a208ced",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "eecf30de-48da-4f9b-8891-41dca18f48bb",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "6461f8e3-1c45-4cc8-9b12-b7fd79cd9e11",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "7ea9894e-86fd-4410-9166-d7e7b60a7e43",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "3459531b-cf0a-4c39-9014-12728dabcc92",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "7fdf0fb7-f8a7-45dd-8668-53596477dd2a",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "43735ea5-18ad-4557-b341-169f58cedf7d",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "ac4e642d-c815-424d-b473-b22f94b71c24",
+          "visual": false
+        }
+      ],
+      "candidates": [],
+      "status": "no_match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "2d0ce7da-0afb-42ea-ae04-ab1f1450a397",
+      "date": "2026-06-16",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_week7_.pdf",
+      "nativeChars": 12929,
+      "total": 17,
+      "eligible": 17,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 13,
+          "id": "f7f4accb-683d-447e-b49d-de95368160ec",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "1fc456b4-67b9-4ef5-b12b-b3b13147647d",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "37ae4cd3-6843-4095-8d67-830351f4a989",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "b1882790-e1eb-44c6-979f-7c8418941111",
+          "visual": false
+        },
+        {
+          "number": 15,
+          "id": "eb7dd4f3-13ac-4c5b-910a-d29d99c67504",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "972789bc-9004-4923-9358-c107364f0230",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "e9e602f6-9af4-4a5c-9d99-a9296483f973",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "650d3486-4307-4828-97b0-6eec93d2ea83",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "5786862c-58ee-4cae-a3ff-54b4bc45a8e7",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "0de3f838-6142-4360-ad86-b26a0539fbe8",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "930f23de-87d0-4cba-9181-88963009d108",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "abd0e304-7841-4b71-9041-db078b47d8e0",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "ea2ef799-6625-4a0a-aef7-aea365c59ade",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "5fd366ec-7450-413a-8d90-f8da60454e18",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "c2626690-5820-4959-ab7e-656bfe3ea42f",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "208d5488-f33d-4b98-b60b-84196f2e80a5",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "72d394e7-99c9-4468-90c5-a90bfafa6d99",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_Week8_.pdf",
+          "matched": 13
+        },
+        {
+          "path": "@exam-pdf-temp/week-import/469e4b06-a8fb-4c17-b8d0-407ab8478980/1782721459702_2dg1v6uknpu__3(_).pdf",
+          "matched": 12
+        },
+        {
+          "path": "_Week_6_unlocked.pdf",
+          "matched": 4
+        }
+      ],
+      "status": "no_match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "b995e95c-a221-4783-8cde-8052ba56e1c9",
+      "date": "2026-06-17",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_Final1.pdf",
+      "nativeChars": 20526,
+      "total": 21,
+      "eligible": 21,
+      "matched": 21,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "019dd599-8055-4bc5-a9af-e096253b887a",
+      "date": "2026-06-18",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_week7_.pdf",
+      "nativeChars": 12929,
+      "total": 20,
+      "eligible": 19,
+      "matched": 18,
+      "error": null,
+      "bad": [
+        {
+          "number": 14,
+          "id": "e2f1b014-b80e-437a-9204-3f8cd0c4601d",
+          "visual": false
+        }
+      ],
+      "candidates": [],
+      "status": "partial",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "20fd9014-0c0a-4a22-9117-1ac03c582318",
+      "date": "2026-06-21",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_week8_.pdf",
+      "nativeChars": 23712,
+      "total": 14,
+      "eligible": 14,
+      "matched": 14,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "c36ca5b3-338f-4772-a6fc-33efc38289da",
+      "date": "2026-06-23",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_Week8_.pdf",
+      "nativeChars": 13972,
+      "total": 17,
+      "eligible": 16,
+      "matched": 16,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "86b34871-243d-49d0-bce4-ad6d0404b630",
+      "date": "2026-06-24",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_final2(_).pdf",
+      "nativeChars": 18257,
+      "total": 18,
+      "eligible": 18,
+      "matched": 18,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "ba5a9584-35ef-469d-9cce-978e7e1515d4",
+      "date": "2026-06-25",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_final2.pdf",
+      "nativeChars": 12795,
+      "total": 17,
+      "eligible": 17,
+      "matched": 17,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "cb92f9d7-0e69-49dc-9a69-d719b90cc955",
+      "date": "2026-06-28",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_week9_.pdf",
+      "nativeChars": 23255,
+      "total": 14,
+      "eligible": 14,
+      "matched": 14,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "0f44eff5-0e28-4fae-9dc0-c674c8edb19f",
+      "date": "2026-07-05",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "week1_.pdf",
+      "nativeChars": 24449,
+      "total": 14,
+      "eligible": 14,
+      "matched": 14,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "3bffce32-cb6e-454b-80d3-171d08feb45e",
+      "date": "2026-07-12",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_week2_.pdf",
+      "nativeChars": 16651,
+      "total": 14,
+      "eligible": 14,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 1,
+          "id": "7fcdc2cf-f30b-4123-a342-ae734ecf6447",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "ea43918e-9fed-4bf2-8a4a-a478a1af03a3",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "0dd5d8db-6421-457c-8936-be96055b2746",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "add1b609-560e-4c86-9cc3-97acfb9a38f0",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "f7f167a2-d88e-49c7-897d-2998f949228a",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "f88c9e8c-d048-4135-bf24-6da3e7452b38",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "9aef726b-36a8-4f6e-a407-d90bf3acce6d",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "45ee71fb-e559-442a-ae0f-757130fe55ee",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "7b7b6a70-34e2-4f70-acdf-a0702afaa277",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "56b58df6-7e4c-4927-a750-55b64e8fd11a",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "13c92cad-e2a0-468e-81e4-4d9e25d26e1d",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "7dc64049-1a64-4aac-90f6-aa3782bcc2c4",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "8fecada1-cd17-4caf-9d17-30bad61f32eb",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "e29ddedf-7403-41eb-8ab1-99c1cdf4502a",
+          "visual": false
+        }
+      ],
+      "candidates": [],
+      "status": "no_match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "a6bed434-4715-400d-8138-c42b98da3d2b",
+      "date": "2026-07-19",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_week3_.pdf",
+      "nativeChars": 19121,
+      "total": 14,
+      "eligible": 14,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 3,
+          "id": "71906f0b-2408-40a0-9ac6-10a618cd0efa",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "eeb6228d-d06d-436a-8d69-f9ad2a9c16e0",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "b0365a25-8724-4d5e-b1aa-f99996420dbb",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "ed2fe60d-79b9-4ead-aa08-c14f7c52b3e5",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "8bc65b4f-c4d9-4f34-8c4b-f21782ada419",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "0fa512f1-081a-4980-b082-d0949808e0a6",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "0360f202-1924-453f-9eab-a7fd4383f6d6",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "dd61963b-c8bd-480e-b8cd-c40766aed62f",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "95905630-66de-4581-a9a3-dcc62565c258",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "822c994b-c5af-49c0-aa68-aba5512a2961",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "3119dcfb-9427-4991-8ed0-5e6ef6bae4b6",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "9bf9ea14-59ad-4fbf-9bdb-02144a64db6a",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "f0b0609d-8b3c-4d01-aa5a-e0ce0e265916",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "e610d410-b5dc-4fa2-91d2-e312ef3dca66",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "week8_test_.pdf",
+          "matched": 2
+        }
+      ],
+      "status": "no_match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "01f5eadb-727c-4500-b5b3-2dc07ada9595",
+      "date": "2026-07-21",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "7_.pdf",
+      "nativeChars": 0,
+      "total": 9,
+      "eligible": 9,
+      "matched": 0,
+      "error": "{}",
+      "bad": [
+        {
+          "number": 8,
+          "id": "a25c301a-f69e-4488-b58f-d7aaa81eba2f",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "8b096512-4967-47be-a208-7f81354137b3",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "00e63aae-f860-4b33-a125-021adb09ce0b",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "fa2ac891-339f-4a25-af7a-04485d6cfffa",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "65a20038-290a-45de-a045-ab0753c10a4a",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "07007901-d32f-4a36-adbe-6cb344ae534c",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "ef61e45e-d181-4a4b-a84d-d448967cd02a",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "9d44daaf-fa76-4c9e-80bd-a9d222c5f48a",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "137a5c25-d654-4af4-b6dd-909d5a594074",
+          "visual": false
+        }
+      ],
+      "candidates": [],
+      "status": "missing",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "911d3513-3afe-4751-95b8-d1c01a2463bd",
+      "date": "2026-07-22",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "7_.pdf",
+      "nativeChars": 0,
+      "total": 9,
+      "eligible": 9,
+      "matched": 0,
+      "error": "{}",
+      "bad": [
+        {
+          "number": 2,
+          "id": "89d9a9e1-af7e-461a-bfb3-f95b58b697a4",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "94f4f0d8-df64-456b-a847-bd18e0614c2b",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "02d115ac-4ba4-49c5-8b1b-242124de43b1",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "26bca1d5-5d86-4ac6-9d46-fc30ecbc398b",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "4eac0995-3c91-468c-b51c-20d72de78e29",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "27a7d2c7-aa79-4935-aba9-b632fa3e5266",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "ea72ecff-0be5-43c6-9414-947d868bac06",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "81824d1e-4e53-49e1-a0e1-c3ca00a6ad35",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "2cb76701-3b1c-44f7-b635-3928a8c6f730",
+          "visual": false
+        }
+      ],
+      "candidates": [],
+      "status": "missing",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "9d2f79a3-a733-4bf4-9e8e-4bfe96889de7",
+      "date": "2026-07-23",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "7_.pdf",
+      "nativeChars": 0,
+      "total": 9,
+      "eligible": 9,
+      "matched": 0,
+      "error": "{}",
+      "bad": [
+        {
+          "number": 2,
+          "id": "e1f9fdb9-1a6d-4189-abde-dbc2bb20a286",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "aa61ac6f-3914-48e0-827b-73636f88e783",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "d836a0ad-5c57-4323-88ed-6c2c37cfba40",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "4e11d14d-a383-4d6c-81f3-3bba6bcac21d",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "5103cbaf-9153-4345-b8f9-a8fe523be1d9",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "feba915c-baf0-4785-8dcb-6a15b95fe984",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "9a199d13-559a-4c07-8884-0baeeb37e88e",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "7dc7af8e-e93b-4874-a6ba-aed41ef03910",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "49780b5d-21eb-4edc-8abb-6898c23e570a",
+          "visual": false
+        }
+      ],
+      "candidates": [],
+      "status": "missing",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "1358299a-cb78-4aac-8990-0f287fdfa1fc",
+      "date": "2026-07-26",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_7_week4_.pdf",
+      "nativeChars": 28397,
+      "total": 14,
+      "eligible": 14,
+      "matched": 14,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "8b0faf79-1092-41a0-af1c-da795bd4f7fe",
+      "date": "2026-07-28",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "week4_.pdf",
+      "nativeChars": 12777,
+      "total": 10,
+      "eligible": 10,
+      "matched": 10,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "624fa804-cf55-423c-98b7-f03de7929d56",
+      "date": "2026-07-29",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "week4_.pdf",
+      "nativeChars": 12777,
+      "total": 10,
+      "eligible": 10,
+      "matched": 10,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "9ed2ad3d-cc4c-4556-81ad-e83e15c300b1",
+      "date": "2026-07-30",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "week4_.pdf",
+      "nativeChars": 12777,
+      "total": 10,
+      "eligible": 10,
+      "matched": 10,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "93214b1b-2564-48db-9301-86c9781bea79",
+      "date": "2026-08-04",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "week5_.pdf",
+      "nativeChars": 12234,
+      "total": 10,
+      "eligible": 10,
+      "matched": 10,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "76bb2c3e-4ac1-4b85-900c-4673965ee0b3",
+      "date": "2026-08-05",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "week5_.pdf",
+      "nativeChars": 12234,
+      "total": 10,
+      "eligible": 10,
+      "matched": 10,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "bd477855-3891-46e9-8767-35b3c83db369",
+      "date": "2026-08-06",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "week5_.pdf",
+      "nativeChars": 12234,
+      "total": 10,
+      "eligible": 10,
+      "matched": 10,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "4089e248-fc5c-4ccd-ae35-2e03eedb0344",
+      "date": "2026-08-11",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "week6_.pdf",
+      "nativeChars": 8122,
+      "total": 10,
+      "eligible": 10,
+      "matched": 10,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "523e73f2-e7ca-4db6-9aad-70274a3100e4",
+      "date": "2026-08-12",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "week6_.pdf",
+      "nativeChars": 8122,
+      "total": 10,
+      "eligible": 10,
+      "matched": 10,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "3408a54c-8b6f-4449-8cc2-613b34ca9bf0",
+      "date": "2026-08-13",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "week6_.pdf",
+      "nativeChars": 8122,
+      "total": 10,
+      "eligible": 10,
+      "matched": 10,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "0fc7cf6b-af41-470f-9d76-10532fa2580a",
+      "date": "2026-08-25",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_week1_.pdf",
+      "nativeChars": 15053,
+      "total": 27,
+      "eligible": 27,
+      "matched": 27,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "e44a98c9-499a-4e1f-8e33-1c8a98cc49c7",
+      "date": "2026-08-26",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_week2_.pdf",
+      "nativeChars": 16651,
+      "total": 14,
+      "eligible": 14,
+      "matched": 14,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "f7cd4f25-4081-4fdf-863c-68f190856e96",
+      "date": "2026-08-27",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "week2_.pdf",
+      "nativeChars": 17447,
+      "total": 17,
+      "eligible": 17,
+      "matched": 17,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "3354e141-721c-4f34-8f14-debe9c0993b4",
+      "date": "2026-09-01",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "week3_.pdf",
+      "nativeChars": 20245,
+      "total": 25,
+      "eligible": 24,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 3,
+          "id": "7c4bab6d-38db-4c51-b840-5bb8a935d4e2",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "b7d38830-de5c-42a6-9b1e-e227c37ebc89",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "73956287-dc43-4af8-a8e6-afc6e29c7f09",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "9f519d37-3e44-4652-8fca-5d217ffd8a7e",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "86bd7ce8-4636-44f3-a546-6e27612ba658",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "3da77289-2d3d-410f-90ac-7eb48deabb3e",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "b0ed2d75-100b-4d56-afac-992ac60084f1",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "13390461-14f1-4bcc-aa55-933c92cd9944",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "1da4a4aa-c1bc-4dc5-a1e7-fa5e82870a3a",
+          "visual": false
+        },
+        {
+          "number": 15,
+          "id": "e9e1388f-4762-46c6-825d-26f8ac854ce2",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "ba8c44a7-7f51-4d79-9e82-f725c233b9a4",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "a17d696c-10c4-4b5b-bafe-68bf4969625c",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "b05e5d03-8d9b-46cd-a369-702b1848dbb3",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "6f064c02-ebcc-497f-9bb3-b31f33b2d7c1",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "3b7ddea0-e9a7-4bfa-8c5e-d6bbf490ad63",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "d7b92199-d8bf-4fa0-bee8-fa74fcab9a79",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "ae7a1244-b258-43ac-b34c-9057c627ef57",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "06dda13f-1469-43dc-98ad-4fa4550fcef6",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "3bd069d9-1f86-4fa4-9bf6-68a86ae01988",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "c648d1dc-d263-453d-aca7-ff28de086549",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "0d2494ee-111a-46f6-b2ae-69a87d302a35",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "b7483c8e-4feb-4264-acd7-ddf67ac298c0",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "2c626461-a667-4969-b66d-0269d349caf4",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "9ce7c9a2-9ffb-43c8-b340-58321f63a828",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_week3_.pdf",
+          "matched": 18
+        },
+        {
+          "path": "2603_(_).pdf",
+          "matched": 5
+        },
+        {
+          "path": "2603_.pdf",
+          "matched": 2
+        }
+      ],
+      "status": "no_match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "426ab0bc-d196-4171-8182-f95bc0000338",
+      "date": "2026-09-02",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_week3_.pdf",
+      "nativeChars": 19121,
+      "total": 20,
+      "eligible": 20,
+      "matched": 20,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "7c6d97b1-966d-4f0f-b705-ba33696cb6de",
+      "date": "2026-09-03",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "week3_.pdf",
+      "nativeChars": 20245,
+      "total": 18,
+      "eligible": 18,
+      "matched": 18,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "4564d06b-c4d4-4a4b-b279-c80983e0da82",
+      "date": "2026-09-06",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "week1_test.pdf",
+      "nativeChars": 22344,
+      "total": 10,
+      "eligible": 10,
+      "matched": 10,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "8d749b94-cf94-4c73-8db2-312a509161e8",
+      "date": "2026-09-08",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_week4_.pdf",
+      "nativeChars": 24317,
+      "total": 18,
+      "eligible": 17,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 10,
+          "id": "4a1ccad7-c6e0-42e1-be46-ec4786b81966",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "5ee90beb-47d9-41d8-8e17-d1972da1601c",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "f1e7372e-0ea1-4326-ad02-628fd800aff6",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "c565f029-2984-47a9-a83a-7271187fb323",
+          "visual": false
+        },
+        {
+          "number": 17,
+          "id": "ee6de0bd-58ef-4060-9a3b-53f06a68cf79",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "f978376f-c3c1-4df0-a584-91372a3753a6",
+          "visual": false
+        },
+        {
+          "number": 16,
+          "id": "2922bfce-ce18-45d2-8c09-7f8d24bcf71c",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "8c9266f5-dd39-412e-b3f8-038d982bb52c",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "8ecd42af-8123-4745-9c36-9884a01aea9a",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "0ad7d840-f9c6-4b1e-8052-3444f50f97eb",
+          "visual": false
+        },
+        {
+          "number": 15,
+          "id": "d2125143-e55c-46b4-986e-8d5441807593",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "dc7bfdf7-10db-4d84-9ab0-e71cd7dfe6f0",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "b1089840-2158-4cdf-9302-2d2a9415207b",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "d117987b-f996-4fa2-8d73-3411f6796300",
+          "visual": false
+        },
+        {
+          "number": 2,
+          "id": "de0bc313-6520-44c8-9b1d-a7b8091f361d",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "00cea253-bafc-455c-a125-20ed3dcecfaa",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "efe69587-ba7c-484c-9c08-5d0a8deaeebe",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_week3_.pdf",
+          "matched": 7
+        },
+        {
+          "path": "2603_(_).pdf",
+          "matched": 4
+        },
+        {
+          "path": "2603_.pdf",
+          "matched": 3
+        }
+      ],
+      "status": "no_match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "e4311d93-d82b-46b6-a9f4-d0e00aa7e3be",
+      "date": "2026-09-09",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_week4_(_).pdf",
+      "nativeChars": 22743,
+      "total": 17,
+      "eligible": 17,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 2,
+          "id": "e140aa71-1f8a-4615-b27e-1869dd886fea",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "3a3180df-a48b-4271-988e-987dc2f639f9",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "1307c2bc-3b45-43d5-98cb-879e3893cec0",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "9cf348f0-ae26-4420-a35c-08e6c91901ea",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "983d8204-1803-4f43-aefe-65dc674d80e0",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "fb093661-0816-47dc-8c6f-f60a66518cb3",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "8bf0472d-1005-4a44-83f2-9c32444f2079",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "aa44342b-5f51-40e3-948e-679e1817dd6d",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "4f0abfd3-dd81-4873-ae81-7ae36edbdfc6",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "e6a9aaaa-f809-4a5b-9232-fd1746c31229",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "aee78ecf-f4a4-446b-98b1-134bd6ea1c26",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "398cfe55-1343-4be2-8503-9db1c83b3bf2",
+          "visual": false
+        },
+        {
+          "number": 12,
+          "id": "4c626c45-cca5-4c16-aac8-9ceb7586c972",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "a7436013-5981-4f12-bc66-b14b86b79309",
+          "visual": false
+        },
+        {
+          "number": 9,
+          "id": "c055a1c5-9eb8-4a32-93b1-07e68227539c",
+          "visual": false
+        },
+        {
+          "number": 5,
+          "id": "32068727-6393-42ab-96d7-e5fe598deb9c",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "bb75c4d8-371c-48c9-b85a-7c5848d033a9",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_week3_.pdf",
+          "matched": 6
+        },
+        {
+          "path": "2603_(_).pdf",
+          "matched": 4
+        },
+        {
+          "path": "2603_.pdf",
+          "matched": 4
+        }
+      ],
+      "status": "no_match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "91493827-6a1f-48d9-808a-f9cc5f56eefd",
+      "date": "2026-09-10",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_week4_(_).pdf",
+      "nativeChars": 22743,
+      "total": 33,
+      "eligible": 33,
+      "matched": 33,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "1ed97e01-af50-44e3-9ee6-2b3f65b06fa7",
+      "date": "2026-09-13",
+      "classId": "039c4542-67bd-40e5-96d8-c56bf5955f37",
+      "path": "_week2.pdf",
+      "nativeChars": 27439,
+      "total": 14,
+      "eligible": 14,
+      "matched": 14,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "수능 고3반"
+    },
+    {
+      "weekId": "3948f192-e0fe-40d4-bc20-7faa3d9bf239",
+      "date": "2026-09-15",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "_week5_.pdf",
+      "nativeChars": 17886,
+      "total": 15,
+      "eligible": 14,
+      "matched": 14,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "4d496721-3532-4c0a-8dc6-29ae25901576",
+      "date": "2026-09-16",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "_week5_(_).pdf",
+      "nativeChars": 18052,
+      "total": 17,
+      "eligible": 15,
+      "matched": 0,
+      "error": null,
+      "bad": [
+        {
+          "number": 5,
+          "id": "476007f0-6729-4d1f-afae-540d216f3d3f",
+          "visual": false
+        },
+        {
+          "number": 8,
+          "id": "5bd24d9e-7ae1-4d3e-8cc9-1e1b2d5862d9",
+          "visual": true
+        },
+        {
+          "number": 2,
+          "id": "238f09cd-62c2-42f8-85f3-63ccb29dcea1",
+          "visual": false
+        },
+        {
+          "number": 3,
+          "id": "437422c7-1873-4e87-a64b-7f2c36fb0afc",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "83081d02-0fbf-49c5-ba3d-d22a8ba187ef",
+          "visual": true
+        },
+        {
+          "number": 9,
+          "id": "9c40a46d-6010-4ef0-afd4-75f779dcbbb6",
+          "visual": false
+        },
+        {
+          "number": 13,
+          "id": "52a79d71-85da-4884-945b-7c4ae212e348",
+          "visual": false
+        },
+        {
+          "number": 14,
+          "id": "40b4664b-8640-4455-aa1c-4da2a34799ff",
+          "visual": false
+        },
+        {
+          "number": 6,
+          "id": "e6a919f3-4523-453c-b104-f90566491f65",
+          "visual": false
+        },
+        {
+          "number": 7,
+          "id": "c6f6bae7-110e-4235-91b0-f5bc4a25114a",
+          "visual": false
+        },
+        {
+          "number": 4,
+          "id": "0c41e8be-94c6-4bca-ab05-7486f8b8ea88",
+          "visual": true
+        },
+        {
+          "number": 12,
+          "id": "1cf70fd7-fc31-4c6d-b9cf-be552e4befa1",
+          "visual": false
+        },
+        {
+          "number": 11,
+          "id": "08c305cd-9649-442d-b675-4028d1809f4d",
+          "visual": false
+        },
+        {
+          "number": 10,
+          "id": "5300d814-da16-4244-9d86-f3f852e0cf0f",
+          "visual": false
+        },
+        {
+          "number": 1,
+          "id": "53b7dd46-1791-4ed0-af85-3977f805c1e8",
+          "visual": false
+        }
+      ],
+      "candidates": [
+        {
+          "path": "_week5_.pdf",
+          "matched": 2
+        },
+        {
+          "path": "2603_(_).pdf",
+          "matched": 1
+        },
+        {
+          "path": "2603_.pdf",
+          "matched": 1
+        }
+      ],
+      "status": "no_match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "5f07cae8-8223-4f37-8092-48878c9a7d65",
+      "date": "2026-09-17",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_week5_(_).pdf",
+      "nativeChars": 18052,
+      "total": 19,
+      "eligible": 19,
+      "matched": 19,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "cf7577b5-c6cc-4452-8966-a01626d07d8d",
+      "date": "2026-09-24",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "_week6_.pdf",
+      "nativeChars": 20683,
+      "total": 25,
+      "eligible": 18,
+      "matched": 18,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    },
+    {
+      "weekId": "98559f5e-ea92-447c-bd67-9398229d5c3d",
+      "date": "2026-09-29",
+      "classId": "295c0fea-0478-46e0-aae2-fa7db99f442a",
+      "path": "2603_.pdf",
+      "nativeChars": 20659,
+      "total": 21,
+      "eligible": 21,
+      "matched": 21,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "용산고 고1반"
+    },
+    {
+      "weekId": "ab1c2950-5b8d-40f2-a7c3-4c4776d2c65f",
+      "date": "2026-09-30",
+      "classId": "5e425c8c-f421-4d32-ac58-ef71988c2e36",
+      "path": "2603_(_).pdf",
+      "nativeChars": 17669,
+      "total": 20,
+      "eligible": 20,
+      "matched": 20,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "서울여고 고1반"
+    },
+    {
+      "weekId": "fcf37100-c45a-4004-a20c-5d2284915746",
+      "date": "2026-10-15",
+      "classId": "69f02dba-e907-4751-a83a-fb3ab83e9c2e",
+      "path": "ddf27ce3-f712-45eb-b5e5-caf04dc92c90_fcf37100-c45a-4004-a20c-5d2284915746_c82522d9-a98a-499e-9a46-58cc39eb24c4.pdf",
+      "nativeChars": 864,
+      "total": 2,
+      "eligible": 2,
+      "matched": 2,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "[워커 테스트] 2026-10-15"
+    },
+    {
+      "weekId": "787de5b8-e8a0-4433-8d85-7159d71478c0",
+      "date": "2026-10-22",
+      "classId": "62a9c071-f026-4c65-a032-697c2fae7f24",
+      "path": "787de5b8-e8a0-4433-8d85-7159d71478c0/491c3ef4-1ed2-4114-92ce-98270b94c1be-ddf27ce3-f712-45eb-b5e5-caf04dc92c90_787de5b8-e8a0-4433-8d85-7159d71478c0_e3f9cc28-a649-47eb-bacb-39a3773124ce.pdf",
+      "nativeChars": 6908,
+      "total": 13,
+      "eligible": 9,
+      "matched": 9,
+      "error": null,
+      "bad": [],
+      "candidates": [],
+      "status": "match",
+      "className": "숭문고 고1반"
+    }
+  ],
+  "verification": {
+    "command": "npm run check",
+    "testFilesPassed": 161,
+    "testsPassed": 1432,
+    "lintErrors": 0,
+    "paidAICalls": 0
+  }
+}

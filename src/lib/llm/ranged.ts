@@ -25,7 +25,7 @@ export type RangedCallStats = LlmUsage & {
 export type RangedScope = { range: [number, number] } | { numbers: number[] }
 
 /** 첨부 파일 1개 — PDF 1개일 수도, 낱장 사진 여러 장 중 하나일 수도 있다 */
-export type RangedFile = { fileData: string; mimeType: string }
+export type RangedFile = { fileData: string; mimeType: string; role?: 'combined' | 'questions' | 'answers' }
 
 function buildFileBlocks(files: RangedFile[]): ContentBlock[] {
   if (!files.length) throw new Error('첨부 파일이 없습니다.')

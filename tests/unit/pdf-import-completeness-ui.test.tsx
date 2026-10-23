@@ -17,6 +17,13 @@ function show() {
   return open
 }
 describe('incomplete exam registration UI', () => {
+  it('preserves the weekly review draft status after merging the storage audit', () => {
+    data.jobs = [{ ...base, kind: 'week_answers', status: 'succeeded', result: { needs_review: true } }]
+    show()
+    expect(screen.getByText(/검토 초안 생성 완료/)).toBeTruthy()
+    expect(screen.getByText(/기존 정답과 학생 답안은 변경하지 않았습니다/)).toBeTruthy()
+    expect(screen.queryByText(/등록 완료|완료됐습니다/)).toBeNull()
+  })
   it('shows missing question and explanation numbers and reasons with access to saved results', () => {
     data.jobs = [{ ...base, result: { exam_incomplete: true, exam_id: 'exam', skipped_pages: [22], issues: [{ stage: 'questions', question_number: 22, reason: '콘텐츠 필터로 거절됐습니다.', attempts: 3 }],
       explanation_result: { issues: [{ stage: 'explanations', question_number: 42, reason: '응답에 요청한 번호가 없습니다.', attempts: 3 }] } } }]

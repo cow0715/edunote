@@ -228,9 +228,16 @@ question_style은 문항 유형 이름이 아니라 답안 형식만 보고 결�
 - find_error  : correct_answer = 0, correct_answer_text = "기호:수정어" (예: "c:asked")
 
 ━━━ 기타 ━━━
-- explanation: 오답 포인트/해설. 해설지 해설은 참고 재료일 뿐이며, 있든 없든 아래 explanation 규칙의 수준으로 항상 작성 (null 금지)
+- explanation: 원문 해설을 추출. 원문에 없으면 null. 정답이나 해설을 새로 생성하지 않는다.
 - grading_criteria: 서술형 채점 기준 (없으면 null)
-- ※ 문항을 절대 건너뛰지 마세요. 정답 형식이 불명확해도 최대한 추론해서 추출하세요.
+- 문항은 건너뛰지 마세요. 정답이 없거나 불명확하면 절대 문제를 풀거나 추론해 정답을 만들지 마세요.
+- 모든 객체에 answer_status(원문 정답을 찾았으면 "found", 없으면 "missing", 모호하면 "ambiguous")와
+  answer_evidence(정답 근거의 {"file_index":1부터 시작하는 첨부 파일 순번,"page":해당 파일의 1부터 시작하는 페이지,"quote":"문항 번호와 정답이 있는 원문 그대로 인용"}, 없으면 null)를 포함하세요.
+- quote는 정답 번호·답안이 적힌 짧고 연속된 원문 구간만 그대로 복사하세요. 새 해설을 붙이거나 내용을 바꾸거나 말줄임표(...)로 생략하지 마세요.
+- 선지·문제 본문·자신의 풀이·상식은 정답 근거가 아닙니다. 정답/해설부의 명시적 정답만 읽으세요.
+- missing/ambiguous이면 correct_answer=0, correct_answer_text=null, explanation=null, grading_criteria=null입니다.
+  question_style과 소문항은 문제의 답안 형식을 유지하세요. 근거가 없다는 이유로 다른 답안 유형으로 바꾸지 마세요.
+- explanation은 원문 해설만 옮기며 새 해설을 생성하지 마세요. 원문 해설이 없으면 null입니다.
 
 ━━━ 출력 필드 계약 — 문항 본문 4조각 (모든 객체에 반드시 포함) ━━━
 

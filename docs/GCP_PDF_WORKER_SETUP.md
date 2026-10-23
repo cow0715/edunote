@@ -350,3 +350,19 @@ gcloud run jobs update edunote-bank-pdf --project=$PdfProject --region=$PdfRegio
 - 해설 요청은 저장된 문제 번호만 대상으로 하며 문제지 PDF를 다시 생성 요청하지 않는다. 성공한 문제·해설·어휘 결과는 유지한다.
 - 복구 후에도 남은 문제/해설 번호와 실패 분류·사유·시도 횟수를 작업 `result.issues`에 저장한다. 문제지와 해설지를 함께 올린 경우 해설 결과는 `explanation_result.issues`에 보관한다. 워커는 `failed`와 `exam_incomplete=true`로 종료하며 플랫폼 재시도나 같은 작업 재실행으로 한도를 늘리지 않는다.
 - 등록·처리 탭은 미완료 번호별 사유와 저장된 자료 보기, 의도적 제외 목록을 제공한다. 이전 `succeeded` 기록에 `skipped_pages/skipped_questions`가 있으면 조회·표시에서 완료로 안내하지 않는다. 기존 원본·저장 자료는 변경하지 않는다.
+
+
+## 주차 정답 검토 경로 배포 순서 (2026-10-23)
+
+주차 PDF는 이제 문제지·해설지 원본 세트를 보관하고 `week_answer_draft` 초안만 생성한다.
+원문 정답 근거가 없으면 정답을 비우며 강사 검토·확정 전에는 문항/정답/학생 답안을 변경하지 않는다.
+기존 시험은 동일한 문항 구성·정답을 유지한 상태로만 확정한다. 다른 시험은 새 주차에 등록한다.
+
+1. `supabase/migrations/20261023150000_week_answer_review.sql`을 개발·운영 DB에 적용한다.
+2. 새 소스의 PDF 워커 이미지를 빌드하고 주차 Cloud Run Job을 업데이트한다.
+3. 업데이트된 워커가 검토 초안을 생성하는 것을 확인한 후 Vercel의 `WEEK_ANSWER_REVIEW_WORKER_READY=true`를 설정한다.
+4. 웹 UI/API를 배포한다. 이 플래그가 없으면 새 API는 워커에 작업을 보내지 않고 안내 메시지를 반환한다.
+
+구형 워커는 자동 저장 경로를 가지므로 웹만 먼저 배포한 뒤 준비 플래그를 켜면 안 된다.
+`COST_TRACKING_ENABLED=false`와 DB 자격증명 제거를 적용한 로컬 실제 PDF 검증은 운영 데이터를 쓰지 않는다.
+

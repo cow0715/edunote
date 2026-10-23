@@ -1,135 +1,56 @@
+import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 import { assertWeekOwner, getAuth, getTeacherId, err, ok } from '@/lib/api'
-import { createServiceClient } from '@/lib/supabase/server'
-import { createLlmExecution } from '@/lib/llm/client'
+import { createServiceClient } from '@/lib/supabase/service'
 import { workerEnabled } from '@/lib/pdf-import/types'
-import { registerPdfImport, weekImportSnapshot } from '@/lib/pdf-import/server'
-import {
-  createTagMatcher,
-  fetchTeacherTagContext,
-  parseAnswerSheetDocument,
-  saveWeekAnswerSheetFile,
-  syncWeekReadingQuestionsAndRegrade,
-} from '@/lib/week-reading-import'
+import { registerPdfImport } from '@/lib/pdf-import/server'
+import { fetchTeacherTagContext } from '@/lib/week-reading-import'
+import { createWeekAnswerDraft, currentAnswerKeys, type ReviewFile } from '@/lib/week-answer-review-server'
 
 export const maxDuration = 300
 
-type ParseMode = 'auto' | 'answer_sheet' | 'problem_sheet'
-
+/** Uploading and reparsing ONLY create review drafts. discardAnswers is ignored:
+ * neither this route nor its worker can delete, replace or regrade student work. */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { supabase, user } = await getAuth()
     const { id: weekId } = await params
     if (!user) return err('인증이 필요합니다.', 401)
-
     const teacherId = await getTeacherId(supabase, user.id)
-    if (!teacherId) return err('강사 정보를 찾지 못했습니다.', 404)
-    if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한이 없습니다.', 403)
-
-    const { tagList, tagCategories } = await fetchTeacherTagContext(supabase, teacherId)
-    const matchTagId = createTagMatcher(tagList)
-
+    if (!teacherId || !await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한이 없습니다.', 403)
     const body = await request.json()
-    const { mimeType, fileName } = body
-
-    // 채점된 주차를 다시 파싱하면, 새 파싱에서 사라진 문항의 학생 답안이 삭제된다.
-    // 학생이 쓴 답은 PDF 에 없어서 다시 만들 수 없으므로(강사 입력·OCR 산물) 먼저 막는다.
-    // 파싱은 최대 300초·유료 호출이라 파싱 "전에" 검사한다 — 확인받고 다시 부르게 하려면
-    // 비싼 작업을 두 번 하지 않는 게 중요하다.
-    if (body.discardAnswers !== true) {
-      const serviceClient = createServiceClient()
-      const { data: weekQuestions } = await serviceClient
-        .from('exam_question')
-        .select('id')
-        .eq('week_id', weekId)
-        .eq('exam_type', 'reading')
-      const questionIds = (weekQuestions ?? []).map((question) => question.id)
-
-      if (questionIds.length > 0) {
-        const { count } = await serviceClient
-          .from('student_answer')
-          .select('id', { count: 'exact', head: true })
-          .in('exam_question_id', questionIds)
-
-        if ((count ?? 0) > 0) {
-          return ok({
-            error: '이미 채점한 시험입니다. 다시 파싱하면 새 파싱에서 빠진 문항의 학생 답안이 삭제됩니다.',
-            code: 'ANSWERS_EXIST',
-            answer_count: count ?? 0,
-            question_count: questionIds.length,
-          }, { status: 409 })
-        }
-      }
-    }
-    let fileData = body.fileData as string | undefined
-    const requestedMode = (body.parseMode === 'answer_sheet' || body.parseMode === 'problem_sheet' || body.parseMode === 'auto'
-      ? body.parseMode
-      : 'auto') as ParseMode
-
-    // 큰 파일은 body(4.5MB 제한) 대신 임시 스토리지 경유 — 감지 단계에서 올린 파일 재사용
-    const storagePath = typeof body.storagePath === 'string' ? body.storagePath : null
+    const uploaded = z.array(z.object({ storagePath: z.string(), fileName: z.string().max(400).optional(), mimeType: z.literal('application/pdf') })).min(1).max(2).parse(body.files ?? [body])
+    if (uploaded.length < 1 || uploaded.length > 2) return err('문제지와 해설지 PDF를 최대 2개 선택해 주세요.')
+    const prefix = `week-import/${weekId}/`
+    if (uploaded.some(f => typeof f.storagePath !== 'string' || !f.storagePath.startsWith(prefix) || f.storagePath.includes('..') || f.mimeType !== 'application/pdf')) return err('업로드 파일 경로가 올바르지 않습니다.')
+    if (new Set(uploaded.map(f => f.storagePath)).size !== uploaded.length) return err('같은 파일을 중복 선택할 수 없습니다.')
+    const client = createServiceClient()
+    const ready = await client.from('week_answer_draft').select('id').eq('week_id', weekId).limit(1)
+    if (ready.error) return err('정답 검토 기능이 아직 준비되지 않았습니다. 관리자에게 설정 확인을 요청해 주세요.', 503)
+    const baseQuestions = await currentAnswerKeys(client, weekId)
     if (workerEnabled()) {
-      if (!storagePath || !mimeType) return err('파일을 스토리지에 올린 뒤 다시 등록해주세요.')
-      if (requestedMode === 'problem_sheet') return err('문제지형 PDF는 시험지 가져오기를 사용해 주세요.', 422)
-      try {
-        const job = await registerPdfImport({ kind: 'week_answers', teacherId, authId: user.id, targetId: weekId,
-          storagePath, payload: { mimeType, fileName, snapshot: await weekImportSnapshot(createServiceClient(), weekId) } })
-        return ok(job, { status: 202 })
-      } catch (error) { return err(error instanceof Error ? error.message : '작업 등록 실패', 503) }
+      if (process.env.WEEK_ANSWER_REVIEW_WORKER_READY !== 'true') return err('정답 검토 워커 업데이트를 준비 중입니다. 기존 정답과 학생 답안은 변경되지 않았습니다.', 503)
+      const job = await registerPdfImport({ kind: 'week_answers', teacherId, authId: user.id, targetId: weekId,
+        storagePath: uploaded[0].storagePath, explanationStoragePath: uploaded[1]?.storagePath,
+        payload: { mimeType: 'application/pdf', fileName: String(uploaded[0].fileName ?? ''),
+          explanationFileName: uploaded[1]?.fileName ?? null, baseQuestions, reviewVersion: 1 } })
+      return ok(job, { status: 202 })
     }
-    if (!fileData && storagePath) {
-      const serviceClient = createServiceClient()
-      const { data, error } = await serviceClient.storage.from('exam-pdf-temp').download(storagePath)
-      if (error || !data) return err(`파일 다운로드 실패: ${error?.message ?? storagePath}`)
-      fileData = Buffer.from(await data.arrayBuffer()).toString('base64')
-      void serviceClient.storage.from('exam-pdf-temp').remove([storagePath]).catch(() => {})
+    const files: ReviewFile[] = []
+    const batch = randomUUID()
+    for (const [i, file] of uploaded.entries()) {
+      const path = `${teacherId}/${batch}-${i}.pdf`
+      const copied = await client.storage.from('exam-pdf-temp').copy(file.storagePath, path, { destinationBucket: 'pdf-import-sources' })
+      if (copied.error) throw new Error(`원본 보관 실패: ${copied.error.message}`)
+      const { data, error } = await client.storage.from('pdf-import-sources').download(path)
+      if (error || !data) throw new Error('보관한 원본 PDF를 읽지 못했습니다.')
+      files.push({ fileData: Buffer.from(await data.arrayBuffer()).toString('base64'), mimeType: 'application/pdf',
+        fileName: String(file.fileName ?? `자료 ${i + 1}`), role: uploaded.length === 1 ? 'combined' : i === 0 ? 'questions' : 'answers',
+        bucket: 'pdf-import-sources', path })
     }
-
-    // 업로드는 통합 PDF 1개로 고정 — 문항/해설(또는 정오표)이 따로면 사용자가 합쳐서 올린다
-    if (!fileData || !mimeType) return err('파일이 없습니다.')
-    if (requestedMode === 'problem_sheet') {
-      return err('문제지형 PDF는 시험지 가져오기를 사용해 주세요.', 422)
-    }
-
-    let parsedAnswers
-    const execution = createLlmExecution()
-    let skippedPages: number[] = []
-    let skippedQuestions: number[] = []
-    try {
-      const parsed = await parseAnswerSheetDocument([{ fileData, mimeType, fileName }], tagCategories, { execution })
-      parsedAnswers = parsed.answers
-      skippedPages = parsed.skipped.map((entry) => entry.startPage)
-      skippedQuestions = parsed.skippedQuestionNumbers ?? []
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '해설지 파싱에 실패했습니다.'
-      return err(message || '해설 포함 PDF로 파싱하지 못했습니다.', 422)
-    }
-
-    if (!parsedAnswers.length) {
-      return err('문항을 찾을 수 없습니다.', 422)
-    }
-
-    await saveWeekAnswerSheetFile(supabase, weekId, fileData, mimeType, fileName)
-    const result = await syncWeekReadingQuestionsAndRegrade({
-      supabase,
-      weekId,
-      parsedAnswers,
-      matchTagId,
-      execution,
-    })
-
-    // 해설 안전망(빈 해설 채우기)은 여기서 돌리지 않는다 — 파싱 209초 + 해설 생성이 한 함수에
-    // 합산되면 300초를 넘을 수 있어, 클라이언트가 explanations-drain 을 이어서 호출한다.
-    return ok({
-      ok: true,
-      ...result,
-      parse_mode_used: 'answer_sheet',
-      skipped_pages: skippedPages,
-      // 범위 분할 경로에서 콘텐츠 필터로 그룹째 결손된 문항 번호 (평시 빈 배열)
-      skipped_questions: skippedQuestions,
-    })
+    const { tagCategories } = await fetchTeacherTagContext(client, teacherId)
+    return ok(await createWeekAnswerDraft(client, { teacherId, weekId, files, baseQuestions, tags: tagCategories }))
   } catch (error) {
-    console.error('[parse-answers] unhandled error:', error)
-    const message = error instanceof Error ? error.message : '서버 처리 중 오류가 발생했습니다.'
-    return err(message, 500)
+    return err(error instanceof Error ? error.message : '검토 초안을 만들지 못했습니다.', 422)
   }
 }

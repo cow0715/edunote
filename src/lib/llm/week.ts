@@ -35,6 +35,9 @@ export type GradingResult = {
 // ── 해설지 파싱 ──────────────────────────────────────────────────────────
 
 export type ParsedAnswer = {
+  extraction_issues?: string[]
+  answer_status?: 'found' | 'missing' | 'ambiguous'
+  answer_evidence?: { file_index: number; page: number; quote: string } | null
   /** Authoritative source identity and expected leaves from the inventory. Not grading style. */
   source_section?: 'general' | 'written'
   source_question_number?: number
@@ -101,7 +104,7 @@ ${tagCategories.map((c) => `[${c.categoryName}]: ${c.tags.join(', ')}`).join('\n
 ━━━ 문서 구성 규칙 ━━━
 - 문서는 문항·정답·해설이 섞인 통합형이거나, 앞쪽 시험지 + 뒤쪽 해설지(정오표)가 합쳐진 형태다.
 - 시험지부와 해설부가 나뉘어 있으면: 문항 구조(발문·지문·선지)는 시험지부에서, 정답·해설은
-  해설부에서 찾아 같은 번호로 조합하라. 문항은 번호로 식별하고,
+  해설부에서 찾아 같은 번호로 조합하라. 정답을 원문에서 찾지 못하면 문제를 풀거나 추론하지 말고 정답 필드를 비워라. 문항은 번호로 식별하고,
   한 문항이 여러 페이지에 걸쳐 있으면 내용을 이어붙여라.
 - source_page 는 그 문항(발문·지문)이 실린 시험지부 기준 페이지 번호다. 해설부에서만 확인된 문항은 null.
 

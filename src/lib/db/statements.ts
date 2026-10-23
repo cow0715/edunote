@@ -8,7 +8,7 @@ type Table = 'week' | 'week_score' | 'student_answer' | 'student_vocab_answer'
   | 'vocab_word' | 'vocab_word_variant' | 'vocab_test' | 'vocab_test_item'
   | 'student' | 'class_student' | 'clinic_enrollment' | 'mock_exam_result' | 'mock_exam_student_answer'
   | 'exam_question' | 'exam_question_tag' | 'mock_exam' | 'mock_exam_question'
-  | 'mock_exam_report'
+  | 'mock_exam_report' | 'vocab_variant_cache'
 export type RecordValues = Record<string, unknown>
 export type Statement = { query: SQL; required?: boolean }
 const tableName = (table: Table) => sql`${sql.identifier('public')}.${sql.identifier(table)}`

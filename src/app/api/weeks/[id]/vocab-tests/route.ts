@@ -246,11 +246,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           weekId,
           variantIds: batch,
           limit: 50,
-        })
+        }, auth.userId)
       }
     } catch (error) {
-      console.error('[vocab-tests] variant meaning enrichment failed', error)
-      return err(error instanceof Error ? error.message : '단어 뜻 저장 실패', 500)
+      return saveErrorResponse(error)
     }
   }
 
