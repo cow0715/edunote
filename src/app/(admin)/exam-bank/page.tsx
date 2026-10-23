@@ -1,48 +1,53 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Upload, FolderOpen } from 'lucide-react'
+import { Upload } from 'lucide-react'
 import { ExamList } from '@/components/exam-bank/exam-list'
 import { QuestionSearch } from '@/components/exam-bank/question-search'
 import { VocabCollections } from '@/components/exam-bank/vocab-collections'
-import { UploadDialog } from '@/components/exam-bank/upload-dialog'
-import { BulkExplanationDialog } from '@/components/exam-bank/bulk-explanation-dialog'
-import { BookImportPanel } from '@/components/exam-bank/book-import-panel'
+import { RegistrationPanel } from '@/components/exam-bank/registration-panel'
+import { isActiveImport, usePdfImportJobs } from '@/components/pdf-import/use-jobs'
+import { bankTab, type BankTab } from '@/lib/exam-bank-navigation'
 
 // ── 메인 페이지 ──────────────────────────────────────────────────────────
 
 export default function ExamBankPage() {
-  const [uploadOpen, setUploadOpen] = useState(false)
-  const [bulkOpen, setBulkOpen] = useState(false)
+  return <Suspense fallback={<p className="text-sm text-muted-foreground">문제은행을 불러오는 중…</p>}><BankContents /></Suspense>
+}
+function BankContents() {
+  const router = useRouter(), pathname = usePathname(), params = useSearchParams()
+  const tab = bankTab(params.get('tab')), jobs = usePdfImportJobs(), active = (jobs.data ?? []).filter(isActiveImport).length
+  function navigate(next: BankTab, key?: 'document' | 'material', id?: string) {
+    const search = new URLSearchParams(window.location.search)
+    search.set('tab', next)
+    if (key && id) search.set(key, id)
+    router.replace(`${pathname}?${search.toString()}`, { scroll: false })
+  }
+  const openBook = (id: string) => navigate('import', 'document', id)
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">기출문제 은행</h1>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setBulkOpen(true)}>
-            <FolderOpen className="mr-2 h-4 w-4" />
-            일괄 해설
-          </Button>
-          <Button onClick={() => setUploadOpen(true)}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">문제은행</h1>
+          <Button className="min-h-11" onClick={() => navigate('import')}>
             <Upload className="mr-2 h-4 w-4" />
-            기출 PDF 업로드
+            자료 등록
           </Button>
-        </div>
       </div>
-
-      <Tabs defaultValue="list">
-        <TabsList>
-          <TabsTrigger value="list">시험 목록</TabsTrigger>
-          <TabsTrigger value="search">문제 검색</TabsTrigger>
-          <TabsTrigger value="vocab">단어장</TabsTrigger>
-          <TabsTrigger value="book">교재 등록·처리</TabsTrigger>
+      {active > 0 && tab !== 'import' && <button onClick={() => navigate('import')} className="w-full rounded-xl bg-muted p-3 text-left text-sm">자료 {active}건 처리 중 · 등록·처리에서 확인</button>}
+      <Tabs value={tab} onValueChange={(value) => navigate(value as BankTab)}>
+        <TabsList className="grid h-auto min-h-[52px] w-full grid-cols-4 sm:inline-flex sm:w-auto">
+          <TabsTrigger className="min-h-11 min-w-0 px-2 text-xs sm:px-3 sm:text-sm" value="search">문제 검색</TabsTrigger>
+          <TabsTrigger className="min-h-11 min-w-0 px-2 text-xs sm:px-3 sm:text-sm" value="list">자료 목록</TabsTrigger>
+          <TabsTrigger className="min-h-11 min-w-0 px-2 text-xs sm:px-3 sm:text-sm" value="vocab">단어장</TabsTrigger>
+          <TabsTrigger className="min-h-11 min-w-0 px-2 text-xs sm:px-3 sm:text-sm" value="import">등록·처리{active > 0 ? ` ${active}` : ''}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="list" className="mt-4">
-          <ExamList />
+          <ExamList selectedId={params.get('material')} onOpenBook={openBook} onRegister={() => navigate('import')} />
         </TabsContent>
 
         <TabsContent value="search" className="mt-4">
@@ -52,11 +57,9 @@ export default function ExamBankPage() {
         <TabsContent value="vocab" className="mt-4">
           <VocabCollections />
         </TabsContent>
-        <TabsContent value="book" className="mt-4"><BookImportPanel /></TabsContent>
+        <TabsContent value="import" className="mt-4"><RegistrationPanel documentId={params.get('document')} onOpenBook={openBook} onOpenMaterial={(id) => navigate('list', 'material', id)} /></TabsContent>
       </Tabs>
 
-      <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} />
-      <BulkExplanationDialog open={bulkOpen} onOpenChange={setBulkOpen} />
     </div>
   )
 }

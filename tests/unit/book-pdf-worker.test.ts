@@ -48,6 +48,20 @@ beforeEach(() => {
   mocks.publish.mockResolvedValue('bank')
 })
 describe('automatic textbook worker', () => {
+  it('blocks unverified book layouts before native extraction or any paid calls', async () => {
+    const { client, doc } = database()
+    doc.book_code = 'suwan_english'
+    expect(await importBookPdf(client, job, pdfBytes)).toMatchObject({ verification_unresolved: true })
+    expect(mocks.read).not.toHaveBeenCalled(); expect(mocks.verify).not.toHaveBeenCalled(); expect(mocks.publish).not.toHaveBeenCalled()
+  })
+  it('holds a selected academic-year conflict before mapping and preserves the selected metadata', async () => {
+    const { client, doc, rows } = database()
+    doc.book_code = 'suteuk_english'; doc.academic_year = 2026
+    mocks.inventory.mockReturnValue({ ...manifest, printed_years: [2027] })
+    expect(await importBookPdf(client, job, pdfBytes)).toMatchObject({ metadata_conflict: true, verification_unresolved: true })
+    expect(doc.academic_year).toBe(2026); expect(rows).toHaveLength(0)
+    expect(mocks.verify).not.toHaveBeenCalled(); expect(mocks.publish).not.toHaveBeenCalled()
+  })
   it('collects all pending units without moving the document to review or publishing partial work', async () => {
     mocks.inventory.mockReturnValue({ ...manifest, units: [manifest.units[0], { ...manifest.units[0], key: 'unit-2', order: 2 }] })
     mocks.verify.mockRejectedValue(new BookBatchPending())

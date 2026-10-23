@@ -1,4 +1,5 @@
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
+import { getBook } from '@/lib/book-pdf/catalog'
 
 // GET — 기출문제 통합 검색
 // ?type=blank_vocabulary&grade=3&year_from=2024&year_to=2026&source=평가원
@@ -16,6 +17,9 @@ export async function GET(request: Request) {
   const yearFrom = url.searchParams.get('year_from')
   const yearTo = url.searchParams.get('year_to')
   const source = url.searchParams.get('source')
+  const bookCode = url.searchParams.get('book_code'), chapter = url.searchParams.get('chapter')
+  if (bookCode && !getBook(bookCode)) return err('교재 필터가 올바르지 않습니다.')
+  if (chapter && !/^[1-9]\d{0,2}$/.test(chapter)) return err('강 번호가 올바르지 않습니다.')
   const month = url.searchParams.get('month')
   const points = url.searchParams.get('points')
   const difficulty = url.searchParams.get('difficulty') // 쉼표 구분 다중값
@@ -38,6 +42,7 @@ export async function GET(request: Request) {
   if (yearFrom) examQuery = examQuery.gte('exam_year', Number(yearFrom))
   if (yearTo) examQuery = examQuery.lte('exam_year', Number(yearTo))
   if (source) examQuery = examQuery.eq('source', source)
+  if (bookCode) examQuery = examQuery.eq('material_kind', 'textbook').eq('book_code', bookCode)
   if (month) {
     const months = month.split(',')
       .map((value) => Number(value.trim()))
@@ -69,6 +74,7 @@ export async function GET(request: Request) {
     .order('question_number', { ascending: true })
 
   if (type) qQuery = qQuery.eq('question_type', type)
+  if (chapter) qQuery = qQuery.like('source_key', `${Number(chapter)}:%`)
   if (points) qQuery = qQuery.eq('points', Number(points))
   if (difficulty) {
     const values = difficulty.split(',').map((d) => d.trim()).filter(Boolean)
