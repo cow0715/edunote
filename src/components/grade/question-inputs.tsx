@@ -1,5 +1,7 @@
 'use client'
 
+import { questionLabel } from '@/lib/question-presentation'
+
 import { memo, useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -131,7 +133,7 @@ export const GroupedQuestionRow = memo(function GroupedQuestionRow({
     <div className="px-4 py-3 flex flex-col gap-2">
       <div className="flex items-center gap-1.5">
         <span className={cn('text-sm font-medium', anyWrong ? 'text-red-400' : 'text-gray-700')}>
-          {first.question_number}번
+          {questionLabel(first, false)}
         </span>
         <StyleBadge style={first.question_style} />
         <SourceImageBadge q={first} />
@@ -223,7 +225,7 @@ export const QuestionRow = memo(function QuestionRow({
   onChangeAnswer: (n: number | null) => void
   onChangeText: (t: string) => void
 }) {
-  const label = `${q.question_number}번${q.sub_label ? ` (${q.sub_label})` : ''}`
+  const label = questionLabel(q)
   const isSubjective = q.question_style === 'subjective' || q.question_style === 'find_error'
   const hasAnswer = (answer?.student_answer !== null && answer?.student_answer !== undefined) || !!answer?.student_answer_text
   const isWrong = answer?.is_correct === false

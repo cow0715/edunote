@@ -41,7 +41,7 @@ export function ExamPhotoButton({ weekId, studentId, disabled, onResult }: {
         body: JSON.stringify({ fileData: b64, mimeType, studentId }),
       })
       const data = await resp.json()
-      if (data.ok) {
+      if (resp.ok && data.ok) {
         onResult(data.results)
       } else {
         setError(data.error ?? 'OCR 실패')
@@ -55,7 +55,7 @@ export function ExamPhotoButton({ weekId, studentId, disabled, onResult }: {
       <FileUpload compact className="[&_button]:min-h-12" label="카메라로 촬영" accept="image/*" capture="environment" onChange={handleFile} disabled={disabled} loading={loading} />
       <FileUpload compact className="[&_button]:min-h-12" label={loading ? 'OCR 중...' : '사진 선택'} accept="image/*" inputRef={fileRef} onChange={handleFile} disabled={disabled} loading={loading} />
       </div>
-      {error && <span className="text-xs text-red-400">{error}</span>}
+      {error && <span role="alert" className="text-xs text-red-500">{error}</span>}
     </>
   )
 }

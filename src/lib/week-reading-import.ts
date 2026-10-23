@@ -1,9 +1,9 @@
+import { assertPreservableReadingReparse } from '@/lib/preserve-reading-reparse'
 import type { SupabaseServerClient } from '@/lib/api'
 import { buildQuestionTextFromParts, ensureChoiceMarker } from '@/lib/question-structure'
 import { normalizeParsedAnswerShape } from '@/lib/parsed-answer-normalize'
 import {
   gradeSubjectiveAnswers,
-  parseAnswerSheet,
   parseAnswerSheetRanged,
 } from '@/lib/anthropic'
 import type {
@@ -17,9 +17,10 @@ import { gradeOX } from '@/lib/ox-grading'
 import { gradeFindErrorRow, normalizeFindErrorKeyText } from '@/lib/find-error-grading'
 
 import { getPdfPageCount } from '@/lib/pdf'
-import { runParsePipeline, type PipelineFile, type SkippedRange } from '@/lib/llm/pipeline'
-import { createLlmExecution, isContentFilterError, type LlmExecution, type TaskCallOptions } from '@/lib/llm/client'
+import { type PipelineFile, type SkippedRange } from '@/lib/llm/pipeline'
+import { createLlmExecution, type LlmExecution, type TaskCallOptions } from '@/lib/llm/client'
 import { coerceQuestionNumber } from '@/lib/llm/postprocess'
+import { weekTargetIssues, type WeekQuestionTarget } from '@/lib/week-question-inventory'
 import { getPdfWorkerContext, reportPdfStage } from '@/lib/pdf-import/context'
 
 export type MatchTagId = (questionType: string | null, questionStyle?: string | null) => string | null
@@ -370,6 +371,12 @@ export function normalizeParsedAnswers(parsedAnswers: ParsedAnswer[]): ParsedAns
 
   const normalized: ParsedAnswer[] = []
   for (const [, group] of grouped) {
+    // The inventory already decided the independently graded leaves. Do not collapse
+    // equal objective keys or rename labels: that could hide missing siblings.
+    if (group.some((answer) => answer.inventory_sub_labels)) {
+      normalized.push(...group)
+      continue
+    }
     const collapsed = collapseSplitObjectiveQuestion(group)
     if (collapsed) {
       normalized.push(collapsed)
@@ -516,40 +523,9 @@ function normalizeSourceFieldsForChunk<T extends {
 }
 
 /**
- * 해설지형 통짜 파싱 (문항+정답+해설을 한 콜에).
- * 범위 분할(기본 경로)이 실패한 문서의 폴백 경로.
- */
-async function parseAnswerSheetWhole(
-  files: ProblemSheetUploadInput[],
-  tagCategories: TagCategory[] = [],
-  options: TaskCallOptions = {},
-): Promise<{ answers: ParsedAnswer[]; skipped: SkippedRange[] }> {
-  const { items, skipped } = await runParsePipeline<ParsedAnswer, ParsedAnswer>({
-    label: 'week-answer-sheet',
-    chunk: { kind: 'whole' },
-    // whole 1청크라 재시도 단위가 없음 — 필터로 통째 막히면 skip 되어 빈 결과 → 라우트가 422 처리
-    onChunkError: { skipIf: isContentFilterError },
-    parseChunk: (file) => parseAnswerSheet(file.fileData, file.mimeType, tagCategories, options),
-    normalizeChunk: (parsed, file) => normalizeSourceFieldsForChunk(parsed, file)
-      .map((answer) => ({
-        ...answer,
-        needs_source_image: shouldStoreSourceImage(answer),
-        source_image_reason: answer.source_image_reason ?? null,
-      })),
-    // 소문항 라벨·요약문 오분할 복구는 해설지형 고유 규칙(normalizeParsedAnswers)에 있음
-    postProcess: [normalizeParsedAnswers],
-    finalize: (answers) => answers.map((answer) => applyUnderlineMarkupToParts(answer.question_text
-      ? { ...answer, question_text: applyUnderlineMarkupToQuestionText(answer.question_text) }
-      : answer)),
-  }, toPipelineFiles(files))
-  return { answers: items, skipped }
-}
-
-/**
  * 해설지통합형 출력 범위 분할: 번호 발견 콜(캐시 예열 겸) → 번호 그룹 병렬 파싱 → 병합.
  * 문서를 자르지 않으므로 경계 탐지·백지 슬라이스 폴백이 불필요하고, 매 콜 문서 전체를 보므로
- * 문항부-해설부 짝맞추기가 자동이다. whole 경로와 동일한 정규화 체인을 병합 결과에 적용한다.
- * (단일 파일 전용)
+ * 구역·원본 번호·소문항 목록을 기준으로 파싱한 뒤 정규화 후에도 전체 목록을 대조한다.
  */
 export async function parseAnswerSheetDocumentRanged(
   files: ProblemSheetUploadInput[],
@@ -574,35 +550,30 @@ export async function parseAnswerSheetDocumentRanged(
     .map((answer) => applyUnderlineMarkupToParts(answer.question_text
       ? { ...answer, question_text: applyUnderlineMarkupToQuestionText(answer.question_text) }
       : answer))
+  for (const answer of result.items) {
+    if (!answer.inventory_sub_labels || !answer.source_section || !answer.source_question_number) continue
+    const target: WeekQuestionTarget = { section: answer.source_section, number: answer.source_question_number,
+      question_number: answer.question_number, sub_labels: answer.inventory_sub_labels,
+      display_order: answer.display_order ?? 0, passage_group: answer.passage_group ?? null }
+    const issues = weekTargetIssues(target, answers.filter((a) => a.question_number === target.question_number))
+    if (issues.length) throw new Error(`정규화 후 문항 누락 검증 실패: ${issues.join(', ')}`)
+  }
   return { answers, discoveredNumbers: result.discoveredNumbers, skippedNumbers: result.skippedNumbers }
 }
 
 /**
- * 해설지형 진입점 — 2단 폴백:
- * ① 출력 범위 분할 (번호 발견 → 그룹 병렬, 문서 안 자름 — 기본 경로, 실측: 숭문 7p 84s)
- *    파일 1~N개 지원: 통합형 1개 / 시험지+해설지 세트 / 낱장 사진 묶음
- * ② 통짜 1콜 (①이 실패한 문서)
+ * 해설지형 진입점: 목록 검증 → 문항별 파싱 → 소문항까지 검증.
+ * 누락 시 저장 전에 실패하며, 검증 없는 통짜 파싱으로 우회하지 않는다.
  */
 export async function parseAnswerSheetDocument(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
   options: TaskCallOptions = {},
 ): Promise<{ answers: ParsedAnswer[]; skipped: SkippedRange[]; skippedQuestionNumbers?: number[] }> {
-  const execution = options.execution ?? createLlmExecution()
-  if (files.length && files.every((file) => file.fileData)) {
-    try {
-      const ranged = await parseAnswerSheetDocumentRanged(files, tagCategories, { execution })
-      if (ranged.answers.length) {
-        return { answers: ranged.answers, skipped: [], skippedQuestionNumbers: ranged.skippedNumbers }
-      }
-      console.warn('[week-answer-sheet] 범위 분할 결과 0건 — 통짜 폴백')
-    } catch (error) {
-      getPdfWorkerContext()?.signal.throwIfAborted()
-      console.warn('[week-answer-sheet] 범위 분할 실패 — 통짜 폴백:',
-        error instanceof Error ? error.message : error)
-    }
-  }
-  return parseAnswerSheetWhole(files, tagCategories, { execution })
+  // A whole-document fallback has no independent inventory and can silently
+  // accept the same partial result. Propagate coverage failures to the caller.
+  const ranged = await parseAnswerSheetDocumentRanged(files, tagCategories, options)
+  return { answers: ranged.answers, skipped: [], skippedQuestionNumbers: ranged.skippedNumbers }
 }
 
 export async function saveWeekAnswerSheetFile(
@@ -864,6 +835,7 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
   matchTagId?: MatchTagId
   deleteMissingQuestions?: boolean
   regradeExistingAnswers?: boolean
+  preserveExistingAnswers?: boolean
   execution?: LlmExecution
 }): Promise<ReadingImportOutcome> {
   const {
@@ -873,22 +845,30 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
     matchTagId = () => null,
     deleteMissingQuestions = true,
     regradeExistingAnswers = true,
+    preserveExistingAnswers = false,
     execution = createLlmExecution(),
   } = params
   const persistErrors: string[] = []
   let deletedCount = 0
   let deletedAnswerCount = 0
 
-  const { data: existingQuestions } = await supabase
+  const { data: existingQuestions, error: existingError } = await supabase
     .from('exam_question')
-    .select('id, question_number, sub_label')
+    .select('id, question_number, sub_label, question_style, correct_answer, correct_answer_text, source_section, source_question_number')
     .eq('week_id', weekId)
     .eq('exam_type', 'reading')
+
+  if (existingError) throw new Error(existingError.message)
 
   const existingMap = new Map(
     (existingQuestions ?? []).map((question) => [`${question.question_number}|${question.sub_label ?? ''}`, question]),
   )
   const parsedKeys = new Set(parsedAnswers.map((answer) => `${answer.question_number}|${answer.sub_label ?? ''}`))
+
+  if (preserveExistingAnswers) {
+    if (deleteMissingQuestions || regradeExistingAnswers) throw new Error('답안 보존 모드는 삭제·재채점을 허용하지 않습니다.')
+    assertPreservableReadingReparse(existingQuestions ?? [], parsedAnswers)
+  }
 
   const VALID_STYLES = ['objective', 'subjective', 'ox', 'multi_select', 'find_error'] as const
   type QuestionStyle = typeof VALID_STYLES[number]
@@ -913,6 +893,11 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
             explanation: answer.explanation ?? null,
             question_text: answer.question_text ?? null,
             question_stem: answer.question_stem ?? null,
+            source_section: answer.source_section ?? null,
+            source_question_number: answer.source_question_number ?? null,
+            display_order: answer.display_order ?? null,
+            passage_group: answer.passage_group ?? null,
+            shared_passage: answer.shared_passage ?? null,
             passage: answer.passage ?? null,
             choices: answer.choices ?? null,
             needs_source_image: answer.needs_source_image === true,
@@ -948,6 +933,11 @@ export async function syncWeekReadingQuestionsAndRegrade(params: {
           explanation: answer.explanation ?? null,
           question_text: answer.question_text ?? null,
           question_stem: answer.question_stem ?? null,
+          source_section: answer.source_section ?? null,
+          source_question_number: answer.source_question_number ?? null,
+          display_order: answer.display_order ?? null,
+          passage_group: answer.passage_group ?? null,
+          shared_passage: answer.shared_passage ?? null,
           passage: answer.passage ?? null,
           choices: answer.choices ?? null,
           needs_source_image: answer.needs_source_image === true,
@@ -1250,9 +1240,8 @@ export async function applyWeekReadingAnswerKeyAndRegrade(params: {
   supabase: SupabaseServerClient
   weekId: string
   parsedAnswers: ParsedAnswer[]
-  execution?: LlmExecution
 }): Promise<ReadingImportOutcome> {
-  const { supabase, weekId, parsedAnswers, execution = createLlmExecution() } = params
+  const { supabase, weekId, parsedAnswers } = params
 
   const { data: existingQuestions } = await supabase
     .from('exam_question')
@@ -1411,7 +1400,7 @@ export async function applyWeekReadingAnswerKeyAndRegrade(params: {
 
     if (subjectiveQuestions.length > 0) {
       try {
-        const gradingResults = await gradeSubjectiveAnswers(subjectiveQuestions, subjectiveForGrading, { execution })
+        const gradingResults = await gradeSubjectiveAnswers(subjectiveQuestions, subjectiveForGrading)
         for (const result of gradingResults) {
           await supabase
             .from('student_answer')

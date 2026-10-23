@@ -8,18 +8,52 @@
 //   2. 상자를 겹치지 않는다. 카드 안에 또 배경 상자를 넣는 대신 구분선·들여쓰기로 나눈다.
 
 import { RotateCcw } from 'lucide-react'
+import { questionLabel, withoutSharedPassage } from '@/lib/question-presentation'
 import { FormattedQuestionText } from '@/components/grade/formatted-question-text'
 import { SourceImagePreview } from '@/components/grade/source-image-preview'
 import { ExampleSentenceInline, isExampleSourceValue } from '@/components/grade/vocab-example-inline'
 import { parseChoiceOptions } from '@/lib/vocab-example-blank'
 import { StudentAnswer, VocabAnswer } from './share-types'
-import { formatCorrectAnswer, formatMyAnswer, splitQuestionTexts } from './share-utils'
+import { formatCorrectAnswer, formatMyAnswer, groupAnswersByQuestion, splitQuestionTexts } from './share-utils'
 import {
   ConceptChip, ExampleBox, NoteBlock, WordRelationChips,
   SHARE_RIGHT_CLASS as ANSWER_RIGHT_CLASS,
   SHARE_WRONG_CLASS as ANSWER_WRONG_CLASS,
 } from './share-word-parts'
 import { Chevron } from './share-ui'
+
+export function WrongAnswerPassageList({ answers, token, weekLabelByWeekId }: {
+  answers: StudentAnswer[]
+  token: string
+  weekLabelByWeekId?: Map<string, string>
+}) {
+  const runs: { key: string; passage: string | null; groups: StudentAnswer[][] }[] = []
+  for (const group of groupAnswersByQuestion(answers)) {
+    const q = group[0].exam_question!
+    const key = `${q.week_id}:${q.passage_group ? `passage:${q.passage_group}` : `question:${q.question_number}`}`
+    const previous = runs.at(-1)
+    if (previous?.key === key) previous.groups.push(group)
+    else runs.push({ key, passage: q.shared_passage ?? null, groups: [group] })
+  }
+  return runs.map((run, index) => {
+    const cards = run.groups.map((group) => (
+      <WrongAnswerCard key={group[0].id} answers={group} token={token} sharedPassage={run.passage}
+        weekLabel={weekLabelByWeekId?.get(group[0].exam_question!.week_id)} />
+    ))
+    if (!run.passage) return cards
+    return (
+      <section key={`${run.key}:${index}`} aria-label="공통 지문 그룹">
+        <div className="space-y-2 px-5 py-4">
+          <p className="text-[13px] font-semibold text-[var(--share-ink)]">
+            공통 지문 · {run.groups.map((group) => questionLabel(group[0].exam_question!, false)).join(' · ')}
+          </p>
+          <FormattedQuestionText text={run.passage} className="text-base leading-7 text-[var(--share-ink)]" />
+        </div>
+        {cards}
+      </section>
+    )
+  })
+}
 import { PRESS_ROW, PRESS_STRONG, T } from './share-tokens'
 
 const LABEL_CLASS = 'mr-1.5 text-[12px] font-semibold text-[var(--share-muted)]'
@@ -56,12 +90,14 @@ export function WrongAnswerCard({
   answers,
   token,
   weekLabel,
+  sharedPassage,
 }: {
   /** 같은 문항 번호의 오답들 (소문항 순 정렬) */
   answers: StudentAnswer[]
   token: string
   /** 드로어처럼 여러 주차가 섞여 나올 때만 넘긴다 */
   weekLabel?: string
+  sharedPassage?: string | null
 }) {
   const first = answers[0]
   if (!first?.exam_question) return null
@@ -76,7 +112,9 @@ export function WrongAnswerCard({
   // 지문은 소문항마다 "같은 본문 + 자기 문장" 형태로 복제돼 있다.
   // 아무거나 하나만 그리면 나머지 소문항 문장이 사라진다 (T/F 5문장 중 1개만 보이던 버그).
   // 공통 본문은 한 번만, 각자 문장은 자기 답 옆에 붙인다.
-  const { shared: questionText, tails } = splitQuestionTexts(answers.map((a) => a.exam_question!))
+  const { shared, tails: originalTails } = splitQuestionTexts(answers.map((a) => a.exam_question!))
+  const questionText = withoutSharedPassage(shared, sharedPassage ?? null)
+  const tails = originalTails.map((tail) => withoutSharedPassage(tail, sharedPassage ?? null))
 
   // 소문항별로 [문장 + 답 + 그 소문항의 첨삭·해설] 을 한 덩어리로 묶는다.
   // 답을 7줄 몰아놓고 해설 14개를 뒤에 붙이면 어느 해설이 어느 빈칸 것인지 알 수 없다.
@@ -105,7 +143,7 @@ export function WrongAnswerCard({
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 text-[12px] font-bold text-[var(--share-blue)]">
           {weekLabel && <span className="mr-1.5 font-semibold text-[var(--share-muted2)]">{weekLabel}</span>}
-          {q.question_number}번
+          {questionLabel(q, false)}
           {answers.length > 1 && (
             <span className="ml-1.5 text-[11px] font-semibold text-[var(--share-muted2)]">
               소문항 {answers.length}개

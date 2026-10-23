@@ -1,3 +1,4 @@
+import { groupQuestionParents, questionLabel } from '@/lib/question-presentation'
 import { getAuth, getTeacherId, assertWeekOwner, err } from '@/lib/api'
 import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
 import { oxChoiceLabels, oxNotationForGroup } from '@/lib/ox-grading'
@@ -20,7 +21,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   // 문항 조회
   const { data: questions } = await supabase
     .from('exam_question')
-    .select('question_number, sub_label, question_style, correct_answer_text')
+    .select('question_number, sub_label, question_style, correct_answer_text, source_section, source_question_number, display_order, passage_group, shared_passage')
     .eq('week_id', weekId)
     .eq('exam_type', 'reading')
     .order('question_number')
@@ -47,9 +48,9 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   // 문항번호별로 그룹
   type Q = typeof questions[number]
   const grouped = new Map<number, Q[]>()
-  for (const q of questions) {
-    const arr = grouped.get(q.question_number) ?? []
-    arr.push(q)
+  for (const { group } of groupQuestionParents(questions)) {
+    const q = group[0]
+    const arr = group
     grouped.set(q.question_number, arr)
   }
 
@@ -90,7 +91,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   // 테이블 행 생성
   const rows: string[] = []
-  for (const { qNum, group, heightPt } of rowInfos) {
+  for (const { group, heightPt } of rowInfos) {
     const first = group[0]
     const style = first.question_style
     const hasSub = group.length > 1 || first.sub_label !== null
@@ -102,13 +103,13 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       : ['①', '②', '③', '④', '⑤']
 
     if ((style === 'objective' || style === 'multi_select') && !hasSub) {
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:18px;">${choiceMarks.join(' &nbsp;&nbsp; ')}</span></td></tr>`)
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:18px;">${choiceMarks.join(' &nbsp;&nbsp; ')}</span></td></tr>`)
     } else if ((style === 'objective' || style === 'multi_select') && hasSub) {
       const cells = group.map((q) =>
         `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}><span style="font-size:14px;">① ② ③ ④ ⑤</span></td>`
       ).join('')
       const remainingColSpan = Math.max(0, answerColSpan - group.length * 2)
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td>${cells}${remainingColSpan > 0 ? `<td ${answerAttr} colspan="${remainingColSpan}">&nbsp;</td>` : ''}</tr>`)
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td>${cells}${remainingColSpan > 0 ? `<td ${answerAttr} colspan="${remainingColSpan}">&nbsp;</td>` : ''}</tr>`)
     } else if (style === 'ox') {
       // 시험지가 T/F 로 물으면 답안지도 T/F — T/F 판단형은 수정어 칸이 없다
       const notation = oxNotationForGroup(group.map((q) => q.correct_answer_text))
@@ -118,28 +119,28 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
           `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}><span style="font-size:14px;">${notation === 'OX' ? `${yes}/${no} 수정:` : `${yes} / ${no}`}</span></td>`
         ).join('')
         const remainingColSpan = Math.max(0, answerColSpan - group.length * 2)
-        rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td>${cells}${remainingColSpan > 0 ? `<td ${answerAttr} colspan="${remainingColSpan}">&nbsp;</td>` : ''}</tr>`)
+        rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td>${cells}${remainingColSpan > 0 ? `<td ${answerAttr} colspan="${remainingColSpan}">&nbsp;</td>` : ''}</tr>`)
       } else {
         const correctionCell = notation === 'OX' ? ' &nbsp;&nbsp; 수정어: ' : ''
-        rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}">${yes} &nbsp;/&nbsp; ${no}${correctionCell}</td></tr>`)
+        rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td><td ${answerAttr} colspan="${answerColSpan}">${yes} &nbsp;/&nbsp; ${no}${correctionCell}</td></tr>`)
       }
     } else if (style === 'multi_select') {
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}">&nbsp;</td></tr>`)
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td><td ${answerAttr} colspan="${answerColSpan}">&nbsp;</td></tr>`)
     } else if (style === 'find_error') {
       // 소문항 기호를 인쇄하면 정답 유출 + 칸 수가 정답 수 힌트 → 기호 없는 고정 슬롯(최소 3칸)
       const slotCount = Math.max(3, group.length)
       const slotLines = Array.from({ length: slotCount })
         .map(() => '번호·기호 [&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;] &nbsp; 고친 표현: ____________________________________________')
         .join('<br/><br/>')
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:11px;font-weight:600;">${slotLines}</span></td></tr>`)
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:11px;font-weight:600;">${slotLines}</span></td></tr>`)
     } else if (style === 'subjective' && hasSub) {
       const cells = group.map((q) =>
         `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}>&nbsp;</td>`
       ).join('')
       const remainingColSpan = Math.max(0, answerColSpan - group.length * 2)
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td>${cells}${remainingColSpan > 0 ? `<td ${answerAttr} colspan="${remainingColSpan}">&nbsp;</td>` : ''}</tr>`)
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td>${cells}${remainingColSpan > 0 ? `<td ${answerAttr} colspan="${remainingColSpan}">&nbsp;</td>` : ''}</tr>`)
     } else {
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${qNum}</td><td ${answerAttr} colspan="${answerColSpan}">&nbsp;</td></tr>`)
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td><td ${answerAttr} colspan="${answerColSpan}">&nbsp;</td></tr>`)
     }
   }
 

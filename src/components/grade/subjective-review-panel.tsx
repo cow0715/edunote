@@ -1,5 +1,7 @@
 'use client'
 
+import { questionLabel } from '@/lib/question-presentation'
+
 import { useEffect, useRef, useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -222,7 +224,7 @@ export function SubjectiveReviewPanel({
           .filter((sr) => !onlyReview || sr.originalNeedsReview)
           .sort((a, b) => sortPriority(a) - sortPriority(b))
 
-        const qLabel = `${q.question_number}번${q.sub_label ? ` (${q.sub_label})` : ''}`
+        const qLabel = questionLabel(q)
 
         if (studentRows.length === 0) return null
 

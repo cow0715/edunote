@@ -1,3 +1,4 @@
+import type { QuestionPresentation } from '@/lib/question-presentation'
 export type Week = {
   id: string; class_id: string; week_number: number; start_date: string | null
   vocab_total: number; reading_total: number; homework_total: number
@@ -17,7 +18,7 @@ export type StudentAnswer = {
   student_answer: number | null; student_answer_text: string | null; ai_feedback: string | null
   /** ox(T/F) 문항의 학생 선택 — 이 유형은 답이 student_answer_text 가 아니라 여기 들어온다 */
   ox_selection?: string | null
-  exam_question: {
+  exam_question: QuestionPresentation & {
     id: string; week_id: string; question_number: number; sub_label: string | null
     exam_type: 'reading' | 'vocab' | null; question_style: string
     correct_answer: number | null; correct_answer_text: string | null

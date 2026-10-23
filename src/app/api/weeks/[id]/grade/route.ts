@@ -60,7 +60,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const [{ data: classStudents }, { data: weekScores }, { data: questions }, { data: vocabWords }, { data: activeVocabTest }] = await Promise.all([
     csQuery,
     supabase.from('week_score').select('*, student_answer(*), student_vocab_answer(*, vocab_word(*), vocab_word_variant(*))').eq('week_id', weekId),
-    supabase.from('exam_question').select('*, exam_question_tag(concept_tag(*, concept_category(*)))').eq('week_id', weekId).eq('exam_type', 'reading').order('question_number').order('sub_label', { nullsFirst: true }),
+    supabase.from('exam_question').select('*, exam_question_tag(concept_tag(*, concept_category(*)))').eq('week_id', weekId).eq('exam_type', 'reading').order('display_order', { nullsFirst: false }).order('question_number').order('sub_label', { nullsFirst: true }),
     supabase.from('vocab_word').select('id, number, english_word').eq('week_id', weekId).order('number'),
     supabase.from('vocab_test').select('id').eq('week_id', weekId).eq('is_active', true).order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ])

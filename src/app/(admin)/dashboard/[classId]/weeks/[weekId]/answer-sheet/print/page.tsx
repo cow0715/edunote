@@ -1,10 +1,11 @@
+import { groupQuestionParents, questionLabel, type QuestionPresentation } from '@/lib/question-presentation'
 import { assertWeekOwner, getAuth, getTeacherId } from '@/lib/api'
 import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
 import { oxChoiceLabels, oxNotationForGroup } from '@/lib/ox-grading'
 import { Fragment } from 'react'
 import { PrintButton } from './print-button'
 
-type QuestionRow = {
+type QuestionRow = QuestionPresentation & {
   question_number: number
   sub_label: string | null
   question_style: string
@@ -24,15 +25,7 @@ function isShortStyle(style: string | null | undefined) {
 }
 
 function groupQuestions(questions: QuestionRow[]) {
-  const grouped = new Map<number, QuestionRow[]>()
-  for (const q of questions) {
-    const list = grouped.get(q.question_number) ?? []
-    list.push(q)
-    grouped.set(q.question_number, list)
-  }
-  return [...grouped.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([qNum, group]) => ({ qNum, group }))
+  return groupQuestionParents(questions)
 }
 
 function buildRows(questions: QuestionRow[]): RowInfo[] {
@@ -191,7 +184,7 @@ export default async function AnswerSheetPrintPage({
 
   const { data: questions } = await supabase
     .from('exam_question')
-    .select('question_number, sub_label, question_style, correct_answer_text')
+    .select('question_number, sub_label, question_style, correct_answer_text, source_section, source_question_number, display_order, passage_group, shared_passage')
     .eq('week_id', weekId)
     .eq('exam_type', 'reading')
     .order('question_number')
@@ -244,7 +237,7 @@ export default async function AnswerSheetPrintPage({
           <tbody>
             {rows.map((row) => (
               <tr key={row.qNum} style={{ height: `${row.heightPt}pt` }}>
-                <td className="q-number">{row.qNum}</td>
+                <td className="q-number">{questionLabel(row.group[0], false)}</td>
                 <AnswerCells row={row} maxSubs={maxSubs} />
               </tr>
             ))}

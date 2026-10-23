@@ -111,13 +111,18 @@ async function importWeekAnswers(client: SupabaseClient, job: PdfImportJob, file
   const owner = week?.class as unknown as { teacher_id?: string } | null
   if (!week || owner?.teacher_id !== job.teacher_id) throw new Error('주차 접근 권한이 없습니다.')
   const { tagList, tagCategories } = await fetchTeacherTagContext(client, job.teacher_id)
+  // A controlled answer-preserving reparse captures its own pre-parse snapshot.
+  // Normal uploads still use the server-authorized registration snapshot.
+  const expectedSnapshot = job.payload.preserveExistingAnswers === true
+    ? await checkpointCall({ phase: 'preserved-original-snapshot', version: 1 }, () => weekImportSnapshot(client, job.target_id))
+    : job.payload.snapshot
   await reportPdfStage('주차 문항과 정답을 추출하는 중')
   const parsed = await parseAnswerSheetDocument([{ fileData, mimeType, fileName: String(job.payload.fileName ?? '') }], tagCategories)
   if (!parsed.answers.length) throw new Error('문항을 찾을 수 없습니다.')
   await reportPdfStage('기존 답안 상태를 확인하는 중')
   // Persist the authorization check before applying; retrying a partial apply must be idempotent.
   await checkpointCall({ phase: 'week-apply-authorized', version: 1 }, async () => {
-    if (await weekImportSnapshot(client, job.target_id) !== job.payload.snapshot) {
+    if (await weekImportSnapshot(client, job.target_id) !== expectedSnapshot) {
       throw new Error('파싱 중 문항 또는 학생 답안이 변경됐습니다. 최신 상태를 확인한 뒤 다시 등록해주세요.')
     }
     return { allowed: true }
@@ -127,6 +132,9 @@ async function importWeekAnswers(client: SupabaseClient, job: PdfImportJob, file
   await saveWeekAnswerSheetFile(client, job.target_id, fileData, mimeType, `${job.teacher_id}/${job.target_id}/${job.id}.pdf`)
   const result = await syncWeekReadingQuestionsAndRegrade({
     supabase: client, weekId: job.target_id, parsedAnswers: parsed.answers, matchTagId: createTagMatcher(tagList),
+    ...(job.payload.preserveExistingAnswers === true ? {
+      preserveExistingAnswers: true, deleteMissingQuestions: false, regradeExistingAnswers: false,
+    } : {}),
   })
   return { ok: true, ...result, parse_mode_used: 'answer_sheet', skipped_pages: parsed.skipped.map((s) => s.startPage), skipped_questions: parsed.skippedQuestionNumbers ?? [] }
 }
