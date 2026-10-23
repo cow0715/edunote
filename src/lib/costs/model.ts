@@ -39,7 +39,7 @@ export function snapshotLabel(metric: string) {
     console_cycle_start: '콘솔 청구주기 시작', console_cycle_end: '콘솔 청구주기 종료', console_egress_gb: '조직 전송량(콘솔)', console_cached_egress_gb: '조직 캐시 전송량(콘솔)', console_mau: '조직 MAU(콘솔)', console_storage_gb: '조직 평균 Storage(콘솔)', invoice_last_amount: '최근 발행 청구서 금액', invoice_last_issued_at: '최근 청구서 발행일',
     console_monthly_cost: '콘솔 수동 확인액 · 자동 수신 대기',
     worker_executions: 'Worker 실행 횟수', worker_succeeded: 'Worker 성공', worker_failed: 'Worker 실패·취소', worker_running: 'Worker 진행 중', worker_wall_seconds: 'Worker 실행 시간 합계',
-    balance: '조회 시점 계정 잔액', monthly_cost: '업체 월 조회액',
+    point_balance: '조회 시점 계정 포인트', balance: '조회 시점 계정 잔액', monthly_cost: '업체 월 조회액',
     db_bytes_production: '운영 DB 크기', db_bytes_development: '개발 DB 크기',
     storage_bytes_production: '운영 Storage 크기', storage_bytes_development: '개발 Storage 크기', storage_bytes_organization: '조직 Storage 합계 · 운영+개발',
     files_production: '운영 저장 파일', files_development: '개발 저장 파일',

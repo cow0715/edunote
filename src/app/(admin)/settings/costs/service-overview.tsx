@@ -21,6 +21,7 @@ export function ServiceOverview({ usage, snapshots, report, tail, selected, onSe
   const local = (id: string) => usage.filter(s => s.provider === id)
   const rows = order.map(id => {
     const service = services.find(s => s.id === id)!
+    const wallet = id === 'solapi' ? get(id, 'balance') : undefined
     const plan = id === 'supabase' ? get(id, 'plan_free') : undefined
     const sms = id === 'solapi' ? get(id, 'sms_succeeded') : undefined
     const automatic = id === 'supabase' ? undefined : get(id, 'monthly_cost')
@@ -44,7 +45,7 @@ export function ServiceOverview({ usage, snapshots, report, tail, selected, onSe
       { label: 'DB', source: get(id, `db_bytes_${environment}`), limit: SUPABASE_FREE_DB_BYTES },
       { label: '조직 Storage', source: get(id, 'storage_bytes_organization'), limit: SUPABASE_FREE_STORAGE_BYTES },
     ].map(q => ({ ...q, usage: quotaUsage(q.source?.amount, q.limit) })) : []
-    return { id, service, visual: visuals[id], snapshot, plan, health, quotas, usageText, actual, estimated, consoleOnly, partial: org?.partial || ((id === 'claude' || id === 'naver') && estimate.excludedCalls > 0) }
+    return { id, service, visual: visuals[id], snapshot, wallet, plan, health, quotas, usageText, actual, estimated, consoleOnly, partial: org?.partial || ((id === 'claude' || id === 'naver') && estimate.excludedCalls > 0) }
   })
   const current = rows.find(r => r.id === selected) ?? rows[0]
   const totals = ['USD', 'KRW'].map(currency => {
@@ -68,12 +69,18 @@ export function ServiceOverview({ usage, snapshots, report, tail, selected, onSe
             <span className="flex w-full flex-wrap items-center justify-between gap-2"><span className="flex items-center gap-2.5"><span className="cost-icon"><row.visual.icon size={18} aria-hidden="true" /></span><span className="font-bold">{row.service.name}{row.plan && <span className={`ml-2 text-[11px] font-normal ${muted}`}>Free</span>}</span></span><span className="cost-badge" data-state={failed ? 'error' : state}>{!failed && state === 'ok' && <CheckCircle2 size={12} aria-hidden="true" />}{failed ? '조회 실패' : status}</span></span>
             <span className={`mt-4 text-[11px] ${muted}`}>사용량 · {row.service.role}</span>
             <span className="mt-1 text-[17px] font-bold leading-snug tracking-tight tabular-nums">{failed ? '조회 실패' : loading ? '불러오는 중…' : row.usageText}</span>
-            <span className={`mt-1 min-h-4 text-[11px] ${row.quotas.some(q => q.usage?.warning) ? 'font-semibold text-[var(--share-red)]' : muted}`}>{!failed && row.quotas.map(q => `${q.label} ${q.usage ? `${q.usage.percent}%${q.usage.warning ? ` · ${q.usage.level}` : ''}${q.source?.status !== 'ok' ? ' (이전 값)' : ''}` : '미수집'}`).join(' · ')}</span>
+            {row.quotas.length > 0 && <span className="mt-3 grid w-full gap-2.5">{row.quotas.map(q => <span key={q.label} className="block">
+              <span className={`flex items-center justify-between gap-2 text-[11px] ${q.usage?.warning ? 'font-semibold text-[var(--share-red)]' : muted}`}><span>{q.label} · {q.label === 'DB' ? '프로젝트 500 MB' : '무료 1 GB'}</span><span>{failed ? '조회 실패' : q.usage ? `${q.usage.percent}%${q.source?.status !== 'ok' ? ' · 이전 값' : ''}` : '미수집'}</span></span>
+              <span role="progressbar" aria-label={`${q.label} 무료 한도 사용률`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={!failed ? q.usage?.bar : undefined} aria-valuetext={failed ? '조회 실패' : q.usage ? `${q.usage.percent}% · ${(q.usage.remaining / 1_000_000).toLocaleString('ko-KR', { maximumFractionDigits: 1 })} MB 남음` : '미수집'} className="mt-1 block h-1.5 overflow-hidden rounded-full bg-[var(--share-box)]"><span className={`block h-full rounded-full ${q.usage?.warning ? 'bg-[var(--share-red)]' : 'cost-meter'}`} style={{ width: `${failed ? 0 : q.usage?.bar ?? 0}%` }} /></span>
+              <span className={`mt-1 block text-[11px] ${muted}`}>{!failed && q.usage ? `${(q.usage.remaining / 1_000_000).toLocaleString('ko-KR', { maximumFractionDigits: 1 })} MB 남음${q.source?.status !== 'ok' ? ' · 마지막 성공값' : ''}${q.usage.warning ? ` · ${q.usage.level}` : ''}` : '잔여량 확인 대기'}</span>
+            </span>)}</span>}
+            {row.wallet && <span className={`mt-3 block w-full rounded-xl bg-[var(--share-box)] px-3 py-2 ${row.wallet.status !== 'ok' ? 'text-[var(--share-red)]' : ''}`}><span className={`block text-[11px] ${muted}`}>계정 잔액 · 조회 시점</span><span className="mt-0.5 block text-xl font-bold tabular-nums">{failed ? '조회 실패' : row.wallet.amount != null ? snapshotValue(row.wallet.amount, 'KRW') : '조회 대기'}</span><span className={`mt-0.5 block text-[10px] ${muted}`}>{new Date(row.wallet.updated_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}{row.wallet.status !== 'ok' ? ' · 갱신 실패, 이전 값' : ' · 포인트 제외'}</span></span>}
+            {row.id === 'solapi' && !row.wallet && <span className={`mt-2 text-xs ${muted}`}>계정 잔액 · 수집 대기</span>}
             <span className="mt-3 grid w-full grid-cols-2 gap-3 border-t border-[var(--share-line-strong)] pt-3">
-              <span><span className={`block text-[11px] ${muted}`}>실제 비용 · {row.consoleOnly ? '콘솔 확인' : '업체 조회'}</span><span className="mt-1 block text-lg font-bold tabular-nums">{failed ? '조회 실패' : loading ? '불러오는 중…' : row.actual}</span></span>
+              <span><span className={`block text-[11px] ${muted}`}>{row.id === 'solapi' ? '이번 달 사용액' : '실제 비용'} · {row.consoleOnly ? '콘솔 확인' : '업체 조회'}</span><span className="mt-1 block text-lg font-bold tabular-nums">{failed ? '조회 실패' : loading ? '불러오는 중…' : row.actual}</span></span>
               <span><span className={`block text-[11px] ${muted}`}>예상 비용 · 청구 전</span><span className="mt-1 block text-lg font-semibold tabular-nums">{failed ? '조회 실패' : loading ? '불러오는 중…' : row.estimated}</span></span>
             </span>
-            <span className={`mt-3 flex w-full items-center justify-between gap-2 text-[11px] ${muted}`}><span>{row.partial ? '일부 사용량 기준 예상' : row.id === 'supabase' ? 'Free · 비용 미조회' : '실제 비용과 예상 비용은 별도'}</span><span className="cost-accent font-semibold">{selected === row.id ? '상세 닫기 ↑' : '상세 보기 ↓'}</span></span>
+            <span className={`mt-3 flex w-full items-center justify-between gap-2 text-[11px] ${muted}`}><span>{row.partial ? '일부 사용량 기준 예상' : row.id === 'supabase' ? 'Free · 비용 미조회' : row.id === 'solapi' ? '잔액은 비용 합계에서 제외' : '실제 비용과 예상 비용은 별도'}</span><span className="cost-accent font-semibold">{selected === row.id ? '상세 닫기 ↑' : '상세 보기 ↓'}</span></span>
           </button>
         </li>
       })}</ul>
