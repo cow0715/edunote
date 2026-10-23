@@ -7,6 +7,7 @@ import { fetchGcpCost } from '@/lib/costs/gcp-connector'
 import { createServiceClient } from '@/lib/supabase/service'
 import { costEnvironment } from '@/lib/costs/record'
 import { fetchSupabaseMetrics } from '@/lib/costs/supabase-metrics'
+import { fetchDevelopmentStorage } from '@/lib/costs/supabase-storage'
 
 export function configuredCostProviders() {
   return [
@@ -40,6 +41,25 @@ export async function syncCostMonth(month: string) {
           if (rows.some(row => !Number.isFinite(row.amount))) throw new Error('invalid_usage')
           const saved = await db.from('cost_provider_snapshot').upsert(rows)
           if (saved.error) throw new Error('snapshot_write_failed')
+          let storageComplete = true
+          if (costEnvironment() === 'production') {
+            try {
+              if (new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).hostname !== 'rjaawwrcgegfjtiztsou.supabase.co') throw new Error('unexpected_production_project')
+              const development = await fetchDevelopmentStorage()
+              const collected = new Date().toISOString()
+              const stored = await db.from('cost_provider_snapshot').upsert([
+                { provider, month, metric: 'storage_bytes_development', currency: 'BYTES', amount: development.storage_bytes, status: 'ok', updated_at: development.collected_at },
+                { provider, month, metric: 'files_development', currency: 'COUNT', amount: development.files, status: 'ok', updated_at: development.collected_at },
+                { provider, month, metric: 'storage_bytes_organization', currency: 'BYTES', amount: Number(usage.storage_bytes) + development.storage_bytes, status: 'ok', updated_at: collected },
+              ])
+              if (stored.error) throw new Error('organization_storage_write_failed')
+            } catch {
+              storageComplete = false
+              const previous = await db.from('cost_provider_snapshot').select('amount,updated_at').eq('provider', provider).eq('month', month).eq('metric', 'storage_bytes_organization').maybeSingle()
+              await db.from('cost_provider_snapshot').upsert({ provider, month, metric: 'storage_bytes_organization', currency: 'BYTES', amount: previous.data?.amount ?? null, status: 'error', updated_at: previous.data?.updated_at ?? new Date().toISOString() })
+              await db.from('cost_provider_snapshot').update({ status: 'error' }).eq('provider', provider).eq('month', month).in('metric', ['storage_bytes_development', 'files_development'])
+            }
+          }
           // Official health metrics are independent of our DB/storage aggregate RPC.
           // A failed scrape must not erase the last successful sample.
           try {
@@ -55,7 +75,7 @@ export async function syncCostMonth(month: string) {
           }
           await db.from('cost_provider_snapshot').delete().eq('provider', provider).eq('month', month).eq('metric', `metrics_status_${costEnvironment()}`)
           await db.from('cost_provider_snapshot').delete().eq('provider', provider).eq('month', month).eq('metric', 'infrastructure')
-          return true
+          return storageComplete
         }
         let amount: number
         let gcpCurrency: string | undefined
@@ -94,6 +114,7 @@ export async function syncCostMonth(month: string) {
         if (error) throw new Error('snapshot_write_failed')
         return true
       } catch {
+        if (provider === 'supabase') await db.from('cost_provider_snapshot').update({ status: 'error' }).eq('provider', provider).eq('month', month).eq('metric', 'storage_bytes_organization')
         if (provider === 'solapi') await db.from('cost_provider_snapshot').update({ status: 'error' }).eq('provider', provider).eq('month', month).neq('metric', 'balance')
         // Keep the last successful value and its timestamp; show failure on first connection too.
         const existing = await db.from('cost_provider_snapshot').select('provider').eq('provider', provider).eq('month', month).eq('metric', metric).maybeSingle()

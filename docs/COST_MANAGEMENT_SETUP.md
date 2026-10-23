@@ -149,3 +149,10 @@
 - 기존 일일 Cron과 화면 활성 상태의 5분 갱신에 포함된다. 월별 누적 청구량이 아닌 수집 시점의 DB 상태이며 환경별로 분리한다. 수집 실패 시 이전 값과 원래 수집 시각을 유지하고 실패 상태를 표시한다.
 - 승인된 7일 만료 토큰을 두 프로젝트의 Usage Analytics Read 한 가지 권한으로 생성해 검증했다. 공식 `/v1/projects/{ref}/analytics/endpoints/usage.api-counts`는 200, 내부 `/platform/organizations/{slug}/usage`와 `/billing/invoices/upcoming`은 모두 401 `Unsupported access token`을 반환했다. 권한 확대 없이 내부 청구 자동화 불가를 확인했다. 검증 토큰은 로컬 프로세스 메모리에서만 사용하고 운영·env 파일에 저장하지 않았다.
 - Free 기본료·조직 청구주기 사용량·최근 청구서는 콘솔 확인값으로 남긴다. 공식 DB 상태를 청구 사용량으로 환산하거나 수동 확인액을 자동 조회액으로 바꾸지 않는다. 추가 스키마 변경은 없다.
+
+### 조직 Storage 합산 연결
+
+- 개발 프로젝트에 `storage-usage-reader` Edge Function을 배포한다. 함수 자체가 Bearer 토큰의 SHA-256을 검증하므로 배포 시 `verify_jwt=false`를 지정한다. 외부에서 GET만 받으며 기존 서버 전용 집계 RPC를 호출해 Storage 바이트·파일 수·프로젝트 식별자·수집 시각만 반환한다. 일반 DB 데이터나 파일 이름은 반환하지 않는다.
+- 개발 함수 비밀 환경변수 `COST_STORAGE_READER_TOKEN_SHA256`에는 토큰의 SHA-256만, Vercel Production의 sensitive 변수 `COST_DEV_STORAGE_READER_TOKEN`에는 원본 토큰을 저장한다. 토큰·개발 service_role 키를 소스나 로컬 env에 저장하지 않는다. 개발 service_role 키는 Edge Runtime의 기존 서버 환경변수만 사용한다.
+- 운영 일일 Cron과 화면 활성 상태 5분 갱신이 개발 집계를 조회해 운영 스냅샷 테이블에 개발 사용량과 `storage_bytes_organization`을 저장한다. 운영+개발 두 프로젝트 합계가 현재 조직 전체 Storage 기준이다. DB 한도는 계속 선택 프로젝트별이다.
+- 프로젝트 둘 중 하나가 실패하면 이전 합계·성공 시각을 유지하고 오류로 표시한다. 일부 프로젝트 값으로 조직 합계를 대체하지 않는다. 환경 선택과 관계없이 조직 합계·운영/개발 내역을 보여주며 첫 수집 미완료 시 일부 값임을 표시한다. 스키마 변경은 없다.
