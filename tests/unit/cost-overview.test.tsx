@@ -5,6 +5,20 @@ import { CostOverview } from '@/app/(admin)/settings/costs/cost-overview'
 import { costReportFixture } from '../fixtures/cost-report'
 afterEach(cleanup)
 describe('service cost workspace', () => {
+  it('puts cost totals first and shows Supabase quotas only when selected', () => {
+    const { container } = render(<CostOverview usage={[]} snapshots={[]} loading={false} tracking failed={false} />)
+    const summary = screen.getByLabelText('이번 달 비용 요약')
+    const table = screen.getByRole('table', { name: '서비스별 사용량과 비용' })
+    expect(summary.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(container.querySelector('.cost-visual')?.firstElementChild?.contains(summary)).toBe(true)
+    expect(screen.queryByRole('region', { name: 'Supabase 무료 한도' })).toBeNull()
+    const button = within(table).getByRole('button', { name: 'Supabase' })
+    fireEvent.click(button)
+    expect(screen.getByRole('region', { name: 'Supabase 무료 한도' })).toBeTruthy()
+    fireEvent.click(button)
+    expect(screen.queryByRole('region', { name: 'Supabase 무료 한도' })).toBeNull()
+    expect(within(table).getAllByRole('button')).toHaveLength(6)
+  })
   it('keeps all six services visible and opens one detail with usage and separate cost sources', () => {
     render(<CostOverview usage={[]} report={costReportFixture()} snapshots={[
       { provider: 'gcp', metric: 'worker_executions', currency: 'COUNT', amount: 15, status: 'ok', updated_at: '2026-10-22T12:00:00Z' },
