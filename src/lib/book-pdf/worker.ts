@@ -27,7 +27,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   }
   const document = await currentDocument()
   if (document.source_sha256 && document.source_sha256 !== pdfHash) throw new Error('원본 PDF 해시가 등록 당시와 다릅니다.')
-  if (document.status === 'published') return { document_id: document.id, exam_id: document.exam_bank_id, auto_published: true }
+  if (document.status === 'published') return { document_id: document.id, exam_id: await publishVerifiedBook(client, document), auto_published: true }
   if (document.book_code && !getBook(document.book_code)?.supported) {
     return { document_id: document.id, auto_published: false, verification_unresolved: true, inventory_errors: ['선택한 교재는 PDF 형식 확인 전입니다.'], recovery_revision: NATIVE_RECOVERY_REVISION }
   }

@@ -5,24 +5,30 @@ import { ExamQuestion } from '@/lib/types'
 
 type SourceImagePreviewProps = {
   question: Pick<ExamQuestion, 'source_image_path' | 'needs_source_image' | 'source_page'>
+  sourceQuestionId?: string
   compact?: boolean
   signedUrlEndpoint?: string
 }
 
 export function SourceImagePreview({
   question,
+  sourceQuestionId,
   compact = false,
   signedUrlEndpoint = '/api/answer-sheet-url',
 }: SourceImagePreviewProps) {
   const [url, setUrl] = useState<string | null>(null)
   const [isOpen, setIsOpen] = useState(true)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
 
   async function fetchSignedUrl() {
-    if (!question.source_image_path) return null
+    if (!question.source_image_path && !sourceQuestionId) return null
     const separator = signedUrlEndpoint.includes('?') ? '&' : '?'
-    const response = await fetch(`${signedUrlEndpoint}${separator}path=${encodeURIComponent(question.source_image_path)}`)
-    if (!response.ok) throw new Error('failed')
+    const query = question.source_image_path ? `path=${encodeURIComponent(question.source_image_path)}` : `questionId=${encodeURIComponent(sourceQuestionId!)}`
+    const response = await fetch(`${signedUrlEndpoint}${separator}${query}`)
+    if (!response.ok) {
+      const failure=await response.json().catch(()=>null)
+      throw new Error(failure?.code === 'SOURCE_DOCUMENT_MISMATCH' ? failure.error : '원본 이미지를 불러오지 못했습니다.')
+    }
     const data = await response.json()
     return typeof data.url === 'string' ? data.url : null
   }
@@ -30,31 +36,31 @@ export function SourceImagePreview({
   // 대상 이미지가 바뀌면 이전 결과를 즉시 지운다.
   // effect 안에서 setState 하면 렌더가 한 번 더 돌아 이전 이미지가 잠깐 남는다 —
   // 렌더 중 조정(React 공식 패턴)이 더 정확하고 빠르다.
-  const requestKey = `${question.source_image_path ?? ''}|${signedUrlEndpoint}`
+  const requestKey = `${question.source_image_path ?? ''}|${sourceQuestionId ?? ''}|${signedUrlEndpoint}`
   const [loadedKey, setLoadedKey] = useState(requestKey)
   if (loadedKey !== requestKey) {
     setLoadedKey(requestKey)
     setUrl(null)
-    setFailed(false)
+    setFailed(null)
   }
 
   useEffect(() => {
     let active = true
 
-    if (!question.source_image_path) return
+    if (!question.source_image_path && !sourceQuestionId) return
 
     fetchSignedUrl()
       .then((nextUrl) => {
         if (active) setUrl(nextUrl)
       })
-      .catch(() => {
-        if (active) setFailed(true)
+      .catch((error: unknown) => {
+        if (active) setFailed(error instanceof Error && error.message.startsWith('저장된 원본 PDF') ? error.message : '원본 이미지를 불러오지 못했습니다.')
       })
 
     return () => {
       active = false
     }
-  }, [question.source_image_path, signedUrlEndpoint])
+  }, [question.source_image_path, signedUrlEndpoint, sourceQuestionId])
 
   async function openFreshSignedUrl() {
     try {
@@ -63,11 +69,11 @@ export function SourceImagePreview({
       setUrl(nextUrl)
       window.open(nextUrl, '_blank', 'noopener,noreferrer')
     } catch {
-      setFailed(true)
+      setFailed('원본 이미지를 불러오지 못했습니다.')
     }
   }
 
-  if (!question.source_image_path) {
+  if (!question.source_image_path && !sourceQuestionId) {
     if (!question.needs_source_image) return null
     return (
       <div className="rounded-2xl bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-200">
@@ -99,13 +105,13 @@ export function SourceImagePreview({
                 alt="문항 원본 페이지"
                 className={[
                   'w-full rounded-xl bg-white object-contain shadow-sm dark:bg-slate-900',
-                  compact ? 'max-h-80' : 'max-h-[560px]',
+                  compact ? 'h-auto' : 'max-h-[560px]',
                 ].join(' ')}
               />
             </button>
           ) : (
             <div className="rounded-xl bg-white px-3 py-4 text-xs text-slate-400 shadow-sm dark:bg-slate-900 dark:text-slate-500">
-              {failed ? '원본 이미지를 불러오지 못했습니다.' : '원본 이미지를 불러오는 중입니다.'}
+              {failed ?? '원본 이미지를 불러오는 중입니다.'}
             </div>
           )}
         </div>

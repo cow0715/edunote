@@ -1,4 +1,5 @@
-import { fetchSolapiUsage } from '@/lib/costs/solapi-connector'
+import { fetchSolapiUsage, fetchSolapiBalance } from '@/lib/costs/solapi-connector'
+import { koreanMonth } from '@/lib/costs/model'
 import { err, ok } from '@/lib/api'
 import { fetchClaudeReport } from '@/lib/costs/claude-report-fetch'
 import { fetchVercelCost, fetchNaverCost } from '@/lib/costs/cloud-connectors'
@@ -102,11 +103,24 @@ export async function syncCostMonth(month: string) {
           amount = value.amount; gcpCurrency = value.currency
         }
         else {
+          // Wallet is current, never a historical month's closing balance.
+          // Its failure must not discard successful monthly spend statistics.
+          let walletComplete = true
+          if (month === koreanMonth()) {
+            try {
+              const wallet = await fetchSolapiBalance()
+              const savedWallet = await db.from('cost_provider_snapshot').upsert(Object.entries(wallet).map(([metric, amount]) => ({ provider, month, metric, amount, currency: metric === 'balance' ? 'KRW' : 'POINTS', status: 'ok', updated_at: new Date().toISOString() })))
+              if (savedWallet.error) throw new Error('wallet_write_failed')
+            } catch {
+              walletComplete = false
+              await db.from('cost_provider_snapshot').update({ status: 'error' }).eq('provider', provider).eq('month', month).in('metric', ['balance', 'point_balance'])
+            }
+          }
           const usage = await fetchSolapiUsage(month)
           const rows = Object.entries(usage).map(([metric, amount]) => ({ provider, month, metric, amount, currency: /count$|^message_|^sms_(succeeded|failed)$/.test(metric) ? 'COUNT' : metric.startsWith('point_') ? 'POINTS' : 'KRW', status: 'ok', updated_at: new Date().toISOString() }))
           const saved = await db.from('cost_provider_snapshot').upsert(rows)
           if (saved.error) throw new Error('usage_write_failed')
-          return true
+          return walletComplete
         }
         if (!Number.isFinite(amount)) throw new Error('invalid_amount')
         const currency = gcpCurrency ?? (provider === 'claude' || provider === 'vercel' ? 'USD' : 'KRW')
@@ -115,7 +129,7 @@ export async function syncCostMonth(month: string) {
         return true
       } catch {
         if (provider === 'supabase') await db.from('cost_provider_snapshot').update({ status: 'error' }).eq('provider', provider).eq('month', month).eq('metric', 'storage_bytes_organization')
-        if (provider === 'solapi') await db.from('cost_provider_snapshot').update({ status: 'error' }).eq('provider', provider).eq('month', month).neq('metric', 'balance')
+        if (provider === 'solapi') await db.from('cost_provider_snapshot').update({ status: 'error' }).eq('provider', provider).eq('month', month).not('metric', 'in', '(balance,point_balance)')
         // Keep the last successful value and its timestamp; show failure on first connection too.
         const existing = await db.from('cost_provider_snapshot').select('provider').eq('provider', provider).eq('month', month).eq('metric', metric).maybeSingle()
         if (existing.data) await db.from('cost_provider_snapshot').update({ status: 'error' }).eq('provider', provider).eq('month', month).eq('metric', metric)

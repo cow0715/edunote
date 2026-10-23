@@ -11,9 +11,9 @@ import type { PdfImportJob } from './types'
 import { allowsPdfBatchTask } from './batch-policy'
 import { PDF_BATCH_MAX_BYTES, PDF_BATCH_REQUEST_ATTEMPTS, PdfBatchPending, PdfBatchRequestFailed, PdfBatchStopped, retryableBatchResult } from './batch-policy'
 
-type RequestMeta = { key: string; task: CallLlmOptions['task']; model: string; configVersion: string; promptHash: string; promptVersion: string; schemaVersion: string }
+type RequestMeta = { key: string; retryGroup?: string; task: CallLlmOptions['task']; model: string; configVersion: string; promptHash: string; promptVersion: string; schemaVersion: string }
 type BatchRow = { id: string; provider_id: string | null; state: 'submitting' | 'submitted' | 'ended' | 'rejected'; requests: RequestMeta[]; created_at: string }
-type Delivery = { result: LlmDetailedResult } | { error: string }
+type Delivery = { result: LlmDetailedResult } | { error: string; attempts?: number }
 type Pending = { meta: RequestMeta; request: BatchCreateParams.Request; bytes: number }
 export type PdfBatchProvider = {
   create: (requests: BatchCreateParams.Request[]) => Promise<MessageBatch>
@@ -92,8 +92,8 @@ export class PdfBatchTransport {
         } else {
           const type = result.type === 'errored' ? result.error.error.type : result.type
           outcomes[meta.key] = type
-          if (!retryableBatchResult(type) || this.attempts(meta.key) >= PDF_BATCH_REQUEST_ATTEMPTS) {
-            await this.context.write(`batch-result:${meta.key}`, { error: `배치 ${getTask(meta.task).label} 요청 실패 (${type}, 접수 ${this.attempts(meta.key)}회). 자동 재요청을 중단했습니다.` } satisfies Delivery)
+          if (!retryableBatchResult(type) || this.attempts(meta.key, meta.retryGroup) >= PDF_BATCH_REQUEST_ATTEMPTS) {
+            await this.context.write(`batch-result:${meta.key}`, { error: `배치 ${getTask(meta.task).label} 요청 실패 (${type}, 접수 ${this.attempts(meta.key, meta.retryGroup)}회). 자동 재요청을 중단했습니다.`, attempts: this.attempts(meta.key, meta.retryGroup) } satisfies Delivery)
           }
         }
       }
@@ -103,17 +103,19 @@ export class PdfBatchTransport {
     return waiting
   }
 
-  private attempts(key: string) { return this.rows.filter((r) => r.requests.some((m) => m.key === key)).length }
+  private attempts(key: string, group = key) {
+    return this.rows.flatMap((row) => row.requests).filter((meta) => meta.key === key || meta.key === group || meta.retryGroup === group).length
+  }
 
   call = async (options: CallLlmOptions, key: string): Promise<LlmDetailedResult> => {
     this.context.signal.throwIfAborted()
     if (!allowsPdfBatchTask(this.job.kind, options.task) || !options.execution || options.phase === 'prewarm') throw new PdfBatchStopped('이 PDF 작업에서 허용되지 않은 배치 요청입니다.')
     const saved = await this.context.read<Delivery>(`batch-result:${key}`)
     if (saved) {
-      if ('error' in saved) throw new PdfBatchRequestFailed(saved.error)
+      if ('error' in saved) throw new PdfBatchRequestFailed(saved.error, saved.attempts)
       return saved.result
     }
-    if (this.attempts(key) >= PDF_BATCH_REQUEST_ATTEMPTS) throw new PdfBatchRequestFailed('배치 요청을 최초 포함 3회 접수했지만 완료하지 못했습니다.')
+    if (this.attempts(key, options.batchRetryGroup) >= PDF_BATCH_REQUEST_ATTEMPTS) throw new PdfBatchRequestFailed('배치 요청을 최초 포함 3회 접수했지만 완료하지 못했습니다.', PDF_BATCH_REQUEST_ATTEMPTS)
     if (!this.pending.has(key)) {
       const model = getModel(options.execution.taskBindings[options.task])
       if (!model) throw new PdfBatchStopped('PDF 배치 모델 설정이 올바르지 않습니다.')
@@ -123,7 +125,7 @@ export class PdfBatchTransport {
       // Bound retained base64/JSON across all units, in addition to the two-unit
       // parsing/rasterization limit. Uncollected units replay on the next wake.
       if (this.pending.size >= 1000 || this.pendingBytes + bytes + 1 > PDF_BATCH_MAX_BYTES) throw new PdfBatchPending()
-      this.pending.set(key, { request, bytes, meta: { key, task: options.task, model: model.id, configVersion: options.execution.configVersion,
+      this.pending.set(key, { request, bytes, meta: { key, ...(options.batchRetryGroup ? { retryGroup: options.batchRetryGroup } : {}), task: options.task, model: model.id, configVersion: options.execution.configVersion,
         promptHash: createHash('sha256').update(typeof options.content === 'string' ? options.content : JSON.stringify(options.content)).digest('hex'),
         promptVersion: task.promptVersion, schemaVersion: task.schemaVersion } })
       this.pendingBytes += bytes + 1
@@ -150,7 +152,7 @@ export class PdfBatchTransport {
       catch (error) {
         if (error instanceof Anthropic.APIError && error.status && error.status >= 400 && error.status < 500 && error.status !== 408) {
           await this.update(row, 'rejected', null, Object.fromEntries(entries.map((r) => [r.meta.key, `http_${error.status}`])))
-          if (error.status !== 429) for (const entry of entries) await this.context.write(`batch-result:${entry.meta.key}`, { error: `배치 접수가 거절됐습니다 (HTTP ${error.status}). 설정·요청 확인이 필요합니다.` } satisfies Delivery)
+          if (error.status !== 429) for (const entry of entries) await this.context.write(`batch-result:${entry.meta.key}`, { error: `배치 접수가 거절됐습니다 (HTTP ${error.status}). 설정·요청 확인이 필요합니다.`, attempts: this.attempts(entry.meta.key, entry.meta.retryGroup) } satisfies Delivery)
           continue
         }
         throw new PdfBatchStopped('배치 접수 응답을 확인하지 못했습니다. 중복 과금을 막기 위해 자동 재접수를 중단했습니다. 배치 기록 확인이 필요합니다.')

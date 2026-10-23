@@ -1,22 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ db: vi.fn(), claude: vi.fn(), gcpCost: vi.fn(), gcpUsage: vi.fn(), solapi: vi.fn(), metrics: vi.fn(), developmentStorage: vi.fn() }))
+const mocks = vi.hoisted(() => ({ db: vi.fn(), claude: vi.fn(), gcpCost: vi.fn(), gcpUsage: vi.fn(), solapi: vi.fn(), balance: vi.fn(), metrics: vi.fn(), developmentStorage: vi.fn() }))
 vi.mock('@/lib/costs/supabase-storage', () => ({ fetchDevelopmentStorage: mocks.developmentStorage }))
 vi.mock('@/lib/costs/supabase-metrics', () => ({ fetchSupabaseMetrics: mocks.metrics }))
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: mocks.db }))
 vi.mock('@/lib/costs/claude-report-fetch', () => ({ fetchClaudeReport: mocks.claude }))
 vi.mock('@/lib/costs/gcp-connector', () => ({ fetchGcpCost: mocks.gcpCost }))
 vi.mock('@/lib/costs/gcp-worker-usage', () => ({ fetchGcpWorkerUsage: mocks.gcpUsage }))
-vi.mock('@/lib/costs/solapi-connector', () => ({ fetchSolapiUsage: mocks.solapi }))
+vi.mock('@/lib/costs/solapi-connector', () => ({ fetchSolapiUsage: mocks.solapi, fetchSolapiBalance: mocks.balance }))
 import { syncCostMonth } from '@/lib/costs/sync'
 import { costReportFixture } from '../fixtures/cost-report'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-23T12:00:00Z'))
+  mocks.balance.mockResolvedValue({ balance: 19733, point_balance: 120 })
   for (const key of ['NEXT_PUBLIC_SUPABASE_URL', 'SOLAPI_API_KEY', 'VERCEL_BILLING_TOKEN', 'NCP_BILLING_ACCESS_KEY', 'GCP_BILLING_EXPORT_TABLE']) vi.stubEnv(key, '')
   vi.stubEnv('ANTHROPIC_ADMIN_KEY', 'test-key')
 })
-afterEach(() => vi.unstubAllEnvs())
+afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers() })
 describe('shared provider synchronization', () => {
   it.each([true, false])('stores a complete organization Storage total or keeps the previous total on read failure (%s)', async success => {
     vi.stubEnv('ANTHROPIC_ADMIN_KEY', ''); vi.stubEnv('COST_ENVIRONMENT', 'production'); vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://rjaawwrcgegfjtiztsou.supabase.co'); vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test')
@@ -78,12 +81,24 @@ describe('shared provider synchronization', () => {
     expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ metric: 'monthly_cost', amount: null, status: 'error' }))
   })
 
+  it.each([false, true])('keeps monthly SOLAPI usage when wallet lookup fails, and skips wallets for past months (%s)', async historical => {
+    vi.stubEnv('ANTHROPIC_ADMIN_KEY', ''); vi.stubEnv('SOLAPI_API_KEY', 'test'); vi.stubEnv('SOLAPI_API_SECRET', 'test')
+    const chain = { select: vi.fn().mockReturnThis(), limit: vi.fn().mockResolvedValue({ error: null }), upsert: vi.fn().mockResolvedValue({ error: null }), update: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), in: vi.fn().mockReturnThis() }
+    mocks.db.mockReturnValue({ from: () => chain })
+    mocks.balance.mockRejectedValue(new Error('unavailable'))
+    mocks.solapi.mockResolvedValue({ monthly_cost: 100 })
+    expect(await (await syncCostMonth(historical ? '2026-09' : '2026-10')).json()).toMatchObject({ succeeded: historical ? 1 : 0 })
+    expect(chain.upsert).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ metric: 'monthly_cost', amount: 100 })]))
+    if (historical) expect(mocks.balance).not.toHaveBeenCalled()
+    else { expect(chain.update).toHaveBeenCalledWith({ status: 'error' }); expect(chain.upsert).not.toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ metric: 'balance' })])) }
+  })
   it('stores monthly SOLAPI spend and successful sends instead of treating wallet balance as spend', async () => {
     vi.stubEnv('ANTHROPIC_ADMIN_KEY', ''); vi.stubEnv('SOLAPI_API_KEY', 'test'); vi.stubEnv('SOLAPI_API_SECRET', 'test')
     const chain = { select: vi.fn().mockReturnThis(), limit: vi.fn().mockResolvedValue({ error: null }), upsert: vi.fn().mockResolvedValue({ error: null }) }
     mocks.db.mockReturnValue({ from: () => chain })
     mocks.solapi.mockResolvedValue({ monthly_cost: 12652.2, sms_succeeded: 330, sms_count: 124, point_usage: 10 })
     expect(await (await syncCostMonth('2026-10')).json()).toMatchObject({ succeeded: 1, total: 1 })
+    expect(chain.upsert).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ metric: 'balance', amount: 19733, currency: 'KRW' })]))
     expect(chain.upsert).toHaveBeenCalledWith(expect.arrayContaining([
       expect.objectContaining({ metric: 'monthly_cost', amount: 12652.2, currency: 'KRW' }),
       expect.objectContaining({ metric: 'sms_succeeded', amount: 330, currency: 'COUNT' }),

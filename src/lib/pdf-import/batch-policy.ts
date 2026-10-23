@@ -9,7 +9,9 @@ export const PDF_BATCH_MODE = 'batch-v1'
 export class PdfBatchPending extends Error {
   constructor() { super('PDF 배치 결과 대기') }
 }
-export class PdfBatchRequestFailed extends Error {}
+export class PdfBatchRequestFailed extends Error {
+  constructor(message: string, readonly attempts?: number) { super(message) }
+}
 /** An uncertain submission must never be automatically submitted and billed again. */
 export class PdfBatchStopped extends Error {}
 

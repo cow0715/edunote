@@ -6,7 +6,9 @@ import { buildFileBlock, callLlmText, createLlmExecution, parseJsonArrayResponse
 import { prewarmPdfCache, rangedParseCallIsolated, sliceNumbers, type RangedCallStats } from './ranged'
 import { EXPLANATION_WRITING_RULES } from './material-enrichment-contract'
 import { getPdfWorkerContext } from '../pdf-import/context'
-import { settlePdfBatchCalls } from '../pdf-import/batch-policy'
+import { recoverExamEntries } from './exam-bank-recovery'
+import type { ExamImportExclusion, ExamImportIssue } from '../pdf-import/exam-completeness'
+import { needsVisualSource } from '../source-region'
 
 export type ExamBankParsedQuestion = {
   question_number: number
@@ -15,6 +17,9 @@ export type ExamBankParsedQuestion = {
   question_text: string
   choices: string[]
   answer: string
+  needs_source_image?: boolean
+  source_page?: number | null
+  source_bbox?: import('../source-region').SourceRegion | null
 }
 
 export async function parseExamBankPage(
@@ -50,12 +55,12 @@ export type ExamBankRangedResult = {
   calls: ExplanationCallStats[]
   /** 콘텐츠 필터로 결손된 문항 번호 (문항 단위 격리 재시도 후에도 걸린 것만) */
   skippedNumbers: number[]
+  issues?: ExamImportIssue[]
+  excludedQuestions?: ExamImportExclusion[]
 }
 
-/**
- * 도표 문항 껍데기 판별: "범위 지시"가 프롬프트의 도표 제외 규칙을 이기고
- * 지문 없는 도표 문항을 출력하는 경우가 실측됨(모평 25번) — 프롬프트에 맡기지 않고 코드로 거른다.
- */
+/** A chart may legitimately have no text passage. Kept for diagnostics only;
+ * the parser must retain this question and attach the original PDF region. */
 export function isChartShellQuestion(question: Pick<ExamBankParsedQuestion, 'passage' | 'question_text'>): boolean {
   return !(question.passage ?? '').trim() && /도표|그래프/.test(question.question_text ?? '')
 }
@@ -71,7 +76,17 @@ export async function parseExamBankPageRanged(
   const execution = options.execution ?? createLlmExecution()
   const files = [{ fileData, mimeType }]
   const batch = !!getPdfWorkerContext()?.batchCall
-  const warmStats = batch ? [] : [await prewarmPdfCache({ files, task, execution, prompt: EXAM_BANK_PARSE_RULES })]
+  if (batch) return recoverExamEntries<ExamBankParsedQuestion>({ files, task, execution, prompt: EXAM_BANK_PARSE_RULES, maxTokens: 8192,
+    numbers: EXAM_BANK_NUMBER_GROUPS.flat(), inspect: (item) => {
+      const visual = needsVisualSource({ needs_source_image: item.needs_source_image === true,
+        question_type: typeof item.question_type === 'string' ? item.question_type : undefined,
+        question_text: typeof item.question_text === 'string' ? item.question_text : undefined })
+      if (typeof item.question_text !== 'string' || !item.question_text.trim() || typeof item.passage !== 'string' || (!visual && !item.passage.trim()) ||
+        typeof item.question_type !== 'string' || !item.question_type.trim() || !Array.isArray(item.choices) || item.choices.length !== 5 ||
+        item.choices.some((choice) => typeof choice !== 'string' || !choice.trim())) return { reason: '지문·발문·문항 유형 또는 선지 5개가 누락됐습니다.' }
+      return { item: { ...item, question_number: Number(item.question_number), answer: '' } as ExamBankParsedQuestion }
+    } })
+  const warmStats = await prewarmPdfCache({ files, task, execution, prompt: EXAM_BANK_PARSE_RULES })
 
   // 필터 격리: 그룹이 필터에 걸리면 문항 단위로 재시도 — 진짜 걸린 문항만 결손
   const requests = EXAM_BANK_NUMBER_GROUPS.map((numbers) =>
@@ -79,18 +94,17 @@ export async function parseExamBankPageRanged(
       files, task, execution, maxTokens: 8192,
       prompt: EXAM_BANK_PARSE_RULES, scope: { numbers }, label: 'parseExamBankPageRanged',
     }))
-  const parts = await (batch ? settlePdfBatchCalls(requests) : Promise.all(requests))
+  const parts = await Promise.all(requests)
 
   const byNumber = new Map<number, ExamBankParsedQuestion>()
   for (const part of parts) {
     for (const item of part.items) {
-      if (isChartShellQuestion(item)) continue
       if (!byNumber.has(item.question_number)) byNumber.set(item.question_number, item)
     }
   }
   return {
     items: [...byNumber.values()].sort((a, b) => a.question_number - b.question_number),
-    calls: [...warmStats, ...parts.flatMap((part) => part.calls)],
+    calls: [warmStats, ...parts.flatMap((part) => part.calls)],
     skippedNumbers: parts.flatMap((part) => part.skippedNumbers).sort((a, b) => a - b),
   }
 }
@@ -108,14 +122,17 @@ export type ExplanationParseDetail = {
   calls: ExplanationCallStats[]
   /** 콘텐츠 필터로 결손된 문항 번호 (문항 단위 격리 재시도 후에도 걸린 것만) */
   skippedNumbers: number[]
+  issues?: ExamImportIssue[]
 }
+
+type ExplanationOptions = TaskCallOptions & { expectedNumbers?: number[] }
 
 /** 캐시 예열(출력 0) → 전 범위 병렬. 필터가 걸린 범위는 문항 단위 격리 재시도 — 진짜 걸린 문항만 결손 */
 async function parseExplanationsRanged(
   base64: string,
   prompt: string,
   label: string,
-  options: TaskCallOptions,
+  options: ExplanationOptions,
 ): Promise<ExplanationParseDetail> {
   // sonnet-5(parse 역할): 문항당 1콜 전 병렬에서 캐시 읽기·출력 단가가 opus 의 40% — 시험당 ~$2.8→$1.1.
   // 해설 "작성"도 원문 풀이 기반 확장이라 부담이 작고, 주차 해설 보강과 같은 모델로 품질 기준이 일관된다.
@@ -123,11 +140,17 @@ async function parseExplanationsRanged(
   const execution = options.execution ?? createLlmExecution()
   const files = [{ fileData: base64, mimeType: 'application/pdf' }]
   const batch = !!getPdfWorkerContext()?.batchCall
-  const warmStats = batch ? [] : [await prewarmPdfCache({ files, task, execution, prompt })]
+  if (batch) return recoverExamEntries<ParsedExplanation>({ files, task, execution, prompt, maxTokens: 16000,
+    numbers: options.expectedNumbers ?? EXAM_BANK_NUMBER_GROUPS.flat(), inspect: (item) => {
+      if (['intent', 'translation', 'solution', 'vocabulary'].some((field) => typeof item[field] !== 'string') ||
+        !(item.solution as string).trim()) return { reason: '해설 필드가 누락됐거나 풀이가 비어 있습니다.' }
+      return { item: { ...item, question_number: Number(item.question_number) } as ParsedExplanation }
+    } })
+  const warmStats = await prewarmPdfCache({ files, task, execution, prompt })
 
   const requests = EXAM_BANK_NUMBER_GROUPS.map((numbers) =>
     rangedParseCallIsolated<ParsedExplanation>({ files, task, execution, maxTokens: 16000, prompt, scope: { numbers }, label }))
-  const parts = await (batch ? settlePdfBatchCalls(requests) : Promise.all(requests))
+  const parts = await Promise.all(requests)
 
   const byNumber = new Map<number, ParsedExplanation>()
   for (const part of parts) {
@@ -137,7 +160,7 @@ async function parseExplanationsRanged(
   }
   return {
     items: [...byNumber.values()].sort((a, b) => a.question_number - b.question_number),
-    calls: [...warmStats, ...parts.flatMap((part) => part.calls)],
+    calls: [warmStats, ...parts.flatMap((part) => part.calls)],
     skippedNumbers: parts.flatMap((part) => part.skippedNumbers).sort((a, b) => a - b),
   }
 }
@@ -188,7 +211,7 @@ JSON 배열만 출력 (다른 텍스트 없이):
 /** 평가원형 해설 PDF 출력 범위 분할 파싱 (통째 입력 + 캐싱 + 범위 병렬) */
 export async function parsePdfExplanationsWithClaudeRanged(
   buffer: ArrayBuffer,
-  options: TaskCallOptions = {},
+  options: ExplanationOptions = {},
 ): Promise<ExplanationParseDetail> {
   const base64 = Buffer.from(buffer).toString('base64')
   return parseExplanationsRanged(base64, SUNEUNG_EXPLANATION_PROMPT, 'parsePdfExplanationsWithClaudeRanged', options)
@@ -221,7 +244,7 @@ JSON 배열만 출력:
 /** 학평형 해설 PDF 출력 범위 분할 파싱 (통째 입력 + 캐싱 + 범위 병렬) */
 export async function parsePdfExplanationsHakpyungRanged(
   buffer: ArrayBuffer,
-  options: TaskCallOptions = {},
+  options: ExplanationOptions = {},
 ): Promise<ExplanationParseDetail> {
   const base64 = Buffer.from(buffer).toString('base64')
   return parseExplanationsRanged(base64, HAKPYUNG_EXPLANATION_PROMPT, 'parsePdfExplanationsHakpyungRanged', options)

@@ -29,8 +29,8 @@ export function CostOverview({ usage, snapshots, report = null, tail = [], loadi
   }), { input: 0, output: 0, read: 0, write: 0 })
   const breakdown = claude.items.filter(item => item.amount !== null).sort((a, b) => b.amount! - a.amount!)
   return <div className="cost-visual space-y-5">
-    <SupabaseQuota snapshots={snapshots} environment={environment} />
     <ServiceOverview usage={usage} snapshots={snapshots} report={report} tail={tail} selected={selected} onSelect={setSelected} loading={loading} failed={failed} environment={environment} />
+    {selected === 'supabase' && <SupabaseQuota snapshots={snapshots} environment={environment} />}
     {selected === 'claude' && <ClaudeConsoleReport report={report} tail={tail} />}
     <details className={panel}><summary className="cursor-pointer text-sm font-semibold">앱 기능별 기록·OCR 계산 기준 <span className={`ml-2 text-xs font-normal ${muted}`}>기록 활성화 이후 일부 호출만 포함</span></summary>
     <div className="mt-4 grid items-start gap-4 @min-[860px]:grid-cols-[1.6fr_1fr]">

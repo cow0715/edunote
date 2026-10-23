@@ -4,7 +4,7 @@ import { useState, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { services, summarize, koreanMonth, snapshotLabel, snapshotValue, type CostEntry, type UsageGroup } from '@/lib/costs/model'
+import { services, summarize, koreanMonth, type CostEntry, type UsageGroup } from '@/lib/costs/model'
 import { CostOverview } from './cost-overview'
 import type { ClaudeReport } from '@/lib/costs/claude-report'
 
@@ -86,13 +86,13 @@ export function CostDashboard() {
     setNotice(result.error?.message ?? result.data?.message ?? '조회 결과가 없습니다.')
   }
   const entries = query.data?.entries ?? []
-  return <div className="@container mx-auto max-w-6xl space-y-5 rounded-[20px] bg-[var(--share-canvas)] p-4 pb-8 text-[var(--share-ink)] sm:p-6">
+  return <div className="cost-dashboard @container mx-auto min-w-0 max-w-6xl space-y-5 rounded-[20px] bg-[var(--share-canvas)] p-0 pb-8 text-[var(--share-ink)] sm:p-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div><p className="mb-2 text-xs font-semibold text-[var(--share-muted)]">운영 현황 / 비용</p><h1 className="text-[23px] font-bold tracking-tight">비용 대시보드</h1><p className="mt-1 text-sm text-[var(--share-muted)]">서비스별 사용량과 비용을 한곳에서 확인하세요.</p></div>
-      <div className="flex flex-wrap gap-2">
-        <Input className="w-40" type="month" aria-label="조회 월" value={month} onChange={e => setMonth(e.target.value)} />
-        <select aria-label="환경" className={selectStyle} value={environment} onChange={e => setEnvironment(e.target.value)}>{Object.entries(environmentLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
-        <Button variant="outline" onClick={() => { void query.refetch(); void sync() }}>새로고침</Button>
+      <div className="cost-filters grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex sm:w-auto sm:flex-wrap">
+        <Input className="h-11 min-w-0 w-full sm:h-9 sm:w-40" type="month" aria-label="조회 월" value={month} onChange={e => setMonth(e.target.value)} />
+        <select aria-label="환경" className={`${selectStyle} h-11 sm:h-9`} value={environment} onChange={e => setEnvironment(e.target.value)}>{Object.entries(environmentLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+        <Button className="col-span-2 h-11 w-full sm:h-9 sm:w-auto" variant="outline" onClick={() => { void query.refetch(); void sync() }}>새로고침</Button>
       </div>
     </div>
     <p className="text-xs text-[var(--share-muted)]">{month === koreanMonth() ? '앱 최근 기록은 15초, 업체 보고서는 5분마다 자동 갱신합니다.' : '과거 월은 새로고침으로 갱신할 수 있습니다.'} Claude 조직 보고서 UTC · 앱 기능 기록 한국 시간{query.dataUpdatedAt > 0 && <> · 조회 {new Date(query.dataUpdatedAt).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul' })}</>}</p>
@@ -102,22 +102,6 @@ export function CostDashboard() {
     {connections.error && <p role="alert" className="text-sm text-[var(--share-red)]">{connections.error.message}</p>}
     {providerRefresh.error && <p role="alert" className="text-sm text-[var(--share-red)]">{providerRefresh.error.message}</p>}
     <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--share-muted)]"><span>{providerRefresh.isFetching ? '업체 비용 갱신 중…' : providerRefresh.data?.message ?? '업체 데이터는 5분마다 갱신됩니다.'}</span><Button disabled={providerRefresh.isFetching} variant="outline" size="sm" onClick={() => void sync()}>{providerRefresh.isFetching ? '조회 중…' : '업체 데이터 동기화'}</Button></div>
-    <details className={surface}>
-      <summary className="cursor-pointer text-[15px] font-extrabold">서비스 연결·업체 조회 내역 <span className="ml-2 text-xs font-normal text-[var(--share-muted)]">{connections.data?.configured.length ?? 0}개 자동 연결</span></summary>
-      <p className="mt-2 text-xs text-[var(--share-muted)]">업체 조회값은 계정 전체 기준이며 아래 등록 비용 합계에 자동 포함하지 않습니다. 앱 사용액과 범위를 확인한 뒤 등록하세요.</p>
-      {providerRefresh.data?.message && <p className="mt-2 text-xs text-[var(--share-muted)]">{providerRefresh.data.message}</p>}
-      <div className="mt-4 grid gap-3 md:grid-cols-2">{services.map(service => {
-        const rows = entries.filter(e => e.provider === service.id && (e.kind === 'actual' || e.kind === 'estimate'))
-        const snapshots = connections.data?.snapshots.filter(s => s.provider === service.id && (service.id !== 'supabase' || /^(db_bytes_|storage_bytes_|files_|metrics_)/.test(s.metric))) ?? []
-        return <div key={service.id} className="rounded-xl bg-[var(--share-box)] p-4">
-          <div><p className="font-semibold">{service.name}</p><p className="text-xs text-[var(--share-muted)]">{service.role}</p>{service.url && <a className="text-xs text-[var(--share-blue)] underline" href={service.url} target="_blank" rel="noreferrer">업체 콘솔 열기</a>}</div>
-          <div className="mt-3 text-sm">{rows.length ? rows.map(row => <p key={row.id}>{kindLabels[row.kind]} {money(row.amount, row.currency)}</p>) : null}
-            <p className="text-xs text-[var(--share-muted)]">{connections.data?.configured.includes(service.id) ? '자동 조회 설정됨' : '수동 관리 · 자동 조회 미연결'}</p>
-            {snapshots.map(snapshot => <p key={snapshot.metric} className="mt-1 text-xs">{snapshotLabel(snapshot.metric)}: {snapshotValue(snapshot.amount, snapshot.currency)} · {snapshot.status === 'ok' ? '조회 성공' : snapshot.amount === null ? '조회 실패·청구서 미발행 또는 설정 확인' : '갱신 실패 · 이전 값'}<br /><span className="text-[var(--share-muted)]">{new Date(snapshot.updated_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</span></p>)}
-          </div>
-        </div>
-      })}</div>
-    </details>
     <details className={surface}><summary className="cursor-pointer text-[15px] font-extrabold">확정 청구액·예산 관리 <span className="ml-2 text-xs font-normal text-[var(--share-muted)]">청구서와 수동 등록 내역</span></summary><div className="mt-5 space-y-4">
     {query.data && <>
       <div className="grid gap-3 md:grid-cols-2">{summarize(entries).map(total => <section key={total.currency} className={surface}>

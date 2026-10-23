@@ -1,3 +1,4 @@
+import { regionPixels, validSourceRegion } from './source-region'
 import { assertPreservableReadingReparse } from '@/lib/preserve-reading-reparse'
 import type { SupabaseServerClient } from '@/lib/api'
 import { buildQuestionTextFromParts, ensureChoiceMarker } from '@/lib/question-structure'
@@ -600,13 +601,15 @@ export async function saveWeekAnswerSheetFile(
       .upload(safeName, fileBuffer, { contentType: mimeType, upsert: false })
 
     if (storageErr) {
-      console.error('[week-reading-import] storage upload failed:', storageErr)
-      return
+      throw new Error(`원본 PDF 저장 실패: ${storageErr.message}`)
     }
 
-    await supabase.from('week').update({ answer_sheet_path: safeName }).eq('id', weekId)
+    const { error: linkError } = await supabase.from('week').update({ answer_sheet_path: safeName }).eq('id', weekId)
+    if (linkError) throw new Error(`원본 PDF 연결 실패: ${linkError.message}`)
   } catch (error) {
     console.error('[week-reading-import] storage save failed:', error)
+    // Stop before question synchronization; retaining an older PDF would misidentify the new questions.
+    throw error
   }
 }
 
@@ -678,17 +681,8 @@ async function cropSourceImage(
 ): Promise<Buffer> {
   if (!sourceBBox) return renderedPage.buffer
 
-  const paddingRatio = 0.04
-  const left = Math.max(0, sourceBBox.x - paddingRatio)
-  const top = Math.max(0, sourceBBox.y - paddingRatio)
-  const right = Math.min(1, sourceBBox.x + sourceBBox.width + paddingRatio)
-  const bottom = Math.min(1, sourceBBox.y + sourceBBox.height + paddingRatio)
-  const crop = {
-    left: Math.floor(left * renderedPage.width),
-    top: Math.floor(top * renderedPage.height),
-    width: Math.ceil((right - left) * renderedPage.width),
-    height: Math.ceil((bottom - top) * renderedPage.height),
-  }
+  if (!validSourceRegion(sourceBBox)) return renderedPage.buffer
+  const crop = regionPixels(sourceBBox, renderedPage.width, renderedPage.height)
 
   if (crop.width < 24 || crop.height < 24) return renderedPage.buffer
 

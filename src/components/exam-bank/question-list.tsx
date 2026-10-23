@@ -1,5 +1,7 @@
 'use client'
 
+import { BankSourceImages } from './source-images'
+
 import { readablePassage } from '@/lib/material-display'
 import { memo, useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -276,6 +278,8 @@ export const QuestionCard = memo(function QuestionCard({
             </p>
           </div>
         )}
+
+        <BankSourceImages question={q} />
 
         {/* 선지 */}
         {q.choices.length > 0 && (

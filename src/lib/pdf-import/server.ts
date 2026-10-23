@@ -5,6 +5,7 @@ import { dispatchPdfJob, gcpWorkerConfig } from './gcp'
 import type { PdfImportJob, PdfImportKind } from './types'
 import { bookQualityRetryBlocked } from '../book-pdf/recovery-policy'
 import { isPdfBatchKind, PDF_BATCH_MODE } from './batch-policy'
+import { examImportIssues, examRecoveryBlocked } from './exam-completeness'
 
 export async function weekImportSnapshot(client: SupabaseClient, weekId: string) {
   const { data: questions, error } = await client.from('exam_question').select('*').eq('week_id', weekId).eq('exam_type', 'reading').order('id')
@@ -73,13 +74,14 @@ export async function registerPdfImport(input: {
 }
 
 export function publicPdfJob(job: PdfImportJob) {
+  const incomplete = ['bank_questions', 'bank_explanation'].includes(job.kind) && examImportIssues(job.result).length > 0
   const batchWakeDelayed = isPdfBatchKind(job.kind) && job.status === 'waiting_batch' && !!job.resume_after
     && Date.parse(job.resume_after) < Date.now() - 30 * 60_000
-  return { id: job.id, kind: job.kind, target_id: job.target_id, status: job.status,
-    stage: job.stage, completed_calls: job.completed_calls, attempt: job.attempt,
+  return { id: job.id, kind: job.kind, target_id: job.target_id, status: job.status === 'succeeded' && incomplete ? 'failed' : job.status,
+    stage: job.status === 'succeeded' && incomplete ? '미완료 문항 확인 필요' : job.stage, completed_calls: job.completed_calls, attempt: job.attempt,
     lease_expires_at: job.lease_expires_at, resume_after: job.resume_after ?? null, result: job.result,
     error: job.error ?? (batchWakeDelayed ? '예약된 배치 상태 확인 실행이 지연됐습니다. GCP 재개 권한·큐 상태를 확인한 뒤 재실행해주세요.' : null),
-    can_retry: batchWakeDelayed || (job.status === 'failed' && !bookQualityRetryBlocked(job) && job.result?.batch_stopped !== true && job.result?.batch_exhausted !== true) || (job.status === 'running' && !!job.lease_expires_at && new Date(job.lease_expires_at).getTime() < Date.now()) ||
+    can_retry: batchWakeDelayed || (job.status === 'failed' && !bookQualityRetryBlocked(job) && !examRecoveryBlocked(job) && job.result?.batch_stopped !== true && job.result?.batch_exhausted !== true) || (job.status === 'running' && !!job.lease_expires_at && new Date(job.lease_expires_at).getTime() < Date.now()) ||
       (job.status === 'queued' && (!!job.error || Date.now() - new Date(job.updated_at).getTime() > 180_000)),
     created_at: job.created_at, updated_at: job.updated_at }
 }

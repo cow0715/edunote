@@ -24,6 +24,7 @@ describe('cost dashboard honest empty and failure states', () => {
     expect(screen.getByText('KRW 등록 비용 합계')).toBeTruthy()
     expect(screen.getByText('USD 등록 비용 합계')).toBeTruthy()
     expect(screen.getByLabelText('금액')).toBeTruthy()
+    expect(screen.queryByText(/서비스 연결·업체 조회 내역/)).toBeNull()
     client.clear()
   })
   it('shows a fetch failure without presenting empty data as zero costs', async () => {
@@ -82,12 +83,12 @@ describe('provider cost overview', () => {
       { provider: 'naver', metric: 'monthly_cost', amount: 0, currency: 'KRW', status: 'ok', updated_at: '2026-10-22T12:00:00Z' },
       { provider: 'gcp', metric: 'monthly_cost', amount: null, currency: 'KRW', status: 'error', updated_at: '2026-10-22T12:00:00Z' },
     ])
-    await waitFor(() => expect(screen.getByRole('table', { name: '서비스별 사용량과 비용' }).textContent).toContain('US$27.75'))
-    const rows = within(screen.getByRole('table', { name: '서비스별 사용량과 비용' })).getAllByRole('row')
-    expect(rows[1].textContent).toContain('Claude')
-    expect(rows[2].textContent).toContain('₩0')
-    expect(rows[3].textContent).toContain('집계 대기')
-    expect(rows[3].textContent).not.toContain('₩0')
+    await waitFor(() => expect(screen.getByRole('list', { name: '서비스별 사용량과 비용' }).textContent).toContain('US$27.75'))
+    const rows = within(screen.getByRole('list', { name: '서비스별 사용량과 비용' })).getAllByRole('listitem')
+    expect(rows[0].textContent).toContain('Claude')
+    expect(rows[1].textContent).toContain('₩0')
+    expect(rows[2].textContent).toContain('집계 대기')
+    expect(rows[2].textContent).not.toContain('₩0')
     client.clear()
   })
 })
