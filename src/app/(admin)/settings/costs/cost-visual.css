@@ -46,3 +46,7 @@
 }
 .cost-visual .cost-badge[data-state="ok"] { color: var(--cost-teal); background: color-mix(in srgb, var(--cost-teal) 10%, transparent); }
 .cost-visual .cost-badge[data-state="error"] { color: var(--share-red); background: var(--share-red-bg); }
+
+.cost-visual .cost-summary { position: relative; padding: 18px 20px; }
+.cost-visual .cost-summary > .cost-icon { position: absolute; top: 18px; right: 20px; }
+.cost-visual .cost-summary > p:first-of-type { margin-top: 0; padding-right: 44px; }
