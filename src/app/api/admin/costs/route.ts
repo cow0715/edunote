@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { err, ok } from '@/lib/api'
 import { requireCostAdmin } from '@/lib/costs/admin'
-import { entrySchema, environments, monthBounds, monthSchema } from '@/lib/costs/model'
+import { entrySchema, environments, monthBounds, monthSchema, type UsageGroup } from '@/lib/costs/model'
 import { createServiceClient } from '@/lib/supabase/service'
+import type { ClaudeReport } from '@/lib/costs/claude-report'
 
 export async function GET(request: Request) {
   const denied = await requireCostAdmin()
@@ -14,12 +15,25 @@ export async function GET(request: Request) {
     const db = createServiceClient()
     const { month, environment } = parsed.data
     const bounds = monthBounds(month)
-    const [entries, usage] = await Promise.all([
+    const [entries, usage, stored] = await Promise.all([
       db.from('cost_entry').select('*').eq('month', month).eq('environment', environment).order('provider'),
       db.rpc('cost_usage_summary', { p_start: bounds.start, p_end: bounds.end, p_environment: environment }),
+      db.from('cost_claude_report').select('report').eq('month', month).maybeSingle(),
     ])
-    if (entries.error || usage.error) return err('비용 데이터를 읽지 못했습니다. 비용 관리 SQL 적용과 서버 설정을 확인해 주세요.', 503)
-    return ok({ entries: entries.data, usage: usage.data, tracking: process.env.COST_TRACKING_ENABLED === 'true' }, { headers: { 'Cache-Control': 'no-store' } })
+    if (entries.error || usage.error || stored.error) return err('비용 데이터를 읽지 못했습니다. 비용 관리 SQL 적용과 서버 설정을 확인해 주세요.', 503)
+    const claudeReport = (stored.data?.report ?? null) as ClaudeReport | null
+    let claudeTail: UsageGroup[] = []
+    if (claudeReport) {
+      // Only requests AFTER both organization reports belong in the live addition.
+      // Imported aggregates never become fake app events or duplicate existing requests.
+      const from = new Date(Math.max(Date.parse(claudeReport.usageThrough), Date.parse(claudeReport.costThrough))).toISOString()
+      if (from < claudeReport.end) {
+        const tail = await db.rpc('cost_usage_summary', { p_start: from, p_end: claudeReport.end, p_environment: environment })
+        if (tail.error) return err('최근 사용량 조회에 실패했습니다.', 503)
+        claudeTail = tail.data ?? []
+      }
+    }
+    return ok({ entries: entries.data, usage: usage.data, claudeReport, claudeTail, tracking: process.env.COST_TRACKING_ENABLED === 'true' }, { headers: { 'Cache-Control': 'no-store' } })
   } catch { return err('비용 데이터 연결에 실패했습니다.', 503) }
 }
 

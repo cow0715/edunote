@@ -90,7 +90,7 @@ export function ExamList({ selectedId, onOpenBook, onRegister }: { selectedId?: 
         const qCount = exam.exam_bank_question?.[0]?.count ?? 0
         return (
           <div key={exam.id} className="rounded-xl border bg-card overflow-hidden">
-            <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--control-bg)]">
               {/* 아이콘 */}
               <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-muted shrink-0">
                 <FileText className="h-4 w-4 text-foreground" />

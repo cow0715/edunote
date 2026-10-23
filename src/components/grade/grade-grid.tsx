@@ -425,7 +425,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           </thead>
           <tbody className="divide-y">
             {rows.map((row, idx) => (
-              <tr key={row.student_id} className={cn('transition-colors hover:bg-gray-50/40', !row.present && 'opacity-40')}>
+              <tr key={row.student_id} className={cn('transition-colors hover:bg-[var(--control-bg)]', !row.present && 'opacity-40')}>
                 {/* 출결 */}
                 <td className="px-3 py-3 text-center">
                   <input
@@ -560,7 +560,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                   'flex min-h-11 items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors',
                   showReviewPanel
                     ? 'bg-amber-50 border-amber-200 text-amber-700'
-                    : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                    : 'border-gray-200 text-gray-500 hover:bg-[var(--control-bg)]'
                 )}
               >
                 서술형 검토

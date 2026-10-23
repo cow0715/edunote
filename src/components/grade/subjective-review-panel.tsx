@@ -257,7 +257,7 @@ export function SubjectiveReviewPanel({
                   <tr
                     key={sr.student_id}
                     className={cn(
-                      'hover:bg-gray-50/50',
+                      'hover:bg-[var(--control-bg)]',
                       sr.needs_review && 'bg-amber-50/40'
                     )}
                   >

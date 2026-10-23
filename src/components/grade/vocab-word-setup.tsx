@@ -470,7 +470,7 @@ const WordRow = memo(function WordRow({ word, isSelected, selectedSource, orderN
   ].filter(Boolean)
   return (
     <label
-      className={`flex cursor-pointer items-start gap-3 px-4 py-2.5 transition-colors ${isSelected ? 'bg-blue-50/40' : 'hover:bg-gray-50/70'} ${testLocked ? 'cursor-default' : ''}`}
+      className={`flex cursor-pointer items-start gap-3 px-4 py-2.5 transition-colors ${isSelected ? 'bg-blue-50/40' : 'hover:bg-[var(--control-bg)]'} ${testLocked ? 'cursor-default' : ''}`}
     >
       <input
         type="checkbox"
@@ -1339,7 +1339,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
               <button
                 type="button"
                 onClick={() => setRatioOpen((v) => !v)}
-                className="flex w-full items-center gap-2 px-4 py-2 text-left text-[11px] transition-colors hover:bg-gray-50"
+                className="flex w-full items-center gap-2 px-4 py-2 text-left text-[11px] transition-colors hover:bg-[var(--control-bg)]"
               >
                 <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-blue-500" />
                 <span className="font-bold text-gray-700">출제 비율</span>
@@ -1444,7 +1444,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         <button
           type="button"
           onClick={() => setWordEditOpen((v) => !v)}
-          className="flex w-full items-center justify-between px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-50"
+          className="flex w-full items-center justify-between px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-[var(--control-bg)]"
         >
           <span className="flex items-center gap-1.5">
             단어 직접 수정
@@ -1562,7 +1562,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         <button
           type="button"
           onClick={() => setPromptOpen((v) => !v)}
-          className="flex w-full items-center justify-between px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-50"
+          className="flex w-full items-center justify-between px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-[var(--control-bg)]"
         >
           <span className="flex items-center gap-1.5">
             채점 규칙 수정

@@ -27,7 +27,7 @@ export function BookResult({ id }: { id: string }) {
   const { document: doc, units } = overview.data, manifest = doc.manifest
   const passed = units.filter((u) => u.verification?.status === 'passed' && u.verified_version === u.version && !u.validation.errors.length).length
   const unresolved = units.filter((u) => u.verification?.status === 'unresolved')
-  function row(u: Summary) { return <button key={u.unit_key} onClick={() => setUnit(u.unit_key)} className="flex w-full flex-wrap justify-between gap-2 p-3 text-left hover:bg-muted">
+  function row(u: Summary) { return <button key={u.unit_key} onClick={() => setUnit(u.unit_key)} className="flex w-full flex-wrap justify-between gap-2 p-3 text-left hover:bg-[var(--control-bg)]">
     <span className="text-sm">{u.questions.map((q) => q.label).join(' / ')} <span className="text-muted-foreground">p.{u.pages.join(', ')}</span></span>
     <span className={`text-xs ${u.verification?.status === 'unresolved' ? 'text-destructive' : 'text-muted-foreground'}`}>{u.verification?.status === 'passed' && u.verified_version === u.version ? '자동 검증 통과' : u.verification?.status === 'unresolved' ? `자동 복구 ${u.verification.attempts}회 · 미통과` : '처리 대기'}</span>
   </button> }

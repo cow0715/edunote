@@ -1,29 +1,48 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { CostOverview } from '@/app/(admin)/settings/costs/cost-overview'
-import type { UsageGroup } from '@/lib/costs/model'
+import { costReportFixture } from '../fixtures/cost-report'
 afterEach(cleanup)
-const usage: UsageGroup[] = [
-  { provider: 'claude', feature: 'week.parseAnswers', model: 'claude-sonnet-5', calls: 4, units: 4, input_tokens: 1_000_000, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0 },
-  { provider: 'naver', feature: '단어시험 사진 OCR 요청', model: '', calls: 120, units: 120, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0 },
-]
-describe('cost overview separates scopes and sources', () => {
-  it('shows an app estimate alongside an account snapshot without adding or relabeling it as an invoice', () => {
-    render(<CostOverview usage={usage} snapshots={[{ provider: 'claude', metric: 'monthly_cost', currency: 'USD', amount: 27.75, status: 'ok', updated_at: '2026-10-22T12:00:00Z' }]} loading={false} tracking failed={false} />)
-    const claude = within(screen.getByRole('region', { name: 'Claude 조회액' }))
-    expect(claude.getByText('US$2.00')).toBeTruthy()
-    expect(claude.getByText('US$27.75')).toBeTruthy()
-    expect(claude.queryByText('US$29.75')).toBeNull()
-    expect(claude.getByText(/확정 청구액 아님/)).toBeTruthy()
-    expect(within(screen.getByRole('region', { name: '네이버 CLOVA 조회액' })).getByText('₩360')).toBeTruthy()
-    expect(screen.getByText(/월 100건 무료분/)).toBeTruthy()
+describe('service cost workspace', () => {
+  it('keeps all six services visible and opens one detail with usage and separate cost sources', () => {
+    render(<CostOverview usage={[]} report={costReportFixture()} snapshots={[
+      { provider: 'gcp', metric: 'worker_executions', currency: 'COUNT', amount: 15, status: 'ok', updated_at: '2026-10-22T12:00:00Z' },
+      { provider: 'solapi', metric: 'balance', currency: 'KRW', amount: 19733, status: 'ok', updated_at: '2026-10-22T12:00:00Z' },
+    ]} loading={false} tracking failed={false} />)
+    const list = within(screen.getByRole('table', { name: '서비스별 사용량과 비용' }))
+    expect(list.getByText('15회 실행')).toBeTruthy()
+    for (const name of ['Claude', '네이버 CLOVA', 'GCP', 'Supabase', 'SOLAPI', 'Vercel']) expect(list.getByRole('button', { name })).toBeTruthy()
+    fireEvent.click(list.getByRole('button', { name: 'GCP' }))
+    expect(screen.getByRole('region', { name: 'GCP 상세' })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Claude 상세' })).toBeNull()
+    expect(screen.getByText(/실행 시간은 과금 CPU 시간이 아니며/)).toBeTruthy()
+    fireEvent.click(list.getByRole('button', { name: 'SOLAPI' }))
+    expect(within(screen.getByRole('region', { name: 'SOLAPI 상세' })).queryByText('₩19,733')).toBeNull()
+    expect(screen.getAllByText('미수신 비용·잔액 제외', { exact: false })).toHaveLength(2)
   })
-  it('shows unavailable data honestly and names excluded calls', () => {
-    render(<CostOverview usage={[{ ...usage[0], model: 'unpriced' }]} snapshots={[]} loading={false} tracking failed={false} />)
-    const claude = within(screen.getByRole('region', { name: 'Claude 조회액' }))
-    expect(claude.getByText(/4회는 계산 제외/)).toBeTruthy()
-    expect(claude.queryByText('US$0.00')).toBeNull()
-    expect(within(screen.getByRole('region', { name: 'GCP 조회액' })).getByText('조회값 없음')).toBeTruthy()
+  it('uses a labeled console fallback only until the automatic GCP amount arrives', () => {
+    const snapshots = [{ provider: 'gcp', metric: 'console_monthly_cost', currency: 'KRW', amount: 20, status: 'ok', updated_at: '2026-10-22T12:00:00Z' }]
+    const props = { usage: [], snapshots, loading: false, tracking: true, failed: false }
+    const view = render(<CostOverview {...props} />)
+    expect(screen.getByText('콘솔 확인 · 자동 수신 대기')).toBeTruthy()
+    view.rerender(<CostOverview {...props} snapshots={[...snapshots, { ...snapshots[0], metric: 'monthly_cost', amount: 21 }]} />)
+    expect(screen.queryByText('콘솔 확인 · 자동 수신 대기')).toBeNull()
+    expect(within(screen.getByRole('table', { name: '서비스별 사용량과 비용' })).getByText('₩21')).toBeTruthy()
+    expect(screen.queryByText('₩41')).toBeNull()
   })
+  it('shows provider SMS counts and spend while keeping Supabase plan and old invoice outside monthly totals', () => {
+    const snapshot = { provider: 'solapi', metric: 'monthly_cost', currency: 'KRW', amount: 12652.2, status: 'ok', updated_at: '2026-10-23T00:00:00Z' }
+    render(<CostOverview usage={[]} snapshots={[snapshot, { ...snapshot, metric: 'sms_succeeded', currency: 'COUNT', amount: 330 }, { ...snapshot, provider: 'supabase', metric: 'plan_free', currency: 'USD', amount: 0 }, { ...snapshot, provider: 'supabase', metric: 'invoice_last_amount', currency: 'USD', amount: 999 }]} loading={false} tracking failed={false} />)
+    const table = within(screen.getByRole('table', { name: '서비스별 사용량과 비용' }))
+    expect(table.getByText('330건 문자 발송 성공')).toBeTruthy()
+    expect(table.getByText('₩12,652.2')).toBeTruthy()
+    expect(table.getByText('Free · US$0.00')).toBeTruthy()
+    fireEvent.click(table.getByRole('button', { name: 'Supabase' }))
+    expect(screen.getByText(/공개 청구 API가 없어/)).toBeTruthy()
+    expect(screen.getByText(/청구주기.*달력 월과 다릅니다/)).toBeTruthy()
+    expect(within(screen.getByRole('region', { name: 'Supabase 상세' })).getByText(/US\$999.00/)).toBeTruthy()
+    expect(screen.queryByText('US$999.00', { exact: true })).toBeNull()
+  })
+
 })

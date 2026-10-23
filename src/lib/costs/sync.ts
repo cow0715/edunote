@@ -1,7 +1,8 @@
-import { SolapiMessageService } from 'solapi'
+import { fetchSolapiUsage } from '@/lib/costs/solapi-connector'
 import { err, ok } from '@/lib/api'
-import { fetchClaudeCost } from '@/lib/costs/connectors'
+import { fetchClaudeReport } from '@/lib/costs/claude-report-fetch'
 import { fetchVercelCost, fetchNaverCost } from '@/lib/costs/cloud-connectors'
+import { fetchGcpWorkerUsage } from '@/lib/costs/gcp-worker-usage'
 import { fetchGcpCost } from '@/lib/costs/gcp-connector'
 import { createServiceClient } from '@/lib/supabase/service'
 import { costEnvironment } from '@/lib/costs/record'
@@ -25,7 +26,7 @@ export async function syncCostMonth(month: string) {
     const ready = await db.from('cost_provider_snapshot').select('provider').limit(1)
     if (ready.error) return err('비용 관리 SQL을 먼저 적용해 주세요.', 503)
     const results = await Promise.all(enabled.map(async provider => {
-      const metric = provider === 'solapi' ? 'balance' : provider === 'supabase' ? 'infrastructure' : 'monthly_cost'
+      const metric = provider === 'supabase' ? 'infrastructure' : 'monthly_cost'
       try {
         if (provider === 'supabase') {
           const result = await db.rpc('cost_infrastructure_usage').single()
@@ -43,19 +44,34 @@ export async function syncCostMonth(month: string) {
         }
         let amount: number
         let gcpCurrency: string | undefined
-        if (provider === 'claude') amount = await fetchClaudeCost(month)
+        if (provider === 'claude') {
+          const report = await fetchClaudeReport(month)
+          const saved = await db.from('cost_claude_report').upsert({ month, report, updated_at: report.fetchedAt })
+          if (saved.error) throw new Error('report_write_failed')
+          if (report.costThrough === report.start) throw new Error('cost_data_pending')
+          amount = report.reported
+        }
         else if (provider === 'vercel') amount = await fetchVercelCost(month)
         else if (provider === 'naver') amount = await fetchNaverCost(month)
         else if (provider === 'gcp') {
-          const value = await fetchGcpCost(month)
+          // Usage can succeed while the billing export is still empty. Read both independently.
+          const [usageResult, costResult] = await Promise.allSettled([fetchGcpWorkerUsage(month), fetchGcpCost(month)])
+          if (usageResult.status === 'fulfilled') {
+            const saved = await db.from('cost_provider_snapshot').upsert(Object.entries(usageResult.value).map(([metric, amount]) => ({ provider, month, metric, amount, currency: metric.endsWith('seconds') ? 'SECONDS' : 'COUNT', status: 'ok', updated_at: new Date().toISOString() })))
+            if (saved.error) throw new Error('usage_write_failed')
+          } else {
+            await db.from('cost_provider_snapshot').update({ status: 'error' }).eq('provider', provider).eq('month', month).like('metric', 'worker_%')
+          }
+          if (costResult.status === 'rejected') throw new Error('billing_data_unavailable')
+          const value = costResult.value
           amount = value.amount; gcpCurrency = value.currency
         }
         else {
-          const client = new SolapiMessageService(process.env.SOLAPI_API_KEY!, process.env.SOLAPI_API_SECRET!)
-          // SOLAPI SDK has no AbortSignal option. Bound the response wait without logging its raw error.
-          let timer: ReturnType<typeof setTimeout> | undefined
-          const balance = await Promise.race([client.getBalance(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('provider_timeout')), 8000) })]).finally(() => clearTimeout(timer))
-          amount = balance.balance
+          const usage = await fetchSolapiUsage(month)
+          const rows = Object.entries(usage).map(([metric, amount]) => ({ provider, month, metric, amount, currency: /count$|^message_|^sms_(succeeded|failed)$/.test(metric) ? 'COUNT' : metric.startsWith('point_') ? 'POINTS' : 'KRW', status: 'ok', updated_at: new Date().toISOString() }))
+          const saved = await db.from('cost_provider_snapshot').upsert(rows)
+          if (saved.error) throw new Error('usage_write_failed')
+          return true
         }
         if (!Number.isFinite(amount)) throw new Error('invalid_amount')
         const currency = gcpCurrency ?? (provider === 'claude' || provider === 'vercel' ? 'USD' : 'KRW')
@@ -63,6 +79,7 @@ export async function syncCostMonth(month: string) {
         if (error) throw new Error('snapshot_write_failed')
         return true
       } catch {
+        if (provider === 'solapi') await db.from('cost_provider_snapshot').update({ status: 'error' }).eq('provider', provider).eq('month', month).neq('metric', 'balance')
         // Keep the last successful value and its timestamp; show failure on first connection too.
         const existing = await db.from('cost_provider_snapshot').select('provider').eq('provider', provider).eq('month', month).eq('metric', metric).maybeSingle()
         if (existing.data) await db.from('cost_provider_snapshot').update({ status: 'error' }).eq('provider', provider).eq('month', month).eq('metric', metric)

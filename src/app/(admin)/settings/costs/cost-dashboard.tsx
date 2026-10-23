@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { services, summarize, koreanMonth, snapshotLabel, snapshotValue, type CostEntry, type UsageGroup } from '@/lib/costs/model'
 import { CostOverview } from './cost-overview'
+import type { ClaudeReport } from '@/lib/costs/claude-report'
 
 const kindLabels = { actual: '확정 청구액', estimate: '예상 사용액', topup: '충전액', budget: '월 예산' }
 const environmentLabels = { production: '운영', development: '개발', test: '테스트' }
@@ -26,7 +27,7 @@ export function CostDashboard() {
   const [note, setNote] = useState('')
   const query = useQuery({
     queryKey: ['costs', month, environment],
-    queryFn: async (): Promise<{ entries: CostEntry[]; usage: UsageGroup[]; tracking: boolean }> => {
+    queryFn: async (): Promise<{ entries: CostEntry[]; usage: UsageGroup[]; tracking: boolean; claudeReport?: ClaudeReport | null; claudeTail?: UsageGroup[] }> => {
       const response = await fetch(`/api/admin/costs?month=${month}&environment=${environment}`)
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || '비용을 불러오지 못했습니다.')
@@ -50,7 +51,7 @@ export function CostDashboard() {
       const response = await fetch('/api/admin/costs/sync', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month }) })
       const data = await response.json()
       // Reload saved snapshots even when provider synchronization failed.
-      await queryClient.invalidateQueries({ queryKey: ['cost-connections', month] })
+      await Promise.all([queryClient.invalidateQueries({ queryKey: ['cost-connections', month] }), queryClient.invalidateQueries({ queryKey: ['costs', month] })])
       if (!response.ok) throw new Error(data.error || '업체 비용 갱신에 실패했습니다.')
       return data
     }, retry: false, staleTime: 300_000, refetchOnWindowFocus: true,
@@ -87,15 +88,15 @@ export function CostDashboard() {
   const entries = query.data?.entries ?? []
   return <div className="@container mx-auto max-w-6xl space-y-5 rounded-[20px] bg-[var(--share-canvas)] p-4 pb-8 text-[var(--share-ink)] sm:p-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
-      <div><p className="mb-2 text-xs font-semibold text-[var(--share-muted)]">운영 현황 / 비용</p><h1 className="text-[23px] font-bold tracking-tight">비용 대시보드</h1><p className="mt-1 text-sm text-[var(--share-muted)]">지금까지 쓴 만큼, 청구 전에 확인하세요.</p></div>
+      <div><p className="mb-2 text-xs font-semibold text-[var(--share-muted)]">운영 현황 / 비용</p><h1 className="text-[23px] font-bold tracking-tight">비용 대시보드</h1><p className="mt-1 text-sm text-[var(--share-muted)]">서비스별 사용량과 비용을 한곳에서 확인하세요.</p></div>
       <div className="flex flex-wrap gap-2">
         <Input className="w-40" type="month" aria-label="조회 월" value={month} onChange={e => setMonth(e.target.value)} />
         <select aria-label="환경" className={selectStyle} value={environment} onChange={e => setEnvironment(e.target.value)}>{Object.entries(environmentLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
         <Button variant="outline" onClick={() => { void query.refetch(); void sync() }}>새로고침</Button>
       </div>
     </div>
-    <p className="text-xs text-[var(--share-muted)]">{month === koreanMonth() ? '화면이 활성화된 동안 예상 비용·사용량은 15초, 업체 비용은 5분마다 자동 갱신합니다.' : '과거 월은 새로고침으로 갱신할 수 있습니다.'} 한국 시간 기준{query.dataUpdatedAt > 0 && <> · 사용량 조회 {new Date(query.dataUpdatedAt).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul' })}</>}</p>
-    <CostOverview usage={query.data?.usage ?? []} snapshots={connections.data?.snapshots ?? []} loading={query.isPending} tracking={query.data?.tracking ?? false} failed={!!query.error} />
+    <p className="text-xs text-[var(--share-muted)]">{month === koreanMonth() ? '앱 최근 기록은 15초, 업체 보고서는 5분마다 자동 갱신합니다.' : '과거 월은 새로고침으로 갱신할 수 있습니다.'} Claude 조직 보고서 UTC · 앱 기능 기록 한국 시간{query.dataUpdatedAt > 0 && <> · 조회 {new Date(query.dataUpdatedAt).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul' })}</>}</p>
+    <CostOverview environment={environment} usage={query.data?.usage ?? []} snapshots={connections.data?.snapshots ?? []} report={query.data?.claudeReport ?? null} tail={query.data?.claudeTail ?? []} loading={query.isPending} tracking={query.data?.tracking ?? false} failed={!!query.error} />
     {query.isPending && <p role="status">비용 데이터를 불러오는 중입니다.</p>}
     {query.error && <p role="alert" className="rounded-xl bg-[var(--share-red-bg)] p-4 text-sm text-[var(--share-red)]">{query.error.message}</p>}
     {connections.error && <p role="alert" className="text-sm text-[var(--share-red)]">{connections.error.message}</p>}

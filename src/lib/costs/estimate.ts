@@ -18,17 +18,27 @@ const rates: Record<string, readonly [number, number, number, number]> = {
   'claude-haiku-4-5': [1, 5, 0.1, 1.25],
 }
 
+export function claudeTokenCost(model: string, tokens: { input: number; output: number; read: number; write: number; writeHour?: number }, options: { tier?: string | null; geo?: string | null; speed?: string | null; context?: string | null } = {}) {
+  const canonical = model.replace(/-\d{8}$/, '')
+  const price = rates[canonical]
+  const values = [tokens.input, tokens.output, tokens.read, tokens.write, tokens.writeHour ?? 0]
+  if (!price || values.some(n => typeof n !== 'number' || !Number.isFinite(n) || n < 0)) return null
+  if (options.tier && !['standard', 'batch'].includes(options.tier)) return null
+  if (options.geo && !['global', 'us', 'not_available'].includes(options.geo)) return null
+  if (options.speed && !['standard', 'fast'].includes(options.speed)) return null
+  if (options.context === '200k-1M' && /(?:sonnet|opus)-4-5|haiku/.test(canonical)) return null
+  if (options.speed === 'fast' && !['claude-opus-5', 'claude-opus-5-5'].includes(canonical)) return null
+  const factor = (options.tier === 'batch' ? 0.5 : 1) * (options.geo === 'us' ? 1.1 : 1) * (options.speed === 'fast' ? 2 : 1)
+  return (values[0] * price[0] + values[1] * price[1] + values[2] * price[2] + values[3] * price[3] + values[4] * price[0] * 2) / 1_000_000 * factor
+}
+
 export type UsageEstimate = { row: UsageGroup; amount: number | null; currency: 'USD' | 'KRW'; reason: string | null }
 
 /** Missing/unknown buckets are excluded, never silently priced as zero. No FX conversion. */
 export function estimateUsageRow(row: UsageGroup): UsageEstimate | null {
   if (row.provider === 'claude') {
-    const price = rates[row.model.replace(/-\d{8}$/, '')]
-    const buckets = [row.input_tokens, row.output_tokens, row.cache_read_tokens, row.cache_write_tokens]
-    if (!price || buckets.some(n => typeof n !== 'number' || !Number.isFinite(n) || n < 0)) {
-      return { row, amount: null, currency: 'USD', reason: price ? '토큰 기록 확인 필요' : '모델 단가 미등록' }
-    }
-    return { row, amount: buckets.reduce((sum, tokens, i) => sum + tokens * price[i], 0) / 1_000_000, currency: 'USD', reason: null }
+    const amount = claudeTokenCost(row.model, { input: row.input_tokens, output: row.output_tokens, read: row.cache_read_tokens, write: row.cache_write_tokens })
+    return { row, amount, currency: 'USD', reason: amount === null ? '모델 단가·토큰 기록 확인 필요' : null }
   }
   if (row.provider === 'naver') {
     // The app sends one General text OCR image per request. Legacy events count requests,

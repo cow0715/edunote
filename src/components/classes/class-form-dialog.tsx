@@ -1,5 +1,7 @@
 'use client'
 
+import hoverStyles from '@/components/ui/backoffice-interactions.module.css'
+
 import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -117,10 +119,11 @@ export function ClassFormDialog({ open, onClose, editTarget }: Props) {
                 <button
                   key={key}
                   type="button"
+                  aria-pressed={classType === key}
                   onClick={() => setClassType(key)}
-                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors
+                  className={`${hoverStyles.choice} rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors
                     ${classType === key
-                      ? 'bg-primary text-white border-primary'
+                      ? 'bg-[var(--control-selected)] text-[var(--control-on-selected)] border-ring'
                       : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
                     }`}
                 >
@@ -202,10 +205,11 @@ export function ClassFormDialog({ open, onClose, editTarget }: Props) {
                 <button
                   key={key}
                   type="button"
+                  aria-pressed={scheduleDays.includes(key)}
                   onClick={() => toggleDay(key)}
-                  className={`flex h-9 w-9 items-center justify-center rounded-lg text-sm font-medium transition-colors border
+                  className={`${hoverStyles.choice} flex h-9 w-9 items-center justify-center rounded-lg text-sm font-medium transition-colors border
                     ${scheduleDays.includes(key)
-                      ? 'bg-primary text-white border-primary'
+                      ? 'bg-[var(--control-selected)] text-[var(--control-on-selected)] border-ring'
                       : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
                     }`}
                 >

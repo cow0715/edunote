@@ -1,5 +1,7 @@
 'use client'
 
+import hoverStyles from '@/components/ui/backoffice-interactions.module.css'
+
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, FileText, Loader2, MessageSquare, RefreshCw, Search, Send, Users } from 'lucide-react'
 import { toast } from 'sonner'
@@ -360,9 +362,10 @@ export default function ReportDispatchPage() {
                 <button
                   key={tab.value}
                   type="button"
+                  aria-pressed={kind === tab.value}
                   onClick={() => changeKind(tab.value)}
                   className={cn(
-                    'rounded-full px-4 py-2 text-sm font-extrabold transition',
+                    'rounded-full px-4 py-2 text-sm font-extrabold transition', hoverStyles.choice, hoverStyles.compactChoice,
                     kind === tab.value ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground' : 'text-slate-500 hover:text-[var(--legacy-blue)]',
                   )}
                 >
@@ -449,9 +452,10 @@ export default function ReportDispatchPage() {
                     <button
                       key={recipient}
                       type="button"
+                      aria-pressed={recipients[recipient]}
                       onClick={() => setRecipients((prev) => ({ ...prev, [recipient]: !prev[recipient] }))}
                       className={cn(
-                        'rounded-full px-3 py-2 text-sm font-extrabold transition',
+                        'rounded-full px-3 py-2 text-sm font-extrabold transition', hoverStyles.choice, hoverStyles.compactChoice,
                         recipients[recipient] ? 'bg-[#2463EB] text-white dark:bg-accent dark:text-accent-foreground' : 'bg-slate-100 text-slate-500 hover:bg-blue-50',
                       )}
                     >
