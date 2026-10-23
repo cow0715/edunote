@@ -16,6 +16,7 @@ export type ExamBank = {
 }
 
 export type ExamBankQuestion = {
+  source_images?: import('@/lib/source-region').SourceImage[]
   id: string
   exam_bank_id: string
   question_number: number

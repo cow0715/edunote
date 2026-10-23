@@ -5,12 +5,32 @@ import { CostOverview } from '@/app/(admin)/settings/costs/cost-overview'
 import { costReportFixture } from '../fixtures/cost-report'
 afterEach(cleanup)
 describe('service cost workspace', () => {
+  it('puts cost totals first and shows Supabase quotas only when selected', () => {
+    const { container } = render(<CostOverview usage={[]} snapshots={[]} loading={false} tracking failed={false} />)
+    const summary = screen.getByLabelText('이번 달 비용 요약')
+    const table = screen.getByRole('list', { name: '서비스별 사용량과 비용' })
+    expect(summary.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(container.querySelector('.cost-visual')?.firstElementChild?.contains(summary)).toBe(true)
+    expect(screen.queryByRole('region', { name: 'Supabase 무료 한도' })).toBeNull()
+    const button = within(table).getByRole('button', { name: 'Supabase' })
+    fireEvent.click(button)
+    expect(screen.getByRole('region', { name: 'Supabase 무료 한도' })).toBeTruthy()
+    fireEvent.click(button)
+    expect(screen.queryByRole('region', { name: 'Supabase 무료 한도' })).toBeNull()
+    expect(within(table).getAllByRole('button')).toHaveLength(6)
+  })
   it('keeps all six services visible and opens one detail with usage and separate cost sources', () => {
     render(<CostOverview usage={[]} report={costReportFixture()} snapshots={[
       { provider: 'gcp', metric: 'worker_executions', currency: 'COUNT', amount: 15, status: 'ok', updated_at: '2026-10-22T12:00:00Z' },
       { provider: 'solapi', metric: 'balance', currency: 'KRW', amount: 19733, status: 'ok', updated_at: '2026-10-22T12:00:00Z' },
     ]} loading={false} tracking failed={false} />)
-    const list = within(screen.getByRole('table', { name: '서비스별 사용량과 비용' }))
+    const list = within(screen.getByRole('list', { name: '서비스별 사용량과 비용' }))
+    expect(list.getAllByRole('listitem')).toHaveLength(6)
+    expect(screen.queryByRole('table', { name: '서비스별 사용량과 비용' })).toBeNull()
+    for (const card of list.getAllByRole('button')) {
+      expect(within(card).getByText(/실제 비용 ·/)).toBeTruthy()
+      expect(within(card).getByText('예상 비용 · 청구 전')).toBeTruthy()
+    }
     expect(list.getByText('15회 실행')).toBeTruthy()
     for (const name of ['Claude', '네이버 CLOVA', 'GCP', 'Supabase', 'SOLAPI', 'Vercel']) expect(list.getByRole('button', { name })).toBeTruthy()
     fireEvent.click(list.getByRole('button', { name: 'GCP' }))
@@ -28,13 +48,13 @@ describe('service cost workspace', () => {
     expect(screen.getByText('콘솔 확인 · 자동 수신 대기')).toBeTruthy()
     view.rerender(<CostOverview {...props} snapshots={[...snapshots, { ...snapshots[0], metric: 'monthly_cost', amount: 21 }]} />)
     expect(screen.queryByText('콘솔 확인 · 자동 수신 대기')).toBeNull()
-    expect(within(screen.getByRole('table', { name: '서비스별 사용량과 비용' })).getByText('₩21')).toBeTruthy()
+    expect(within(screen.getByRole('list', { name: '서비스별 사용량과 비용' })).getByText('₩21')).toBeTruthy()
     expect(screen.queryByText('₩41')).toBeNull()
   })
   it('shows provider SMS counts and spend while keeping Supabase plan and old invoice outside monthly totals', () => {
     const snapshot = { provider: 'solapi', metric: 'monthly_cost', currency: 'KRW', amount: 12652.2, status: 'ok', updated_at: '2026-10-23T00:00:00Z' }
     render(<CostOverview usage={[]} snapshots={[snapshot, { ...snapshot, metric: 'sms_succeeded', currency: 'COUNT', amount: 330 }, { ...snapshot, provider: 'supabase', metric: 'plan_free', currency: 'USD', amount: 0 }, { ...snapshot, provider: 'supabase', metric: 'invoice_last_amount', currency: 'USD', amount: 999 }, { ...snapshot, provider: 'supabase', metric: 'monthly_cost', currency: 'USD', amount: 999 }]} loading={false} tracking failed={false} />)
-    const table = within(screen.getByRole('table', { name: '서비스별 사용량과 비용' }))
+    const table = within(screen.getByRole('list', { name: '서비스별 사용량과 비용' }))
     expect(table.getByText('330건 문자 발송 성공')).toBeTruthy()
     expect(table.getByText('₩12,652.2')).toBeTruthy()
     expect(table.getByText('Free')).toBeTruthy()

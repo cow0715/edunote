@@ -24,7 +24,7 @@ export async function recoverExamEntries<T>(options: {
     const group = llmCallKey(initial, execution), calls: RangedCallStats[] = []
     let issue: ExamImportIssue = { stage, question_number: number, code: 'missing', reason: '요청한 번호의 결과가 없습니다.', attempts: 0 }
     for (let attempt = 0; attempt < PDF_BATCH_REQUEST_ATTEMPTS; attempt++) {
-      const repair = attempt ? `\n[누락 복구 ${attempt}/2] 앞선 결과를 사용하지 말고 원본에서 ${number}번과 공유 지문을 다시 확인하세요. 해당 번호 객체를 빠짐없이 반환하고 JSON 배열만 출력하세요. 원본에 없는 내용은 만들지 마세요.${stage === 'questions' ? '\n도표·그래프라 기존 규칙상 제외하는 경우에만 [{"question_number":' + number + ',"excluded_reason":"chart"}]를 반환하세요. 단순히 찾지 못한 문항을 도표로 분류하지 마세요.' : ''}` : ''
+      const repair = attempt ? `\n[누락 복구 ${attempt}/2] 앞선 결과를 사용하지 말고 원본에서 ${number}번과 공유 지문을 다시 확인하세요. 해당 번호 객체를 빠짐없이 반환하고 JSON 배열만 출력하세요. 원본에 없는 내용은 만들지 마세요.${stage === 'questions' ? '\n도표·그래프 문항도 제외하지 말고 발문·선지와 needs_source_image, source_page, source_bbox를 반환하세요. 수치·그림을 텍스트로 지어내지 마세요.' : ''}` : ''
       if (attempt) await reportPdfStage(`${stage === 'questions' ? '문제' : '해설'} ${number}번 누락 복구 중 (${attempt + 1}/3)`)
       issue = { ...issue, attempts: attempt + 1 }
       try {

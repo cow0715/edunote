@@ -5,12 +5,13 @@ import type { PdfImportJob } from '@/lib/pdf-import/types'
 import { createCallLimiter, withPdfWorkerContext, type PdfWorkerContext } from '@/lib/pdf-import/context'
 import { PdfBatchPending } from '@/lib/pdf-import/batch-policy'
 
-const mocks = vi.hoisted(() => ({ stats: vi.fn(), sync: vi.fn(), download: vi.fn() }))
+const mocks = vi.hoisted(() => ({ stats: vi.fn(), sync: vi.fn(), download: vi.fn(), images: vi.fn() }))
 vi.mock('@anthropic-ai/sdk', () => ({ default: class { constructor() { throw Error('Unexpected synchronous/paid API call') } } }))
 vi.mock('@/lib/megastudy', () => ({ getMegastudyStats: mocks.stats }))
 vi.mock('@/lib/exam-vocabulary', () => ({ mergeExamVocabularyText: (_a: unknown, text: string) => text, syncExamQuestionVocabulary: mocks.sync }))
 vi.mock('@/lib/week-reading-import', () => ({}))
 vi.mock('@/lib/pdf-import/server', () => ({ weekImportSnapshot: vi.fn() }))
+vi.mock('@/lib/bank-source-images', () => ({ saveBankSourceImages: mocks.images }))
 import { runPdfImport } from '@/lib/pdf-import/handlers'
 
 const words = Array.from({ length: 28 }, (_, i) => ['a', 'b', 'c'].map((suffix) => `word${i + 18}${suffix}`)).flat()
@@ -140,19 +141,23 @@ describe('exam import across durable Batch wakeups, with real parsers and mocked
     expect(await f.run()).toEqual(result)
     expect(f.pending.size).toBe(0); expect(f.deliveries.size).toBe(count); expect(f.writes()).toEqual(writes)
   })
-  it('does not silently exempt number 25 and records only an explicit chart exclusion', async () => {
+  it('recovers a missing chart and retains its source-image metadata without rerunning completed image storage', async () => {
     const f = fixture()
     await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
     f.deliver((_o, n, response) => n === 25 ? { ...response, text: '[]' } : response)
     await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
     expect(f.pending.size).toBe(1)
-    f.deliver((_o, n, response) => ({ ...response, text: JSON.stringify([{ question_number: n, excluded_reason: 'chart' }]) }))
+    f.deliver((_o, n, response) => ({ ...response, text: JSON.stringify([{ ...JSON.parse(response.text)[0], question_number: n, question_type: 'chart',
+      question_text: '다음 도표의 내용과 일치하지 않는 것은?', passage: '', needs_source_image: true, source_page: 3, source_bbox: { x: 0.1, y: 0.2, width: 0.4, height: 0.6 } }]) }))
     await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
-    expect(f.pending.size).toBe(27)
-    expect(f.questions.has(25)).toBe(false)
-    expect([...f.pending.values()].some((o) => JSON.stringify(o.content).includes('출력하세요: 25번'))).toBe(false)
+    expect(f.pending.size).toBe(28)
+    expect(f.questions.get(25)).toMatchObject({ passage: '', question_type: 'chart' })
+    expect([...f.pending.values()].some((o) => JSON.stringify(o.content).includes('출력하세요: 25번'))).toBe(true)
+    expect(mocks.images).toHaveBeenCalledWith(expect.anything(), 'exam', expect.any(String), expect.arrayContaining([expect.objectContaining({
+      question_number: 25, needs_source_image: true, source_page: 3, source_bbox: { x: 0.1, y: 0.2, width: 0.4, height: 0.6 } })]))
     f.deliver(); await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
-    f.deliver(); expect(await f.run()).toMatchObject({ exam_incomplete: false, issues: [], excluded_questions: [{ question_number: 25, reason: expect.stringContaining('도표') }] })
+    f.deliver(); expect(await f.run()).toMatchObject({ exam_incomplete: false, issues: [], excluded_questions: [], question_count: 28 })
+    expect(mocks.images).toHaveBeenCalledTimes(1)
   })
   it('keeps explanation-only omissions separate from questions and never retries successful explanations', async () => {
     const f = fixture(6, true)

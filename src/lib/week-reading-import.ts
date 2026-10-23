@@ -1,3 +1,4 @@
+import { regionPixels, validSourceRegion } from './source-region'
 import { assertPreservableReadingReparse } from '@/lib/preserve-reading-reparse'
 import type { SupabaseServerClient } from '@/lib/api'
 import { buildQuestionTextFromParts, ensureChoiceMarker } from '@/lib/question-structure'
@@ -677,17 +678,8 @@ async function cropSourceImage(
 ): Promise<Buffer> {
   if (!sourceBBox) return renderedPage.buffer
 
-  const paddingRatio = 0.04
-  const left = Math.max(0, sourceBBox.x - paddingRatio)
-  const top = Math.max(0, sourceBBox.y - paddingRatio)
-  const right = Math.min(1, sourceBBox.x + sourceBBox.width + paddingRatio)
-  const bottom = Math.min(1, sourceBBox.y + sourceBBox.height + paddingRatio)
-  const crop = {
-    left: Math.floor(left * renderedPage.width),
-    top: Math.floor(top * renderedPage.height),
-    width: Math.ceil((right - left) * renderedPage.width),
-    height: Math.ceil((bottom - top) * renderedPage.height),
-  }
+  if (!validSourceRegion(sourceBBox)) return renderedPage.buffer
+  const crop = regionPixels(sourceBBox, renderedPage.width, renderedPage.height)
 
   if (crop.width < 24 || crop.height < 24) return renderedPage.buffer
 

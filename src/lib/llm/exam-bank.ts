@@ -8,6 +8,7 @@ import { EXPLANATION_WRITING_RULES } from './material-enrichment-contract'
 import { getPdfWorkerContext } from '../pdf-import/context'
 import { recoverExamEntries } from './exam-bank-recovery'
 import type { ExamImportExclusion, ExamImportIssue } from '../pdf-import/exam-completeness'
+import { needsVisualSource } from '../source-region'
 
 export type ExamBankParsedQuestion = {
   question_number: number
@@ -16,6 +17,9 @@ export type ExamBankParsedQuestion = {
   question_text: string
   choices: string[]
   answer: string
+  needs_source_image?: boolean
+  source_page?: number | null
+  source_bbox?: import('../source-region').SourceRegion | null
 }
 
 export async function parseExamBankPage(
@@ -55,10 +59,8 @@ export type ExamBankRangedResult = {
   excludedQuestions?: ExamImportExclusion[]
 }
 
-/**
- * 도표 문항 껍데기 판별: "범위 지시"가 프롬프트의 도표 제외 규칙을 이기고
- * 지문 없는 도표 문항을 출력하는 경우가 실측됨(모평 25번) — 프롬프트에 맡기지 않고 코드로 거른다.
- */
+/** A chart may legitimately have no text passage. Kept for diagnostics only;
+ * the parser must retain this question and attach the original PDF region. */
 export function isChartShellQuestion(question: Pick<ExamBankParsedQuestion, 'passage' | 'question_text'>): boolean {
   return !(question.passage ?? '').trim() && /도표|그래프/.test(question.question_text ?? '')
 }
@@ -76,11 +78,10 @@ export async function parseExamBankPageRanged(
   const batch = !!getPdfWorkerContext()?.batchCall
   if (batch) return recoverExamEntries<ExamBankParsedQuestion>({ files, task, execution, prompt: EXAM_BANK_PARSE_RULES, maxTokens: 8192,
     numbers: EXAM_BANK_NUMBER_GROUPS.flat(), inspect: (item) => {
-      if (item.excluded_reason === 'chart' || item.question_type === 'chart' ||
-        (typeof item.question_text === 'string' && isChartShellQuestion({ passage: typeof item.passage === 'string' ? item.passage : '', question_text: item.question_text }))) {
-        return { exclusion: '도표·그래프 문항은 기존 텍스트 추출 대상에서 제외합니다.' }
-      }
-      if (typeof item.question_text !== 'string' || !item.question_text.trim() || typeof item.passage !== 'string' || !item.passage.trim() ||
+      const visual = needsVisualSource({ needs_source_image: item.needs_source_image === true,
+        question_type: typeof item.question_type === 'string' ? item.question_type : undefined,
+        question_text: typeof item.question_text === 'string' ? item.question_text : undefined })
+      if (typeof item.question_text !== 'string' || !item.question_text.trim() || typeof item.passage !== 'string' || (!visual && !item.passage.trim()) ||
         typeof item.question_type !== 'string' || !item.question_type.trim() || !Array.isArray(item.choices) || item.choices.length !== 5 ||
         item.choices.some((choice) => typeof choice !== 'string' || !choice.trim())) return { reason: '지문·발문·문항 유형 또는 선지 5개가 누락됐습니다.' }
       return { item: { ...item, question_number: Number(item.question_number), answer: '' } as ExamBankParsedQuestion }
@@ -98,7 +99,6 @@ export async function parseExamBankPageRanged(
   const byNumber = new Map<number, ExamBankParsedQuestion>()
   for (const part of parts) {
     for (const item of part.items) {
-      if (isChartShellQuestion(item)) continue
       if (!byNumber.has(item.question_number)) byNumber.set(item.question_number, item)
     }
   }

@@ -1,3 +1,4 @@
+import { saveBankSourceImages } from '@/lib/bank-source-images'
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { parseExamBankPageRanged } from '@/lib/anthropic'
@@ -151,6 +152,7 @@ export async function POST(request: Request) {
       return err(`문항 저장 실패: ${insertError.message}`)
     }
 
+    await saveBankSourceImages(supabase, exam.id, file.fileData, questions)
     const statsFetched = await fetchAndApplyStats(supabase, exam.id, { grade, exam_year, exam_month, form_type })
 
     return ok({

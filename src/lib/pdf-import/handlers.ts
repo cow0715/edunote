@@ -1,3 +1,4 @@
+import { saveBankSourceImages } from '../bank-source-images'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { parseExamBankPageRanged, parsePdfExplanationsHakpyungRanged, parsePdfExplanationsWithClaudeRanged } from '../anthropic'
 import { getMegastudyStats } from '../megastudy'
@@ -59,6 +60,7 @@ async function importBankQuestions(client: SupabaseClient, job: PdfImportJob, fi
   if (rows.length) {
     const { error } = await client.from('exam_bank_question').upsert(rows, { onConflict: 'exam_bank_id,question_number' })
     if (error) throw new Error(`문항 저장 실패: ${error.message}`)
+    await saveBankSourceImages(client, job.target_id, fileData, parsed.items)
   }
   await reportPdfStage('시험 통계를 확인하는 중')
   let statsFetched = 0

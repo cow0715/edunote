@@ -27,6 +27,7 @@ export const bookBlindCheckSchema = z.object({
 }).strict()
 export type BookBlindCheck = z.infer<typeof bookBlindCheckSchema>
 export type BookVerification = {
+  source_regions?: import('./visual-regions').BookVisualRegion[]
   protocol: 1 | 2; status: 'pending' | 'passed' | 'unresolved'; attempts: number; models: string[]; issues: string[];
   source_hash: string; pdf_hash: string; extraction_hash: string | null; checks: BookBlindCheck['checks'] | null
   pipeline?: 'native-image-v1'; exhausted?: boolean; enrichment_hash?: string; recovery_revision?: number;

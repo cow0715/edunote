@@ -1,0 +1,57 @@
+.cost-visual {
+  --cost-blue: #2563eb;
+  --cost-purple: #7c3aed;
+  --cost-teal: #087f73;
+  --cost-orange: #b95c24;
+}
+.dark .cost-visual, [data-theme="dark"] .cost-visual {
+  --cost-blue: #85b4ff;
+  --cost-purple: #c0a0ff;
+  --cost-teal: #68d8c3;
+  --cost-orange: #ffc18e;
+}
+.cost-visual [data-cost-tone="blue"] { --cost-accent: var(--cost-blue); }
+.cost-visual [data-cost-tone="purple"] { --cost-accent: var(--cost-purple); }
+.cost-visual [data-cost-tone="teal"] { --cost-accent: var(--cost-teal); }
+.cost-visual [data-cost-tone="orange"] { --cost-accent: var(--cost-orange); }
+.cost-visual .cost-tile {
+  border: 1px solid color-mix(in srgb, var(--cost-accent) 16%, transparent);
+  background: color-mix(in srgb, var(--cost-accent) 5%, var(--share-canvas));
+  border-radius: 18px;
+  padding: 20px;
+}
+.cost-visual .cost-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  color: var(--cost-accent);
+  background: color-mix(in srgb, var(--cost-accent) 12%, transparent);
+  flex-shrink: 0;
+}
+.cost-visual .cost-accent { color: var(--cost-accent); }
+.cost-visual .cost-meter { background: var(--cost-accent); }
+.cost-visual .cost-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--share-muted);
+  background: var(--share-box);
+}
+.cost-visual .cost-badge[data-state="ok"] { color: var(--cost-teal); background: color-mix(in srgb, var(--cost-teal) 10%, transparent); }
+.cost-visual .cost-badge[data-state="error"] { color: var(--share-red); background: var(--share-red-bg); }
+
+.cost-visual .cost-summary { position: relative; padding: 18px 20px; }
+.cost-visual .cost-summary > .cost-icon { position: absolute; top: 18px; right: 20px; }
+.cost-visual .cost-summary > p:first-of-type { margin-top: 0; padding-right: 44px; }
+
+.cost-visual .cost-service-card { transition: border-color 150ms, background-color 150ms; }
+.cost-visual .cost-service-card:hover, .cost-visual .cost-service-selected { border-color: var(--cost-accent); }
+.cost-visual .cost-service-selected { outline: 2px solid var(--cost-accent); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) { .cost-visual .cost-service-card { transition: none; } }

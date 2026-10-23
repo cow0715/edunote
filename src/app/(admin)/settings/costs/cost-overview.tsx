@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import './cost-visual.css'
 import { ServiceOverview } from './service-overview'
 import { SupabaseQuota } from './supabase-quota'
 import { ArrowUpRight } from 'lucide-react'
@@ -27,9 +28,9 @@ export function CostOverview({ usage, snapshots, report = null, tail = [], loadi
     read: sum.read + row.cache_read_tokens, write: sum.write + row.cache_write_tokens,
   }), { input: 0, output: 0, read: 0, write: 0 })
   const breakdown = claude.items.filter(item => item.amount !== null).sort((a, b) => b.amount! - a.amount!)
-  return <>
-    <SupabaseQuota snapshots={snapshots} environment={environment} />
+  return <div className="cost-visual space-y-5">
     <ServiceOverview usage={usage} snapshots={snapshots} report={report} tail={tail} selected={selected} onSelect={setSelected} loading={loading} failed={failed} environment={environment} />
+    {selected === 'supabase' && <SupabaseQuota snapshots={snapshots} environment={environment} />}
     {selected === 'claude' && <ClaudeConsoleReport report={report} tail={tail} />}
     <details className={panel}><summary className="cursor-pointer text-sm font-semibold">앱 기능별 기록·OCR 계산 기준 <span className={`ml-2 text-xs font-normal ${muted}`}>기록 활성화 이후 일부 호출만 포함</span></summary>
     <div className="mt-4 grid items-start gap-4 @min-[860px]:grid-cols-[1.6fr_1fr]">
@@ -55,5 +56,5 @@ export function CostOverview({ usage, snapshots, report = null, tail = [], loadi
         <details className="mt-5 border-t border-[var(--share-line-strong)] pt-4"><summary className="cursor-pointer text-xs font-semibold">단가와 계산 범위 보기</summary><div className={`mt-3 space-y-3 text-xs leading-relaxed ${muted}`}><p>앱 기능별 기록은 일반 API·5분 캐시 단가로 환산한 일부 사용량입니다. 조직 보고서는 과거 기록을 복원하고 확인 가능한 Batch 할인·1시간 캐시·US 지역·Fast 요율을 적용합니다. 추가 도구 비용·별도 계약·세금·아직 업체에 반영되지 않은 사용량에 따라 차이가 남을 수 있습니다.</p><p>단가 확인일 {PRICING_CHECKED_AT}. 단가를 모르는 모델·OCR 상품은 계산에서 제외합니다.</p><a href={CLAUDE_PRICING_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[var(--share-blue)]">Claude 공식 단가<ArrowUpRight size={12} /></a><a href={CLOVA_PRICING_URL} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[var(--share-blue)]">CLOVA 공식 단가<ArrowUpRight size={12} /></a></div></details>
       </section>
     </div></details>
-  </>
+  </div>
 }

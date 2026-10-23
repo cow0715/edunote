@@ -1,3 +1,6 @@
+import { withTeacherTransaction } from '@/lib/db/transaction'
+import { saveErrorResponse } from '@/lib/db/errors'
+import { publishMonthlyBatch, publishMockBatch } from '@/lib/services/report-dispatch'
 import { err, getAuth, getTeacherId, ok } from '@/lib/api'
 import { assertMockExamOwner } from '@/lib/mock-exam-server'
 import { getMonthlyPeriod } from '@/lib/report-card'
@@ -44,56 +47,6 @@ type MockResultRow = {
   grade: number | null
   student?: StudentPhone | StudentPhone[] | null
   mock_exam_report?: MockReportRow | MockReportRow[] | null
-}
-
-type MockExamRow = {
-  id: string
-  title: string
-  exam_year: number
-  exam_month: number
-  grade: number | null
-  source: string
-  exam_date: string | null
-}
-
-type ResultForSnapshot = {
-  id: string
-  mock_exam_id: string
-  student_id: string
-  raw_score: number | null
-  grade: number | null
-  listening_correct: number
-  listening_total: number
-  reading_correct: number
-  reading_total: number
-  type_analysis: Record<string, unknown>
-  teacher_comment: string | null
-  student?: { id: string; name: string; school: string | null; grade: string | null } | { id: string; name: string; school: string | null; grade: string | null }[] | null
-  mock_exam?: MockExamRow | MockExamRow[] | null
-  mock_exam_student_answer?: {
-    student_answer: string | null
-    is_correct: boolean
-    earned_points: number
-    mock_exam_question?: {
-      question_number: number
-      correct_answer: string
-      points: number
-      section: string
-      question_type: string
-      difficulty: string
-      is_void: boolean
-      all_correct: boolean
-    } | {
-      question_number: number
-      correct_answer: string
-      points: number
-      section: string
-      question_type: string
-      difficulty: string
-      is_void: boolean
-      all_correct: boolean
-    }[] | null
-  }[]
 }
 
 type DispatchBody = {
@@ -156,78 +109,6 @@ function renderMockMessage(template: string, args: { studentName: string; examTi
     .replaceAll('{학생명}', args.studentName)
     .replaceAll('{시험명}', args.examTitle)
     .replaceAll('{성적표링크}', args.reportUrl)
-}
-
-async function publishMockExamReport(supabase: Awaited<ReturnType<typeof getAuth>>['supabase'], mockExamId: string, resultId: string) {
-  const { data, error } = await supabase
-    .from('mock_exam_result')
-    .select(`
-      *,
-      student(id, name, school, grade),
-      mock_exam(id, title, exam_year, exam_month, grade, source, exam_date),
-      mock_exam_student_answer(
-        student_answer, is_correct, earned_points,
-        mock_exam_question(question_number, correct_answer, points, section, question_type, difficulty, is_void, all_correct)
-      )
-    `)
-    .eq('id', resultId)
-    .eq('mock_exam_id', mockExamId)
-    .single()
-
-  if (error || !data) throw new Error(error?.message ?? '성적 결과를 찾을 수 없습니다')
-
-  const result = data as unknown as ResultForSnapshot
-  const exam = one(result.mock_exam)
-  const student = one(result.student)
-  if (!exam || !student) throw new Error('성적표 링크 생성에 필요한 정보가 부족합니다')
-
-  const wrongAnswers = (result.mock_exam_student_answer ?? [])
-    .map((answer) => ({
-      ...answer,
-      mock_exam_question: one(answer.mock_exam_question),
-    }))
-    .filter((answer) => answer.mock_exam_question && !answer.mock_exam_question.is_void && !answer.is_correct)
-    .sort((a, b) => (a.mock_exam_question?.question_number ?? 0) - (b.mock_exam_question?.question_number ?? 0))
-
-  const snapshot = {
-    version: 1,
-    generated_at: new Date().toISOString(),
-    exam,
-    student,
-    score: {
-      raw_score: result.raw_score,
-      grade: result.grade,
-      listening_correct: result.listening_correct,
-      listening_total: result.listening_total,
-      reading_correct: result.reading_correct,
-      reading_total: result.reading_total,
-      type_analysis: result.type_analysis,
-    },
-    cohort: null,
-    wrong_answers: wrongAnswers,
-    teacher_comment: result.teacher_comment,
-  }
-
-  const { data: report, error: reportError } = await supabase
-    .from('mock_exam_report')
-    .upsert({
-      mock_exam_result_id: result.id,
-      snapshot_json: snapshot,
-      status: 'published',
-      published_at: new Date().toISOString(),
-      revoked_at: null,
-    }, { onConflict: 'mock_exam_result_id' })
-    .select('id, share_token, status')
-    .single()
-
-  if (reportError) throw new Error(reportError.message)
-
-  await supabase
-    .from('mock_exam_result')
-    .update({ status: 'published', published_at: new Date().toISOString() })
-    .eq('id', result.id)
-
-  return report as MockReportRow
 }
 
 async function getActiveStudents(supabase: Awaited<ReturnType<typeof getAuth>>['supabase'], teacherId: string, classId: string | null) {
@@ -478,66 +359,15 @@ export async function POST(request: Request) {
       if (classQuery.error) return err(classQuery.error.message, 500)
       const students = studentQuery.data
       const classById = new Map(((classQuery.data ?? []) as DispatchClass[]).map((cls) => [cls.id, cls]))
-      pairs = pairs.filter((pair) => classById.has(pair.class_id))
-      if (pairs.length === 0) return err('전송할 학생을 선택해 주세요')
 
-      const selectCards = () => supabase
-        .from('report_card')
-        .select('id, student_id, class_id, status, period_label, share_token')
-        .eq('teacher_id', teacherId)
-        .eq('period_type', 'monthly')
-        .eq('period_start', period.start)
-        .eq('period_end', period.end)
-        .in('student_id', studentIds)
-      const buildCardMap = (rows: unknown[] | null) => new Map(
-        ((rows ?? []) as ReportCardRow[])
-          .filter((card) => card.class_id)
-          .map((card) => [`${card.student_id}:${card.class_id}`, card]),
-      )
-
-      const cardQuery = await selectCards()
-      if (cardQuery.error) return err(cardQuery.error.message, 500)
-      let cardByKey = buildCardMap(cardQuery.data)
-
-      const missingRows = pairs
-        .filter((pair) => !cardByKey.has(`${pair.student_id}:${pair.class_id}`))
-        .map((pair) => ({
-          teacher_id: teacherId,
-          student_id: pair.student_id,
-          class_id: pair.class_id,
-          period_type: 'monthly',
-          period_start: period.start,
-          period_end: period.end,
-          period_label: period.label,
-          highlighted_wrong_ids: [],
-          status: 'draft',
-        }))
-
-      if (missingRows.length > 0) {
-        const { error: insertError } = await supabase.from('report_card').insert(missingRows)
-        if (insertError) return err(insertError.message, 500)
-        const refetch = await selectCards()
-        if (refetch.error) return err(refetch.error.message, 500)
-        cardByKey = buildCardMap(refetch.data)
-      }
-
-      const selectedCards = pairs
-        .map((pair) => cardByKey.get(`${pair.student_id}:${pair.class_id}`))
-        .filter(Boolean) as ReportCardRow[]
-      const cardIds = selectedCards.map((card) => card.id)
-      if (cardIds.length > 0) {
-        const { error: publishError } = await supabase
-          .from('report_card')
-          .update({ status: 'published', published_at: new Date().toISOString(), revoked_at: null })
-          .eq('teacher_id', teacherId)
-          .in('id', cardIds)
-        if (publishError) return err(publishError.message, 500)
-      }
+      const publication = await withTeacherTransaction(user.id, context => publishMonthlyBatch(context, year, month, pairs))
+      const cardByKey = new Map(publication.cards.map(card => [`${card.student_id}:${card.class_id}`, card]))
+      const cardIds = publication.cards.map(card => card.id)
 
       if (action === 'publish') {
         return ok({
           published_count: cardIds.length,
-          created_count: missingRows.length,
+          created_count: publication.created_count,
         })
       }
 
@@ -610,20 +440,11 @@ export async function POST(request: Request) {
       if (!exam) return err('모의고사를 찾을 수 없습니다', 404)
       if (resultError) return err(resultError.message, 500)
 
-      const reportsByResultId = new Map<string, MockReportRow>()
-      for (const result of (results ?? []) as unknown as MockResultRow[]) {
-        const existing = reportList(result.mock_exam_report).find((report) => report.status === 'published')
-        reportsByResultId.set(result.id, existing ?? await publishMockExamReport(supabase, mockExamId, result.id))
-      }
+      const publication = await withTeacherTransaction(user.id, context => publishMockBatch(context, mockExamId, resultIds))
+      const reportsByResultId = new Map(publication.reports.map(report => [report.mock_exam_result_id, report]))
 
       if (action === 'publish') {
-        return ok({
-          published_count: reportsByResultId.size,
-          created_count: [...reportsByResultId.keys()].filter((resultId) => {
-            const result = ((results ?? []) as unknown as MockResultRow[]).find((item) => item.id === resultId)
-            return !reportList(result?.mock_exam_report).some((report) => report.status === 'published')
-          }).length,
-        })
+        return ok({ published_count: publication.reports.length, created_count: publication.created_count })
       }
 
       const reportIds = [...reportsByResultId.values()].map((report) => report.id)
@@ -714,6 +535,6 @@ export async function POST(request: Request) {
       skipped,
     })
   } catch (error) {
-    return err(error instanceof Error ? error.message : '성적표 전송 실패', 500)
+    return saveErrorResponse(error)
   }
 }
