@@ -97,3 +97,17 @@ describe('actual question-bank clipboard entry points', () => {
     expect(vi.mocked(fetch).mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true)
   })
 })
+
+
+it('reflows textbook display only and keeps the stored source and exam display intact', () => {
+  const textbook = question(1)
+  textbook.exam_bank = { ...textbook.exam_bank!, material_kind: 'textbook' }
+  const before = JSON.stringify(textbook)
+  const view = render(<QueryClientProvider client={client}><QuestionCard question={textbook} /></QueryClientProvider>)
+  const passage = view.container.querySelector('.whitespace-pre-wrap')!
+  expect(passage.textContent).toContain('long line and continues')
+  expect(passage.querySelectorAll('br')).toHaveLength(0)
+  expect(passage.querySelector('u')?.textContent).toBe('important words')
+  expect(JSON.stringify(textbook)).toBe(before)
+})
+
