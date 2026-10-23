@@ -50,3 +50,8 @@
 .cost-visual .cost-summary { position: relative; padding: 18px 20px; }
 .cost-visual .cost-summary > .cost-icon { position: absolute; top: 18px; right: 20px; }
 .cost-visual .cost-summary > p:first-of-type { margin-top: 0; padding-right: 44px; }
+
+.cost-visual .cost-service-card { transition: border-color 150ms, background-color 150ms; }
+.cost-visual .cost-service-card:hover, .cost-visual .cost-service-selected { border-color: var(--cost-accent); }
+.cost-visual .cost-service-selected { outline: 2px solid var(--cost-accent); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) { .cost-visual .cost-service-card { transition: none; } }
