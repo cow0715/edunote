@@ -108,7 +108,7 @@ export function CostDashboard() {
       {providerRefresh.data?.message && <p className="mt-2 text-xs text-[var(--share-muted)]">{providerRefresh.data.message}</p>}
       <div className="mt-4 grid gap-3 md:grid-cols-2">{services.map(service => {
         const rows = entries.filter(e => e.provider === service.id && (e.kind === 'actual' || e.kind === 'estimate'))
-        const snapshots = connections.data?.snapshots.filter(s => s.provider === service.id) ?? []
+        const snapshots = connections.data?.snapshots.filter(s => s.provider === service.id && (service.id !== 'supabase' || /^(db_bytes_|storage_bytes_|files_|metrics_)/.test(s.metric))) ?? []
         return <div key={service.id} className="rounded-xl bg-[var(--share-box)] p-4">
           <div><p className="font-semibold">{service.name}</p><p className="text-xs text-[var(--share-muted)]">{service.role}</p>{service.url && <a className="text-xs text-[var(--share-blue)] underline" href={service.url} target="_blank" rel="noreferrer">업체 콘솔 열기</a>}</div>
           <div className="mt-3 text-sm">{rows.length ? rows.map(row => <p key={row.id}>{kindLabels[row.kind]} {money(row.amount, row.currency)}</p>) : null}
