@@ -1,3 +1,8 @@
+import { randomUUID } from 'node:crypto'
+import { sql } from 'drizzle-orm'
+import { captureWeekVersion, saveWeekPlan } from '@/lib/services/week-save'
+import { insertRows, updateRows, deleteRows, type Statement } from '@/lib/db/statements'
+import { saveErrorResponse, SaveError } from '@/lib/db/errors'
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeVocabItems } from '@/lib/anthropic'
 
@@ -128,7 +133,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   return ok(wordRows.map((word) => ({ ...word, variants: variantsByWordId.get(word.id) ?? [] })))
 }
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, args: { params: Promise<{ id: string }> }) {
+  try { return await handlePost(request, args) } catch (error) { return saveErrorResponse(error) }
+}
+
+async function handlePost(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
@@ -144,26 +153,30 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!words?.length) return err('단어 없음')
   const isSourceUpload = !!sourceType
 
+  const version = await captureWeekVersion(user.id, weekId)
+  const statements: Statement[] = []
   // ── 1. 기존 vocab_word ID 조회 ────────────────────────────────────────
-  const { data: oldWords } = await supabase
+  const { data: oldWords, error: oldWordsError } = await supabase
     .from('vocab_word')
-    .select('id, number, english_word, example_sentence, example_translation, example_source')
+    .select('id, number, english_word, example_sentence, example_translation, example_distractor, example_source')
     .eq('week_id', weekId)
 
+  if (oldWordsError) throw new SaveError('기존 단어 조회 실패', 503)
   const oldRows = (oldWords ?? []) as OldWordRow[]
 
   const oldWordIds = oldRows.map((w) => w.id)
   const oldWordById = new Map(oldRows.map((w) => [w.id, w]))
-  const { data: oldTests } = await supabase
+  const { data: oldTests, error: oldTestsError } = await supabase
     .from('vocab_test')
     .select('id, title, is_active, item_count')
     .eq('week_id', weekId)
-  const { data: oldTestItems } = oldWordIds.length > 0
+  const { data: oldTestItems, error: oldTestItemsError } = oldWordIds.length > 0
     ? await supabase
         .from('vocab_test_item')
         .select('vocab_test_id, test_number, sort_order, prompt_source, prompt_text, vocab_word_id')
         .in('vocab_word_id', oldWordIds)
-    : { data: [] }
+    : { data: [], error: null }
+  if (oldTestsError || oldTestItemsError) throw new SaveError('기존 시험지 조회 실패', 503)
   const testItemsToRestore = ((oldTestItems ?? []) as OldTestItemRow[])
     .map((item) => {
       const word = oldWordById.get(item.vocab_word_id)
@@ -195,11 +208,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   let backup: AnswerBackup[] = []
 
   if (!isSourceUpload && oldWordIds.length > 0) {
-    const { data: answerRows } = await supabase
+    const { data: answerRows, error: answerRowsError } = await supabase
       .from('student_vocab_answer')
       .select('week_score_id, vocab_word_id, test_number, student_answer, is_correct, teacher_locked, retake_answer, retake_is_correct')
       .in('vocab_word_id', oldWordIds)
 
+    if (answerRowsError) throw new SaveError('기존 답안 조회 실패', 503)
     if (answerRows && answerRows.length > 0) {
       const oldWordMap = new Map(oldRows.map((w) => [w.id, w]))
       backup = answerRows
@@ -225,19 +239,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   // ── 3. 기존 vocab_word 전체 삭제 (cascade → student_vocab_answer 삭제) ──
   if (oldWordIds.length > 0) {
-    await supabase.from('vocab_word').delete().eq('week_id', weekId)
+    statements.push(deleteRows('vocab_word', sql`week_id=${weekId}::uuid`))
   }
 
   // ── 4. 새 vocab_word insert ───────────────────────────────────────────
   const shouldPreserveExistingExamples = !sourceType
   const oldWordByStableKey = new Map(oldRows.map((w) => [`${w.number}::${w.english_word.trim().toLowerCase()}`, w]))
 
-  const { data: insertedWords, error: insertError } = await supabase
-    .from('vocab_word')
-    .insert(
-      words.map((w) => {
+  const newWords = words.map((w) => {
         const oldWord = oldWordByStableKey.get(`${w.number}::${w.english_word.trim().toLowerCase()}`)
         return {
+          id: randomUUID(),
           week_id: weekId,
           number: w.number,
           passage_label: w.passage_label ?? null,
@@ -254,21 +266,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           example_source: shouldPreserveExistingExamples ? oldWord?.example_source ?? null : null,
         }
       })
-    )
-    .select('id, number, english_word, correct_answer, synonyms')
-
-  if (insertError) {
-    console.error('[vocab-words] insert 실패', insertError)
-    return err(insertError.message, 500)
-  }
-
-  const newWords = (insertedWords ?? []) as {
-    id: string
-    number: number
-    english_word: string
-    correct_answer: string | null
-    synonyms: string[] | null
-  }[]
+  statements.push(...insertRows('vocab_word', newWords))
   const newWordByStableKey = new Map(newWords.map((w) => [`${w.number}::${w.english_word.trim().toLowerCase()}`, w]))
 
   const insertedWordByStableKey = new Map(newWords.map((w) => [`${w.number}::${w.english_word.trim().toLowerCase()}`, w]))
@@ -290,17 +288,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       sort_order: variant.sort_order,
     }))
   })
-  if (variantRows.length > 0) {
-    const { error: variantError } = await supabase.from('vocab_word_variant').insert(variantRows)
-    if (variantError) {
-      console.error('[vocab-words] variant insert failed', variantError)
-      return err(variantError.message, 500)
-    }
-  }
+  statements.push(...insertRows('vocab_word_variant', variantRows))
 
   // 업로드/수정으로 vocab_word id가 바뀌므로 시험지 문항 FK를 복구하거나 새 원본 업로드 시 초기화
   if (isSourceUpload) {
-    await supabase.from('vocab_test').delete().eq('week_id', weekId)
+    statements.push(deleteRows('vocab_test', sql`week_id=${weekId}::uuid`))
   } else if ((oldTests ?? []).length > 0 && testItemsToRestore.length > 0) {
     const restoredItems = testItemsToRestore
       .map((item) => {
@@ -317,11 +309,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       })
       .filter((item): item is NonNullable<typeof item> => item !== null)
     if (restoredItems.length > 0) {
-      await supabase.from('vocab_test_item').insert(restoredItems)
+      statements.push(...insertRows('vocab_test_item', restoredItems))
       const countByTestId = new Map<string, number>()
       restoredItems.forEach((item) => countByTestId.set(item.vocab_test_id, (countByTestId.get(item.vocab_test_id) ?? 0) + 1))
       for (const [testId, count] of countByTestId.entries()) {
-        await supabase.from('vocab_test').update({ item_count: count, updated_at: new Date().toISOString() }).eq('id', testId)
+        statements.push(updateRows('vocab_test', { item_count: count, updated_at: new Date().toISOString() }, sql`id=${testId}::uuid`, true))
       }
     }
   }
@@ -392,23 +384,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         .filter((x): x is NonNullable<typeof x> => x !== null)
 
       if (toInsert.length > 0) {
-        await supabase.from('student_vocab_answer').insert(toInsert)
+        statements.push(...insertRows('student_vocab_answer', toInsert))
       }
 
       // week_score 재집계 (vocab_correct + vocab_retake_correct)
       const vocabCorrect = toInsert.filter((a) => a.is_correct).length
       const vocabRetakeCorrect = toInsert.filter((a) => !a.is_correct && a.retake_is_correct === true).length
-      await supabase.from('week_score')
-        .update({ vocab_correct: vocabCorrect, vocab_retake_correct: vocabRetakeCorrect })
-        .eq('id', weekScoreId)
+      statements.push(updateRows('week_score', { vocab_correct: vocabCorrect, vocab_retake_correct: vocabRetakeCorrect }, sql`id=${weekScoreId}::uuid`, true))
     }
   }
 
   if (isSourceUpload) {
-    await supabase
-      .from('week_score')
-      .update({ vocab_correct: null, vocab_retake_correct: null, vocab_photo_path: null })
-      .eq('week_id', weekId)
+    statements.push(updateRows('week_score', { vocab_correct: null, vocab_retake_correct: null, vocab_photo_path: null }, sql`week_id=${weekId}::uuid`))
   }
 
   // ── 6. vocab_total 및 원본 메타데이터 업데이트 ───────────────────────
@@ -424,7 +411,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     weekUpdate.vocab_examples_generated_at = null
   }
 
-  await supabase.from('week').update(weekUpdate).eq('id', weekId)
+  statements.push(updateRows('week', weekUpdate, sql`id=${weekId}::uuid`, true))
+  await saveWeekPlan(user.id, weekId, version, statements)
 
   return ok({ ok: true, saved: words.length, regraded: !isSourceUpload && backup.length > 0, words: newWords })
 }

@@ -1,3 +1,7 @@
+import { withTeacherTransaction } from '@/lib/db/transaction'
+import { saveErrorResponse } from '@/lib/db/errors'
+import { captureMockInputs } from '@/lib/services/mock-results'
+import { replaceMockQuestions } from '@/lib/services/mock-questions'
 import { err, getAuth, getTeacherId, ok } from '@/lib/api'
 import {
   parseMockExamAnswerKeyFiles,
@@ -111,6 +115,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params
   if (!(await assertMockExamOwner(supabase, id, teacherId))) return err('접근 권한이 없습니다', 403)
 
+  let expected: Awaited<ReturnType<typeof captureMockInputs>>
+  try { expected=await withTeacherTransaction(user.id,context=>captureMockInputs(context,id)) }
+  catch(error) { return saveErrorResponse(error) }
+
   const body = await request.json().catch(() => ({})) as MetadataImportBody
   const files = Array.isArray(body.files)
     ? body.files.filter((file) => !!file?.fileData && !!file?.mimeType)
@@ -172,19 +180,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
   })
 
-  const { data, error } = await supabase
-    .from('mock_exam_question')
-    .upsert(rows, { onConflict: 'mock_exam_id,question_number' })
-    .select()
-    .order('question_number')
-
-  if (error) return err(error.message, 500)
-
-  const ready = rows.every((question) => question.is_void || question.all_correct || question.correct_answer)
-  await supabase
-    .from('mock_exam')
-    .update({ status: ready ? 'ready' : 'draft' })
-    .eq('id', id)
+  let data: Awaited<ReturnType<typeof replaceMockQuestions>>
+  try { data=await withTeacherTransaction(user.id,context=>replaceMockQuestions(context,id,rows,expected.version)) }
+  catch(error) { return saveErrorResponse(error) }
+  const ready=rows.every(question=>question.is_void||question.all_correct||question.correct_answer)
 
   return ok({
     questions: data,
