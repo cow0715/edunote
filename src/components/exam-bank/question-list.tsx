@@ -13,7 +13,7 @@ import {
 import { toast } from 'sonner'
 import { Trash2, Copy, ChevronRight, Plus, Pencil, Loader2, BookOpen } from 'lucide-react'
 import { QUESTION_TYPE_LABELS, DIFFICULTY_STYLE } from './constants'
-import { MarkdownText, buildQuestionCopyText, buildQuestionCopyHtml, copyRich } from './markdown'
+import { MarkdownText, buildQuestionCopyText, buildQuestionCopyHtml, buildExplanationCopyText, buildExplanationCopyHtml, copyRich } from './markdown'
 import { QuestionEditDialog } from './question-edit-dialog'
 import type { ExamBankQuestion } from './types'
 import { questionSourceLabel } from '@/lib/book-pdf/labels'
@@ -155,25 +155,8 @@ export const QuestionCard = memo(function QuestionCard({
     return buildQuestionCopyHtml(q, examLabel)
   }, [q, examLabel])
 
-  const buildExplanationText = useCallback(() => {
-    const header = `[${examLabel} 해설]\n`
-    const parts = [
-      q.explanation_intent ? `[출제의도] ${q.explanation_intent}` : '',
-      q.explanation_translation ? `[해석]\n${q.explanation_translation}` : '',
-      q.explanation_solution ? `[풀이]\n${q.explanation_solution}` : '',
-      q.explanation_vocabulary ? `[Words and Phrases]\n${q.explanation_vocabulary}` : '',
-    ].filter(Boolean)
-    return header + parts.join('\n\n')
-  }, [q, examLabel])
-
-  const buildExplanationHtml = useCallback(() => {
-    const header = `<p><strong>[${examLabel} 해설]</strong></p>`
-    return header
-      + (q.explanation_intent ? `<p><strong>[출제의도]</strong> ${q.explanation_intent}</p>` : '')
-      + (q.explanation_translation ? `<p><strong>[해석]</strong><br>${q.explanation_translation.replace(/\n/g, '<br>')}</p>` : '')
-      + (q.explanation_solution ? `<p><strong>[풀이]</strong><br>${q.explanation_solution}</p>` : '')
-      + (q.explanation_vocabulary ? `<p><strong>[Words and Phrases]</strong><br>${q.explanation_vocabulary}</p>` : '')
-  }, [q, examLabel])
+  const buildExplanationText = useCallback(() => buildExplanationCopyText(q, examLabel), [q, examLabel])
+  const buildExplanationHtml = useCallback(() => buildExplanationCopyHtml(q, examLabel), [q, examLabel])
 
   const copyQuestion = useCallback(async () => {
     await copyRich(buildQuestionText(), buildQuestionHtml())
@@ -250,7 +233,7 @@ export const QuestionCard = memo(function QuestionCard({
           {/* 복사 드롭다운 */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-0.5 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+              <button aria-label="문항 복사" className="flex items-center gap-0.5 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
                 <Copy className="h-3.5 w-3.5" />
                 <ChevronRight className="h-2.5 w-2.5 rotate-90" />
               </button>

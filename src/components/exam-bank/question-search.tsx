@@ -35,7 +35,7 @@ import {
   MONTHS,
   QUESTION_TYPE_LABELS,
 } from './constants'
-import { buildQuestionCopyText, buildQuestionCopyHtml, copyRich } from './markdown'
+import { buildQuestionCopyText, buildQuestionCopyHtml, buildExplanationCopyText, buildExplanationCopyHtml, copyRich } from './markdown'
 import { QuestionCard } from './question-list'
 import type { ExamBank, ExamBankQuestion } from './types'
 
@@ -242,26 +242,10 @@ export function QuestionSearch() {
     list.map((q) => buildQuestionCopyHtml(q, getExamLabel(q))).join('<hr>')
 
   const buildAllExText = (list: ExamBankQuestion[]) =>
-    list.map((q) => {
-      const label = getExamLabel(q)
-      const parts = [
-        q.explanation_intent ? `[출제의도] ${q.explanation_intent}` : '',
-        q.explanation_translation ? `[해석]\n${q.explanation_translation}` : '',
-        q.explanation_solution ? `[풀이]\n${q.explanation_solution}` : '',
-        q.explanation_vocabulary ? `[Words and Phrases]\n${q.explanation_vocabulary}` : '',
-      ].filter(Boolean)
-      return `[${label} 해설]\n` + parts.join('\n\n')
-    }).join('\n\n---\n\n')
+    list.map((q) => buildExplanationCopyText(q, getExamLabel(q))).join('\n\n---\n\n')
 
   const buildAllExHtml = (list: ExamBankQuestion[]) =>
-    list.map((q) => {
-      const label = getExamLabel(q)
-      return `<p><strong>[${label} 해설]</strong></p>`
-        + (q.explanation_intent ? `<p><strong>[출제의도]</strong> ${q.explanation_intent}</p>` : '')
-        + (q.explanation_translation ? `<p><strong>[해석]</strong><br>${q.explanation_translation.replace(/\n/g, '<br>')}</p>` : '')
-        + (q.explanation_solution ? `<p><strong>[풀이]</strong><br>${q.explanation_solution}</p>` : '')
-        + (q.explanation_vocabulary ? `<p><strong>[Words and Phrases]</strong><br>${q.explanation_vocabulary}</p>` : '')
-    }).join('<hr>')
+    list.map((q) => buildExplanationCopyHtml(q, getExamLabel(q))).join('<hr>')
 
   const runCopyAll = async (
     label: string,
