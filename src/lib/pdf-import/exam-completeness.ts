@@ -26,6 +26,9 @@ export function examImportIssues(result: Record<string, unknown> | null): ExamIm
     }
   }
   collect(result, typeof result.mode === 'string' ? 'explanations' : 'questions')
+  if (Array.isArray(result.storage_issues)) for (const issue of result.storage_issues as ExamImportIssue[]) {
+    if (!issues.some((existing) => existing.stage === issue.stage && existing.question_number === issue.question_number)) issues.push(issue)
+  }
   return issues.sort((a, b) => a.question_number - b.question_number || a.stage.localeCompare(b.stage))
 }
 

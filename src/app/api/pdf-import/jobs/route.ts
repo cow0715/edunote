@@ -2,6 +2,7 @@ import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { publicPdfJob } from '@/lib/pdf-import/server'
 import type { PdfImportJob } from '@/lib/pdf-import/types'
 import { bookProgress } from '@/lib/book-pdf/progress'
+import { reconcileExamStorage } from '@/lib/pdf-import/exam-storage-audit-server'
 
 export async function GET(request: Request) {
   const { supabase, user } = await getAuth()
@@ -23,7 +24,8 @@ export async function GET(request: Request) {
     bookIds.length ? supabase.from('book_pdf_progress').select('document_id,completed').in('document_id', bookIds) : { data: [], error: null },
   ])
   if (documents.error || banks.error || units.error) return err('자료별 처리 상태를 읽지 못했습니다.', 503)
-  return ok(jobs.map((job) => {
+  const reconciled = await reconcileExamStorage(supabase, teacherId, jobs)
+  return ok(reconciled.map((job) => {
     const doc = documents.data?.find((d) => d.id === job.target_id)
     return { ...publicPdfJob(job), display_title: doc?.title ?? banks.data?.find((b) => b.id === job.target_id)?.title ?? String(job.payload.title ?? job.payload.fileName ?? ''),
       ...(doc ? { progress: bookProgress(doc.manifest, units.data?.find((u) => u.document_id === doc.id)?.completed ?? 0) } : {}) }

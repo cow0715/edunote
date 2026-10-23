@@ -49,20 +49,22 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial }: { weekI
     {filtered.map((job) => {
       const examJob = job.kind === 'bank_questions' || job.kind === 'bank_explanation'
       const issues = examJob ? examImportIssues(job.result) : []
+      const storageError = typeof job.result?.storage_check_error === 'string' ? job.result.storage_check_error : null
       const skipped = examJob ? null : job.result?.skipped_questions ?? job.result?.skipped_pages
       const exclusions = Array.isArray(job.result?.excluded_questions) ? job.result.excluded_questions as ExamImportExclusion[] : []
       return <div key={job.id} className="flex flex-wrap items-start justify-between gap-3 border-t py-3 text-sm">
         <div>
           <p className="font-medium break-words">{job.display_title || labels[job.kind]}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{issues.length ? '문항 처리 미완료' : job.status === 'waiting_batch' ? '응답 대기' : job.status === 'queued' ? '접수 완료' : job.status === 'succeeded' ? '등록 완료' : job.status === 'failed' ? '등록 보류·처리 실패' : '처리 중'} · {job.stage}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{issues.length ? '문항 처리 미완료' : storageError ? '저장 대조 확인 필요' : job.status === 'waiting_batch' ? '응답 대기' : job.status === 'queued' ? '접수 완료' : job.status === 'succeeded' ? '등록 완료' : job.status === 'failed' ? '등록 보류·처리 실패' : '처리 중'} · {job.stage}</p>
           {job.progress && job.progress.total > 0 && <p className="text-sm text-muted-foreground">처리 완료 {job.progress.completed}/{job.progress.total}지문 · 전체 {job.progress.questions}문항</p>}
           {job.updated_at && <p className="mt-1 text-xs text-muted-foreground">마지막 처리 {new Date(job.updated_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>}
           {job.status === 'waiting_batch' && job.resume_after && <p className="text-xs text-muted-foreground">다음 상태 확인 {new Date(job.resume_after).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</p>}
           {job.status === 'waiting_batch' && <p className="text-muted-foreground">이 화면을 닫아도 계속 처리되며, 배치 완료 후 자동으로 이어집니다.</p>}
           {job.error && <p className="mt-1 text-destructive">{job.error}</p>}
-          {job.status === 'succeeded' && !issues.length && <p className="text-muted-foreground">{job.kind === 'bank_book' ? job.result?.auto_published ? '자동 검증을 통과해 문제은행과 단어장에 등록했습니다.' : '자동 복구 후에도 확정하지 못한 항목이 있어 등록을 보류했습니다. 처리 결과에 사유를 남겼습니다.' : '완료됐습니다. 자료 목록에 반영했습니다.'}</p>}
+          {storageError && storageError !== job.error && <p className="mt-1 text-destructive">{storageError}</p>}
+          {job.status === 'succeeded' && !issues.length && !storageError && <p className="text-muted-foreground">{job.kind === 'bank_book' ? job.result?.auto_published ? '자동 검증을 통과해 문제은행과 단어장에 등록했습니다.' : '자동 복구 후에도 확정하지 못한 항목이 있어 등록을 보류했습니다. 처리 결과에 사유를 남겼습니다.' : '완료됐습니다. 자료 목록에 반영했습니다.'}</p>}
           {issues.length > 0 && <div className="mt-2" role="alert">
-            <p className="text-destructive">복구하지 못한 문항 {issues.length}개가 남아 있습니다. 성공한 결과는 저장했습니다.</p>
+            <p className="text-destructive">저장되지 않았거나 처리가 끝나지 않은 문항 {new Set(issues.map((issue) => issue.question_number)).size}개가 있습니다.</p>
             <ul className="mt-1 space-y-1 text-destructive" aria-label="미완료 문항과 사유">
               {issues.map((issue) => <li key={`${issue.stage}-${issue.question_number}`}>{issue.stage === 'questions' ? '문제' : '해설'} {issue.question_number}번: {issue.reason}</li>)}
             </ul>

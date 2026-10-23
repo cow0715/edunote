@@ -5,6 +5,7 @@ import { publicPdfJob } from '@/lib/pdf-import/server'
 import { isUuid, workerEnabled, type PdfImportJob } from '@/lib/pdf-import/types'
 import { bookQualityRetryBlocked } from '@/lib/book-pdf/recovery-policy'
 import { examRecoveryBlocked } from '@/lib/pdf-import/exam-completeness'
+import { reconcileExamStorage } from '@/lib/pdf-import/exam-storage-audit-server'
 
 async function ownedJob(id: string) {
   const { supabase, user } = await getAuth()
@@ -14,12 +15,14 @@ async function ownedJob(id: string) {
   if (!isUuid(id)) return { response: err('작업 ID 형식 오류') }
   const { data, error } = await supabase.from('pdf_import_job').select('*').eq('id', id).eq('teacher_id', teacherId).single()
   if (error || !data) return { response: err('작업을 찾을 수 없습니다.', 404) }
-  return { job: data as PdfImportJob }
+  return { job: data as PdfImportJob, supabase, teacherId }
 }
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const outcome = await ownedJob((await params).id)
-  return outcome.response ?? ok(publicPdfJob(outcome.job!))
+  if (outcome.response) return outcome.response
+  const [job] = await reconcileExamStorage(outcome.supabase!, outcome.teacherId!, [outcome.job!])
+  return ok(publicPdfJob(job))
 }
 
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
