@@ -14,7 +14,7 @@ const TASK_DEFINITIONS = {
   'vocab.generateExamples': { label: '단어 예문 생성', model: MODEL_IDS.haiku, promptVersion: 'vocab-examples-v1', schemaVersion: 'vocab-examples-v1' },
   'vocab.hint': { label: '단어 힌트 생성', model: MODEL_IDS.haiku, promptVersion: 'vocab-hint-v1', schemaVersion: 'vocab-hint-v1' },
   'vocab.enrich': { label: '어휘 자료 보강', model: MODEL_IDS.haiku, promptVersion: 'vocab-enrich-v1', schemaVersion: 'vocab-enrich-v1' },
-  'week.parseAnswers': { label: '진단평가 자료 파싱', model: MODEL_IDS.sonnet, promptVersion: 'week-parse-v1', schemaVersion: 'week-parse-v1' },
+  'week.parseAnswers': { label: '진단평가 자료 파싱', model: MODEL_IDS.sonnet, promptVersion: 'week-parse-review-v2', schemaVersion: 'week-review-v2' },
   'examBank.parseQuestions': { label: '기출 시험지 파싱', model: MODEL_IDS.sonnet, promptVersion: 'exam-bank-parse-v1', schemaVersion: 'exam-bank-parse-v1' },
   'examBank.extractExplanations': { label: '기출 해설 추출과 보완', model: MODEL_IDS.sonnet, promptVersion: 'exam-bank-explain-v1', schemaVersion: 'exam-bank-explain-v1' },
   'mockExam.parseMetadata': { label: '모의고사 정보 추출', model: MODEL_IDS.sonnet, promptVersion: 'mock-exam-meta-v1', schemaVersion: 'mock-exam-meta-v1' },

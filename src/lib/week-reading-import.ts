@@ -43,6 +43,7 @@ export type ReadingImportOutcome = {
 }
 
 export type ProblemSheetUploadInput = {
+  role?: 'combined' | 'questions' | 'answers'
   fileData?: string
   storagePath?: string
   mimeType: string
@@ -537,7 +538,7 @@ export async function parseAnswerSheetDocumentRanged(
   }
   // 파일 1~N개 (통합형 1개 / 시험지+해설지 세트 / 낱장 사진 묶음) — 순서대로 전부 첨부
   const result = await parseAnswerSheetRanged(
-    files.map((file) => ({ fileData: file.fileData!, mimeType: file.mimeType })), tagCategories, options)
+    files.map((file) => ({ fileData: file.fileData!, mimeType: file.mimeType, role: file.role })), tagCategories, options)
 
   const [pipelineFile] = toPipelineFiles(files)
   let answers: ParsedAnswer[] = normalizeSourceFieldsForChunk(result.items, pipelineFile)

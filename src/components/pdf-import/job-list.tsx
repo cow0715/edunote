@@ -21,7 +21,7 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial }: { weekI
     const fresh = jobs.filter((job) => (job.status === 'succeeded' || job.status === 'failed') && !completed.current.has(key(job)))
     if (!fresh.length) return
     fresh.forEach((job) => completed.current.add(key(job)))
-    const prefixes = weekId ? ['exam-questions', 'grade', 'week'] : ['exam-bank', 'exam-bank-search', 'exam-bank-question-search', 'exam-bank-questions', 'book-pdf', 'vocab-collections']
+    const prefixes = weekId ? ['exam-questions', 'grade', 'week', 'answer-review'] : ['exam-bank', 'exam-bank-search', 'exam-bank-question-search', 'exam-bank-questions', 'book-pdf', 'vocab-collections']
     prefixes.forEach((prefix) => { void client.invalidateQueries({ queryKey: weekId ? [prefix, weekId] : [prefix] }) })
   }, [jobs, client, weekId])
   const filtered = jobs.filter((job) => job.status !== 'succeeded').concat(jobs.filter((job) => job.status === 'succeeded').slice(0, weekId ? 3 : 30))
@@ -50,13 +50,13 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial }: { weekI
       return <div key={job.id} className="flex flex-wrap items-start justify-between gap-3 border-t py-3 text-sm">
         <div>
           <p className="font-medium break-words">{job.display_title || labels[job.kind]}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{job.status === 'waiting_batch' ? '응답 대기' : job.status === 'queued' ? '접수 완료' : job.status === 'succeeded' ? '등록 완료' : job.status === 'failed' ? '등록 보류·처리 실패' : '처리 중'} · {job.stage}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{job.status === 'waiting_batch' ? '응답 대기' : job.status === 'queued' ? '접수 완료' : job.status === 'succeeded' ? job.result?.needs_review ? '검토 초안 생성 완료' : '등록 완료' : job.status === 'failed' ? '등록 보류·처리 실패' : '처리 중'} · {job.stage}</p>
           {job.progress && job.progress.total > 0 && <p className="text-sm text-muted-foreground">처리 완료 {job.progress.completed}/{job.progress.total}지문 · 전체 {job.progress.questions}문항</p>}
           {job.updated_at && <p className="mt-1 text-xs text-muted-foreground">마지막 처리 {new Date(job.updated_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>}
           {job.status === 'waiting_batch' && job.resume_after && <p className="text-xs text-muted-foreground">다음 상태 확인 {new Date(job.resume_after).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</p>}
           {job.status === 'waiting_batch' && <p className="text-muted-foreground">이 화면을 닫아도 계속 처리되며, 배치 완료 후 자동으로 이어집니다.</p>}
           {job.error && <p className="mt-1 text-destructive">{job.error}</p>}
-          {job.status === 'succeeded' && <p className="text-muted-foreground">{job.kind === 'bank_book' ? job.result?.auto_published ? '자동 검증을 통과해 문제은행과 단어장에 등록했습니다.' : '자동 복구 후에도 확정하지 못한 항목이 있어 등록을 보류했습니다. 처리 결과에 사유를 남겼습니다.' : '완료됐습니다. 자료 목록에 반영했습니다.'}</p>}
+          {job.status === 'succeeded' && <p className="text-muted-foreground">{job.kind === 'bank_book' ? job.result?.auto_published ? '자동 검증을 통과해 문제은행과 단어장에 등록했습니다.' : '자동 복구 후에도 확정하지 못한 항목이 있어 등록을 보류했습니다. 처리 결과에 사유를 남겼습니다.' : job.result?.needs_review ? '검토 초안을 만들었습니다. 아래에서 원문 정답을 확인하고 확정해 주세요. 기존 정답과 학생 답안은 변경하지 않았습니다.' : '완료됐습니다. 자료 목록에 반영했습니다.'}</p>}
           {Array.isArray(skipped) && skipped.length > 0 && <p className="text-destructive">인식하지 못한 문항: {skipped.join(', ')}번</p>}
           {Number(job.result?.answers_deleted) > 0 && <p className="text-destructive">기존 학생 답안 {Number(job.result?.answers_deleted)}개가 삭제됐습니다. 해당 문항을 확인해주세요.</p>}
           {!!job.result?.subjective_grading_failed && <p className="text-destructive">서술형 재채점 결과를 확인해주세요.</p>}

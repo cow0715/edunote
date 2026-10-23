@@ -35,7 +35,7 @@ export async function registerPdfImport(input: {
   const id = randomUUID()
   const sourcePath = `${input.teacherId}/${id}.pdf`
   const explanationPath = input.explanationStoragePath ? `${input.teacherId}/${id}-explanation.pdf` : null
-  if (input.explanationStoragePath && (!input.explanationStoragePath.startsWith(`${input.authId}/`) || input.explanationStoragePath.includes('..'))) throw new Error('해설 업로드 경로가 올바르지 않습니다.')
+  if (input.explanationStoragePath && (!input.explanationStoragePath.startsWith(allowedPrefix) || input.explanationStoragePath.includes('..'))) throw new Error('해설 업로드 경로가 올바르지 않습니다.')
   const { error: copyError } = await client.storage.from('exam-pdf-temp').copy(input.storagePath, sourcePath, { destinationBucket: 'pdf-import-sources' })
   if (copyError) throw new Error(`원본 파일 보관 실패: ${copyError.message}`)
   if (input.explanationStoragePath && explanationPath) {

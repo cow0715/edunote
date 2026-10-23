@@ -3,9 +3,10 @@ import { parseExamBankPageRanged, parsePdfExplanationsHakpyungRanged, parsePdfEx
 import { getMegastudyStats } from '../megastudy'
 import { mergeExamVocabularyText, syncExamQuestionVocabulary } from '../exam-vocabulary'
 import { enrichExamQuestionVocabulary } from '../vocab-enrichment'
-import { createTagMatcher, fetchTeacherTagContext, parseAnswerSheetDocument, saveWeekAnswerSheetFile, syncWeekReadingQuestionsAndRegrade } from '../week-reading-import'
+import { fetchTeacherTagContext } from '../week-reading-import'
+import { createWeekAnswerDraft, currentAnswerKeys, type ReviewFile } from '../week-answer-review-server'
 import { checkpointBatchPhase, checkpointCall, reportPdfStage } from './context'
-import { weekImportSnapshot } from './server'
+
 import type { PdfImportJob } from './types'
 
 export async function runPdfImport(client: SupabaseClient, job: PdfImportJob): Promise<Record<string, unknown>> {
@@ -117,31 +118,19 @@ async function importWeekAnswers(client: SupabaseClient, job: PdfImportJob, file
   const { data: week } = await client.from('week').select('id,class:class_id(teacher_id)').eq('id', job.target_id).single()
   const owner = week?.class as unknown as { teacher_id?: string } | null
   if (!week || owner?.teacher_id !== job.teacher_id) throw new Error('주차 접근 권한이 없습니다.')
-  const { tagList, tagCategories } = await fetchTeacherTagContext(client, job.teacher_id)
-  // A controlled answer-preserving reparse captures its own pre-parse snapshot.
-  // Normal uploads still use the server-authorized registration snapshot.
-  const expectedSnapshot = job.payload.preserveExistingAnswers === true
-    ? await checkpointCall({ phase: 'preserved-original-snapshot', version: 1 }, () => weekImportSnapshot(client, job.target_id))
-    : job.payload.snapshot
-  await reportPdfStage('주차 문항과 정답을 추출하는 중')
-  const parsed = await parseAnswerSheetDocument([{ fileData, mimeType, fileName: String(job.payload.fileName ?? '') }], tagCategories)
-  if (!parsed.answers.length) throw new Error('문항을 찾을 수 없습니다.')
-  await reportPdfStage('기존 답안 상태를 확인하는 중')
-  // Persist the authorization check before applying; retrying a partial apply must be idempotent.
-  await checkpointCall({ phase: 'week-apply-authorized', version: 1 }, async () => {
-    if (await weekImportSnapshot(client, job.target_id) !== expectedSnapshot) {
-      throw new Error('파싱 중 문항 또는 학생 답안이 변경됐습니다. 최신 상태를 확인한 뒤 다시 등록해주세요.')
-    }
-    return { allowed: true }
-  })
-  await reportPdfStage('주차 문항을 저장하고 채점을 갱신하는 중')
-  // Use a week-scoped original filename to prevent collisions between teachers.
-  await saveWeekAnswerSheetFile(client, job.target_id, fileData, mimeType, `${job.teacher_id}/${job.target_id}/${job.id}.pdf`)
-  const result = await syncWeekReadingQuestionsAndRegrade({
-    supabase: client, weekId: job.target_id, parsedAnswers: parsed.answers, matchTagId: createTagMatcher(tagList),
-    ...(job.payload.preserveExistingAnswers === true ? {
-      preserveExistingAnswers: true, deleteMissingQuestions: false, regradeExistingAnswers: false,
-    } : {}),
-  })
-  return { ok: true, ...result, parse_mode_used: 'answer_sheet', skipped_pages: parsed.skipped.map((s) => s.startPage), skipped_questions: parsed.skippedQuestionNumbers ?? [] }
+  const { tagCategories } = await fetchTeacherTagContext(client, job.teacher_id)
+  const baseQuestions = await checkpointCall({ phase: 'week-review-base-v1' }, () => currentAnswerKeys(client, job.target_id))
+  const separate = typeof job.payload.explanationSourcePath === 'string'
+  const files: ReviewFile[] = [{ fileData, mimeType, fileName: String(job.payload.fileName ?? '문제지.pdf'),
+    role: separate ? 'questions' : 'combined', bucket: 'pdf-import-sources', path: job.source_path }]
+  if (separate) {
+    const path = String(job.payload.explanationSourcePath)
+    const { data, error } = await client.storage.from('pdf-import-sources').download(path)
+    if (error || !data) throw new Error('보관한 해설지 원본을 읽지 못했습니다.')
+    files.push({ fileData: Buffer.from(await data.arrayBuffer()).toString('base64'), mimeType: 'application/pdf',
+      fileName: String(job.payload.explanationFileName ?? '해설지.pdf'), role: 'answers', bucket: 'pdf-import-sources', path })
+  }
+  await reportPdfStage('정답 근거와 검토 초안을 준비하는 중')
+  return createWeekAnswerDraft(client, { teacherId: job.teacher_id, weekId: job.target_id, jobId: job.id,
+    files, tags: tagCategories, baseQuestions })
 }

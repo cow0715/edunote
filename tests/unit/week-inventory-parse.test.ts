@@ -59,9 +59,40 @@ describe('week inventory extraction through document normalization (mocked LLM)'
     expect(result.answers.map((q) => q.question_number)).toEqual([6, 8, 8, 7])
   })
 
-  it('fails rather than saving a shared group whose common source is missing', async () => {
-    setup(() => [answer(2, 'a'), answer(2, 'b')].map((a) => ({ ...a, shared_passage: null })))
+  it('fills only omitted scope constants without rejecting otherwise complete legacy answers', async () => {
+    setup(() => [answer(2, 'a'), answer(2, 'b')].map(q => ({ ...q, source_section: undefined, source_question_number: undefined })))
+    const result = await parseAnswerSheetDocument(files)
+    expect(result.answers[1]).toMatchObject({ source_section: 'written', source_question_number: 1, sub_label: 'a' })
+  })
+  it('preserves a grounded sparse find-error symbol instead of forcing the null inventory into subjective', async () => {
+    mocks.call.mockImplementation(async ({ content }: { content: { text?: string }[] }) => {
+      const instruction = content.at(-1)?.text ?? ''
+      if (instruction.startsWith('문항 목록 조사:')) return respond({ counts: { general: 1, written: 0 }, questions: [
+        { section: 'general', number: 2, sub_labels: [null], display_order: 1, passage_group: null },
+      ] })
+      return respond([{ ...answer(2, null), source_section: 'general', source_question_number: 2, question_style: 'find_error',
+        correct_answer_text: 'b:struggle', answer_status: 'found', answer_evidence: { file_index: 1, page: 6, quote: '2. ② struggle' } }])
+    })
+    const result = await parseAnswerSheetDocument(files)
+    expect(result.answers[0]).toMatchObject({ sub_label: 'b', question_style: 'find_error', correct_answer_text: 'b:struggle' })
+    expect(mocks.call).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails when no member can supply the shared source, rather than requiring redundant copies in every leaf', async () => {
+    mocks.call.mockImplementation(async ({ content }: { content: { text?: string }[] }) => {
+      const instruction = content.at(-1)?.text ?? ''
+      if (instruction.startsWith('문항 목록 조사:')) return respond(inventory)
+      if (instruction.startsWith('[공통 지문 확인]')) return respond({ shared_passage: null })
+      return respond((instruction.includes('question_number=2') ? [answer(2, 'a'), answer(2, 'b')] : [answer(1, null)]).map(a => ({ ...a, shared_passage: null })))
+    })
     await expect(parseAnswerSheetDocument(files)).rejects.toThrow('공통 지문 누락')
+  })
+  it('shares a single verified extraction across parents and siblings without losing any leaf', async () => {
+    setup(() => [answer(2, 'a'), answer(2, 'b')].map(a => ({ ...a, shared_passage: null })))
+    const result = await parseAnswerSheetDocument(files)
+    expect(result.answers).toHaveLength(3)
+    expect(result.answers.every(a => a.shared_passage === '공통 지문')).toBe(true)
+    expect(mocks.call).toHaveBeenCalledTimes(3)
   })
   it('retries a missing sibling and preserves both sections and every leaf after normalization', async () => {
     setup((attempt) => attempt === 1 ? [answer(2, 'a')] : [answer(2, 'a'), answer(2, 'b')])
