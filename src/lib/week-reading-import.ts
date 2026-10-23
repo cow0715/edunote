@@ -600,13 +600,15 @@ export async function saveWeekAnswerSheetFile(
       .upload(safeName, fileBuffer, { contentType: mimeType, upsert: false })
 
     if (storageErr) {
-      console.error('[week-reading-import] storage upload failed:', storageErr)
-      return
+      throw new Error(`원본 PDF 저장 실패: ${storageErr.message}`)
     }
 
-    await supabase.from('week').update({ answer_sheet_path: safeName }).eq('id', weekId)
+    const { error: linkError } = await supabase.from('week').update({ answer_sheet_path: safeName }).eq('id', weekId)
+    if (linkError) throw new Error(`원본 PDF 연결 실패: ${linkError.message}`)
   } catch (error) {
     console.error('[week-reading-import] storage save failed:', error)
+    // Stop before question synchronization; retaining an older PDF would misidentify the new questions.
+    throw error
   }
 }
 

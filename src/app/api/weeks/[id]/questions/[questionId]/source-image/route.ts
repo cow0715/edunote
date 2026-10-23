@@ -1,9 +1,17 @@
 import { assertWeekOwner, err, getAuth, getTeacherId, ok } from '@/lib/api'
+import { locateQuestionRegion } from '@/lib/pdf-question-region'
+import { ensurePdfRenderFonts } from '@/lib/pdf-render-fonts'
 import { generateSourceImageForQuestion } from '@/lib/week-reading-import'
 
 type QuestionRow = {
   id: string
   week_id: string
+  question_number: number
+  source_question_number: number | null
+  passage: string | null
+  shared_passage: string | null
+  question_stem: string | null
+  question_text: string | null
   needs_source_image: boolean | null
   source_page: number | null
   source_bbox: { x: number; y: number; width: number; height: number } | null
@@ -32,7 +40,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
 
     const { data: question, error: questionError } = await supabase
       .from('exam_question')
-      .select('id, week_id, needs_source_image, source_page, source_bbox')
+      .select('id, week_id, question_number, source_question_number, passage, shared_passage, question_stem, question_text, needs_source_image, source_page, source_bbox')
       .eq('id', questionId)
       .eq('week_id', weekId)
       .single()
@@ -50,16 +58,22 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     if (downloadError || !file) return err(downloadError?.message ?? '원본 PDF 다운로드 실패', 500)
 
     const fileData = Buffer.from(await file.arrayBuffer()).toString('base64')
+    // Legacy flat filenames may have been overwritten by another class's import.
+    const region = await locateQuestionRegion(fileData, row.source_question_number ?? row.question_number, row.source_page, row.source_bbox,
+      week.answer_sheet_path.startsWith(`${weekId}/`) ? undefined :
+        [row.passage, row.shared_passage, row.question_stem, row.question_text].filter((value): value is string => typeof value === 'string'))
+    ensurePdfRenderFonts()
     const result = await generateSourceImageForQuestion(supabase, weekId, fileData, {
       id: row.id,
-      source_page: row.source_page,
-      source_bbox: row.source_bbox,
+      source_page: region.page,
+      source_bbox: region.bbox,
     })
 
     if (result.error || !result.storagePath) return err(result.error ?? '원본 이미지 생성 실패', 500)
 
     return ok({ ok: true, source_image_path: result.storagePath })
   } catch (error) {
+    if (error instanceof Error && error.name === 'SourceDocumentMismatchError') return err(error.message, 422)
     console.error('[generate-question-source-image] unhandled error:', error)
     return err(error instanceof Error ? error.message : '원본 이미지 생성 실패', 500)
   }
