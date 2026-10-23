@@ -14,6 +14,19 @@ export function SupabaseQuota({ snapshots, environment }: { snapshots: CostSnaps
     return { ...item, partial: item.partial && organization?.amount == null, snapshot, usage: quotaUsage(snapshot?.amount, item.limit) }
   })
   const warnings = items.filter(item => item.usage?.warning)
+  const monthly = [
+    { metric: 'console_egress_gb', label: '일반 전송량', limit: 5, unit: 'GB' },
+    { metric: 'console_cached_egress_gb', label: '캐시 전송량', limit: 5, unit: 'GB' },
+    { metric: 'console_mau', label: '월간 활성 사용자', limit: 50_000, unit: '명' },
+  ].map(item => {
+    const snapshot = snapshots.find(s => s.provider === 'supabase' && s.metric === item.metric)
+    return { ...item, snapshot, usage: quotaUsage(snapshot?.amount, item.limit) }
+  })
+  const cycle = (metric: string) => {
+    const value = snapshots.find(s => s.provider === 'supabase' && s.metric === metric)?.amount
+    return value != null && Number.isFinite(value) ? new Date(value * 1000).toLocaleDateString('ko-KR', { timeZone: 'UTC' }) : null
+  }
+  const start = cycle('console_cycle_start'), end = cycle('console_cycle_end')
   return <section aria-label="Supabase 무료 한도" className="rounded-[20px] bg-[var(--share-card)] p-5">
     <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-[15px] font-extrabold">Supabase 무료 한도</h2><span className={`text-xs ${muted}`}>마지막 수집값 기준 · {environment === 'production' ? '운영' : environment === 'development' ? '개발' : '테스트'}</span></div>
     {warnings.length > 0 && <p role="alert" className="mt-3 text-sm font-semibold text-[var(--share-red)]">{warnings.map(item => `${item.label} ${item.usage!.percent}% · ${item.usage!.level}${item.snapshot?.status !== 'ok' ? ' (이전 값)' : ''}`).join(' / ')} — 용량 정리가 필요합니다.</p>}
@@ -25,6 +38,17 @@ export function SupabaseQuota({ snapshots, environment }: { snapshots: CostSnaps
       {item.metric === 'storage_bytes' && <p className={`mt-1 text-xs tabular-nums ${muted}`}>{['production', 'development'].map(env => { const source = snapshots.find(s => s.provider === 'supabase' && s.metric === `storage_bytes_${env}`); return `${env === 'production' ? '운영' : '개발'} ${source?.amount != null ? mb(source.amount) : '미수집'}${source?.status === 'error' ? ' (이전 값)' : ''}` }).join(' + ')}</p>}
       {item.snapshot && <p className={`mt-1 text-[11px] ${muted}`}>수집 {new Date(item.snapshot.updated_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</p>}
     </div>)}</div>
-    <p className={`mt-4 text-xs ${muted}`}>화면 안내 기준: 80% 주의 · 90% 임박 · 100% 초과. 전송량·MAU 등 미수집 항목은 포함하지 않습니다. <a href="https://supabase.com/dashboard/org/kxjbrdpaeovoocubhdsc/usage" target="_blank" rel="noreferrer" className="text-[var(--share-blue)]">조직 전체 사용량 ↗</a></p>
+    <div className="mt-5 border-t border-[var(--share-line)] pt-4">
+      <h3 className="text-sm font-semibold">조직 월간 사용량</h3>
+      <p className={`mt-1 text-xs ${muted}`}>{start && end ? `사용 기간 ${start} ~ ${end} (종료일 제외) · ` : ''}콘솔 확인값 · 자동 갱신 미연결</p>
+      <div className="mt-4 grid gap-5 sm:grid-cols-3">{monthly.map(item => <div key={item.metric}>
+        <div className="flex items-center justify-between gap-2 text-sm"><span className="font-semibold">{item.label}</span><span className={`text-xs ${item.usage?.warning ? 'text-[var(--share-red)]' : muted}`}>{item.usage?.warning ? `${item.usage.level} · 확인값` : '콘솔 확인값'}</span></div>
+        <p className="mt-2 font-semibold tabular-nums">{item.usage ? `${item.snapshot!.amount!.toLocaleString('ko-KR', { maximumFractionDigits: 3 })} / ${item.limit.toLocaleString('ko-KR')} ${item.unit} · ${item.snapshot!.amount! > 0 && item.usage.percent === 0 ? '0.1% 미만' : `${item.usage.percent}%`}` : `— / ${item.limit.toLocaleString('ko-KR')} ${item.unit}`}</p>
+        <div role="progressbar" aria-label={`${item.label} 무료 한도 대비 사용률 (콘솔 확인값)`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={item.usage?.bar} aria-valuetext={item.usage ? `${item.snapshot!.amount} ${item.unit}, 확인 시점 ${item.usage.percent}%` : '미수집'} className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--share-box)]"><div className={`h-full rounded-full ${item.usage?.warning ? 'bg-[var(--share-red)]' : 'bg-[var(--share-muted)]'}`} style={{ width: `${item.usage?.bar ?? 0}%` }} /></div>
+        <p className={`mt-2 text-xs ${muted}`}>{item.snapshot ? `확인 ${new Date(item.snapshot.updated_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}${item.snapshot.status !== 'ok' ? ' · 조회 실패, 이전 값' : ''}` : '미수집 · 0 사용으로 계산하지 않음'}</p>
+      </div>)}</div>
+      <p className={`mt-3 text-xs ${muted}`}>운영·개발 조직 합계입니다. 전송량 두 종류는 각각 별도 한도이며, MAU는 로그인·토큰 갱신한 고유 사용자 수입니다. 현재 값으로 실시간 잔여량을 보장하지 않습니다.</p>
+    </div>
+    <p className={`mt-4 text-xs ${muted}`}>화면 안내 기준: 80% 주의 · 90% 임박 · 100% 초과. <a href="https://supabase.com/dashboard/org/kxjbrdpaeovoocubhdsc/usage" target="_blank" rel="noreferrer" className="text-[var(--share-blue)]">조직 전체 사용량 확인 ↗</a></p>
   </section>
 }
