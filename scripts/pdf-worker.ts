@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { createServiceClient } from '../src/lib/supabase/service'
 import { createCallLimiter, withPdfWorkerContext, type PdfWorkerContext } from '../src/lib/pdf-import/context'
 import { isUuid, type PdfImportJob } from '../src/lib/pdf-import/types'
-import { BOOK_BATCH_MODE, BookBatchStopped } from '../src/lib/book-pdf/batch-policy'
-import type { BookBatchTransport } from '../src/lib/book-pdf/batch-transport'
+import { isPdfBatchJob, PdfBatchPending, PdfBatchRequestFailed, PdfBatchStopped } from '../src/lib/pdf-import/batch-policy'
+import type { PdfBatchTransport } from '../src/lib/pdf-import/batch-transport'
 
 export async function main() {
   if (process.argv.includes('--help')) {
@@ -59,7 +59,7 @@ export async function main() {
       if (error) throw new Error(error.message)
     },
   }
-  let batch: BookBatchTransport | undefined
+  let batch: PdfBatchTransport | undefined
   const suspend = async (submit?: () => Promise<void>) => {
     // Arrange the future execution before releasing the lease. A crash after
     // scheduling can create duplicate wakes, never an unowned waiting job.
@@ -73,16 +73,23 @@ export async function main() {
     console.log(`[pdf-worker] batch-waiting ${id}`)
   }
   try {
-    if (job.kind === 'bank_book' && job.payload.bookProcessing === BOOK_BATCH_MODE) {
-      const { BookBatchTransport, anthropicBookBatchProvider } = await import('../src/lib/book-pdf/batch-transport')
-      batch = new BookBatchTransport(client, { ...job, lease_token: token }, context, anthropicBookBatchProvider(controller.signal))
+    if (isPdfBatchJob(job)) {
+      const { PdfBatchTransport, anthropicPdfBatchProvider } = await import('../src/lib/pdf-import/batch-transport')
+      batch = new PdfBatchTransport(client, { ...job, lease_token: token }, context, anthropicPdfBatchProvider(controller.signal))
       if (await batch.poll()) { await suspend(); return }
       context.batchCall = batch.call
     }
     const { runPdfImport } = await import('../src/lib/pdf-import/handlers')
-    const result = await withPdfWorkerContext(context, () => runPdfImport(client, job!))
+    let result: Record<string, unknown>
+    try {
+      result = await withPdfWorkerContext(context, () => runPdfImport(client, job!))
+    } catch (error) {
+      if (!(error instanceof PdfBatchPending) || !batch) throw error
+      await suspend(() => batch!.submit())
+      return
+    }
     if (result.batch_waiting === true) {
-      if (!batch) throw new Error('교재 배치 실행 설정이 없습니다.')
+      if (!batch) throw new Error('PDF 배치 실행 설정이 없습니다.')
       await suspend(() => batch!.submit())
       return
     }
@@ -96,9 +103,9 @@ export async function main() {
   } catch (error) {
     controller.abort(error) // Stop any remaining parallel AI calls before releasing the lease.
     const message = error instanceof Error ? error.message : 'PDF 처리 실패'
-    if (error instanceof BookBatchStopped) {
+    if (error instanceof PdfBatchStopped || error instanceof PdfBatchRequestFailed) {
       const { data, error: finishError } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token,
-        p_status: 'failed', p_result: { batch_stopped: true }, p_error: message.slice(0,500) })
+        p_status: 'failed', p_result: error instanceof PdfBatchRequestFailed ? { batch_exhausted: true } : { batch_stopped: true }, p_error: message.slice(0,500) })
       if (finishError || !data) throw new Error('배치 중단 상태 저장 실패')
       console.log(`[pdf-worker] batch-stopped ${id}`)
       return

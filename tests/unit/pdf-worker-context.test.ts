@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { checkpointCall, createCallLimiter, getPdfWorkerContext, withPdfWorkerContext, type PdfWorkerContext } from '@/lib/pdf-import/context'
+import { checkpointBatchPhase, checkpointCall, createCallLimiter, getPdfWorkerContext, withPdfWorkerContext, type PdfWorkerContext } from '@/lib/pdf-import/context'
 
 function context(controller = new AbortController()) {
   const saved = new Map<string, unknown>()
@@ -11,6 +11,14 @@ function context(controller = new AbortController()) {
   return { value, saved }
 }
 describe('PDF worker checkpoints', () => {
+  it('reuses completed batch phases without holding a nested concurrency slot', async () => {
+    const { value } = context()
+    value.batchCall = vi.fn(); value.concurrency = 1; value.execute = createCallLimiter(1)
+    const work = vi.fn(() => checkpointCall('nested', async () => ({ saved: true })))
+    await expect(withPdfWorkerContext(value, () => checkpointBatchPhase('phase', work))).resolves.toEqual({ saved: true })
+    await withPdfWorkerContext(value, () => checkpointBatchPhase('phase', work))
+    expect(work).toHaveBeenCalledTimes(1)
+  })
   it('reuses completed responses on a second run but separates changed prompts', async () => {
     const { value, saved } = context()
     const call = vi.fn(async () => ({ items: [18] }))

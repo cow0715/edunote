@@ -28,4 +28,16 @@ describe('batch continuation recovery API',()=>{
     expect((await POST(new Request('https://example.com'),params)).status).toBe(409)
     expect(mocks.dispatch).not.toHaveBeenCalled()
   })
+  it.each(['bank_questions','bank_explanation'] as const)('recovers a delayed %s batch without replacing the job or retry budget',async(kind)=>{
+    mocks.job!.kind=kind;mocks.job!.payload={batchProcessing:'batch-v1'}
+    mocks.job!.resume_after=new Date(Date.now()-31*60000).toISOString()
+    expect((await POST(new Request('https://example.com'),params)).status).toBe(202)
+    expect(mocks.dispatch).toHaveBeenCalledWith(id,kind)
+    expect(mocks.service).not.toHaveBeenCalled()
+  })
+  it('blocks manual replay after an individual request exhausts its limit',async()=>{
+    mocks.job!.kind='bank_explanation';mocks.job!.status='failed';mocks.job!.result={batch_exhausted:true}
+    expect((await POST(new Request('https://example.com'),params)).status).toBe(409)
+    expect(mocks.dispatch).not.toHaveBeenCalled()
+  })
 })

@@ -5,6 +5,8 @@ import type { ParsedExplanation } from '../explanation-parser'
 import { buildFileBlock, callLlmText, createLlmExecution, parseJsonArrayResponse, type TaskCallOptions } from './client'
 import { prewarmPdfCache, rangedParseCallIsolated, sliceNumbers, type RangedCallStats } from './ranged'
 import { EXPLANATION_WRITING_RULES } from './material-enrichment-contract'
+import { getPdfWorkerContext } from '../pdf-import/context'
+import { settlePdfBatchCalls } from '../pdf-import/batch-policy'
 
 export type ExamBankParsedQuestion = {
   question_number: number
@@ -68,14 +70,16 @@ export async function parseExamBankPageRanged(
   const task = 'examBank.parseQuestions' as const
   const execution = options.execution ?? createLlmExecution()
   const files = [{ fileData, mimeType }]
-  const warmStats = await prewarmPdfCache({ files, task, execution, prompt: EXAM_BANK_PARSE_RULES })
+  const batch = !!getPdfWorkerContext()?.batchCall
+  const warmStats = batch ? [] : [await prewarmPdfCache({ files, task, execution, prompt: EXAM_BANK_PARSE_RULES })]
 
   // 필터 격리: 그룹이 필터에 걸리면 문항 단위로 재시도 — 진짜 걸린 문항만 결손
-  const parts = await Promise.all(EXAM_BANK_NUMBER_GROUPS.map((numbers) =>
+  const requests = EXAM_BANK_NUMBER_GROUPS.map((numbers) =>
     rangedParseCallIsolated<ExamBankParsedQuestion>({
       files, task, execution, maxTokens: 8192,
       prompt: EXAM_BANK_PARSE_RULES, scope: { numbers }, label: 'parseExamBankPageRanged',
-    })))
+    }))
+  const parts = await (batch ? settlePdfBatchCalls(requests) : Promise.all(requests))
 
   const byNumber = new Map<number, ExamBankParsedQuestion>()
   for (const part of parts) {
@@ -86,7 +90,7 @@ export async function parseExamBankPageRanged(
   }
   return {
     items: [...byNumber.values()].sort((a, b) => a.question_number - b.question_number),
-    calls: [warmStats, ...parts.flatMap((part) => part.calls)],
+    calls: [...warmStats, ...parts.flatMap((part) => part.calls)],
     skippedNumbers: parts.flatMap((part) => part.skippedNumbers).sort((a, b) => a - b),
   }
 }
@@ -118,10 +122,12 @@ async function parseExplanationsRanged(
   const task = 'examBank.extractExplanations' as const
   const execution = options.execution ?? createLlmExecution()
   const files = [{ fileData: base64, mimeType: 'application/pdf' }]
-  const warmStats = await prewarmPdfCache({ files, task, execution, prompt })
+  const batch = !!getPdfWorkerContext()?.batchCall
+  const warmStats = batch ? [] : [await prewarmPdfCache({ files, task, execution, prompt })]
 
-  const parts = await Promise.all(EXAM_BANK_NUMBER_GROUPS.map((numbers) =>
-    rangedParseCallIsolated<ParsedExplanation>({ files, task, execution, maxTokens: 16000, prompt, scope: { numbers }, label })))
+  const requests = EXAM_BANK_NUMBER_GROUPS.map((numbers) =>
+    rangedParseCallIsolated<ParsedExplanation>({ files, task, execution, maxTokens: 16000, prompt, scope: { numbers }, label }))
+  const parts = await (batch ? settlePdfBatchCalls(requests) : Promise.all(requests))
 
   const byNumber = new Map<number, ParsedExplanation>()
   for (const part of parts) {
@@ -131,7 +137,7 @@ async function parseExplanationsRanged(
   }
   return {
     items: [...byNumber.values()].sort((a, b) => a.question_number - b.question_number),
-    calls: [warmStats, ...parts.flatMap((part) => part.calls)],
+    calls: [...warmStats, ...parts.flatMap((part) => part.calls)],
     skippedNumbers: parts.flatMap((part) => part.skippedNumbers).sort((a, b) => a - b),
   }
 }

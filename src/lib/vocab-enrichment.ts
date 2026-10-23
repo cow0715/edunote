@@ -1,5 +1,7 @@
 import type { SupabaseServerClient } from '@/lib/api'
 import { callLlmText, createLlmExecution, isTaskConfigured, parseJsonArrayResponse, type TaskCallOptions } from '@/lib/llm/client'
+import { checkpointBatchPhase, getPdfWorkerContext } from './pdf-import/context'
+import { settlePdfBatchCalls } from './pdf-import/batch-policy'
 
 export type VocabEnrichmentCandidate = {
   normalized_word: string
@@ -125,36 +127,38 @@ export async function enrichExamQuestionVocabulary(
 ) {
   const execution = options.execution ?? createLlmExecution()
   const normalizedWords = [...new Set((options.normalizedWords ?? []).filter(Boolean))]
-  let query = supabase
-    .from('exam_bank_question_vocab')
-    .select('id, normalized_word, word, meaning, topic, synonyms, antonyms, similar_words')
-    .order('created_at', { ascending: true })
-    .limit(options.limit ?? 200)
+  const candidates = await checkpointBatchPhase({ phase: 'exam-vocab-candidates-v1', words: [...normalizedWords].sort(), limit: options.limit ?? 200 }, async () => {
+    let query = supabase
+      .from('exam_bank_question_vocab')
+      .select('id, normalized_word, word, meaning, topic, synonyms, antonyms, similar_words')
+      .order('created_at', { ascending: true })
+      .limit(options.limit ?? 200)
 
-  if (normalizedWords.length > 0) {
-    query = query.in('normalized_word', normalizedWords)
-  }
+    if (normalizedWords.length > 0) query = query.in('normalized_word', normalizedWords)
 
-  const { data, error } = await query
-  if (error) throw new Error(error.message)
+    const { data, error } = await query
+    if (error) throw new Error(error.message)
 
-  const rows = ((data ?? []) as VocabDbRow[]).filter(needsEnrichment)
-  const byWord = new Map<string, VocabEnrichmentCandidate>()
-  for (const row of rows) {
-    if (!byWord.has(row.normalized_word)) {
-      byWord.set(row.normalized_word, {
-        normalized_word: row.normalized_word,
-        word: row.word,
-        meaning: row.meaning,
-        topic: row.topic || '기타',
-      })
+    const rows = ((data ?? []) as VocabDbRow[]).filter(needsEnrichment)
+    const byWord = new Map<string, VocabEnrichmentCandidate>()
+    for (const row of rows) {
+      if (!byWord.has(row.normalized_word)) {
+        byWord.set(row.normalized_word, {
+          normalized_word: row.normalized_word,
+          word: row.word,
+          meaning: row.meaning,
+          topic: row.topic || '기타',
+        })
+      }
     }
-  }
-
-  const candidates = [...byWord.values()]
+    return [...byWord.values()]
+  })
   const generated: VocabEnrichmentResult[] = []
   const batchSize = options.batchSize ?? 40
-  for (let i = 0; i < candidates.length; i += batchSize) {
+  if (getPdfWorkerContext()?.batchCall) {
+    const chunks = Array.from({ length: Math.ceil(candidates.length / batchSize) }, (_, i) => candidates.slice(i * batchSize, (i + 1) * batchSize))
+    generated.push(...(await settlePdfBatchCalls(chunks.map((chunk) => generateEnrichments(chunk, { execution })))).flat())
+  } else for (let i = 0; i < candidates.length; i += batchSize) {
     generated.push(...await generateEnrichments(candidates.slice(i, i + batchSize), { execution }))
   }
 

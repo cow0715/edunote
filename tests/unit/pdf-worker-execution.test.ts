@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PdfImportJob } from '@/lib/pdf-import/types'
 import { checkpointCall, getPdfWorkerContext, reportPdfStage } from '@/lib/pdf-import/context'
-import { BookBatchStopped } from '@/lib/book-pdf/batch-policy'
+import { BookBatchPending, BookBatchRequestFailed, BookBatchStopped } from '@/lib/book-pdf/batch-policy'
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), run: vi.fn(), single: vi.fn(), read: vi.fn() }))
 const batchMock = vi.hoisted(() => ({ poll: vi.fn(), submit: vi.fn(), call: vi.fn(), wake: vi.fn() }))
-vi.mock('@/lib/book-pdf/batch-transport', () => ({
-  BookBatchTransport: class { poll = batchMock.poll; submit = batchMock.submit; call = batchMock.call },
-  anthropicBookBatchProvider: vi.fn(),
+vi.mock('@/lib/pdf-import/batch-transport', () => ({
+  PdfBatchTransport: class { poll = batchMock.poll; submit = batchMock.submit; call = batchMock.call },
+  anthropicPdfBatchProvider: vi.fn(),
 }))
 vi.mock('@/lib/pdf-import/batch-wake', () => ({ scheduleBookBatchWake: batchMock.wake }))
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({
@@ -36,6 +36,26 @@ beforeEach(() => {
 })
 afterEach(() => { vi.unstubAllEnvs() })
 describe('single-job worker execution', () => {
+  it.each(['bank_questions', 'bank_explanation'] as const)('suspends %s after collecting requests and exits while awaiting results', async (kind) => {
+    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pdf_import_claim' ? [{ ...job, kind, payload: { batchProcessing: 'batch-v1' } }] : true, error: null }))
+    mocks.run.mockRejectedValueOnce(new BookBatchPending())
+    await main()
+    expect(batchMock.submit).toHaveBeenCalledTimes(1)
+    expect(batchMock.wake.mock.invocationCallOrder[0]).toBeLessThan(batchMock.submit.mock.invocationCallOrder[0])
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_suspend_batch', expect.objectContaining({ p_id: id }))
+    expect(mocks.rpc.mock.calls.some(([name]) => name === 'pdf_import_finish')).toBe(false)
+    batchMock.poll.mockResolvedValueOnce(true); mocks.run.mockClear()
+    await main()
+    expect(mocks.run).not.toHaveBeenCalled()
+    expect(batchMock.submit).toHaveBeenCalledTimes(1)
+  })
+  it('stops exhausted exam requests without restarting a paid platform attempt', async () => {
+    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pdf_import_claim' ? [{ ...job, payload: { batchProcessing: 'batch-v1' } }] : true, error: null }))
+    mocks.run.mockRejectedValueOnce(new BookBatchRequestFailed('request exhausted'))
+    await expect(main()).resolves.toBeUndefined()
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'failed', p_result: { batch_exhausted: true } }))
+    expect(batchMock.submit).not.toHaveBeenCalled()
+  })
   function batchJob() {
     mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pdf_import_claim' ? [{ ...job, kind: 'bank_book', payload: { bookProcessing: 'batch-v1' } }] : true, error: null }))
   }

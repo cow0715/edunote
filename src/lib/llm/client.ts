@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { jsonrepair } from 'jsonrepair'
 import { checkpointCall, checkpointKey, getPdfWorkerContext } from '../pdf-import/context'
+import { isPdfBatchTask } from '../pdf-import/batch-policy'
 import { LlmError } from './errors'
 import { recordUsage } from '../costs/record'
 import { getModel, getModelCatalog } from './models'
@@ -85,12 +86,17 @@ export async function callLlmTextDetailed(options: CallLlmOptions): Promise<LlmD
   if (options.phase === 'prewarm') return callLlmTextUncached(workerOptions)
   const checkpoint = { version: 2, ...options, execution: undefined, signal: undefined,
     configVersion: execution.configVersion, model: execution.taskBindings[options.task] }
-  return checkpointCall(checkpoint, () => {
-    if (context.batchCall && options.task.startsWith('book.')) {
+  return checkpointCall(checkpoint, async () => {
+    if (context.batchCall && isPdfBatchTask(options.task)) {
       const model = getModel(execution.taskBindings[options.task])
       if (!model) throw new LlmError('configuration', '배치 모델 설정이 올바르지 않습니다.')
       validate(workerOptions, model)
-      return context.batchCall(workerOptions, checkpointKey(checkpoint))
+      const result = await context.batchCall(workerOptions, checkpointKey(checkpoint))
+      // Preserve the exam parser's existing per-question refusal/skip behavior.
+      if (options.task.startsWith('examBank.') && result.finishReason === 'refusal') {
+        throw new LlmError('refusal', 'Output blocked by content filtering (refusal)', { usage: result.usage, execution: result.execution })
+      }
+      return result
     }
     return callLlmTextUncached(workerOptions)
   }, (result) => {

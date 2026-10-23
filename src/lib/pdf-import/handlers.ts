@@ -4,7 +4,7 @@ import { getMegastudyStats } from '../megastudy'
 import { mergeExamVocabularyText, syncExamQuestionVocabulary } from '../exam-vocabulary'
 import { enrichExamQuestionVocabulary } from '../vocab-enrichment'
 import { createTagMatcher, fetchTeacherTagContext, parseAnswerSheetDocument, saveWeekAnswerSheetFile, syncWeekReadingQuestionsAndRegrade } from '../week-reading-import'
-import { checkpointCall, reportPdfStage } from './context'
+import { checkpointBatchPhase, checkpointCall, reportPdfStage } from './context'
 import { weekImportSnapshot } from './server'
 import type { PdfImportJob } from './types'
 
@@ -22,7 +22,8 @@ export async function runPdfImport(client: SupabaseClient, job: PdfImportJob): P
     return importBookPdf(client, job, new Uint8Array(buffer))
   }
   if (job.kind === 'bank_questions') {
-    const result = await importBankQuestions(client, job, base64, mimeType)
+    const result = await checkpointBatchPhase({ phase: 'bank-questions-saved-v1', job: job.id },
+      () => importBankQuestions(client, job, base64, mimeType))
     if (typeof job.payload.explanationSourcePath === 'string') {
       const { data: explanation, error } = await client.storage.from('pdf-import-sources').download(job.payload.explanationSourcePath)
       if (error || !explanation) throw new Error('문항은 저장됐지만 해설 원본을 읽지 못했습니다.')
@@ -67,6 +68,14 @@ async function importBankQuestions(client: SupabaseClient, job: PdfImportJob, fi
 }
 
 async function importBankExplanation(client: SupabaseClient, job: PdfImportJob, buffer: ArrayBuffer) {
+  const result = await checkpointBatchPhase({ phase: 'bank-explanations-saved-v1', job: job.id },
+    () => saveBankExplanation(client, job, buffer))
+  await reportPdfStage('어휘 정보를 보완하는 중')
+  const enriched = result.words.length ? await enrichExamQuestionVocabulary(client, { normalizedWords: result.words, limit: 300, batchSize: 40 }) : { candidates: 0, generated: 0, updated: 0 }
+  return { updated: result.updated, total: result.total, mode: result.mode, skipped_questions: result.skipped_questions, enriched }
+}
+
+async function saveBankExplanation(client: SupabaseClient, job: PdfImportJob, buffer: ArrayBuffer) {
   const { data: exam } = await client.from('exam_bank').select('id,exam_month').eq('id', job.target_id).eq('teacher_id', job.teacher_id).single()
   if (!exam) throw new Error('시험을 찾을 수 없습니다.')
   const hakpyung = [3, 4, 5, 7, 10].includes(exam.exam_month)
@@ -101,9 +110,7 @@ async function importBankExplanation(client: SupabaseClient, job: PdfImportJob, 
     }
     updated++
   }
-  await reportPdfStage('어휘 정보를 보완하는 중')
-  const enriched = words.size ? await enrichExamQuestionVocabulary(client, { normalizedWords: [...words], limit: 300, batchSize: 40 }) : { candidates: 0, generated: 0, updated: 0 }
-  return { updated, total: parsed.items.length, mode: hakpyung ? 'hakpyung' : 'standard', skipped_questions: parsed.skippedNumbers, enriched }
+  return { updated, total: parsed.items.length, mode: hakpyung ? 'hakpyung' : 'standard', skipped_questions: parsed.skippedNumbers, words: [...words] }
 }
 
 async function importWeekAnswers(client: SupabaseClient, job: PdfImportJob, fileData: string, mimeType: string) {

@@ -4,6 +4,7 @@ import { createServiceClient } from '../supabase/service'
 import { dispatchPdfJob, gcpWorkerConfig } from './gcp'
 import type { PdfImportJob, PdfImportKind } from './types'
 import { bookQualityRetryBlocked } from '../book-pdf/recovery-policy'
+import { isPdfBatchKind, PDF_BATCH_MODE } from './batch-policy'
 
 export async function weekImportSnapshot(client: SupabaseClient, weekId: string) {
   const { data: questions, error } = await client.from('exam_question').select('*').eq('week_id', weekId).eq('exam_type', 'reading').order('id')
@@ -47,7 +48,9 @@ export async function registerPdfImport(input: {
   const targetId = input.targetId ?? randomUUID()
   const { error } = await client.from('pdf_import_job').insert({
     id, teacher_id: input.teacherId, kind: input.kind, target_id: targetId,
-    source_path: sourcePath, upload_path: input.storagePath, payload: { ...input.payload, explanationSourcePath: explanationPath },
+    source_path: sourcePath, upload_path: input.storagePath, payload: { ...input.payload,
+      ...(['bank_questions', 'bank_explanation'].includes(input.kind) ? { batchProcessing: PDF_BATCH_MODE } : {}),
+      explanationSourcePath: explanationPath },
   })
   if (error) {
     await client.storage.from('pdf-import-sources').remove([sourcePath, ...(explanationPath ? [explanationPath] : [])])
@@ -70,13 +73,13 @@ export async function registerPdfImport(input: {
 }
 
 export function publicPdfJob(job: PdfImportJob) {
-  const batchWakeDelayed = job.kind === 'bank_book' && job.status === 'waiting_batch' && !!job.resume_after
+  const batchWakeDelayed = isPdfBatchKind(job.kind) && job.status === 'waiting_batch' && !!job.resume_after
     && Date.parse(job.resume_after) < Date.now() - 30 * 60_000
   return { id: job.id, kind: job.kind, target_id: job.target_id, status: job.status,
     stage: job.stage, completed_calls: job.completed_calls, attempt: job.attempt,
     lease_expires_at: job.lease_expires_at, resume_after: job.resume_after ?? null, result: job.result,
     error: job.error ?? (batchWakeDelayed ? '예약된 배치 상태 확인 실행이 지연됐습니다. GCP 재개 권한·큐 상태를 확인한 뒤 재실행해주세요.' : null),
-    can_retry: batchWakeDelayed || (job.status === 'failed' && !bookQualityRetryBlocked(job) && job.result?.batch_stopped !== true) || (job.status === 'running' && !!job.lease_expires_at && new Date(job.lease_expires_at).getTime() < Date.now()) ||
+    can_retry: batchWakeDelayed || (job.status === 'failed' && !bookQualityRetryBlocked(job) && job.result?.batch_stopped !== true && job.result?.batch_exhausted !== true) || (job.status === 'running' && !!job.lease_expires_at && new Date(job.lease_expires_at).getTime() < Date.now()) ||
       (job.status === 'queued' && (!!job.error || Date.now() - new Date(job.updated_at).getTime() > 180_000)),
     created_at: job.created_at, updated_at: job.updated_at }
 }

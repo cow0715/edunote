@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { MessageBatch, MessageBatchIndividualResponse } from '@anthropic-ai/sdk/resources/messages/batches'
+import type { BatchCreateParams, MessageBatch, MessageBatchIndividualResponse } from '@anthropic-ai/sdk/resources/messages/batches'
 import { BookBatchTransport, type BookBatchProvider } from '@/lib/book-pdf/batch-transport'
 import { BookBatchPending, BookBatchRequestFailed, BookBatchStopped } from '@/lib/book-pdf/batch-policy'
 import { createLlmExecution } from '@/lib/llm/client'
@@ -10,7 +10,7 @@ import type { PdfImportJob } from '@/lib/pdf-import/types'
 import type { PdfWorkerContext } from '@/lib/pdf-import/context'
 
 const key = 'a'.repeat(64)
-function fixture() {
+function fixture(kind: PdfImportJob['kind'] = 'bank_book') {
   const rows: { id: string; state: string; provider_id: string | null; requests: { key: string }[]; created_at: string }[] = []
   const saved = new Map<string, unknown>()
   const db = { from: () => ({ select: () => ({ eq: () => ({ order: async () => ({ data: structuredClone(rows), error: null }) }) }) }),
@@ -22,13 +22,13 @@ function fixture() {
       Object.assign(rows.find((r) => r.id === args.p_batch)!, { state: args.p_state, provider_id: args.p_provider })
       return { error: null }
     }) }
-  const provider = { create: vi.fn(async () => ({ id: `msgbatch_${rows.length}` } as MessageBatch)),
+  const provider = { create: vi.fn(async (requests: BatchCreateParams.Request[]) => ({ id: `msgbatch_${rows.length}`, request_counts: { processing: requests.length } } as MessageBatch)),
     retrieve: vi.fn(async () => ({ processing_status: 'ended' } as MessageBatch)),
     results: vi.fn(async () => (async function* () { yield success() })()) }
   const context: PdfWorkerContext = { signal: new AbortController().signal, concurrency: 2, execute: (call) => call(),
     stage: async () => {}, read: async <T>(k: string) => saved.get(k) as T ?? null,
     write: async (k, v) => { if (!saved.has(k)) saved.set(k, v) } }
-  const job = { id: 'job', lease_token: 'lease' } as PdfImportJob
+  const job = { id: 'job', kind, lease_token: 'lease' } as PdfImportJob
   const broker = () => new BookBatchTransport(db as unknown as SupabaseClient, job, context, provider as BookBatchProvider)
   const options: CallLlmOptions = { task: 'book.mapSource', maxTokens: 12000, content: 'test source', execution: createLlmExecution() }
   return { rows, saved, db, provider, context, broker, options }
@@ -128,6 +128,29 @@ describe('durable textbook Batch API transport', () => {
   it('does not route past-exam calls into the batch provider', async () => {
     const f = fixture()
     await expect(f.broker().call({ ...f.options, task: 'examBank.parseQuestions' }, key)).rejects.toBeInstanceOf(BookBatchStopped)
+    expect(f.provider.create).not.toHaveBeenCalled()
+  })
+  it.each(['bank_questions', 'bank_explanation'] as const)('retries only the failed request for %s across worker restarts', async (kind) => {
+    const f = fixture(kind), secondKey = 'b'.repeat(64)
+    f.options.task = 'examBank.extractExplanations'
+    const first = f.broker(); await first.poll()
+    await expect(first.call(f.options, key)).rejects.toBeInstanceOf(BookBatchPending)
+    await expect(first.call({ ...f.options, content: 'other question' }, secondKey)).rejects.toBeInstanceOf(BookBatchPending)
+    await first.submit()
+    f.provider.results.mockImplementationOnce(async () => responseStream([success(), { custom_id: secondKey, result: { type: 'expired' } }]))
+    const resumed = f.broker(); await resumed.poll()
+    expect((await resumed.call(f.options, key)).text).toBe('{"groups":[]}')
+    await expect(resumed.call({ ...f.options, content: 'other question' }, secondKey)).rejects.toBeInstanceOf(BookBatchPending)
+    await resumed.submit()
+    expect(f.provider.create.mock.calls[1][0].map((r) => r.custom_id)).toEqual([secondKey])
+    expect(f.rows[1].requests).toHaveLength(1)
+  })
+  it('rejects weekly/grade tasks and prewarm requests even for an exam batch job', async () => {
+    const f = fixture('bank_questions')
+    for (const task of ['week.parseAnswers', 'week.gradeSubjective', 'mockExam.answerOcr'] as const) {
+      await expect(f.broker().call({ ...f.options, task }, key)).rejects.toBeInstanceOf(BookBatchStopped)
+    }
+    await expect(f.broker().call({ ...f.options, task: 'examBank.parseQuestions', phase: 'prewarm', maxTokens: 0 }, key)).rejects.toBeInstanceOf(BookBatchStopped)
     expect(f.provider.create).not.toHaveBeenCalled()
   })
 })
