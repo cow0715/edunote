@@ -1,5 +1,6 @@
 'use client'
 
+import { readablePassage } from '@/lib/material-display'
 import { memo, useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -271,7 +272,7 @@ export const QuestionCard = memo(function QuestionCard({
         {q.passage && (
           <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3">
             <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap text-justify">
-              <MarkdownText text={q.passage} />
+              <MarkdownText text={q.exam_bank?.material_kind === 'textbook' ? readablePassage(q.passage) : q.passage} />
             </p>
           </div>
         )}
