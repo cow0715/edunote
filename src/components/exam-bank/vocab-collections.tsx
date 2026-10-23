@@ -496,13 +496,13 @@ export function VocabCollections() {
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="[&>tr+tr]:border-t [&>tr+tr]:border-[var(--border)]">
                       {displayedItems.map((item, index) => {
                         const synonyms = listOrEmpty(item.synonyms)
                         const antonyms = listOrEmpty(item.antonyms)
                         const similarWords = listOrEmpty(item.similar_words)
                         return (
-                          <tr key={item.id} className="align-top hover:bg-blue-50/30">
+                          <tr key={item.id} className="align-top transition-colors hover:bg-[var(--control-bg)]">
                             <td className="px-4 py-3 text-xs font-medium text-gray-300">{index + 1}</td>
                             <td className="px-3 py-3 text-xs text-gray-500">{item.topic || '기타'}</td>
                             <td className="px-3 py-3">
