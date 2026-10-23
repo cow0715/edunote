@@ -4,6 +4,8 @@ import { createCallLimiter, withPdfWorkerContext, type PdfWorkerContext } from '
 import { isUuid, type PdfImportJob } from '../src/lib/pdf-import/types'
 import { isPdfBatchJob, PdfBatchPending, PdfBatchRequestFailed, PdfBatchStopped } from '../src/lib/pdf-import/batch-policy'
 import type { PdfBatchTransport } from '../src/lib/pdf-import/batch-transport'
+import { examImportIssues } from '../src/lib/pdf-import/exam-completeness'
+import { savedExamProgress } from '../src/lib/pdf-import/exam-progress'
 
 export async function main() {
   if (process.argv.includes('--help')) {
@@ -94,24 +96,31 @@ export async function main() {
       return
     }
     const unresolved = job!.kind === 'bank_book' && result.verification_unresolved === true
-    const { data, error } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: unresolved ? 'failed' : 'succeeded', p_result: result,
-      p_error: unresolved ? Array.isArray(result.inventory_errors) ? '원문 문항 경계를 확정하지 못해 등록을 보류했습니다.' : '자동 대조·복구 후 확정하지 못한 항목이 있어 등록을 보류했습니다.' : null })
+    const examIssues = ['bank_questions', 'bank_explanation'].includes(job!.kind) ? examImportIssues(result) : []
+    const incomplete = examIssues.length > 0 || result.exam_incomplete === true
+    const { data, error } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: unresolved || incomplete ? 'failed' : 'succeeded',
+      p_result: incomplete ? { ...result, exam_incomplete: true } : result,
+      p_error: incomplete ? `자동 복구 후에도 미완료 문항 ${examIssues.length}개가 남았습니다. 문항별 사유를 확인해주세요.`
+        : unresolved ? Array.isArray(result.inventory_errors) ? '원문 문항 경계를 확정하지 못해 등록을 보류했습니다.' : '자동 대조·복구 후 확정하지 못한 항목이 있어 등록을 보류했습니다.' : null })
     if (error || !data) throw new Error('완료 상태 저장 실패')
     // Quality recovery already exhausted its bounded budget; don't start another paid platform retry.
-    if (unresolved) { console.log(`[pdf-worker] verification-unresolved ${id}`); return }
+    if (unresolved || incomplete) { console.log(`[pdf-worker] verification-unresolved ${id}`); return }
     console.log(`[pdf-worker] completed ${id}`)
   } catch (error) {
     controller.abort(error) // Stop any remaining parallel AI calls before releasing the lease.
     const message = error instanceof Error ? error.message : 'PDF 처리 실패'
+    // A later infrastructure/vocabulary failure must not hide numbered parse failures.
+    let progress: Record<string, unknown> | null = null
+    try { progress = await savedExamProgress(context, job!) } catch { /* Preserve the original error if the checkpoint DB is unavailable. */ }
     if (error instanceof PdfBatchStopped || error instanceof PdfBatchRequestFailed) {
       const { data, error: finishError } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token,
-        p_status: 'failed', p_result: error instanceof PdfBatchRequestFailed ? { batch_exhausted: true } : { batch_stopped: true }, p_error: message.slice(0,500) })
+        p_status: 'failed', p_result: { ...progress, ...(error instanceof PdfBatchRequestFailed ? { batch_exhausted: true } : { batch_stopped: true }) }, p_error: message.slice(0,500) })
       if (finishError || !data) throw new Error('배치 중단 상태 저장 실패')
       console.log(`[pdf-worker] batch-stopped ${id}`)
       return
     }
     const attempt = Number(process.env.CLOUD_RUN_TASK_ATTEMPT ?? '3')
-    await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: attempt < 3 ? 'queued' : 'failed', p_result: null, p_error: message.slice(0, 500) })
+    await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: attempt < 3 ? 'queued' : 'failed', p_result: progress, p_error: message.slice(0, 500) })
     throw error
   } finally {
     clearInterval(timer)

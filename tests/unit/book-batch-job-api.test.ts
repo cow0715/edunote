@@ -13,6 +13,11 @@ beforeEach(()=>{
 })
 afterEach(()=>vi.unstubAllEnvs())
 describe('batch continuation recovery API',()=>{
+  it('does not reset the repair budget of an incomplete exam import',async()=>{
+    mocks.job!.kind='bank_questions';mocks.job!.status='failed';mocks.job!.result={exam_incomplete:true,issues:[{question_number:22}]}
+    expect((await POST(new Request('https://example.com'),params)).status).toBe(409)
+    expect(mocks.dispatch).not.toHaveBeenCalled();expect(mocks.service).not.toHaveBeenCalled()
+  })
   it('does not let a user prematurely restart normal batch waiting',async()=>{
     expect((await POST(new Request('https://example.com'),params)).status).toBe(409)
     expect(mocks.dispatch).not.toHaveBeenCalled()

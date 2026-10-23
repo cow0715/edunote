@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PdfImportJob } from '@/lib/pdf-import/types'
-import { checkpointCall, getPdfWorkerContext, reportPdfStage } from '@/lib/pdf-import/context'
+import { checkpointCall, checkpointKey, getPdfWorkerContext, reportPdfStage } from '@/lib/pdf-import/context'
 import { BookBatchPending, BookBatchRequestFailed, BookBatchStopped } from '@/lib/book-pdf/batch-policy'
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), run: vi.fn(), single: vi.fn(), read: vi.fn() }))
@@ -36,6 +36,28 @@ beforeEach(() => {
 })
 afterEach(() => { vi.unstubAllEnvs() })
 describe('single-job worker execution', () => {
+  it('keeps previously saved numbered failures visible when vocabulary later exhausts its requests', async () => {
+    const issues = [{ stage: 'questions', question_number: 22, reason: '번호 누락', attempts: 3 }]
+    const questionPhase = checkpointKey({ phase: 'bank-questions-saved-v1', job: id })
+    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pdf_import_claim' ? [{ ...job, payload: { batchProcessing: 'batch-v1' } }] : true, error: null }))
+    mocks.read.mockImplementation(async () => ({ data: null, error: null }))
+    mocks.run.mockImplementation(async () => {
+      const context = getPdfWorkerContext()!
+      const original = context.read
+      context.read = async <T>(key: string) => key === questionPhase ? { issues, question_count: 27 } as T : original<T>(key)
+      throw new BookBatchRequestFailed('vocabulary exhausted')
+    })
+    await expect(main()).resolves.toBeUndefined()
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'failed', p_result: { issues, question_count: 27, batch_exhausted: true } }))
+  })
+  it.each(['bank_questions', 'bank_explanation'] as const)('marks incomplete %s as failed with reasons and exits without a platform retry', async (kind) => {
+    const issues = [{ stage: kind === 'bank_questions' ? 'questions' : 'explanations', question_number: 22, code: 'missing', reason: '응답에 번호가 없습니다.', attempts: 3 }]
+    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pdf_import_claim' ? [{ ...job, kind, payload: { batchProcessing: 'batch-v1' } }] : true, error: null }))
+    mocks.run.mockResolvedValue({ issues, question_count: 27 })
+    await expect(main()).resolves.toBeUndefined()
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'failed', p_result: { issues, question_count: 27, exam_incomplete: true }, p_error: expect.stringContaining('1개') }))
+    expect(batchMock.submit).not.toHaveBeenCalled(); expect(batchMock.wake).not.toHaveBeenCalled()
+  })
   it.each(['bank_questions', 'bank_explanation'] as const)('suspends %s after collecting requests and exits while awaiting results', async (kind) => {
     mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pdf_import_claim' ? [{ ...job, kind, payload: { batchProcessing: 'batch-v1' } }] : true, error: null }))
     mocks.run.mockRejectedValueOnce(new BookBatchPending())

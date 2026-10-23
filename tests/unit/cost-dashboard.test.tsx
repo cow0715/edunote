@@ -24,6 +24,7 @@ describe('cost dashboard honest empty and failure states', () => {
     expect(screen.getByText('KRW 등록 비용 합계')).toBeTruthy()
     expect(screen.getByText('USD 등록 비용 합계')).toBeTruthy()
     expect(screen.getByLabelText('금액')).toBeTruthy()
+    expect(screen.queryByText(/서비스 연결·업체 조회 내역/)).toBeNull()
     client.clear()
   })
   it('shows a fetch failure without presenting empty data as zero costs', async () => {

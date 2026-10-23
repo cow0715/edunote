@@ -62,6 +62,8 @@ export type CallLlmOptions = TaskCallOptions & {
   cacheBoundary?: number
   phase?: 'generate' | 'prewarm'
   signal?: AbortSignal
+  /** Internal Batch budget shared by content repairs and transport retries. Never sent to the model. */
+  batchRetryGroup?: string
 }
 
 export type LlmDetailedResult = {
