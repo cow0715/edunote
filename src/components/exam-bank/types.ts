@@ -9,6 +9,8 @@ export type ExamBank = {
   source: string
   form_type: string | null
   material_kind?: 'past_exam' | 'textbook'
+  book_code?: import('@/lib/book-pdf/catalog').BookCode | null
+  book_volume?: import('@/lib/book-pdf/catalog').BookVolume | null
   created_at: string
   exam_bank_question: { count: number }[]
 }

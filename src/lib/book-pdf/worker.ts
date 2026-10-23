@@ -10,6 +10,7 @@ import type { BookDocument, BookDraftUnit } from './types'
 import { processNativeBookUnit, type NativeBookResult } from './native-pipeline'
 import { NATIVE_RECOVERY_REVISION, needsUpdatedNativeRecovery } from './recovery-policy'
 import { BookBatchPending } from './batch-policy'
+import { classificationConflict, getBook } from './catalog'
 
 export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, bytes: Uint8Array) {
   const pdfHash = createHash('sha256').update(bytes).digest('hex')
@@ -27,6 +28,9 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   const document = await currentDocument()
   if (document.source_sha256 && document.source_sha256 !== pdfHash) throw new Error('원본 PDF 해시가 등록 당시와 다릅니다.')
   if (document.status === 'published') return { document_id: document.id, exam_id: document.exam_bank_id, auto_published: true }
+  if (document.book_code && !getBook(document.book_code)?.supported) {
+    return { document_id: document.id, auto_published: false, verification_unresolved: true, inventory_errors: ['선택한 교재는 PDF 형식 확인 전입니다.'], recovery_revision: NATIVE_RECOVERY_REVISION }
+  }
   if (document.status === 'review') {
     // Resume a crash after staging but before publication without paid reparse.
     const { data, error } = await client.from('book_pdf_unit').select('*').eq('document_id', document.id)
@@ -43,11 +47,16 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   }
   await reportPdfStage('원문 문항·정답·연결 페이지를 조사하는 중')
   const manifest = inventoryBook(await readBookPages(bytes), String(job.payload.fileName ?? ''))
+  const metadataError = classificationConflict(document, manifest.printed_years)
   const saved = await client.from('book_pdf_document').update({ source_path: job.source_path,
-    source_sha256: pdfHash, academic_year: manifest.printed_years.length === 1 ? manifest.printed_years[0] : null,
-    metadata_reviewed: true, manifest: { ...manifest, units: manifest.units.map(({ key, order, pages, questions }) => ({ key, order, pages, questions })) } })
+    source_sha256: pdfHash, academic_year: document.book_code ? document.academic_year : manifest.printed_years.length === 1 ? manifest.printed_years[0] : null,
+    metadata_reviewed: !metadataError, manifest: { ...manifest, ...(metadataError ? { classification_error: metadataError } : {}), units: manifest.units.map(({ key, order, pages, questions }) => ({ key, order, pages, questions })) } })
     .eq('id', job.target_id).eq('status', 'processing')
   if (saved.error) throw new Error(saved.error.message)
+  if (metadataError) {
+    await stage(null, null)
+    return { document_id: job.target_id, auto_published: false, metadata_conflict: true, inventory_errors: [metadataError], verification_unresolved: true, recovery_revision: NATIVE_RECOVERY_REVISION }
+  }
   if (manifest.errors.length) {
     await stage(null, null)
     return { document_id: job.target_id, auto_published: false, inventory_errors: manifest.errors, verification_unresolved: true, recovery_revision: NATIVE_RECOVERY_REVISION }

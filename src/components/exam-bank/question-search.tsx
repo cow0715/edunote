@@ -2,6 +2,8 @@
 
 import { examSearchYears } from '@/lib/exam-search-years'
 import { questionSourceLabel } from '@/lib/book-pdf/labels'
+import { mergeBankSearch } from '@/lib/exam-bank-navigation'
+import { BOOK_CATALOG } from '@/lib/book-pdf/catalog'
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { errorMessage, runWithLoading } from '@/lib/async-ui'
@@ -46,6 +48,8 @@ const EMPTY_FILTERS = {
   year_from: '',
   year_to: '',
   kind: '',
+  book_code: '',
+  chapter: '',
   months: [] as string[],
   points: '',
   difficulties: [] as string[],
@@ -58,16 +62,18 @@ function buildFilterParams(f: typeof EMPTY_FILTERS) {
   const params = new URLSearchParams()
   if (f.q) params.set('q', f.q)
   if (f.type) params.set('type', f.type)
-  if (f.grade) params.set('grade', f.grade)
+  if (f.grade && f.kind !== '교재') params.set('grade', f.grade)
   if (f.year_from) params.set('year_from', f.year_from)
   if (f.year_to) params.set('year_to', f.year_to)
-  if (f.months.length) params.set('month', f.months.join(','))
+  if (f.months.length && f.kind !== '교재') params.set('month', f.months.join(','))
+  if (f.kind === '교재' && f.book_code) params.set('book_code', f.book_code)
+  if (f.kind === '교재' && f.chapter) params.set('chapter', f.chapter)
   if (f.kind === '수능') params.set('source', '수능')
   else if (f.kind === '모의고사') params.set('source', '모의고사')
   else if (f.kind === '교재') params.set('source', '교재')
-  if (f.points) params.set('points', f.points)
-  if (f.difficulties.length) params.set('difficulty', f.difficulties.join(','))
-  if (f.max_correct_rate) params.set('max_correct_rate', f.max_correct_rate)
+  if (f.points && f.kind !== '교재') params.set('points', f.points)
+  if (f.difficulties.length && f.kind !== '교재') params.set('difficulty', f.difficulties.join(','))
+  if (f.max_correct_rate && f.kind !== '교재') params.set('max_correct_rate', f.max_correct_rate)
   return params
 }
 
@@ -84,6 +90,8 @@ function filtersFromParams(sp: URLSearchParams): typeof EMPTY_FILTERS {
     year_from: sp.get('year_from') ?? '',
     year_to: sp.get('year_to') ?? '',
     kind: src === '수능' || src === '모의고사' || src === '교재' ? src : '',
+    book_code: sp.get('book_code') ?? '',
+    chapter: sp.get('chapter') ?? '',
     months,
     points: sp.get('points') ?? '',
     difficulties: (sp.get('difficulty') ?? '').split(',').map((s) => s.trim()).filter(Boolean),
@@ -153,7 +161,7 @@ export function QuestionSearch() {
 
   // URL 동기화 (filters 확정 후)
   useEffect(() => {
-    const newQuery = filterKey
+    const newQuery = mergeBankSearch(filterKey, window.location.search)
     // useSearchParams() 값을 쓰면 외부 URL 변경 때마다 이 effect 가 다시 돌아 라우팅이 충돌한다.
     // 현재 쿼리는 effect 안에서 직접 읽어 의존성에서 뺀다 (exhaustive-deps 억제 주석을 없애야
     // React Compiler 가 이 컴포넌트를 최적화한다).
@@ -322,12 +330,12 @@ export function QuestionSearch() {
     }))
 
   const hasFilter = filters.type || filters.grade || filters.year_from || filters.year_to
-    || filters.kind || filters.months.length || filters.points || filters.difficulties.length || filters.max_correct_rate
+    || filters.kind || filters.book_code || filters.chapter || filters.months.length || filters.points || filters.difficulties.length || filters.max_correct_rate
 
   return (
     <div className="space-y-4">
       {/* ── 상단 필터 패널 ── */}
-      <div className="rounded-2xl bg-white shadow-[0px_4px_24px_rgba(0,75,198,0.06)] border border-gray-100/80 p-4 sticky top-4 z-10 space-y-3">
+      <div className="rounded-xl bg-card border border-border p-4 sticky top-4 z-10 space-y-3">
 
         {/* 키워드 검색 */}
         <div className="relative">
@@ -376,6 +384,17 @@ export function QuestionSearch() {
             </Select>
           </div>
 
+          {filters.kind === '교재' && <>
+            <label className="min-w-48 text-xs text-muted-foreground">교재
+              <select aria-label="교재 필터" className="mt-1 h-11 w-full rounded-lg border bg-background px-2 text-sm" value={filters.book_code} onChange={(e) => setFilters((f) => ({ ...f, book_code: e.target.value }))}>
+                <option value="">전체 교재</option>{BOOK_CATALOG.map((book) => <option key={book.code} value={book.code}>{book.label}</option>)}
+              </select>
+            </label>
+            <label className="w-24 text-xs text-muted-foreground">강
+              <Input aria-label="강 필터" type="number" min={1} max={999} value={filters.chapter} onChange={(e) => setFilters((f) => ({ ...f, chapter: e.target.value }))} placeholder="전체" className="mt-1 h-11" />
+            </label>
+          </>}
+          {filters.kind !== '교재' && <>
           {/* 학년 */}
           <div className="min-w-[72px]">
             <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">학년</p>
@@ -389,6 +408,7 @@ export function QuestionSearch() {
             </Select>
           </div>
 
+          </>}
           {/* 구분 */}
           <div className="min-w-[88px]">
             <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">구분</p>
@@ -402,6 +422,7 @@ export function QuestionSearch() {
             </Select>
           </div>
 
+          {filters.kind !== '교재' && <>
           {/* 월 */}
           <div className="min-w-[132px]">
             <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">월</p>
@@ -440,9 +461,10 @@ export function QuestionSearch() {
             </DropdownMenu>
           </div>
 
+          </>}
           {/* 시행년 */}
           <div>
-            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">시행년</p>
+            <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">{filters.kind === '교재' ? '학년도' : '시행년'}</p>
             <div className="flex items-center gap-1">
               <Select value={filters.year_from || 'all'} onValueChange={set('year_from')}>
                 <SelectTrigger aria-label="시행 시작년" className="h-8 text-xs w-[88px]"><SelectValue placeholder="시작" /></SelectTrigger>
@@ -465,6 +487,7 @@ export function QuestionSearch() {
           {/* 구분선 */}
           <div className="w-px h-8 bg-gray-200 hidden sm:block" />
 
+          {filters.kind !== '교재' && <>
           {/* 배점 */}
           <div>
             <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">배점</p>
@@ -551,6 +574,7 @@ export function QuestionSearch() {
             </Select>
           </div>
 
+          </>}
           {/* 리셋 */}
           {hasFilter && (
             <button
