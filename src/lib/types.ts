@@ -116,6 +116,11 @@ export interface ExamQuestionChoice {
 }
 
 export interface ExamQuestion {
+  source_section?: 'general' | 'written' | null;
+  source_question_number?: number | null;
+  display_order?: number | null;
+  passage_group?: string | null;
+  shared_passage?: string | null;
   id: string;
   week_id: string;
   question_number: number;

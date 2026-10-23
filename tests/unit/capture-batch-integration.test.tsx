@@ -25,9 +25,24 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('촬영 확인 → 기존 일괄 처리 연결', () => {
+  it('일괄 판독에서도 사진 저장 실패를 알리고 답안 반영을 막는다', async () => {
+    let nameIndex = 0
+    request.mockImplementation(async (url: string) => ({ ok: url.endsWith('vocab-photo-name'), json: async () => url.endsWith('vocab-photo-name')
+      ? { studentId: students[nameIndex++].student_id, confidence: 'high' }
+      : { error: '답안지 사진 저장에 실패했습니다. 판독을 시작하지 않았습니다.' } }))
+    const onApplied = vi.fn()
+    render(<ExamBatchGradeDialog open onOpenChange={vi.fn()} weekId="week" students={students} questionCount={1} onApplied={onApplied} />)
+    fireEvent.click(screen.getByRole('button', { name: '촬영한 두 장 확인 완료' }))
+    const read = await screen.findByRole('button', { name: '2명 답안 읽기' })
+    await waitFor(() => expect(read.hasAttribute('disabled')).toBe(false))
+    fireEvent.click(read)
+    expect(await screen.findAllByRole('alert')).toHaveLength(2)
+    expect(onApplied).not.toHaveBeenCalled()
+  })
+
   it('진단평가는 매칭 확인 뒤에만 판독하고 기존 onApplied로 답안을 전달한다', async () => {
     let nameIndex = 0
-    request.mockImplementation(async (url: string) => ({ json: async () => url.endsWith('vocab-photo-name')
+    request.mockImplementation(async (url: string) => ({ ok: true, json: async () => url.endsWith('vocab-photo-name')
       ? { studentId: students[nameIndex++].student_id, confidence: 'high' }
       : { ok: true, results: [{ question_number: 1, sub_label: null, student_answer: 3 }] } }))
     const onApplied = vi.fn<(studentId: string) => number>(() => 1)
@@ -59,7 +74,7 @@ describe('촬영 확인 → 기존 일괄 처리 연결', () => {
 
   it('단어 시험은 기존 채점 API와 완료 콜백을 사용한다', async () => {
     let nameIndex = 0
-    request.mockImplementation(async (url: string) => ({ json: async () => url.endsWith('vocab-photo-name')
+    request.mockImplementation(async (url: string) => ({ ok: true, json: async () => url.endsWith('vocab-photo-name')
       ? { studentId: students[nameIndex++].student_id, confidence: 'high' }
       : { ok: true, vocab_correct: 9, vocab_total: 10, results: [], missing_numbers: [] } }))
     const onGraded = vi.fn()

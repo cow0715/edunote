@@ -12,6 +12,7 @@ import { FormattedQuestionText } from '@/components/grade/formatted-question-tex
 import { useConceptCategories, useConceptTags } from '@/hooks/use-concept-tags'
 import { ExamQuestion } from '@/lib/types'
 import { buildQuestionDisplayText } from '@/lib/question-structure'
+import { groupQuestionPassages, questionLabel, sortQuestionsByPdf, withoutSharedPassage } from '@/lib/question-presentation'
 
 interface Props {
   weekId: string
@@ -83,22 +84,10 @@ export function QuestionTypeEditor({ weekId }: Props) {
   const [editMap, setEditMap] = useState<Record<string, EditRow>>({})
 
   const readingQuestions = useMemo(
-    () => questions.filter((q) => q.exam_type === 'reading'),
+    () => sortQuestionsByPdf(questions.filter((q) => q.exam_type === 'reading')),
     [questions],
   )
-  const subjectiveOrderMap = useMemo(() => {
-    const next: Record<string, number> = {}
-    let order = 0
-
-    for (const q of readingQuestions) {
-      const style = styleMap[q.id] ?? q.question_style
-      if (style !== 'subjective') continue
-      order += 1
-      next[q.id] = order
-    }
-
-    return next
-  }, [readingQuestions, styleMap])
+  const passageGroups = useMemo(() => groupQuestionPassages(readingQuestions), [readingQuestions])
 
   // 문항 배열이 바뀔 때만 fingerprint 를 다시 만든다 (매 렌더 JSON.stringify 방지).
   const snapshot = useMemo(() => readingQuestions
@@ -281,7 +270,17 @@ export function QuestionTypeEditor({ weekId }: Props) {
       </div>
 
       <div className="space-y-3">
-        {readingQuestions.map((q) => {
+        {passageGroups.map((passageGroup, groupIndex) => (
+          <section key={`${passageGroup.key}:${groupIndex}`} className="space-y-3" aria-label={passageGroup.passage ? '공통 지문 그룹' : undefined}>
+            {passageGroup.passage && (
+              <div className="space-y-2 rounded-[20px] bg-muted px-4 py-4">
+                <p className="text-sm font-semibold text-foreground">
+                  공통 지문 · {[...new Set(passageGroup.questions.map((q) => questionLabel(q, false)))].join(' · ')}
+                </p>
+                <FormattedQuestionText text={passageGroup.passage} className="text-base leading-7 text-foreground" />
+              </div>
+            )}
+            {passageGroup.questions.map((q) => {
           const style = styleMap[q.id] ?? q.question_style
           const editRow = editMap[q.id] ?? {
             explanation: '',
@@ -296,10 +295,8 @@ export function QuestionTypeEditor({ weekId }: Props) {
             : []
           const answer = answerMap[q.id] ?? { primary: null, extra: [] }
           const expanded = expandedIds.includes(q.id)
-          const questionDisplayText = editRow.question_text || buildQuestionDisplayText(q) || getQuestionDisplayText(q.question_text)
-          const styleLabel = style === 'subjective'
-            ? `서답형${subjectiveOrderMap[q.id] ?? ''}`
-            : (STYLE_LABEL[style] ?? style)
+          const questionDisplayText = withoutSharedPassage(editRow.question_text || buildQuestionDisplayText(q) || getQuestionDisplayText(q.question_text), passageGroup.passage)
+          const styleLabel = STYLE_LABEL[style] ?? style
           const answerSummary = style === 'objective'
             ? [answer.primary, ...(answer.extra ?? [])].filter((value): value is number => value !== null && value > 0).join(', ') || '미설정'
             : (editRow.correct_answer_text || q.correct_answer_text || '미설정')
@@ -310,7 +307,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
                 <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      {q.question_number}번{q.sub_label ? ` (${q.sub_label})` : ''}
+                      {questionLabel(q)}
                     </span>
                     <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
                       {styleLabel}
@@ -472,7 +469,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
                                   className={[
                                     'flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold transition-colors',
                                     isPrimary
-                                      ? 'bg-[var(--control-selected)] text-[var(--control-on-selected)] ring-1 ring-border'
+                                      ? 'bg-blue-600 text-white'
                                       : isExtra
                                         ? 'bg-amber-400 text-white'
                                         : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700',
@@ -584,12 +581,14 @@ export function QuestionTypeEditor({ weekId }: Props) {
               ) : null}
             </div>
           )
-        })}
+            })}
+          </section>
+        ))}
       </div>
 
       <div className="flex justify-end">
         <Button
-          className="rounded-full bg-[var(--share-blue-solid)] text-white hover:opacity-90"
+          className="rounded-full bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
           onClick={() => save.mutate()}
           disabled={save.isPending}
         >

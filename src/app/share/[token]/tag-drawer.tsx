@@ -1,14 +1,13 @@
 'use client'
 
 // 분석 탭에서 유형(개념 태그)을 탭했을 때 열리는 오답 드로어.
-// 카드는 오답 탭과 같은 WrongAnswerCard 를 쓴다 — 예전처럼 따로 그리지 않는다.
+// 카드는 오답 탭과 같은 WrongAnswerPassageList 를 쓴다 — 예전처럼 따로 그리지 않는다.
 // 시트 규격(오버레이 rgba(25,31,40,.5) · 20px 라운드 · 핸들 36×4)은 기간 선택 시트와 같다.
 
 import { X } from 'lucide-react'
 import { PRESS } from './share-tokens'
 import { StudentAnswer } from './share-types'
-import { groupAnswersByQuestion } from './share-utils'
-import { WrongAnswerCard } from './wrong-answer-card'
+import { WrongAnswerPassageList } from './wrong-answer-card'
 
 export type DrawerTag = { id: string; name: string; weekId?: string | null }
 
@@ -66,14 +65,7 @@ export function TagDrawer({
             <p className="py-10 text-center text-[13px] text-[var(--share-muted2)]">오답 기록이 없어요</p>
           ) : (
             <div className="divide-y divide-[var(--share-line)]">
-              {groupAnswersByQuestion(answers).map((group) => (
-                <WrongAnswerCard
-                  key={group[0].id}
-                  answers={group}
-                  token={token}
-                  weekLabel={weekLabelByWeekId.get(group[0].exam_question?.week_id ?? '') ?? undefined}
-                />
-              ))}
+              <WrongAnswerPassageList answers={answers} token={token} weekLabelByWeekId={weekLabelByWeekId} />
             </div>
           )}
         </div>

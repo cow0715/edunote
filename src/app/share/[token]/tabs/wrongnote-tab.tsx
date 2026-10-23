@@ -13,8 +13,8 @@ import { ChevronRight } from 'lucide-react'
 import { Card, EmptyNote } from '../share-components'
 import { PRESS, PRESS_STRONG, T } from '../share-tokens'
 import { ShareModel } from '../use-share-model'
-import { VocabStudyMode, fmtShortDate, getWeekLabel, groupAnswersByQuestion } from '../share-utils'
-import { RetakeActionRow, ReviewActionRow, WeekAccordionHeader, WrongAnswerCard, WrongVocabRow } from '../wrong-answer-card'
+import { VocabStudyMode, fmtShortDate, getWeekLabel } from '../share-utils'
+import { RetakeActionRow, ReviewActionRow, WeekAccordionHeader, WrongAnswerPassageList, WrongVocabRow } from '../wrong-answer-card'
 import { ReadingReview, ReviewQuestion, buildReviewQuestions } from '../reading-review'
 
 export type WrongNoteSubTab = 'reading' | 'vocab'
@@ -153,9 +153,7 @@ export function WrongNoteTab({
                             />
                           )}
                           <div className="divide-y divide-[var(--share-line)] border-t border-[var(--share-line)]">
-                            {groupAnswersByQuestion(answers).map((group) => (
-                              <WrongAnswerCard key={group[0].id} answers={group} token={token} />
-                            ))}
+                            <WrongAnswerPassageList answers={answers} token={token} />
                           </div>
                         </div>
                       )}
