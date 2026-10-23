@@ -27,7 +27,7 @@ export function useGradeData(weekId: string) {
 
 export function useSaveWeekScore(weekId: string) {
   return useMutation({
-    // Keep blur/clear edits in order so a slower earlier PATCH cannot overwrite a later edit.
+    // All grade writes in this week share one queue, including blur, draft and full saves.
     scope: { id: `week-score:${weekId}` },
     mutationFn: async ({ student_id, homework_done, memo }: { student_id: string; homework_done?: number | null; memo?: string }) => {
       const res = await fetch(`/api/weeks/${weekId}/grade`, {
@@ -44,6 +44,7 @@ export function useSaveWeekScore(weekId: string) {
 // 모달 닫기 / 학생 이동 시 조용히 저장 (AI 채점 없음)
 export function useSaveGradeDraft(weekId: string) {
   return useMutation({
+    scope: { id: `week-score:${weekId}` },
     mutationFn: async (rows: GradeRow[]) => {
       await fetch(`/api/weeks/${weekId}/grade`, {
         method: 'POST',
@@ -57,6 +58,7 @@ export function useSaveGradeDraft(weekId: string) {
 export function useSaveGrade(weekId: string) {
   const qc = useQueryClient()
   return useMutation({
+    scope: { id: `week-score:${weekId}` },
     mutationFn: async (rows: GradeRow[]) => {
       const res = await fetch(`/api/weeks/${weekId}/grade`, {
         method: 'POST',
