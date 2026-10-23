@@ -86,13 +86,13 @@ export function CostDashboard() {
     setNotice(result.error?.message ?? result.data?.message ?? '조회 결과가 없습니다.')
   }
   const entries = query.data?.entries ?? []
-  return <div className="@container mx-auto max-w-6xl space-y-5 rounded-[20px] bg-[var(--share-canvas)] p-4 pb-8 text-[var(--share-ink)] sm:p-6">
+  return <div className="cost-dashboard @container mx-auto min-w-0 max-w-6xl space-y-5 rounded-[20px] bg-[var(--share-canvas)] p-0 pb-8 text-[var(--share-ink)] sm:p-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div><p className="mb-2 text-xs font-semibold text-[var(--share-muted)]">운영 현황 / 비용</p><h1 className="text-[23px] font-bold tracking-tight">비용 대시보드</h1><p className="mt-1 text-sm text-[var(--share-muted)]">서비스별 사용량과 비용을 한곳에서 확인하세요.</p></div>
-      <div className="flex flex-wrap gap-2">
-        <Input className="w-40" type="month" aria-label="조회 월" value={month} onChange={e => setMonth(e.target.value)} />
-        <select aria-label="환경" className={selectStyle} value={environment} onChange={e => setEnvironment(e.target.value)}>{Object.entries(environmentLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
-        <Button variant="outline" onClick={() => { void query.refetch(); void sync() }}>새로고침</Button>
+      <div className="cost-filters grid w-full grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex sm:w-auto sm:flex-wrap">
+        <Input className="h-11 min-w-0 w-full sm:h-9 sm:w-40" type="month" aria-label="조회 월" value={month} onChange={e => setMonth(e.target.value)} />
+        <select aria-label="환경" className={`${selectStyle} h-11 sm:h-9`} value={environment} onChange={e => setEnvironment(e.target.value)}>{Object.entries(environmentLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+        <Button className="col-span-2 h-11 w-full sm:h-9 sm:w-auto" variant="outline" onClick={() => { void query.refetch(); void sync() }}>새로고침</Button>
       </div>
     </div>
     <p className="text-xs text-[var(--share-muted)]">{month === koreanMonth() ? '앱 최근 기록은 15초, 업체 보고서는 5분마다 자동 갱신합니다.' : '과거 월은 새로고침으로 갱신할 수 있습니다.'} Claude 조직 보고서 UTC · 앱 기능 기록 한국 시간{query.dataUpdatedAt > 0 && <> · 조회 {new Date(query.dataUpdatedAt).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul' })}</>}</p>

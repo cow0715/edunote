@@ -55,13 +55,13 @@ export function ServiceOverview({ usage, snapshots, report, tail, selected, onSe
     return { currency, value: known.length ? snapshotValue(total, currency) : '집계 대기', providers: known.length }
   })
   return <section aria-label="서비스 사용량과 비용" className="space-y-5">
-    <div className="grid gap-3 sm:grid-cols-3" aria-label="이번 달 비용 요약">
+    <div className="cost-summary-grid grid grid-cols-2 gap-2 @min-[560px]:grid-cols-3 @min-[560px]:gap-3" aria-label="이번 달 비용 요약">
       {totals.map(t => <div key={t.currency} data-cost-tone={t.currency === 'USD' ? 'blue' : 'purple'} className="cost-tile cost-summary"><span className="cost-icon"><CircleDollarSign size={20} aria-hidden="true" /></span><p className={`mt-3 text-xs ${muted}`}>업체 조회액 · {t.currency}</p><p className="mt-2 text-[28px] font-bold tracking-tight tabular-nums">{failed ? '조회 실패' : loading ? '불러오는 중…' : t.value}</p><p className={`mt-2 text-xs ${muted}`}>{t.providers}개 업체 확인 · 미수신 비용·잔액 제외</p></div>)}
-      <div data-cost-tone="teal" className="cost-tile cost-summary"><span className="cost-icon"><Wallet size={20} aria-hidden="true" /></span><p className={`mt-3 text-xs ${muted}`}>월 비용 확인</p><p className="mt-2 text-[28px] font-bold tracking-tight tabular-nums">{rows.filter(r => r.snapshot?.amount != null).length} / {rows.filter(r => r.id !== 'supabase').length}</p><p className={`mt-2 text-xs ${muted}`}>Supabase는 사용량만 표시</p></div>
+      <div data-cost-tone="teal" className="cost-tile cost-summary cost-summary-status"><span className="cost-icon"><Wallet size={20} aria-hidden="true" /></span><p className={`mt-3 text-xs ${muted}`}>월 비용 확인</p><p className="mt-2 text-[28px] font-bold tracking-tight tabular-nums">{rows.filter(r => r.snapshot?.amount != null).length} / {rows.filter(r => r.id !== 'supabase').length}</p><p className={`mt-2 text-xs ${muted}`}>Supabase는 사용량만 표시</p></div>
     </div>
     <div>
       <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-[15px] font-extrabold">서비스별 사용량</h2><span className={`text-xs ${muted}`}>카드를 선택해 상세 확인</span></div>
-      <ul aria-label="서비스별 사용량과 비용" className="grid list-none gap-3 p-0 sm:grid-cols-2 xl:grid-cols-3">{rows.map(row => {
+      <ul aria-label="서비스별 사용량과 비용" className="grid list-none gap-3 p-0 @min-[560px]:grid-cols-2 @min-[940px]:grid-cols-3">{rows.map(row => {
         const state = row.id === 'supabase' ? row.health.some(s => s.status === 'error') ? 'error' : row.health.length ? 'ok' : 'pending' : row.consoleOnly ? 'pending' : row.snapshot?.status === 'ok' ? 'ok' : row.snapshot?.status === 'error' ? 'error' : 'pending'
         const status = row.id === 'supabase' ? row.health.some(s => s.status === 'error') ? '갱신 확인 필요' : row.health.length ? '사용량 자동 수집' : '사용량 수집 대기' : row.consoleOnly ? '콘솔 확인 · 자동 수신 대기' : row.snapshot?.status === 'ok' ? '수신됨' : row.snapshot?.amount != null ? '이전 값 · 갱신 실패' : '비용 수신 대기'
         return <li key={row.id} className="min-w-0">

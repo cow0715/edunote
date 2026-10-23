@@ -55,3 +55,35 @@
 .cost-visual .cost-service-card:hover, .cost-visual .cost-service-selected { border-color: var(--cost-accent); }
 .cost-visual .cost-service-selected { outline: 2px solid var(--cost-accent); outline-offset: -2px; }
 @media (prefers-reduced-motion: reduce) { .cost-visual .cost-service-card { transition: none; } }
+
+.cost-dashboard { container-type: inline-size; }
+.cost-visual { min-width: 0; }
+.cost-visual .cost-tile { min-width: 0; overflow-wrap: anywhere; }
+.cost-visual .cost-summary-status { grid-column: 1 / -1; }
+.cost-visual .cost-service-card { touch-action: manipulation; }
+.cost-visual .cost-service-card:focus-visible { outline: 2px solid var(--cost-accent); outline-offset: 3px; }
+@container (max-width: 559px) {
+  .cost-visual .cost-summary { padding: 14px; }
+  .cost-visual .cost-summary > .cost-icon { top: 12px; right: 12px; width: 26px; height: 26px; border-radius: 9px; }
+  .cost-visual .cost-summary > .cost-icon svg { width: 16px; height: 16px; }
+  .cost-visual .cost-summary > p:first-of-type { padding-right: 30px; font-size: 11px; }
+  .cost-visual .cost-summary > p:nth-of-type(2) { font-size: clamp(18px, 6cqw, 26px); line-height: 1.3; }
+  .cost-visual .cost-summary > p:last-of-type { font-size: 10px; line-height: 1.5; }
+  .cost-visual .cost-summary-status { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; }
+  .cost-visual .cost-summary-status > .cost-icon { display: none; }
+  .cost-visual .cost-summary-status > p:first-of-type { padding: 0; }
+  .cost-visual .cost-summary-status > p:nth-of-type(2) { grid-column: 2; grid-row: 1 / 3; margin: 0; font-size: 22px; }
+  .cost-visual .cost-summary-status > p:last-of-type { margin-top: 3px; }
+  .cost-visual .cost-service-card { padding: 16px; border-radius: 18px; }
+  .cost-dashboard details > summary { line-height: 1.7; }
+}
+@container (min-width: 560px) {
+  .cost-visual .cost-summary-status { grid-column: auto; }
+}
+@media (max-width: 639px) {
+  .cost-dashboard summary { min-height: 44px; }
+  .cost-dashboard input, .cost-dashboard select { min-height: 44px; font-size: 16px; max-width: 100%; }
+  .cost-dashboard form { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .cost-dashboard form label, .cost-dashboard form input, .cost-dashboard form button { width: 100%; min-width: 0; }
+  .cost-dashboard .cost-filters > input { width: 100%; }
+}
