@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ db: vi.fn(), claude: vi.fn(), gcpCost: vi.fn(), gcpUsage: vi.fn(), solapi: vi.fn() }))
+const mocks = vi.hoisted(() => ({ db: vi.fn(), claude: vi.fn(), gcpCost: vi.fn(), gcpUsage: vi.fn(), solapi: vi.fn(), metrics: vi.fn() }))
+vi.mock('@/lib/costs/supabase-metrics', () => ({ fetchSupabaseMetrics: mocks.metrics }))
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: mocks.db }))
 vi.mock('@/lib/costs/claude-report-fetch', () => ({ fetchClaudeReport: mocks.claude }))
 vi.mock('@/lib/costs/gcp-connector', () => ({ fetchGcpCost: mocks.gcpCost }))
@@ -16,6 +17,17 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllEnvs())
 describe('shared provider synchronization', () => {
+  it.each([true, false])('collects official gauges independently and retains DB usage when metrics fail (%s)', async success => {
+    vi.stubEnv('ANTHROPIC_ADMIN_KEY', ''); vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://project.supabase.co'); vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test')
+    const chain = { select: vi.fn().mockReturnThis(), limit: vi.fn().mockResolvedValue({ error: null }), eq: vi.fn().mockReturnThis(), like: vi.fn().mockReturnThis(), update: vi.fn().mockReturnThis(), delete: vi.fn().mockReturnThis(), upsert: vi.fn().mockResolvedValue({ error: null }) }
+    mocks.db.mockReturnValue({ from: () => chain, rpc: () => ({ single: async () => ({ data: { db_bytes: 100, storage_bytes: 200, files: 2 } }) }) })
+    if (success) mocks.metrics.mockResolvedValue({ memory_used_bytes: 300, memory_total_bytes: 400, connections: 6, connection_limit: 60 })
+    else mocks.metrics.mockRejectedValue(new Error('unavailable'))
+    expect(await (await syncCostMonth('2026-10')).json()).toMatchObject({ succeeded: success ? 1 : 0, total: 1 })
+    expect(chain.upsert).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ amount: 100, currency: 'BYTES' })]))
+    if (success) expect(chain.upsert).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ metric: expect.stringMatching(/^metrics_connections_/), amount: 6, status: 'ok' })]))
+    else { expect(chain.update).toHaveBeenCalledWith({ status: 'error' }); expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ metric: expect.stringMatching(/^metrics_status_/), amount: null, status: 'error' })) }
+  })
   it('does not contact providers when storage is unavailable', async () => {
     const chain = { select: vi.fn().mockReturnThis(), limit: vi.fn().mockResolvedValue({ error: {} }) }
     mocks.db.mockReturnValue({ from: () => chain })

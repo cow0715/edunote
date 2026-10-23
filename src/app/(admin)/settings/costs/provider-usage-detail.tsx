@@ -16,6 +16,12 @@ export function ProviderUsageDetail({ provider, snapshots, environment }: { prov
   return <div className="mt-5 space-y-5">
     <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">{facts.map(([metric, label]) => <div key={metric}><dt className={`text-xs ${muted}`}>{label}</dt><dd className="mt-1 font-semibold tabular-nums">{value(metric)}{get(metric)?.status === 'error' && <span className={`ml-1 text-xs font-normal ${muted}`}>이전 값 · 갱신 실패</span>}</dd></div>)}</dl>
     {provider === 'solapi' ? <p className={`text-xs ${muted}`}>업체 통계 수집 {time('monthly_cost')} · 미완료 발송은 성공·실패에 아직 포함되지 않을 수 있습니다. 환불 참고액과 포인트를 사용 금액에 중복 합산하지 않습니다.</p> : <>
+      <div className="border-t border-[var(--share-line-strong)] pt-4"><h3 className="text-sm font-semibold">공식 Metrics API · 현재 DB 상태</h3>
+        <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">{[
+          ['memory_used_bytes', '메모리 사용'], ['memory_total_bytes', '메모리 전체'], ['connections', '현재 DB 연결'], ['connection_limit', 'DB 연결 한도'],
+        ].map(([key, label]) => { const metric = `metrics_${key}_${environment}`; return <div key={key}><dt className={`text-xs ${muted}`}>{label}</dt><dd className="mt-1 text-sm font-semibold tabular-nums">{value(metric)}{get(metric)?.status === 'error' && <span className={`block text-xs font-normal ${muted}`}>이전 값 · 갱신 실패</span>}</dd></div> })}</dl>
+        <p className={`mt-3 text-xs ${muted}`}>공식 지표 수집 {time(`metrics_memory_used_bytes_${environment}`)} · 청구 사용량이 아닌 조회 시점의 상태입니다.{get(`metrics_status_${environment}`)?.status === 'error' && ' 최신 지표 수집에 실패했습니다.'}</p>
+      </div>
       <div className="border-t border-[var(--share-line-strong)] pt-4"><h3 className="text-sm font-semibold">조직 전체 · 콘솔 확인 내역</h3><p className={`mt-1 text-xs ${muted}`}>청구주기 {value('console_cycle_start')} ~ {value('console_cycle_end')} · 달력 월과 다릅니다.</p>
         <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">{[
           ['console_egress_gb', 'console_egress_quota_gb', '전송량'], ['console_cached_egress_gb', 'console_cached_egress_quota_gb', '캐시 전송량'],

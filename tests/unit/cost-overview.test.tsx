@@ -39,7 +39,7 @@ describe('service cost workspace', () => {
     expect(table.getByText('₩12,652.2')).toBeTruthy()
     expect(table.getByText('Free · US$0.00')).toBeTruthy()
     fireEvent.click(table.getByRole('button', { name: 'Supabase' }))
-    expect(screen.getByText(/공개 청구 API가 없어/)).toBeTruthy()
+    expect(screen.getByText(/내부 API는 읽기 전용 토큰을 지원하지 않아/)).toBeTruthy()
     expect(screen.getByText(/청구주기.*달력 월과 다릅니다/)).toBeTruthy()
     expect(within(screen.getByRole('region', { name: 'Supabase 상세' })).getByText(/US\$999.00/)).toBeTruthy()
     expect(screen.queryByText('US$999.00', { exact: true })).toBeNull()
