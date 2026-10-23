@@ -1,3 +1,5 @@
+import { captureSharedRetake, saveSharedRetake } from '@/lib/services/shared-retake'
+import { saveErrorResponse } from '@/lib/db/errors'
 import { createServiceClient } from '@/lib/supabase/server'
 import { SHARE_CLOSED_ERROR, SHARE_EXPIRED_ERROR, SHARE_NOT_FOUND_ERROR, canViewShareByStudentId, resolveShareToken } from '@/lib/share-access'
 import { NextResponse } from 'next/server'
@@ -187,7 +189,7 @@ export async function GET(_: Request, { params }: { params: Promise<Params> }) {
 }
 
 // ── POST: 재시험 답안 제출 → AI 채점 → 저장 (무제한 반복 가능) ────────────────
-export async function POST(request: Request, { params }: { params: Promise<Params> }) {
+async function submitRetake(request: Request, { params }: { params: Promise<Params> }) {
   const supabase = createServiceClient()
   const { token, weekId } = await params
 
@@ -225,6 +227,8 @@ export async function POST(request: Request, { params }: { params: Promise<Param
   if (new Set(answers.map(a => a.answer_id)).size !== answers.length) {
     return NextResponse.json({ error: '중복된 답안입니다' }, { status: 400 })
   }
+
+  const snapshot = await captureSharedRetake(token, weekId, answers.map(a => a.answer_id))
 
   // vocab grading rules
   const { data: promptRow } = await supabase
@@ -317,44 +321,8 @@ export async function POST(request: Request, { params }: { params: Promise<Param
     graded.forEach((g, i) => resultMap.set(meaningAnswers[i].answer_id, g.is_correct))
   }
 
-  // 채점 결과 저장 (이전 시도 덮어씌우기)
-  const saved = await Promise.all(
-    answers.map((a) => {
-      const is_correct = resultMap.get(a.answer_id) ?? false
-      return supabase
-        .from('student_vocab_answer')
-        .update({ retake_answer: a.retake_answer || null, retake_is_correct: is_correct })
-        .eq('id', a.answer_id)
-        .eq('week_score_id', score.id)
-        .eq('is_correct', false)
-        .select('id')
-    })
-  )
-
-  if (saved.some(r => r.error || r.data?.length !== 1)) {
-    return NextResponse.json({ error: '답안을 저장하지 못했습니다. 다시 시도해 주세요' }, { status: 503 })
-  }
-
-  // 전체 누적 통계 재계산
-  const { data: allAnswersAfter, error: statsError } = await supabase
-    .from('student_vocab_answer')
-    .select('retake_is_correct')
-    .eq('week_score_id', score.id)
-    .eq('is_correct', false)
-
-  if (statsError) return NextResponse.json({ error: '결과를 불러오지 못했습니다' }, { status: 503 })
-
-  const totalMastered = (allAnswersAfter ?? []).filter((a) => a.retake_is_correct === true).length
-  const remaining = (allAnswersAfter ?? []).filter((a) => a.retake_is_correct !== true).length
-
-  const { data: savedScore, error: scoreError } = await supabase
-    .from('week_score')
-    .update({ vocab_retake_correct: totalMastered })
-    .eq('id', score.id)
-    .select('id')
-  if (scoreError || savedScore?.length !== 1) {
-    return NextResponse.json({ error: '결과를 저장하지 못했습니다. 다시 시도해 주세요' }, { status: 503 })
-  }
+  const { total_mastered: totalMastered, remaining } = await saveSharedRetake(token, weekId, snapshot,
+    answers.map(a => ({ answer_id: a.answer_id, retake_answer: a.retake_answer, is_correct: resultMap.get(a.answer_id) ?? false })))
 
   const results = answers.map((a) => ({
     answer_id: a.answer_id,
@@ -371,4 +339,8 @@ export async function POST(request: Request, { params }: { params: Promise<Param
     remaining,
     total_mastered: totalMastered,
   })
+}
+
+export async function POST(request: Request, args: { params: Promise<Params> }) {
+  try { return await submitRetake(request, args) } catch (error) { return saveErrorResponse(error) }
 }
