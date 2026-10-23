@@ -1,3 +1,5 @@
+import { withTeacherTransaction } from '@/lib/db/transaction'
+import { saveVariantBatch, type VariantInput } from '@/lib/services/vocab-enrichment'
 import { generateVariantMeanings, type VocabVariantMeaningCandidate } from '@/lib/vocab-variants'
 import type { SupabaseServerClient } from '@/lib/api'
 import { createLlmExecution, isTaskConfigured, type TaskCallOptions } from '@/lib/llm/client'
@@ -23,6 +25,8 @@ type VariantRow = {
   usage_note: string | null
   raw_text: string | null
   needs_review?: boolean | null
+  excluded_meanings: string[]
+  confidence: number | null
 }
 
 type CacheRow = {
@@ -69,7 +73,8 @@ export async function enrichVocabVariantMeanings(
     variantIds?: string[]
     limit?: number
     cacheOnly?: boolean
-  }
+  },
+  userId: string,
 ) {
   const execution = options.execution ?? createLlmExecution()
   const requestedVariantIds = [...new Set((options.variantIds ?? []).filter(Boolean))]
@@ -92,7 +97,7 @@ export async function enrichVocabVariantMeanings(
 
   let variantQuery = supabase
     .from('vocab_word_variant')
-    .select('id, vocab_word_id, word, part_of_speech, meaning, relation_type, usage_note, raw_text, needs_review')
+    .select('id, vocab_word_id, word, part_of_speech, meaning, relation_type, usage_note, raw_text, needs_review, excluded_meanings, confidence')
 
   if (requestedVariantIds.length > 0) {
     variantQuery = variantQuery.in('id', requestedVariantIds)
@@ -139,98 +144,39 @@ export async function enrichVocabVariantMeanings(
   if (cacheError) console.error('[vocab-variant-enrichment] cache lookup failed', cacheError)
 
   const cacheByKey = new Map<string, CacheRow>((cacheError ? [] : ((cacheRows ?? []) as CacheRow[])).map((row) => [cacheKey(row), row]))
-  let updated = 0
-  const updatedVariantIds = new Set<string>()
-
+  const patches: { id: string; part_of_speech: string | null; meaning: string | null; usage_note: string | null;
+    excluded_meanings: string[]; needs_review: boolean; confidence: number | null }[] = []
+  const cachedIds = new Set<string>()
   for (const variant of variantRows) {
     const cached = cacheByKey.get(cacheKey(variant))
     if (!cached) continue
-    const { error: updateError } = await supabase
-      .from('vocab_word_variant')
-      .update({
-        part_of_speech: cached.part_of_speech,
-        meaning: cached.meaning,
-        usage_note: cached.usage_note,
-        excluded_meanings: cached.excluded_meanings ?? [],
-        needs_review: false,
-        confidence: cached.confidence,
-      })
-      .eq('id', variant.id)
-
-    if (updateError) throw new Error(updateError.message)
-    updated += 1
-    updatedVariantIds.add(variant.id)
+    patches.push({ id: variant.id, part_of_speech: cached.part_of_speech, meaning: cached.meaning,
+      usage_note: cached.usage_note, excluded_meanings: cached.excluded_meanings ?? [], needs_review: false, confidence: cached.confidence })
+    cachedIds.add(variant.id)
   }
-
-  const uncachedRows = variantRows.filter((variant) => !updatedVariantIds.has(variant.id))
+  const uncachedRows = variantRows.filter(variant => !cachedIds.has(variant.id))
+  const generatedIds: string[] = []
   if (!cacheOnly && uncachedRows.length > 0) {
     if (!isTaskConfigured('vocab.enrich', execution)) throw new Error('단어 뜻 저장 설정이 없습니다.')
-
-    const candidates: VocabVariantMeaningCandidate[] = uncachedRows.flatMap((variant) => {
+    const candidates: VocabVariantMeaningCandidate[] = uncachedRows.flatMap(variant => {
       const source = wordById.get(variant.vocab_word_id)
-      if (!source) return []
-      return [{
-        id: variant.id,
-        source_word: source.english_word,
-        source_meaning: source.correct_answer,
-        word: variant.word,
-        part_of_speech: variant.part_of_speech,
-        relation_type: variant.relation_type,
-        usage_note: variant.usage_note,
-        raw_text: variant.raw_text,
-      }]
+      return source ? [{ id: variant.id, source_word: source.english_word, source_meaning: source.correct_answer,
+        word: variant.word, part_of_speech: variant.part_of_speech, relation_type: variant.relation_type,
+        usage_note: variant.usage_note, raw_text: variant.raw_text }] : []
     })
-
+    // No transaction/connection is held while the model runs.
     const generated = await generateVariantMeanings(candidates, { execution })
-    for (const result of generated) {
-      const { error: updateError } = await supabase
-        .from('vocab_word_variant')
-        .update({
-          part_of_speech: result.part_of_speech,
-          meaning: result.meaning,
-          usage_note: result.usage_note,
-          excluded_meanings: result.excluded_meanings,
-          needs_review: result.needs_review,
-          confidence: result.confidence,
-        })
-        .eq('id', result.id)
-
-      if (updateError) throw new Error(updateError.message)
-      if (result.meaning) updated += 1
-    }
-
-    const cacheInsertCandidates = generated
-      .filter((result) => result.meaning)
-      .map((result) => {
-        const source = uncachedRows.find((variant) => variant.id === result.id)
-        return {
-          word_key: wordKey(result.word || source?.word || ''),
-          word: result.word || source?.word || '',
-          part_of_speech: result.part_of_speech,
-          relation_type: source?.relation_type ?? 'derivative',
-          meaning: result.meaning!,
-          usage_note: result.usage_note,
-          excluded_meanings: result.excluded_meanings,
-          confidence: result.confidence,
-        }
-      })
-      .filter((row) => row.word_key && row.word && row.meaning)
-    const cacheInserts = [...new Map(cacheInsertCandidates.map((row) => [cacheKey(row), row])).values()]
-
-    if (cacheInserts.length > 0) {
-      const { error: upsertCacheError } = await supabase
-        .from('vocab_variant_cache')
-        .upsert(cacheInserts, { onConflict: 'word_key,part_of_speech_key' })
-      if (upsertCacheError) {
-        const { error: legacyUpsertCacheError } = await supabase
-          .from('vocab_variant_cache')
-          .upsert(cacheInserts, { onConflict: 'word_key,part_of_speech_key,relation_type' })
-        if (legacyUpsertCacheError) {
-          console.error('[vocab-variant-enrichment] cache upsert failed', legacyUpsertCacheError)
-        }
-      }
+    for (const { word: _word, ...patch } of generated) {
+      void _word
+      patches.push(patch)
+      generatedIds.push(patch.id)
     }
   }
+  if (patches.length > 0) {
+    const expected: VariantInput[] = variantRows.map(variant => ({ variant: { ...variant }, source: wordById.get(variant.vocab_word_id)! }))
+    await withTeacherTransaction(userId, context => saveVariantBatch(context, options.weekId, expected, patches, generatedIds))
+  }
+  const updated = patches.filter(patch => cachedIds.has(patch.id) || patch.meaning).length
 
   const finalIds = requestedVariantIds.length > 0
     ? allRequestedRows.map((variant) => variant.id)

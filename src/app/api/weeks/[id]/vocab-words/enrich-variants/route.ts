@@ -1,3 +1,4 @@
+import { saveErrorResponse } from '@/lib/db/errors'
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { enrichVocabVariantMeanings } from '@/lib/vocab-variant-enrichment'
 
@@ -23,11 +24,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       variantIds: Array.isArray(body.variantIds) ? body.variantIds : undefined,
       limit: body.limit,
       cacheOnly: body.cacheOnly,
-    })
+    }, user.id)
 
     return ok({ ok: true, ...result })
   } catch (error) {
-    console.error('[enrich-variants] failed', error)
-    return err(error instanceof Error ? error.message : '단어 뜻 저장 실패', 500)
+    return saveErrorResponse(error)
   }
 }

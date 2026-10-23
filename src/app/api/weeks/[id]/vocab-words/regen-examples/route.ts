@@ -1,3 +1,6 @@
+import { withTeacherTransaction } from '@/lib/db/transaction'
+import { saveExampleBatch, type ExampleInput } from '@/lib/services/vocab-enrichment'
+import { SaveError, saveErrorResponse, databaseErrorCode } from '@/lib/db/errors'
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { generateVocabExamples } from '@/lib/anthropic'
 import { chunkVocabExampleBatches } from '@/lib/vocab-examples'
@@ -20,7 +23,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   // "덮어쓰기" 옵션을 추가하려면 countGradedVocabAnswers 로 채점 여부를 먼저 확인할 것.
   const { data: missing, error } = await supabase
     .from('vocab_word')
-    .select('id, english_word')
+    .select('id, english_word, example_sentence, example_translation, example_distractor, example_source')
     .eq('week_id', weekId)
     .is('example_sentence', null)
 
@@ -28,20 +31,13 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   if (!missing?.length) return ok({ generated: 0 })
 
   // 배치마다 생성 → 즉시 저장. 한 배치가 실패해도 나머지는 남고, 다시 누르면 빈 단어만 이어서 채운다.
-  const batches = chunkVocabExampleBatches(missing)
+  const batches = chunkVocabExampleBatches(missing as ExampleInput[])
   const execution = createLlmExecution()
   const results = await Promise.allSettled(
     batches.map(async (batch) => {
       const examples = await generateVocabExamples(batch, { execution })
-      const updates = await Promise.all(
-        examples.map((u) =>
-          supabase
-            .from('vocab_word')
-            .update({ example_sentence: u.sentence, example_translation: u.translation, example_distractor: u.distractor, example_source: 'teacher_ai' })
-            .eq('id', u.id)
-        )
-      )
-      return { generated: examples.length, saved: updates.filter((r) => !r.error).length }
+      const saved = await withTeacherTransaction(user.id, context => saveExampleBatch(context, weekId, batch as ExampleInput[], examples))
+      return { generated: examples.length, saved }
     })
   )
 
@@ -54,17 +50,14 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       saved += result.value.saved
     } else {
       failedBatches += 1
-      console.error('[regen-examples] 배치 실패', result.reason)
+      console.error('[regen-examples] batch failed', { code: databaseErrorCode(result.reason) ?? 'unknown' })
     }
   }
 
-  if (saved > 0) {
-    await supabase
-      .from('week')
-      .update({ vocab_examples_generated_at: new Date().toISOString() })
-      .eq('id', weekId)
+  if (saved === 0 && failedBatches > 0) {
+    const failure = results.find(result => result.status === 'rejected')
+    if (failure?.status === 'rejected' && (failure.reason instanceof SaveError || databaseErrorCode(failure.reason))) return saveErrorResponse(failure.reason)
+    return err('예문 생성에 실패했습니다. 다시 시도해주세요.', 502)
   }
-
-  if (saved === 0 && failedBatches > 0) return err('예문 생성에 실패했습니다. 다시 시도해주세요.', 502)
   return ok({ generated, saved, missing: missing.length, failedBatches })
 }
