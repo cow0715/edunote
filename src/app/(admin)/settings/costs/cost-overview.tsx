@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { ServiceOverview } from './service-overview'
+import { SupabaseQuota } from './supabase-quota'
 import { ArrowUpRight } from 'lucide-react'
 import { estimateMoney, estimateUsage, PRICING_CHECKED_AT, CLAUDE_PRICING_URL, CLOVA_PRICING_URL } from '@/lib/costs/estimate'
 import { type UsageGroup } from '@/lib/costs/model'
@@ -27,6 +28,7 @@ export function CostOverview({ usage, snapshots, report = null, tail = [], loadi
   }), { input: 0, output: 0, read: 0, write: 0 })
   const breakdown = claude.items.filter(item => item.amount !== null).sort((a, b) => b.amount! - a.amount!)
   return <>
+    <SupabaseQuota snapshots={snapshots} environment={environment} />
     <ServiceOverview usage={usage} snapshots={snapshots} report={report} tail={tail} selected={selected} onSelect={setSelected} loading={loading} failed={failed} environment={environment} />
     {selected === 'claude' && <ClaudeConsoleReport report={report} tail={tail} />}
     <details className={panel}><summary className="cursor-pointer text-sm font-semibold">앱 기능별 기록·OCR 계산 기준 <span className={`ml-2 text-xs font-normal ${muted}`}>기록 활성화 이후 일부 호출만 포함</span></summary>
