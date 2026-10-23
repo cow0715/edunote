@@ -36,6 +36,12 @@ describe('exam Batch SQL migration, executed in local PostgreSQL', () => {
   it('retains already submitted textbook provider IDs when applied twice', async () => {
     expect((await db.query('select provider_id,state from public.book_pdf_batch where id=$1', [original])).rows).toEqual([{ provider_id: 'msgbatch_existing', state: 'submitted' }])
   })
+  it('persists recovery-family identities in existing JSON metadata without a schema change', async () => {
+    const id = await seed('bank_questions')
+    const requests = [{ key: 'b'.repeat(64), retryGroup: key, task: 'examBank.parseQuestions', model: 'test-model' }]
+    await db.query('select * from public.book_pdf_batch_prepare($1,$2,$3)', [id, token, JSON.stringify(requests)])
+    expect((await db.query('select requests from public.book_pdf_batch where job_id=$1', [id])).rows).toEqual([{ requests }])
+  })
   it.each([['bank_questions', 'examBank.parseQuestions'], ['bank_explanation', 'examBank.extractExplanations'], ['bank_book', 'book.mapSource']])('supports leases, submission and delayed resume for %s', async (kind, task) => {
     const id = await seed(kind)
     await expect(db.query('select * from public.book_pdf_batch_prepare($1,$2,$3)', [id, other, meta(task)])).rejects.toThrow('lease lost')

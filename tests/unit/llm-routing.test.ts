@@ -8,7 +8,8 @@ vi.mock('@anthropic-ai/sdk', () => ({
   },
 }))
 
-import { buildFileBlock, callLlmText, callLlmTextDetailed, createLlmExecution, isContentFilterError, isTaskConfigured, LlmError } from '../../src/lib/llm/client'
+import { buildFileBlock, callLlmText, callLlmTextDetailed, createLlmExecution, isContentFilterError, isTaskConfigured, llmCallKey, LlmError } from '../../src/lib/llm/client'
+import { checkpointKey } from '@/lib/pdf-import/context'
 import * as models from '../../src/lib/llm/models'
 import { parseJsonObjectResponse } from '../../src/lib/llm/json'
 import { createCallLimiter, withPdfWorkerContext, type PdfWorkerContext } from '../../src/lib/pdf-import/context'
@@ -31,6 +32,15 @@ function workerContext() {
 }
 
 describe('worker integration with task routing', () => {
+  it('retains initial request keys when adding internal recovery metadata and never sends it to Anthropic', async () => {
+    const execution = createLlmExecution()
+    const options = { task: 'examBank.parseQuestions', maxTokens: 8192, content: 'source' } as const
+    const oldKey = checkpointKey({ version: 2, ...options, execution: undefined, signal: undefined, configVersion: execution.configVersion, model: execution.taskBindings[options.task] })
+    expect(llmCallKey(options, execution)).toBe(oldKey)
+    expect(llmCallKey({ ...options, batchRetryGroup: oldKey }, execution)).toBe(oldKey)
+    await callLlmTextDetailed({ ...options, execution, batchRetryGroup: oldKey })
+    expect(sdk.create.mock.calls[0][0]).not.toHaveProperty('batchRetryGroup')
+  })
   it('uses batch deliveries for books, exam parsing, explanations and vocabulary while leaving weekly and grading calls synchronous', async () => {
     sdk.create.mockResolvedValue(response({ content: [{ type: 'text', text: '{"groups":[]}' }] }))
     const options = { task: 'book.mapSource', maxTokens: 1000, content: 'source' } as const

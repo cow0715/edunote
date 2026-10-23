@@ -60,20 +60,21 @@ function fixture(month = 11, explanationOnly = false) {
     source_path: explanationOnly ? 'explanation.pdf' : 'questions.pdf', payload: { batchProcessing: 'batch-v1', title: '시험', exam_month: month,
       exam_year: 2026, grade: 3, source: month === 11 ? '수능' : '모의고사', ...(explanationOnly ? {} : { explanationSourcePath: 'explanation.pdf' }) } }
   const run = () => withPdfWorkerContext(context, () => runPdfImport(db, job))
-  function deliver() {
+  function deliver(transform?: (options: CallLlmOptions, number: number, response: LlmDetailedResult) => LlmDetailedResult) {
     for (const [key, options] of pending) {
       const content = options.content
       const n = typeof content === 'string' ? 0 : Number((content.at(-1) as { text: string }).text.match(/출력하세요: (\d+)번/)![1])
       const value = options.task === 'examBank.parseQuestions'
-        ? [{ question_number: n, question_type: 'purpose', passage: `Passage ${n}`, question_text: `Question ${n}`, choices: ['① one', '② two'], answer: '①' }]
+        ? [{ question_number: n, question_type: 'purpose', passage: `Passage ${n}`, question_text: `Question ${n}`, choices: ['① one', '② two', '③ three', '④ four', '⑤ five'], answer: '' }]
         : options.task === 'examBank.extractExplanations'
           ? [{ question_number: n, intent: `의도 ${n}`, translation: `원문 해석 ${n}`, solution: `보완 풀이 ${n}`, vocabulary: `word${n}a 뜻` }]
           : (JSON.parse((content as string).match(/입력:\n([\s\S]*?)\n\n출력 형식:/)![1]) as { normalized_word: string }[])
             .map((word) => ({ normalized_word: word.normalized_word, topic: '어휘', synonyms: ['term'], antonyms: [], similar_words: [] }))
-      deliveries.set(key, { text: JSON.stringify(value), finishReason: 'complete', stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, execution: {
+      const response: LlmDetailedResult = { text: JSON.stringify(value), finishReason: 'complete', stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, execution: {
         executionId: 'test', task: options.task, provider: 'anthropic', requestedModel: options.execution!.taskBindings[options.task], responseModel: 'test',
         configVersion: 'test', durationMs: 0, phase: 'generate', promptHash: 'test', promptVersion: 'test', schemaVersion: 'test', sdkRetryCount: 0,
-      } })
+      } }
+      deliveries.set(key, transform ? transform(options, n, response) : response)
     }
     pending.clear()
   }
@@ -89,6 +90,96 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 describe('exam import across durable Batch wakeups, with real parsers and mocked provider deliveries', () => {
+  it.each(['missing', 'wrong_number', 'invalid_fields', 'refusal', 'invalid_json', 'truncated', 'duplicate'] as const)('repairs only the %s question on a later wake and reuses successful requests', async (problem) => {
+    const f = fixture()
+    await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    const initialKeys = [...f.pending.keys()]
+    f.deliver((_options, n, response) => {
+      if (n !== 22) return response
+      if (problem === 'missing') return { ...response, text: '[]' }
+      if (problem === 'wrong_number') return { ...response, text: response.text.replace('"question_number":22', '"question_number":21') }
+      if (problem === 'invalid_fields') return { ...response, text: JSON.stringify([{ ...JSON.parse(response.text)[0], choices: [] }]) }
+      if (problem === 'refusal') return { ...response, finishReason: 'refusal', stopReason: 'refusal' }
+      if (problem === 'invalid_json') return { ...response, text: '{ broken: @@@' }
+      if (problem === 'truncated') return { ...response, finishReason: 'length', stopReason: 'max_tokens' }
+      return { ...response, text: JSON.stringify([JSON.parse(response.text)[0], JSON.parse(response.text)[0]]) }
+    })
+    await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    expect(f.pending.size).toBe(1)
+    expect(initialKeys).not.toContain([...f.pending.keys()][0])
+    const request = [...f.pending.values()][0]
+    expect(request.batchRetryGroup).toBe(initialKeys[4])
+    expect(JSON.stringify(request.content)).toContain('원본에서 22번')
+    expect(f.writes().questionWrites).toBe(0)
+    f.deliver(); await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    expect([...f.pending.values()].every((options) => options.task === 'examBank.extractExplanations')).toBe(true)
+    expect(f.questions.size).toBe(28)
+    f.deliver(); await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    f.deliver(); expect(await f.run()).toMatchObject({ exam_incomplete: false, issues: [], question_count: 28 })
+    expect(f.deliveries.size).toBe(60)
+  })
+  it('persists successful questions and per-number failure reasons after three failed content attempts, never restarting their budget', async () => {
+    const f = fixture()
+    await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      expect(f.pending.size).toBe(attempt ? 2 : 28)
+      f.deliver((_options, n, response) => n === 22 ? { ...response, text: '[]' } : n === 23 ? { ...response, finishReason: 'refusal', stopReason: 'refusal' } : response)
+      await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    }
+    expect(f.questions.size).toBe(26)
+    expect(f.pending.size).toBe(26)
+    expect([...f.pending.values()].every((options) => options.task === 'examBank.extractExplanations')).toBe(true)
+    f.deliver(); await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    f.deliver()
+    const result = await f.run()
+    expect(result).toMatchObject({ exam_incomplete: true, question_count: 26, skipped_pages: [22, 23], issues: [
+      { stage: 'questions', question_number: 22, code: 'missing', attempts: 3, reason: expect.stringContaining('번호') },
+      { stage: 'questions', question_number: 23, code: 'refusal', attempts: 3, reason: expect.stringContaining('콘텐츠 필터') },
+    ] })
+    const count = f.deliveries.size, writes = f.writes()
+    expect(await f.run()).toEqual(result)
+    expect(f.pending.size).toBe(0); expect(f.deliveries.size).toBe(count); expect(f.writes()).toEqual(writes)
+  })
+  it('does not silently exempt number 25 and records only an explicit chart exclusion', async () => {
+    const f = fixture()
+    await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    f.deliver((_o, n, response) => n === 25 ? { ...response, text: '[]' } : response)
+    await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    expect(f.pending.size).toBe(1)
+    f.deliver((_o, n, response) => ({ ...response, text: JSON.stringify([{ question_number: n, excluded_reason: 'chart' }]) }))
+    await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    expect(f.pending.size).toBe(27)
+    expect(f.questions.has(25)).toBe(false)
+    expect([...f.pending.values()].some((o) => JSON.stringify(o.content).includes('출력하세요: 25번'))).toBe(false)
+    f.deliver(); await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    f.deliver(); expect(await f.run()).toMatchObject({ exam_incomplete: false, issues: [], excluded_questions: [{ question_number: 25, reason: expect.stringContaining('도표') }] })
+  })
+  it('keeps explanation-only omissions separate from questions and never retries successful explanations', async () => {
+    const f = fixture(6, true)
+    await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      expect(f.pending.size).toBe(attempt ? 1 : 28)
+      f.deliver((_options, n, response) => n === 42 ? { ...response, text: '[]' } : response)
+      await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    }
+    expect([...f.pending.values()].every((o) => o.task === 'vocab.enrich')).toBe(true)
+    expect(f.writes()).toEqual({ questionWrites: 0, explanationWrites: 27 })
+    f.deliver()
+    expect(await f.run()).toMatchObject({ exam_incomplete: true, updated: 27, issues: [{ stage: 'explanations', question_number: 42, attempts: 3 }] })
+    expect(mocks.stats).not.toHaveBeenCalled()
+  })
+  it('records all missing numbers even when no question could be saved', async () => {
+    const f = fixture()
+    await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      f.deliver((_o, _n, response) => ({ ...response, text: '[]' }))
+      await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    }
+    f.deliver((_o, _n, response) => ({ ...response, text: '[]' }))
+    const result = await f.run()
+    expect(result).toMatchObject({ exam_incomplete: true, question_count: 0 })
+    expect(result.issues).toHaveLength(28); expect(f.pending.size).toBe(0)
+  })
   it.each([[11, 'standard'], [6, 'standard'], [3, 'hakpyung']] as const)('keeps separate PDFs and existing writing rules for month %i', async (month, mode) => {
     const f = fixture(month)
     await expect(f.run()).rejects.toBeInstanceOf(PdfBatchPending)

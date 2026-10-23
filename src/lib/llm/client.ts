@@ -77,6 +77,16 @@ async function record(execution: LlmExecution, entry: LlmCallRecord) {
   console.log('[llm]', JSON.stringify(entry))
 }
 
+function callCheckpoint(options: CallLlmOptions, execution: LlmExecution) {
+  return { version: 2, ...options, execution: undefined, signal: undefined, batchRetryGroup: undefined,
+    configVersion: execution.configVersion, model: execution.taskBindings[options.task] }
+}
+
+/** The initial request remains compatible with checkpoints created before repair support. */
+export function llmCallKey(options: CallLlmOptions, execution: LlmExecution) {
+  return checkpointKey(callCheckpoint(options, execution))
+}
+
 export async function callLlmTextDetailed(options: CallLlmOptions): Promise<LlmDetailedResult> {
   const context = getPdfWorkerContext()
   if (!context) return callLlmTextUncached(options)
@@ -84,8 +94,7 @@ export async function callLlmTextDetailed(options: CallLlmOptions): Promise<LlmD
   const workerOptions = { ...options, execution, signal: options.signal ? AbortSignal.any([options.signal, context.signal]) : context.signal }
   // Execution IDs and AbortSignals are transient. Routing and prompts determine reuse.
   if (options.phase === 'prewarm') return callLlmTextUncached(workerOptions)
-  const checkpoint = { version: 2, ...options, execution: undefined, signal: undefined,
-    configVersion: execution.configVersion, model: execution.taskBindings[options.task] }
+  const checkpoint = callCheckpoint(options, execution)
   return checkpointCall(checkpoint, async () => {
     if (context.batchCall && isPdfBatchTask(options.task)) {
       const model = getModel(execution.taskBindings[options.task])

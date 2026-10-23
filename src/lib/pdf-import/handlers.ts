@@ -7,6 +7,7 @@ import { createTagMatcher, fetchTeacherTagContext, parseAnswerSheetDocument, sav
 import { checkpointBatchPhase, checkpointCall, reportPdfStage } from './context'
 import { weekImportSnapshot } from './server'
 import type { PdfImportJob } from './types'
+import { examImportIssues } from './exam-completeness'
 
 export async function runPdfImport(client: SupabaseClient, job: PdfImportJob): Promise<Record<string, unknown>> {
   const { data: teacher, error: teacherError } = await client.from('teacher').select('id').eq('id', job.teacher_id).eq('approval_status', 'approved').single()
@@ -28,18 +29,22 @@ export async function runPdfImport(client: SupabaseClient, job: PdfImportJob): P
       const { data: explanation, error } = await client.storage.from('pdf-import-sources').download(job.payload.explanationSourcePath)
       if (error || !explanation) throw new Error('문항은 저장됐지만 해설 원본을 읽지 못했습니다.')
       const explanationResult = await importBankExplanation(client, job, await explanation.arrayBuffer())
-      return { ...result, explanation_result: explanationResult }
+      const combined = { ...result, explanation_result: explanationResult }
+      return { ...combined, exam_incomplete: examImportIssues(combined).length > 0 }
     }
-    return result
+    return { ...result, exam_incomplete: examImportIssues(result).length > 0 }
   }
-  if (job.kind === 'bank_explanation') return importBankExplanation(client, job, buffer)
+  if (job.kind === 'bank_explanation') {
+    const result = await importBankExplanation(client, job, buffer)
+    return { ...result, exam_incomplete: examImportIssues(result).length > 0 }
+  }
   return importWeekAnswers(client, job, base64, mimeType)
 }
 
 async function importBankQuestions(client: SupabaseClient, job: PdfImportJob, fileData: string, mimeType: string) {
   await reportPdfStage('문항을 추출하는 중')
   const parsed = await parseExamBankPageRanged(fileData, mimeType)
-  if (!parsed.items.length) throw new Error('문항을 추출할 수 없습니다. PDF를 확인해주세요.')
+  if (!parsed.items.length && !parsed.issues?.length && !parsed.excludedQuestions?.length) throw new Error('문항을 추출할 수 없습니다. PDF를 확인해주세요.')
   await reportPdfStage('문제은행에 저장하는 중')
   const p = job.payload
   const { error: examError } = await client.from('exam_bank').upsert({
@@ -51,8 +56,10 @@ async function importBankQuestions(client: SupabaseClient, job: PdfImportJob, fi
     exam_bank_id: job.target_id, question_number: q.question_number, question_type: q.question_type,
     passage: q.passage || '', question_text: q.question_text, choices: q.choices || [], answer: q.answer || '', raw_text: '',
   }))
-  const { error } = await client.from('exam_bank_question').upsert(rows, { onConflict: 'exam_bank_id,question_number' })
-  if (error) throw new Error(`문항 저장 실패: ${error.message}`)
+  if (rows.length) {
+    const { error } = await client.from('exam_bank_question').upsert(rows, { onConflict: 'exam_bank_id,question_number' })
+    if (error) throw new Error(`문항 저장 실패: ${error.message}`)
+  }
   await reportPdfStage('시험 통계를 확인하는 중')
   let statsFetched = 0
   try {
@@ -64,7 +71,8 @@ async function importBankQuestions(client: SupabaseClient, job: PdfImportJob, fi
       if (!updateError) statsFetched++
     }
   } catch { /* Stats are optional, as in the existing upload route. */ }
-  return { ok: true, exam_id: job.target_id, question_count: rows.length, skipped_pages: parsed.skippedNumbers, stats_fetched: statsFetched }
+  return { ok: !parsed.issues?.length, exam_id: job.target_id, question_count: rows.length, skipped_pages: parsed.skippedNumbers, stats_fetched: statsFetched,
+    issues: parsed.issues ?? [], excluded_questions: parsed.excludedQuestions ?? [] }
 }
 
 async function importBankExplanation(client: SupabaseClient, job: PdfImportJob, buffer: ArrayBuffer) {
@@ -72,21 +80,23 @@ async function importBankExplanation(client: SupabaseClient, job: PdfImportJob, 
     () => saveBankExplanation(client, job, buffer))
   await reportPdfStage('어휘 정보를 보완하는 중')
   const enriched = result.words.length ? await enrichExamQuestionVocabulary(client, { normalizedWords: result.words, limit: 300, batchSize: 40 }) : { candidates: 0, generated: 0, updated: 0 }
-  return { updated: result.updated, total: result.total, mode: result.mode, skipped_questions: result.skipped_questions, enriched }
+  return { exam_id: job.target_id, updated: result.updated, total: result.total, mode: result.mode, skipped_questions: result.skipped_questions, issues: result.issues, enriched }
 }
 
 async function saveBankExplanation(client: SupabaseClient, job: PdfImportJob, buffer: ArrayBuffer) {
   const { data: exam } = await client.from('exam_bank').select('id,exam_month').eq('id', job.target_id).eq('teacher_id', job.teacher_id).single()
   if (!exam) throw new Error('시험을 찾을 수 없습니다.')
   const hakpyung = [3, 4, 5, 7, 10].includes(exam.exam_month)
-  await reportPdfStage('해설과 어휘를 추출하는 중')
-  const parsed = hakpyung ? await parsePdfExplanationsHakpyungRanged(buffer) : await parsePdfExplanationsWithClaudeRanged(buffer)
-  if (!parsed.items.length) throw new Error('해설을 추출할 수 없습니다.')
-  await reportPdfStage('해설과 어휘를 저장하는 중')
   const { data: questions, error: questionError } = await client.from('exam_bank_question')
     .select('id,question_number,question_type,passage,explanation_vocabulary').eq('exam_bank_id', job.target_id)
   if (questionError) throw new Error(questionError.message)
   const byNumber = new Map((questions ?? []).map((q) => [q.question_number, q]))
+  if (!byNumber.size && job.kind === 'bank_explanation') throw new Error('해설을 연결할 기존 문항이 없습니다. 문제지를 먼저 등록해주세요.')
+  await reportPdfStage('해설과 어휘를 추출하는 중')
+  const options = { expectedNumbers: [...byNumber.keys()].filter((n) => n >= 18 && n <= 45).sort((a, b) => a - b) }
+  const parsed = hakpyung ? await parsePdfExplanationsHakpyungRanged(buffer, options) : await parsePdfExplanationsWithClaudeRanged(buffer, options)
+  if (!parsed.items.length && !parsed.issues) throw new Error('해설을 추출할 수 없습니다.')
+  await reportPdfStage('해설과 어휘를 저장하는 중')
   const words = new Set<string>()
   let updated = 0
   for (const ex of parsed.items) {
@@ -110,7 +120,7 @@ async function saveBankExplanation(client: SupabaseClient, job: PdfImportJob, bu
     }
     updated++
   }
-  return { updated, total: parsed.items.length, mode: hakpyung ? 'hakpyung' : 'standard', skipped_questions: parsed.skippedNumbers, words: [...words] }
+  return { updated, total: parsed.items.length, mode: hakpyung ? 'hakpyung' : 'standard', skipped_questions: parsed.skippedNumbers, issues: parsed.issues ?? [], words: [...words] }
 }
 
 async function importWeekAnswers(client: SupabaseClient, job: PdfImportJob, fileData: string, mimeType: string) {

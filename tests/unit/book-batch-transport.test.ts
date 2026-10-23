@@ -40,6 +40,28 @@ function success(stop = 'end_turn'): MessageBatchIndividualResponse {
 const responseStream = (responses: MessageBatchIndividualResponse[]) => (async function* () { for (const r of responses) yield r })()
 
 describe('durable textbook Batch API transport', () => {
+  it('shares a durable three-submission budget between content repairs and transient retries, including older requests', async () => {
+    const f = fixture('bank_questions'), repairKey = 'b'.repeat(64), thirdKey = 'c'.repeat(64)
+    f.options.task = 'examBank.parseQuestions'
+    let broker = f.broker(); await broker.poll()
+    // An already submitted initial request has no retryGroup, as in the previous worker version.
+    await expect(broker.call(f.options, key)).rejects.toBeInstanceOf(BookBatchPending)
+    await broker.submit(); broker = f.broker(); await broker.poll()
+    const repair = { ...f.options, content: 'repair question', batchRetryGroup: key }
+    await expect(broker.call(repair, repairKey)).rejects.toBeInstanceOf(BookBatchPending)
+    await broker.submit()
+    f.provider.results.mockImplementationOnce(async () => responseStream([{ custom_id: repairKey, result: { type: 'expired' } }]))
+    broker = f.broker(); await broker.poll()
+    await expect(broker.call(repair, repairKey)).rejects.toBeInstanceOf(BookBatchPending)
+    await broker.submit()
+    f.provider.results.mockImplementationOnce(async () => responseStream([{ ...success(), custom_id: repairKey }]))
+    broker = f.broker(); await broker.poll()
+    await expect(broker.call({ ...repair, content: 'second repair' }, thirdKey)).rejects.toMatchObject({ attempts: 3 })
+    expect(f.provider.create).toHaveBeenCalledTimes(3)
+    expect(JSON.stringify(f.provider.create.mock.calls)).not.toContain('retryGroup')
+    // Accepted successful results remain reusable even after exhausting the family budget.
+    expect((await broker.call(f.options, key)).text).toBe('{"groups":[]}')
+  })
   it('collects missing calls, sends an independent batch request, and reuses results after restart', async () => {
     const f = fixture(), first = f.broker()
     expect(await first.poll()).toBe(false)
