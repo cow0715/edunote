@@ -8,18 +8,23 @@ vi.mock('@/lib/supabase/server',()=>({createServiceClient:()=>({from:(table:stri
 },storage:{from:()=>({download:state.download,upload:vi.fn(),createSignedUrl:state.signed})}})}))
 import {GET} from '@/app/api/share/[token]/source-image-url/route'
 const run=()=>GET(new Request('https://test/api?path=source-images/old.png'),{params:Promise.resolve({token:'test'})})
-beforeEach(()=>{state.allowed=true;state.enrolled=true;vi.clearAllMocks();state.signed.mockResolvedValue({data:{signedUrl:'https://signed.test/crop'},error:null});state.download.mockImplementation(async(path:string)=>path==='original.pdf'?{data:new Blob(['fixture-pdf']),error:null}:{data:null,error:{message:'missing'}});state.locate.mockResolvedValue({page:1,bbox:{x:0,y:.1,width:.5,height:.4}});state.store.mockResolvedValue([{path:'source-images/share-region-v2/new.png',page:1,bbox:null}])})
+beforeEach(()=>{state.allowed=true;state.enrolled=true;vi.clearAllMocks();state.signed.mockResolvedValue({data:{signedUrl:'https://signed.test/crop'},error:null});state.download.mockImplementation(async(path:string)=>path==='original.pdf'?{data:new Blob(['fixture-pdf']),error:null}:{data:null,error:{message:'missing'}});state.locate.mockResolvedValue({page:1,bbox:{x:0,y:.1,width:.5,height:.4}});state.store.mockResolvedValue([{path:'source-images/share-region-v3/new.png',page:1,bbox:null}])})
 describe('share original question regions',()=>{
  it('authorizes share access and enrollment before reading or rendering a PDF',async()=>{
   state.enrolled=false;expect((await run()).status).toBe(403);expect(state.download).not.toHaveBeenCalled();expect(state.locate).not.toHaveBeenCalled()
  })
  it('recrops existing processed questions from the original PDF without AI',async()=>{
-  expect((await run()).status).toBe(200);expect(state.locate).toHaveBeenCalledWith(expect.any(String),25,1,null);expect(state.store).toHaveBeenCalledOnce();expect(state.signed).toHaveBeenCalledWith('source-images/share-region-v2/new.png',3600)
+  expect((await run()).status).toBe(200);expect(state.locate).toHaveBeenCalledWith(expect.any(String),25,1,null,[]);expect(state.store).toHaveBeenCalledOnce();expect(state.signed).toHaveBeenCalledWith('source-images/share-region-v3/new.png',3600)
  })
  it('uses the cached crop without reprocessing the original',async()=>{
-  state.download.mockResolvedValue({data:new Blob(['cached']),error:null});expect((await run()).status).toBe(200);expect(state.locate).not.toHaveBeenCalled();expect(state.signed.mock.calls[0][0]).toContain('share-region-v2/q-')
+  state.download.mockResolvedValue({data:new Blob(['cached']),error:null});expect((await run()).status).toBe(200);expect(state.locate).not.toHaveBeenCalled();expect(state.signed.mock.calls[0][0]).toContain('share-region-v3/q-')
  })
  it('retains the previously stored original when its source PDF is unavailable',async()=>{
   state.download.mockResolvedValue({data:null,error:{message:'missing'}});expect((await run()).status).toBe(200);expect(state.signed).toHaveBeenCalledWith('source-images/old.png',3600)
  })
+})
+
+it('blocks a different preserved PDF instead of falling back to a misleading image',async()=>{
+ const error=new Error('저장된 원본 PDF와 문항 내용이 일치하지 않습니다.');error.name='SourceDocumentMismatchError';state.locate.mockRejectedValue(error)
+ const response=await run();expect(response.status).toBe(422);expect((await response.json()).code).toBe('SOURCE_DOCUMENT_MISMATCH');expect(state.signed).not.toHaveBeenCalled()
 })

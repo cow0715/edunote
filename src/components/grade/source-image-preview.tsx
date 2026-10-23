@@ -18,14 +18,17 @@ export function SourceImagePreview({
 }: SourceImagePreviewProps) {
   const [url, setUrl] = useState<string | null>(null)
   const [isOpen, setIsOpen] = useState(true)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
 
   async function fetchSignedUrl() {
     if (!question.source_image_path && !sourceQuestionId) return null
     const separator = signedUrlEndpoint.includes('?') ? '&' : '?'
     const query = question.source_image_path ? `path=${encodeURIComponent(question.source_image_path)}` : `questionId=${encodeURIComponent(sourceQuestionId!)}`
     const response = await fetch(`${signedUrlEndpoint}${separator}${query}`)
-    if (!response.ok) throw new Error('failed')
+    if (!response.ok) {
+      const failure=await response.json().catch(()=>null)
+      throw new Error(failure?.code === 'SOURCE_DOCUMENT_MISMATCH' ? failure.error : '원본 이미지를 불러오지 못했습니다.')
+    }
     const data = await response.json()
     return typeof data.url === 'string' ? data.url : null
   }
@@ -38,7 +41,7 @@ export function SourceImagePreview({
   if (loadedKey !== requestKey) {
     setLoadedKey(requestKey)
     setUrl(null)
-    setFailed(false)
+    setFailed(null)
   }
 
   useEffect(() => {
@@ -50,8 +53,8 @@ export function SourceImagePreview({
       .then((nextUrl) => {
         if (active) setUrl(nextUrl)
       })
-      .catch(() => {
-        if (active) setFailed(true)
+      .catch((error: unknown) => {
+        if (active) setFailed(error instanceof Error && error.message.startsWith('저장된 원본 PDF') ? error.message : '원본 이미지를 불러오지 못했습니다.')
       })
 
     return () => {
@@ -66,7 +69,7 @@ export function SourceImagePreview({
       setUrl(nextUrl)
       window.open(nextUrl, '_blank', 'noopener,noreferrer')
     } catch {
-      setFailed(true)
+      setFailed('원본 이미지를 불러오지 못했습니다.')
     }
   }
 
@@ -108,7 +111,7 @@ export function SourceImagePreview({
             </button>
           ) : (
             <div className="rounded-xl bg-white px-3 py-4 text-xs text-slate-400 shadow-sm dark:bg-slate-900 dark:text-slate-500">
-              {failed ? '원본 이미지를 불러오지 못했습니다.' : '원본 이미지를 불러오는 중입니다.'}
+              {failed ?? '원본 이미지를 불러오는 중입니다.'}
             </div>
           )}
         </div>

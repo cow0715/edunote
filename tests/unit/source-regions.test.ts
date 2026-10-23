@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest'
 import {regionPixels, validSourceRegion, needsVisualSource} from '@/lib/source-region'
-import {questionRegionFromPage} from '@/lib/pdf-question-region'
+import {questionRegionFromPage,sourceTextMatches} from '@/lib/pdf-question-region'
 import {bookVisualRegions} from '@/lib/book-pdf/visual-regions'
 import type {SourcePage,SourceMap} from '@/lib/book-pdf/source-map'
 const line=(id:number,text:string,x:number,y:number)=>({id,text,x,y,width:120,height:12,page:1,marks:[]})
@@ -29,4 +29,10 @@ describe('original source regions',()=>{
   expect(regions[0].bbox.width).toBe(.5)
   expect(regions[0].bbox.height).toBeGreaterThan(.3)
  })
+})
+
+it('rejects an unrelated PDF even if a legacy page/bbox is structurally valid',()=>{
+ expect(sourceTextMatches([page],['The desert tortoise has a simple solution for coping with extreme heat.'])).toBe(false)
+ expect(sourceTextMatches([{...page,lines:[line(1,'The desert tortoise has a simple solution for coping with extreme heat.',30,700)]}],['The desert tortoise has a simple solution for coping with extreme heat.'])).toBe(true)
+ expect(questionRegionFromPage({...page,lines:page.lines.map(l=>({...l,text:l.text.replace('25.','25번')}))},25)).not.toBeNull()
 })

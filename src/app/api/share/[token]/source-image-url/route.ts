@@ -14,12 +14,16 @@ function one<T>(value: T | T[] | null | undefined): T | null {
 
 type QuestionWithWeek = {
   id: string
+  passage: string | null
+  shared_passage: string | null
+  question_stem: string | null
+  question_text: string | null
   question_number: number
   source_question_number: number | null
   source_page: number | null
   source_bbox: SourceRegion | null
   source_image_path: string | null
-  week: { class_id: string | null; answer_sheet_path: string | null } | { class_id: string | null; answer_sheet_path: string | null }[] | null
+  week: { id: string; class_id: string | null; answer_sheet_path: string | null } | { id: string; class_id: string | null; answer_sheet_path: string | null }[] | null
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ token: string }> }) {
@@ -45,7 +49,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
 
   const { data: question } = await supabase
     .from('exam_question')
-    .select('id, question_number, source_question_number, source_page, source_bbox, source_image_path, week(class_id,answer_sheet_path)')
+    .select('id, passage, shared_passage, question_stem, question_text, question_number, source_question_number, source_page, source_bbox, source_image_path, week(id,class_id,answer_sheet_path)')
     .eq(questionId ? 'id' : 'source_image_path', questionId ?? path!)
     .maybeSingle()
 
@@ -69,8 +73,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const original = one(row.week)?.answer_sheet_path
   if (original && row.source_page) {
     try {
-      const hash = createHash('sha256').update(JSON.stringify([original,row.source_page,row.source_bbox,row.source_question_number ?? row.question_number])).digest('hex').slice(0,16)
-      const prefix = `source-images/share-region-v2/${row.id}-${hash}`
+      const hash = createHash('sha256').update(JSON.stringify([original,row.source_page,row.source_bbox,row.source_question_number ?? row.question_number,row.passage,row.shared_passage,row.question_stem,row.question_text])).digest('hex').slice(0,16)
+      const prefix = `source-images/share-region-v3/${row.id}-${hash}`
       const cachedPath = `${prefix}-0-p${row.source_page}.png`
       const cached = await supabase.storage.from('answer-sheets').download(cachedPath)
       if (!cached.error && cached.data) imagePath = cachedPath
@@ -78,11 +82,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
         const {data:file,error:downloadError}=await supabase.storage.from('answer-sheets').download(original)
         if(downloadError || !file) throw Error('원본 PDF를 읽을 수 없습니다.')
         const pdf=Buffer.from(await file.arrayBuffer()).toString('base64')
-        const region=await locateQuestionRegion(pdf,row.source_question_number ?? row.question_number,row.source_page,row.source_bbox)
+        const region=await locateQuestionRegion(pdf,row.source_question_number ?? row.question_number,row.source_page,row.source_bbox, original.startsWith(`${one(row.week)?.id}/`) ? undefined : [row.passage,row.shared_passage,row.question_stem,row.question_text].filter((value): value is string=>typeof value === 'string'))
         const images=await storeSourceRegions(supabase,pdf,prefix,[region])
         imagePath=images[0].path
       }
-    } catch (error) { console.warn('[share-source-region] retaining saved original:', error instanceof Error ? error.message : 'crop failed') }
+    } catch (error) {
+      if(error instanceof Error && error.name==='SourceDocumentMismatchError') return NextResponse.json({error:error.message,code:'SOURCE_DOCUMENT_MISMATCH'},{status:422})
+      console.warn('[share-source-region] retaining saved original:', error instanceof Error ? error.message : 'crop failed') }
   }
 
   if (!imagePath) return NextResponse.json({error:'원본 이미지와 복구 가능한 PDF 영역이 없습니다.'},{status:422})
