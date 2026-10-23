@@ -1,6 +1,9 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { GET as students } from '@/app/api/students/route'
 import { GET as roster } from '@/app/api/classes/[id]/students/route'
+// These GET-only regressions do not exercise the server transaction used by POST.
+vi.mock('@/lib/db/transaction', () => ({ withTeacherTransaction: vi.fn() }))
+vi.mock('@/lib/services/students', () => ({ registerStudent: vi.fn(), enrollStudent: vi.fn() }))
 const m = vi.hoisted(() => ({ auth: vi.fn(), teacher: vi.fn(), owner: vi.fn() }))
 vi.mock('@/lib/api', () => ({ getAuth: m.auth, getTeacherId: m.teacher, assertClassOwner: m.owner,
   err: (error: string, status = 400) => Response.json({ error }, { status }), ok: (data: unknown) => Response.json(data) }))

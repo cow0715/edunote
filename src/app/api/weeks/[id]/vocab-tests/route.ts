@@ -1,3 +1,6 @@
+import { withTeacherTransaction } from '@/lib/db/transaction'
+import { saveErrorResponse } from '@/lib/db/errors'
+import { replaceVocabTest } from '@/lib/services/vocab-tests'
 import { getAuth, getTeacherId, assertWeekOwner, countGradedVocabAnswers, VOCAB_LOCKED_MESSAGE, err, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/server'
 import { enrichVocabVariantMeanings } from '@/lib/vocab-variant-enrichment'
@@ -41,15 +44,6 @@ type VocabTestItemRow = {
   } | { id: string; word: string; part_of_speech: string | null; meaning: string | null; relation_type: string }[] | null
 }
 
-type ActiveTestItemRow = {
-  vocab_test_id: string
-  vocab_word_id: string
-  vocab_word_variant_id: string | null
-  sort_order: number
-  prompt_source: string | null
-  prompt_text: string | null
-}
-
 type RequestedTestItem = {
   wordId: string
   variantId?: string
@@ -89,7 +83,7 @@ async function requireOwner(weekId: string) {
   const teacherId = await getTeacherId(supabase, user.id)
   if (!teacherId) return { error: err('강사 정보 없음', 404) }
   if (!await assertWeekOwner(supabase, weekId, teacherId)) return { error: err('접근 권한 없음', 403) }
-  return { supabase: createServiceClient() }
+  return { supabase: createServiceClient(), userId: user.id }
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -260,90 +254,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
   }
 
-  const { data: previousActiveTests } = await supabase
-    .from('vocab_test')
-    .select('id')
-    .eq('week_id', weekId)
-    .eq('is_active', true)
-    .order('created_at', { ascending: false })
-
-  const previousActiveIds = (previousActiveTests ?? []).map((test) => test.id)
-  const { data: previousItems } = previousActiveIds.length > 0
-    ? await supabase
-        .from('vocab_test_item')
-        .select('vocab_test_id, vocab_word_id, vocab_word_variant_id, sort_order, prompt_source, prompt_text')
-        .in('vocab_test_id', previousActiveIds)
-    : { data: [] }
-
-  const previousActiveItemIds = ((previousItems ?? []) as ActiveTestItemRow[])
-    .filter((item) => item.vocab_test_id === previousActiveIds[0])
-    .sort((a, b) => a.sort_order - b.sort_order)
-  const sameSelection = previousActiveItemIds.length === dedupedValidItems.length &&
-    previousActiveItemIds.every((item, index) => {
-      const next = dedupedValidItems[index]
-      return item.vocab_word_id === next.wordId &&
-        (item.vocab_word_variant_id ?? null) === (next.variantId ?? null) &&
-        (item.prompt_source ?? 'word') === next.promptSource &&
-        (item.prompt_text ?? '') === next.promptText
-    })
-
-  const { error: deactivateError } = await supabase.from('vocab_test').update({ is_active: false }).eq('week_id', weekId)
-  if (deactivateError) return err(deactivateError.message, 500)
-
-  const { data: test, error: testError } = await supabase
-    .from('vocab_test')
-    .insert({
-      week_id: weekId,
-      title: body.title?.trim() || '단어시험',
-      is_active: true,
-      item_count: dedupedValidItems.length,
-    })
-    .select('id, week_id, title, is_active, item_count, created_at')
-    .single()
-
-  if (testError || !test) {
-    if (previousActiveIds.length > 0) {
-      await supabase.from('vocab_test').update({ is_active: true }).in('id', previousActiveIds)
-    }
-    return err(testError?.message ?? '시험지 생성 실패', 500)
-  }
-
-  const { error: itemError } = await supabase
-    .from('vocab_test_item')
-    .insert(dedupedValidItems.map((item, index) => ({
-      vocab_test_id: test.id,
-      vocab_word_id: item.wordId,
-      vocab_word_variant_id: item.variantId,
-      test_number: index + 1,
-      sort_order: index + 1,
-      prompt_source: item.promptSource,
-      prompt_text: item.promptText || null,
-    })))
-
-  if (itemError) {
-    await supabase.from('vocab_test').delete().eq('id', test.id)
-    if (previousActiveIds.length > 0) {
-      await supabase.from('vocab_test').update({ is_active: true }).in('id', previousActiveIds)
-    }
-    return err(itemError.message, 500)
-  }
-
-  if (!sameSelection) {
-    const { data: scores } = await supabase
-      .from('week_score')
-      .select('id')
-      .eq('week_id', weekId)
-    const scoreIds = (scores ?? []).map((score) => score.id)
-    if (scoreIds.length > 0) {
-      await supabase.from('student_vocab_answer').delete().in('week_score_id', scoreIds)
-      await supabase
-        .from('week_score')
-        .update({ vocab_correct: null, vocab_retake_correct: null, vocab_photo_path: null })
-        .in('id', scoreIds)
-    }
-  }
-
-  await supabase.from('week').update({ vocab_total: dedupedValidItems.length }).eq('id', weekId)
-
-  return ok({ ok: true, test: { ...test, item_count: dedupedValidItems.length } }, { status: 201 })
+  try {
+    const test = await withTeacherTransaction(auth.userId, context => replaceVocabTest(context, weekId,
+      body.title?.trim() || '단어시험', dedupedValidItems))
+    return ok({ ok: true, test }, { status: 201 })
+  } catch (error) { return saveErrorResponse(error) }
 }

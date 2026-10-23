@@ -1,5 +1,6 @@
 'use client'
 
+import { examSearchYears } from '@/lib/exam-search-years'
 import { questionSourceLabel } from '@/lib/book-pdf/labels'
 import { mergeBankSearch } from '@/lib/exam-bank-navigation'
 import { BOOK_CATALOG } from '@/lib/book-pdf/catalog'
@@ -27,7 +28,6 @@ import {
 import { toast } from 'sonner'
 import { Search, Copy, ChevronDown, Loader2, XCircle, Info } from 'lucide-react'
 import {
-  CURRENT_YEAR,
   DIFFICULTY_CRITERIA,
   DIFFICULTY_CRITERIA_TEXT,
   DIFFICULTY_OPTIONS,
@@ -142,19 +142,20 @@ export function QuestionSearch() {
   const filterKey = useMemo(() => buildFilterParams(appliedFilters).toString(), [appliedFilters])
   const liveFilterKey = useMemo(() => buildFilterParams(filters).toString(), [filters])
   const hasPendingChanges = liveFilterKey !== filterKey
-  const yearOptions = useMemo(() => {
-    const years = new Set<number>([CURRENT_YEAR])
-    for (const exam of examsForYears ?? []) {
-      if (typeof exam.exam_year === 'number' && Number.isFinite(exam.exam_year)) years.add(exam.exam_year)
+  const yearOptions = useMemo(
+    () => examSearchYears((examsForYears ?? []).map((exam) => exam.exam_year)),
+    [examsForYears],
+  )
+  // Apply database bounds once after loading, including when the query cache is already populated.
+  const [yearsInitialized, setYearsInitialized] = useState(false)
+  if (!yearsInitialized && examsForYears) {
+    setYearsInitialized(true)
+    if (!filters.year_from && !filters.year_to && yearOptions.length) {
+      const bounds = { year_from: String(yearOptions[yearOptions.length - 1]), year_to: String(yearOptions[0]) }
+      setFilters((current) => ({ ...current, ...bounds }))
+      setAppliedFilters((current) => ({ ...current, ...bounds }))
     }
-    for (const value of [filters.year_from, filters.year_to, appliedFilters.year_from, appliedFilters.year_to]) {
-      const year = Number(value)
-      if (Number.isFinite(year) && year > 0) years.add(year)
-    }
-    const minYear = Math.min(...years)
-    const maxYear = Math.max(...years)
-    return Array.from({ length: maxYear - minYear + 1 }, (_, i) => maxYear - i)
-  }, [appliedFilters.year_from, appliedFilters.year_to, examsForYears, filters.year_from, filters.year_to])
+  }
 
   const runSearch = () => setAppliedFilters(filters)
 
@@ -450,7 +451,7 @@ export function QuestionSearch() {
             <p className="mb-1 text-[11px] font-medium text-gray-400 uppercase tracking-wide">{filters.kind === '교재' ? '학년도' : '시행년'}</p>
             <div className="flex items-center gap-1">
               <Select value={filters.year_from || 'all'} onValueChange={set('year_from')}>
-                <SelectTrigger className="h-8 text-xs w-[88px]"><SelectValue placeholder="시작" /></SelectTrigger>
+                <SelectTrigger aria-label="시행 시작년" className="h-8 text-xs w-[88px]"><SelectValue placeholder="시작" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
                   {yearOptions.map((y) => <SelectItem key={y} value={String(y)}>{y}년</SelectItem>)}
@@ -458,7 +459,7 @@ export function QuestionSearch() {
               </Select>
               <span className="text-xs text-gray-300">~</span>
               <Select value={filters.year_to || 'all'} onValueChange={set('year_to')}>
-                <SelectTrigger className="h-8 text-xs w-[88px]"><SelectValue placeholder="종료" /></SelectTrigger>
+                <SelectTrigger aria-label="시행 종료년" className="h-8 text-xs w-[88px]"><SelectValue placeholder="종료" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
                   {yearOptions.map((y) => <SelectItem key={y} value={String(y)}>{y}년</SelectItem>)}

@@ -33,15 +33,16 @@ describe('service cost workspace', () => {
   })
   it('shows provider SMS counts and spend while keeping Supabase plan and old invoice outside monthly totals', () => {
     const snapshot = { provider: 'solapi', metric: 'monthly_cost', currency: 'KRW', amount: 12652.2, status: 'ok', updated_at: '2026-10-23T00:00:00Z' }
-    render(<CostOverview usage={[]} snapshots={[snapshot, { ...snapshot, metric: 'sms_succeeded', currency: 'COUNT', amount: 330 }, { ...snapshot, provider: 'supabase', metric: 'plan_free', currency: 'USD', amount: 0 }, { ...snapshot, provider: 'supabase', metric: 'invoice_last_amount', currency: 'USD', amount: 999 }]} loading={false} tracking failed={false} />)
+    render(<CostOverview usage={[]} snapshots={[snapshot, { ...snapshot, metric: 'sms_succeeded', currency: 'COUNT', amount: 330 }, { ...snapshot, provider: 'supabase', metric: 'plan_free', currency: 'USD', amount: 0 }, { ...snapshot, provider: 'supabase', metric: 'invoice_last_amount', currency: 'USD', amount: 999 }, { ...snapshot, provider: 'supabase', metric: 'monthly_cost', currency: 'USD', amount: 999 }]} loading={false} tracking failed={false} />)
     const table = within(screen.getByRole('table', { name: '서비스별 사용량과 비용' }))
     expect(table.getByText('330건 문자 발송 성공')).toBeTruthy()
     expect(table.getByText('₩12,652.2')).toBeTruthy()
-    expect(table.getByText('Free · US$0.00')).toBeTruthy()
+    expect(table.getByText('Free')).toBeTruthy()
     fireEvent.click(table.getByRole('button', { name: 'Supabase' }))
-    expect(screen.getByText(/공개 청구 API가 없어/)).toBeTruthy()
-    expect(screen.getByText(/청구주기.*달력 월과 다릅니다/)).toBeTruthy()
-    expect(within(screen.getByRole('region', { name: 'Supabase 상세' })).getByText(/US\$999.00/)).toBeTruthy()
+    const detail = within(screen.getByRole('region', { name: 'Supabase 상세' }))
+    expect(detail.getByText('현재 DB 상태')).toBeTruthy()
+    expect(detail.queryByText(/청구서|청구주기|업체 월 조회액/)).toBeNull()
+    expect(screen.queryByText(/US\$999.00/)).toBeNull()
     expect(screen.queryByText('US$999.00', { exact: true })).toBeNull()
   })
 
