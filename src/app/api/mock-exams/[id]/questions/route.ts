@@ -1,5 +1,7 @@
+import { withTeacherTransaction } from '@/lib/db/transaction'
+import { saveErrorResponse } from '@/lib/db/errors'
+import { replaceMockQuestions } from '@/lib/services/mock-questions'
 import { err, getAuth, getTeacherId, ok } from '@/lib/api'
-import { calculateMockExamScore, type MockExamQuestionForGrading } from '@/lib/mock-exam'
 import { assertMockExamOwner } from '@/lib/mock-exam-server'
 
 type QuestionUpdate = {
@@ -13,17 +15,6 @@ type QuestionUpdate = {
   is_void?: boolean
   all_correct?: boolean
   extra_correct_answers?: string[]
-}
-
-type ResultWithAnswers = {
-  id: string
-  student_id: string
-  teacher_comment: string | null
-  status: 'draft' | 'published'
-  mock_exam_student_answer?: {
-    student_answer: string | null
-    mock_exam_question?: { question_number: number } | { question_number: number }[] | null
-  }[]
 }
 
 const VALID_SECTIONS = new Set(['listening', 'reading'])
@@ -66,59 +57,6 @@ function normalizeQuestionUpdate(question: QuestionUpdate, examId: string) {
   }
 }
 
-async function recalcExistingResults(supabase: Awaited<ReturnType<typeof getAuth>>['supabase'], examId: string) {
-  const [{ data: exam }, { data: questions }, { data: results }] = await Promise.all([
-    supabase.from('mock_exam').select('grade_cutoffs').eq('id', examId).single(),
-    supabase.from('mock_exam_question').select('*').eq('mock_exam_id', examId).order('question_number'),
-    supabase
-      .from('mock_exam_result')
-      .select('id, student_id, teacher_comment, status, mock_exam_student_answer(student_answer, mock_exam_question(question_number))')
-      .eq('mock_exam_id', examId),
-  ])
-
-  const questionRows = (questions ?? []) as MockExamQuestionForGrading[]
-  for (const result of (results ?? []) as unknown as ResultWithAnswers[]) {
-    const answers = (result.mock_exam_student_answer ?? []).map((answer) => ({
-      question_number: Array.isArray(answer.mock_exam_question)
-        ? answer.mock_exam_question[0]?.question_number ?? 0
-        : answer.mock_exam_question?.question_number ?? 0,
-      student_answer: answer.student_answer,
-    }))
-    const score = calculateMockExamScore(
-      questionRows,
-      answers,
-      exam?.grade_cutoffs as Record<string, number> | null,
-    )
-
-    const { error: resultError } = await supabase
-      .from('mock_exam_result')
-      .update({
-        raw_score: score.raw_score,
-        grade: score.grade,
-        listening_correct: score.listening_correct,
-        listening_total: score.listening_total,
-        reading_correct: score.reading_correct,
-        reading_total: score.reading_total,
-        type_analysis: score.type_analysis,
-      })
-      .eq('id', result.id)
-
-    if (resultError) throw new Error(resultError.message)
-
-    const { error: answerError } = await supabase
-      .from('mock_exam_student_answer')
-      .upsert(
-        score.answer_rows.map((answer) => ({
-          mock_exam_result_id: result.id,
-          ...answer,
-        })),
-        { onConflict: 'mock_exam_result_id,mock_exam_question_id' },
-      )
-
-    if (answerError) throw new Error(answerError.message)
-  }
-}
-
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
@@ -132,7 +70,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const questions = await request.json() as QuestionUpdate[]
   if (!Array.isArray(questions)) return err('문항 배열이 필요합니다')
 
-  const rows = []
+  const rows: Record<string, unknown>[] = []
   for (const question of questions) {
     const normalized = normalizeQuestionUpdate(question, id)
     if ('error' in normalized) return err(normalized.error ?? '문항 정보를 확인해 주세요')
@@ -142,18 +80,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const numbers = rows.map((row) => row.question_number)
   if (new Set(numbers).size !== numbers.length) return err('중복된 문항 번호가 있습니다')
 
-  const { data, error } = await supabase
-    .from('mock_exam_question')
-    .upsert(rows, { onConflict: 'mock_exam_id,question_number' })
-    .select()
-
-  if (error) return err(error.message, 500)
-
   try {
-    await recalcExistingResults(supabase, id)
-  } catch (error) {
-    return err(error instanceof Error ? error.message : '기존 성적 재계산 실패', 500)
-  }
-
-  return ok(data)
+    const data=await withTeacherTransaction(user.id,context=>replaceMockQuestions(context,id,rows))
+    return ok(data)
+  } catch (error) { return saveErrorResponse(error) }
 }
