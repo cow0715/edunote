@@ -10,6 +10,9 @@ const nextConfig: NextConfig = {
     '@napi-rs/canvas-win32-x64-msvc',
     'sharp',
   ],
+  outputFileTracingIncludes: {
+    '/api/share/*/source-image-url': ['./assets/pdf-fonts/NotoSans.ttf'],
+  },
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
   },

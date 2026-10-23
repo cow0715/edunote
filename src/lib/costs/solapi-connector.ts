@@ -3,6 +3,18 @@ import { z } from 'zod'
 import { monthBounds } from './model'
 
 const money = z.number().finite()
+// SOLAPI balance already includes usable deposit; do not add a deposit field again.
+export function parseSolapiBalance(input: unknown) {
+  const data = z.object({ balance: money, point: money }).parse(input)
+  return { balance: data.balance, point_balance: data.point }
+}
+export async function fetchSolapiBalance() {
+  const client = new SolapiMessageService(process.env.SOLAPI_API_KEY!, process.env.SOLAPI_API_SECRET!)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return parseSolapiBalance(await Promise.race([client.getBalance(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('provider_timeout')), 10000) })]))
+  } finally { clearTimeout(timer) }
+}
 const counts = z.record(z.string(), z.number().int().nonnegative())
 const statistics = z.object({ balance: money, deposit: money.optional(), point: money, refund: z.object({ balance: money, deposit: money.optional(), point: money }).optional(), total: counts, successed: counts, failed: counts })
 const total = (counts: Record<string, number>) => counts.total ?? Object.entries(counts).filter(([key]) => key !== 'total').reduce((n, [, value]) => n + value, 0)

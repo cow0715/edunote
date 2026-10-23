@@ -5,6 +5,24 @@ import { CostOverview } from '@/app/(admin)/settings/costs/cost-overview'
 import { costReportFixture } from '../fixtures/cost-report'
 afterEach(cleanup)
 describe('service cost workspace', () => {
+  it('shows remaining quota on the collapsed Supabase card and separates SOLAPI wallet from spend', () => {
+    const sample = { provider: 'supabase', metric: 'db_bytes_production', currency: 'BYTES', amount: 450_000_000, status: 'ok', updated_at: '2026-10-23T12:00:00Z' }
+    render(<CostOverview usage={[]} snapshots={[sample,
+      { ...sample, metric: 'storage_bytes_organization', amount: 900_000_000 },
+      { ...sample, provider: 'solapi', metric: 'balance', currency: 'KRW', amount: 19733 },
+      { ...sample, provider: 'solapi', metric: 'monthly_cost', currency: 'KRW', amount: 12652.2 },
+    ]} loading={false} tracking failed={false} />)
+    const supabase = within(screen.getByRole('button', { name: 'Supabase' }))
+    expect(supabase.getByRole('progressbar', { name: 'DB 무료 한도 사용률' }).getAttribute('aria-valuenow')).toBe('90')
+    expect(supabase.getByText(/50 MB 남음/)).toBeTruthy()
+    expect(supabase.getByText(/100 MB 남음/)).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Supabase 무료 한도' })).toBeNull()
+    const solapi = within(screen.getByRole('button', { name: 'SOLAPI' }))
+    expect(solapi.getByText('₩19,733')).toBeTruthy()
+    expect(solapi.getByText('₩12,652.2')).toBeTruthy()
+    expect(within(screen.getByLabelText('이번 달 비용 요약')).queryByText('₩19,733')).toBeNull()
+    expect(screen.queryByText('₩32,385.2')).toBeNull()
+  })
   it('puts cost totals first and shows Supabase quotas only when selected', () => {
     const { container } = render(<CostOverview usage={[]} snapshots={[]} loading={false} tracking failed={false} />)
     const summary = screen.getByLabelText('이번 달 비용 요약')
@@ -28,7 +46,7 @@ describe('service cost workspace', () => {
     expect(list.getAllByRole('listitem')).toHaveLength(6)
     expect(screen.queryByRole('table', { name: '서비스별 사용량과 비용' })).toBeNull()
     for (const card of list.getAllByRole('button')) {
-      expect(within(card).getByText(/실제 비용 ·/)).toBeTruthy()
+      expect(within(card).getByText(/실제 비용 ·|이번 달 사용액 ·/)).toBeTruthy()
       expect(within(card).getByText('예상 비용 · 청구 전')).toBeTruthy()
     }
     expect(list.getByText('15회 실행')).toBeTruthy()

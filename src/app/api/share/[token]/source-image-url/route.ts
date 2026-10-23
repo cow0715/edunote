@@ -1,3 +1,4 @@
+import { ensurePdfRenderFonts } from '@/lib/pdf-render-fonts'
 import { createHash } from 'node:crypto'
 import { locateQuestionRegion } from '@/lib/pdf-question-region'
 import { storeSourceRegions } from '@/lib/source-image-storage'
@@ -74,7 +75,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   if (original && row.source_page) {
     try {
       const hash = createHash('sha256').update(JSON.stringify([original,row.source_page,row.source_bbox,row.source_question_number ?? row.question_number,row.passage,row.shared_passage,row.question_stem,row.question_text])).digest('hex').slice(0,16)
-      const prefix = `source-images/share-region-v3/${row.id}-${hash}`
+      const prefix = `source-images/share-region-v4/${row.id}-${hash}`
       const cachedPath = `${prefix}-0-p${row.source_page}.png`
       const cached = await supabase.storage.from('answer-sheets').download(cachedPath)
       if (!cached.error && cached.data) imagePath = cachedPath
@@ -83,6 +84,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
         if(downloadError || !file) throw Error('원본 PDF를 읽을 수 없습니다.')
         const pdf=Buffer.from(await file.arrayBuffer()).toString('base64')
         const region=await locateQuestionRegion(pdf,row.source_question_number ?? row.question_number,row.source_page,row.source_bbox, original.startsWith(`${one(row.week)?.id}/`) ? undefined : [row.passage,row.shared_passage,row.question_stem,row.question_text].filter((value): value is string=>typeof value === 'string'))
+        ensurePdfRenderFonts()
         const images=await storeSourceRegions(supabase,pdf,prefix,[region])
         imagePath=images[0].path
       }
