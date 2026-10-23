@@ -1,3 +1,4 @@
+import { bookVisualRegions } from './visual-regions'
 import { MODEL_IDS } from '../llm/models'
 import { ZodError } from 'zod'
 import { enrichVerifiedMaterial } from '../llm/material-enrichment'
@@ -91,7 +92,7 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
       const validation = validateNativeBookUnit(unit, extraction)
       if (validation.errors.length) return unresolved(validation.errors)
       const extractionHash = bookFingerprint(extraction)
-      return { extraction, validation, verification: { ...base, status: 'passed', exhausted: false, issues: [], extraction_hash: extractionHash,
+      return { extraction, validation, verification: { ...base, source_regions: bookVisualRegions(pages, result.mapping, unit.visual_required), status: 'passed', exhausted: false, issues: [], extraction_hash: extractionHash,
         checks: { boundaries: true, legibility: true, formatting: true, visual_reference: true },
         audit: { pages: [...unit.pages], image_hashes: Object.fromEntries(images.map((i) => [i.page, i.sha256])), native_hash: bookFingerprint(pages),
           mapping_hash: bookFingerprint(result.mapping), rounds: result.audits.length, last_status: 'pass', extraction_hash: extractionHash } } }

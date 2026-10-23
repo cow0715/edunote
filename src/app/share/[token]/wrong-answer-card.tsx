@@ -165,6 +165,7 @@ export function WrongAnswerCard({
       )}
 
       <SourceImagePreview
+        sourceQuestionId={q.needs_source_image ? q.id : undefined}
         question={{
           source_image_path: q.source_image_path ?? null,
           needs_source_image: q.needs_source_image === true,

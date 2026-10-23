@@ -13,6 +13,9 @@ export type ExamBankParsedQuestion = {
   question_text: string
   choices: string[]
   answer: string
+  needs_source_image?: boolean
+  source_page?: number | null
+  source_bbox?: import('../source-region').SourceRegion | null
 }
 
 export async function parseExamBankPage(
@@ -50,10 +53,8 @@ export type ExamBankRangedResult = {
   skippedNumbers: number[]
 }
 
-/**
- * 도표 문항 껍데기 판별: "범위 지시"가 프롬프트의 도표 제외 규칙을 이기고
- * 지문 없는 도표 문항을 출력하는 경우가 실측됨(모평 25번) — 프롬프트에 맡기지 않고 코드로 거른다.
- */
+/** A chart may legitimately have no text passage. Kept for diagnostics only;
+ * the parser must retain this question and attach the original PDF region. */
 export function isChartShellQuestion(question: Pick<ExamBankParsedQuestion, 'passage' | 'question_text'>): boolean {
   return !(question.passage ?? '').trim() && /도표|그래프/.test(question.question_text ?? '')
 }
@@ -80,7 +81,6 @@ export async function parseExamBankPageRanged(
   const byNumber = new Map<number, ExamBankParsedQuestion>()
   for (const part of parts) {
     for (const item of part.items) {
-      if (isChartShellQuestion(item)) continue
       if (!byNumber.has(item.question_number)) byNumber.set(item.question_number, item)
     }
   }
