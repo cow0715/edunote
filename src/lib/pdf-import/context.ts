@@ -51,6 +51,21 @@ export async function checkpointCall<T>(input: unknown, call: () => Promise<T>, 
 
 export function checkpointKey(input: unknown) { return createHash('sha256').update(JSON.stringify(input)).digest('hex') }
 
+/** A completed import phase can contain nested LLM calls. Do not hold a limiter
+ * slot around it: concurrency=1 would otherwise deadlock on the inner call. */
+export async function checkpointBatchPhase<T>(input: unknown, work: () => Promise<T>): Promise<T> {
+  const context = storage.getStore()
+  if (!context?.batchCall) return work()
+  context.signal.throwIfAborted()
+  const key = checkpointKey(input), saved = await context.read<T>(key)
+  context.signal.throwIfAborted()
+  if (saved !== null) return saved
+  const result = await work()
+  context.signal.throwIfAborted()
+  await context.write(key, result)
+  return result
+}
+
 export async function reportPdfStage(message: string) {
   const context = storage.getStore()
   context?.signal.throwIfAborted()

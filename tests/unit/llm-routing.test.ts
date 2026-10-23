@@ -31,7 +31,7 @@ function workerContext() {
 }
 
 describe('worker integration with task routing', () => {
-  it('uses textbook batch deliveries and checkpoints while leaving exam requests synchronous', async () => {
+  it('uses batch deliveries for books, exam parsing, explanations and vocabulary while leaving weekly and grading calls synchronous', async () => {
     sdk.create.mockResolvedValue(response({ content: [{ type: 'text', text: '{"groups":[]}' }] }))
     const options = { task: 'book.mapSource', maxTokens: 1000, content: 'source' } as const
     const delivery = await callLlmTextDetailed(options)
@@ -43,8 +43,14 @@ describe('worker integration with task routing', () => {
     expect(context.batchCall).toHaveBeenCalledTimes(1)
     expect(sdk.create).not.toHaveBeenCalled()
     await withPdfWorkerContext(context, () => callLlmTextDetailed({ ...options, task: 'examBank.parseQuestions' }))
-    expect(sdk.create).toHaveBeenCalledTimes(1)
-    expect(context.batchCall).toHaveBeenCalledTimes(1)
+    await withPdfWorkerContext(context, () => callLlmTextDetailed({ ...options, task: 'examBank.extractExplanations' }))
+    await withPdfWorkerContext(context, () => callLlmTextDetailed({ ...options, task: 'vocab.enrich' }))
+    expect(context.batchCall).toHaveBeenCalledTimes(4)
+    expect(sdk.create).not.toHaveBeenCalled()
+    await withPdfWorkerContext(context, () => callLlmTextDetailed({ ...options, task: 'week.parseAnswers' }))
+    await withPdfWorkerContext(context, () => callLlmTextDetailed({ ...options, task: 'week.gradeSubjective' }))
+    expect(sdk.create).toHaveBeenCalledTimes(2)
+    expect(context.batchCall).toHaveBeenCalledTimes(4)
   })
   it('propagates batch suspension without making or caching a synchronous call', async () => {
     const { context, saved } = workerContext()

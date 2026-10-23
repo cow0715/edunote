@@ -329,3 +329,15 @@ gcloud run jobs update edunote-bank-pdf --project=$PdfProject --region=$PdfRegio
 위 create 명령은 처음 설정할 때만 실행한다. 같은 이름의 큐·계정이 이미 있으면 재생성하지 않고 설정을 확인한다.
 
 참고: [Anthropic Batch API](https://platform.claude.com/docs/en/build-with-claude/batch-processing), [Cloud Tasks OAuth](https://docs.cloud.google.com/tasks/docs/creating-http-target-tasks), [Job 실행 권한](https://docs.cloud.google.com/iam/docs/roles-permissions/run).
+
+## 수능·모의고사 등록 Batch 확장 (2026-10-23)
+
+- 먼저 `supabase/migrations/20261023113525_exam_bank_batch_imports.sql`을 개발·운영에 적용한 뒤 워커와 Vercel을 배포한다. 기존 교재 배치 ID·성공 체크포인트·자료는 유지한다.
+- 새 `bank_questions`, `bank_explanation` 작업에 `payload.batchProcessing=batch-v1`을 서버에서 기록한다. 이미 접수한 일반 API 작업과 주차별·채점 경로는 전환하지 않는다.
+- 문제지·해설지는 별도의 원본 파일로 보관한다. 함께 올리면 문제지 문항별 파싱 Batch → 문항 저장·통계 → 해설지 문항별 추출/풀이·어휘 보완 Batch → 어휘 관계 보강 Batch 순서다. 해설만 나중에 올리면 기존 문제지를 파싱하지 않는다.
+- 기존 모델·프롬프트·18~45번 문항별 출력 단위를 유지한다. 예열 요청은 생성하지 않고 문항별 요청을 Batch에 모아 제출한다. 정상 결과가 있는 요청과 완료된 저장 단계는 재실행하지 않는다.
+- 대기 중 워커는 종료한다. 기존 `edunote-book-batch` 큐·재개 계정과 `edunote-bank-pdf` Job을 재사용하고 5분 간격으로 상태를 확인한다. 각 의존 단계마다 별도 배치 대기 시간이 발생할 수 있다.
+- 어휘 보강의 40개 단위 요청도 한 번에 수집한다. 후보 목록을 체크포인트에 고정해 부분 저장 후 재개하더라도 요청 식별자가 바뀌지 않는다.
+- 일시 실패한 요청만 최초 포함 최대 3회 접수한다. 취소·잘못된 요청 등 확정 실패와 한도 소진은 실패로 표시하고 자동 재접수를 중단한다. 접수 여부 불명 상태도 중복 과금을 피하기 위해 중단한다.
+- DB의 `book_pdf_batch`와 RPC 이름은 진행 중인 교재와의 호환성을 위해 유지하되, 작업 종류별 허용 task를 검증한다. 주차·채점 task는 이 배치 전송부에서 허용하지 않는다.
+- Batch 토큰 단가는 일반 API 대비 50%지만 캐시 적중은 보장되지 않는다. 실제 총비용·시간 비교는 별도 승인된 실테스트에서 확인하며, 배포·검증 단계에서 재파싱하지 않는다.

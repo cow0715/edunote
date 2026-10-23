@@ -39,8 +39,16 @@ describe('PDF job reservation', () => {
     expect(mocks.copy).toHaveBeenCalledTimes(2)
     expect(mocks.copy.mock.calls[0][2]).toEqual({ destinationBucket: 'pdf-import-sources' })
     expect(mocks.insert.mock.calls[0][0].payload.explanationSourcePath).toContain('-explanation.pdf')
+    expect(mocks.insert.mock.calls[0][0].payload.batchProcessing).toBe('batch-v1')
     expect(mocks.remove).toHaveBeenCalledWith(['owner/file.pdf', 'owner/exp.pdf'])
     expect(mocks.dispatch).toHaveBeenCalledWith(result.job_id, 'bank_questions')
+  })
+  it('opts an explanation-only upload into Batch and keeps weekly registrations unchanged', async () => {
+    await registerPdfImport({ ...input, kind: 'bank_explanation', targetId: 'exam' })
+    expect(mocks.insert.mock.calls[0][0].payload.batchProcessing).toBe('batch-v1')
+    mocks.insert.mockClear()
+    await registerPdfImport({ ...input, kind: 'week_answers', targetId: 'week', storagePath: 'week-import/week/file.pdf' })
+    expect(mocks.insert.mock.calls[0][0].payload).not.toHaveProperty('batchProcessing')
   })
   it('returns the same job for a repeated upload without duplicating calls or deleting sources', async () => {
     mocks.previous = { id: 'saved', target_id: 'target', status: 'running' }

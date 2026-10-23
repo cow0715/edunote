@@ -1,5 +1,6 @@
 'use client'
 
+import { Sparkles, ScanLine, Cloud, Database, MessageSquare, Triangle, CircleDollarSign, Wallet, CheckCircle2 } from 'lucide-react'
 import { services, snapshotValue, type UsageGroup } from '@/lib/costs/model'
 import { estimateMoney, estimateUsage } from '@/lib/costs/estimate'
 import { reconcileClaude, type ClaudeReport } from '@/lib/costs/claude-report'
@@ -8,6 +9,7 @@ import type { CostSnapshot } from './cost-overview'
 
 const muted = 'text-[var(--share-muted)]'
 const count = (n: number) => n.toLocaleString('ko-KR', { maximumFractionDigits: 1 })
+const visuals: Record<string, { tone: string; icon: typeof Cloud }> = { claude: { tone: 'orange', icon: Sparkles }, naver: { tone: 'teal', icon: ScanLine }, gcp: { tone: 'blue', icon: Cloud }, supabase: { tone: 'teal', icon: Database }, solapi: { tone: 'purple', icon: MessageSquare }, vercel: { tone: 'blue', icon: Triangle } }
 const order = ['claude', 'naver', 'gcp', 'supabase', 'solapi', 'vercel']
 export function ServiceOverview({ usage, snapshots, report, tail, selected, onSelect, loading, failed, environment }: {
   usage: UsageGroup[]; snapshots: CostSnapshot[]; report: ClaudeReport | null; tail: UsageGroup[]; selected: string;
@@ -37,7 +39,7 @@ export function ServiceOverview({ usage, snapshots, report, tail, selected, onSe
     const actual = id === 'supabase' ? '—' : id === 'claude' && report && report.costThrough !== report.start ? snapshotValue(report.reported, 'USD') : snapshot?.amount != null ? snapshotValue(snapshot.amount, snapshot.currency) : '집계 대기'
     const estimated = org ? snapshotValue(org.total, 'USD') : id === 'naver' && estimate.amount != null ? estimateMoney(estimate.amount, 'KRW') : '—'
     const health = id === 'supabase' ? snapshots.filter(s => s.provider === id && (s.metric.startsWith('metrics_') || s.metric === `db_bytes_${environment}`) && s.metric.endsWith(`_${environment}`)) : []
-    return { id, service, snapshot, plan, health, usageText, actual, estimated, consoleOnly, partial: org?.partial || ((id === 'claude' || id === 'naver') && estimate.excludedCalls > 0) }
+    return { id, service, visual: visuals[id], snapshot, plan, health, usageText, actual, estimated, consoleOnly, partial: org?.partial || ((id === 'claude' || id === 'naver') && estimate.excludedCalls > 0) }
   })
   const current = rows.find(r => r.id === selected) ?? rows[0]
   const totals = ['USD', 'KRW'].map(currency => {
@@ -48,14 +50,14 @@ export function ServiceOverview({ usage, snapshots, report, tail, selected, onSe
   })
   return <section aria-label="서비스 사용량과 비용" className="space-y-5">
     <div className="grid gap-3 sm:grid-cols-3">
-      {totals.map(t => <div key={t.currency} className="rounded-[20px] bg-[var(--share-card)] p-5"><p className={`text-xs ${muted}`}>업체 조회액 · {t.currency}</p><p className="mt-2 text-xl font-bold tabular-nums">{failed ? '조회 실패' : loading ? '불러오는 중…' : t.value}</p><p className={`mt-2 text-xs ${muted}`}>{t.providers}개 업체 확인 · 미수신 비용·잔액 제외</p></div>)}
-      <div className="rounded-[20px] bg-[var(--share-card)] p-5"><p className={`text-xs ${muted}`}>월 비용 확인</p><p className="mt-2 text-xl font-bold tabular-nums">{rows.filter(r => r.snapshot?.amount != null).length} / {rows.filter(r => r.id !== 'supabase').length}</p><p className={`mt-2 text-xs ${muted}`}>Supabase는 사용량만 표시</p></div>
+      {totals.map(t => <div key={t.currency} data-cost-tone={t.currency === 'USD' ? 'blue' : 'purple'} className="cost-tile"><span className="cost-icon"><CircleDollarSign size={20} aria-hidden="true" /></span><p className={`mt-3 text-xs ${muted}`}>업체 조회액 · {t.currency}</p><p className="mt-2 text-[28px] font-bold tracking-tight tabular-nums">{failed ? '조회 실패' : loading ? '불러오는 중…' : t.value}</p><p className={`mt-2 text-xs ${muted}`}>{t.providers}개 업체 확인 · 미수신 비용·잔액 제외</p></div>)}
+      <div data-cost-tone="teal" className="cost-tile"><span className="cost-icon"><Wallet size={20} aria-hidden="true" /></span><p className={`mt-3 text-xs ${muted}`}>월 비용 확인</p><p className="mt-2 text-[28px] font-bold tracking-tight tabular-nums">{rows.filter(r => r.snapshot?.amount != null).length} / {rows.filter(r => r.id !== 'supabase').length}</p><p className={`mt-2 text-xs ${muted}`}>Supabase는 사용량만 표시</p></div>
     </div>
     <div className="overflow-hidden rounded-[20px] border border-[var(--share-line-strong)]">
       <div className="flex items-center justify-between px-5 py-4"><h2 className="text-[15px] font-extrabold">서비스 현황</h2><span className={`text-xs ${muted}`}>서비스를 선택해 상세 확인</span></div>
       <div className="overflow-x-auto"><table aria-label="서비스별 사용량과 비용" className="w-full min-w-[680px] text-left text-sm"><thead className={`bg-[var(--share-card)] text-xs ${muted}`}><tr>{['서비스', '사용량', '업체 조회액', '현재 예상', '상태'].map(label => <th key={label} className="px-5 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row.id} className={`border-t border-[var(--share-line)] ${selected === row.id ? 'bg-[var(--share-blue-bg)]' : ''}`}>
-        <th className="px-5 py-4"><button type="button" aria-label={row.service.name} aria-pressed={selected === row.id} onClick={() => onSelect(row.id)} className="text-left outline-offset-4"><span className={selected === row.id ? 'text-[var(--share-blue)]' : ''}>{row.service.name}</span>{row.plan && <span className={`ml-2 text-[11px] font-normal ${muted}`}>Free</span>}<span className={`mt-1 block text-[11px] font-normal ${muted}`}>{row.service.role}</span></button></th>
-        <td className="max-w-64 px-5 py-4 text-xs tabular-nums">{failed ? '조회 실패' : row.usageText}</td><td className="px-5 py-4 font-semibold tabular-nums">{row.actual}</td><td className="px-5 py-4 tabular-nums">{row.estimated}{row.partial && <span className={`block text-[11px] ${muted}`}>일부 계산</span>}</td><td className={`px-5 py-4 text-xs ${muted}`}>{row.id === 'supabase' ? row.health.some(s => s.status === 'error') ? '사용량 갱신 확인 필요' : row.health.length ? '사용량 자동 수집' : '사용량 수집 대기' : row.consoleOnly ? '콘솔 확인 · 자동 수신 대기' : row.snapshot?.status === 'ok' ? '수신됨' : row.snapshot?.amount != null ? '이전 값 · 갱신 실패' : '비용 수신 대기'}</td>
+        <th className="px-5 py-4"><button type="button" aria-label={row.service.name} aria-pressed={selected === row.id} onClick={() => onSelect(row.id)} data-cost-tone={row.visual.tone} className="flex items-center gap-3 text-left outline-offset-4"><span className="cost-icon"><row.visual.icon size={18} aria-hidden="true" /></span><span><span className={selected === row.id ? 'text-[var(--share-blue)]' : ''}>{row.service.name}</span>{row.plan && <span className={`ml-2 text-[11px] font-normal ${muted}`}>Free</span>}<span className={`mt-1 block text-[11px] font-normal ${muted}`}>{row.service.role}</span></span></button></th>
+        <td className="max-w-64 px-5 py-4 text-xs tabular-nums">{failed ? '조회 실패' : row.usageText}</td><td className="px-5 py-4 font-semibold tabular-nums">{row.actual}</td><td className="px-5 py-4 tabular-nums">{row.estimated}{row.partial && <span className={`block text-[11px] ${muted}`}>일부 계산</span>}</td><td className="px-5 py-4"><span className="cost-badge" data-state={row.id === 'supabase' ? row.health.some(s => s.status === 'error') ? 'error' : row.health.length ? 'ok' : 'pending' : row.consoleOnly ? 'pending' : row.snapshot?.status === 'ok' ? 'ok' : row.snapshot?.status === 'error' ? 'error' : 'pending'}>{row.snapshot?.status === 'ok' && !row.consoleOnly && <CheckCircle2 size={12} aria-hidden="true" />}{row.id === 'supabase' ? row.health.some(s => s.status === 'error') ? '사용량 갱신 확인 필요' : row.health.length ? '사용량 자동 수집' : '사용량 수집 대기' : row.consoleOnly ? '콘솔 확인 · 자동 수신 대기' : row.snapshot?.status === 'ok' ? '수신됨' : row.snapshot?.amount != null ? '이전 값 · 갱신 실패' : '비용 수신 대기'}</span></td>
       </tr>)}</tbody></table></div>
     </div>
     {selected !== 'all' && <section aria-label={current.service.name + ' 상세'} className="rounded-[20px] bg-[var(--share-card)] p-5">
