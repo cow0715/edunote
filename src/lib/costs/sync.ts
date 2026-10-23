@@ -6,6 +6,7 @@ import { fetchGcpWorkerUsage } from '@/lib/costs/gcp-worker-usage'
 import { fetchGcpCost } from '@/lib/costs/gcp-connector'
 import { createServiceClient } from '@/lib/supabase/service'
 import { costEnvironment } from '@/lib/costs/record'
+import { fetchSupabaseMetrics } from '@/lib/costs/supabase-metrics'
 
 export function configuredCostProviders() {
   return [
@@ -39,6 +40,20 @@ export async function syncCostMonth(month: string) {
           if (rows.some(row => !Number.isFinite(row.amount))) throw new Error('invalid_usage')
           const saved = await db.from('cost_provider_snapshot').upsert(rows)
           if (saved.error) throw new Error('snapshot_write_failed')
+          // Official health metrics are independent of our DB/storage aggregate RPC.
+          // A failed scrape must not erase the last successful sample.
+          try {
+            const metrics = await fetchSupabaseMetrics()
+            const health = await db.from('cost_provider_snapshot').upsert(Object.entries(metrics).map(([key, amount]) => ({ provider, month,
+              metric: `metrics_${key}_${costEnvironment()}`, amount, currency: key.endsWith('bytes') ? 'BYTES' : 'COUNT', status: 'ok', updated_at: new Date().toISOString(),
+            })))
+            if (health.error) throw new Error('metrics_write_failed')
+          } catch {
+            await db.from('cost_provider_snapshot').update({ status: 'error' }).eq('provider', provider).eq('month', month).like('metric', `metrics_%_${costEnvironment()}`)
+            await db.from('cost_provider_snapshot').upsert({ provider, month, metric: `metrics_status_${costEnvironment()}`, currency: 'COUNT', amount: null, status: 'error', updated_at: new Date().toISOString() })
+            return false
+          }
+          await db.from('cost_provider_snapshot').delete().eq('provider', provider).eq('month', month).eq('metric', `metrics_status_${costEnvironment()}`)
           await db.from('cost_provider_snapshot').delete().eq('provider', provider).eq('month', month).eq('metric', 'infrastructure')
           return true
         }

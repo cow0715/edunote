@@ -29,6 +29,11 @@ export function monthBounds(month: string) {
   return { start: new Date(Date.UTC(year, index - 1, 1, -9)).toISOString(), end: new Date(Date.UTC(year, index, 1, -9)).toISOString() }
 }
 export function snapshotLabel(metric: string) {
+  const health = /^metrics_(memory_used_bytes|memory_total_bytes|connections|connection_limit|status)_(production|development)$/.exec(metric)
+  if (health) {
+    const names: Record<string, string> = { memory_used_bytes: '메모리 사용', memory_total_bytes: '메모리 전체', connections: 'DB 연결', connection_limit: 'DB 연결 한도', status: '공식 지표 수집 상태' }
+    return `${health[2] === 'production' ? '운영' : '개발'} ${names[health[1]]} · 공식 지표`
+  }
   const labels: Record<string, string> = {
     message_total: '업체 메시지 총 발송', message_succeeded: '메시지 성공', message_failed: '메시지 실패', sms_succeeded: '문자 성공(SMS·LMS·MMS)', sms_failed: '문자 실패', sms_count: 'SMS 성공', lms_count: 'LMS 성공', mms_count: 'MMS 성공', cash_usage: '캐시 사용액', deposit_usage: '예치금 사용액', point_usage: '포인트 사용', cash_refund: '캐시·예치금 환불(참고)', point_refund: '포인트 환불(참고)',
     console_cycle_start: '콘솔 청구주기 시작', console_cycle_end: '콘솔 청구주기 종료', console_egress_gb: '조직 전송량(콘솔)', console_cached_egress_gb: '조직 캐시 전송량(콘솔)', console_mau: '조직 MAU(콘솔)', console_storage_gb: '조직 평균 Storage(콘솔)', invoice_last_amount: '최근 발행 청구서 금액', invoice_last_issued_at: '최근 청구서 발행일',

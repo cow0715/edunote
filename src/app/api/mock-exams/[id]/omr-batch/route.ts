@@ -1,6 +1,9 @@
+import { withTeacherTransaction } from '@/lib/db/transaction'
+import { saveErrorResponse } from '@/lib/db/errors'
+import { captureMockInputs, saveMockResult } from '@/lib/services/mock-results'
 import { err, getAuth, getTeacherId, ok } from '@/lib/api'
 import { ocrExamOmrBatch, type ExamOcrBatchInput, type ExamOcrQuestion, type ExamOmrAnswer } from '@/lib/anthropic'
-import { calculateMockExamScore, type MockExamQuestionForGrading } from '@/lib/mock-exam'
+import { type MockExamQuestionForGrading } from '@/lib/mock-exam'
 import { assertMockExamOwner } from '@/lib/mock-exam-server'
 
 type OmrBatchRequestBody = {
@@ -98,46 +101,6 @@ function answersForSave(answers: ExamOmrAnswer[]) {
   }))
 }
 
-async function saveResult(
-  supabase: Awaited<ReturnType<typeof getAuth>>['supabase'],
-  examId: string,
-  studentId: string,
-  questions: MockExamQuestionForGrading[],
-  gradeCutoffs: Record<string, number> | null,
-  answers: ExamOmrAnswer[],
-) {
-  const score = calculateMockExamScore(questions, answersForSave(answers), gradeCutoffs)
-  const { data: result, error: resultError } = await supabase
-    .from('mock_exam_result')
-    .upsert({
-      mock_exam_id: examId,
-      student_id: studentId,
-      raw_score: score.raw_score,
-      grade: score.grade,
-      listening_correct: score.listening_correct,
-      listening_total: score.listening_total,
-      reading_correct: score.reading_correct,
-      reading_total: score.reading_total,
-      type_analysis: score.type_analysis,
-      teacher_comment: null,
-      status: 'draft',
-    }, { onConflict: 'mock_exam_id,student_id' })
-    .select()
-    .single()
-
-  if (resultError) throw new Error(resultError.message)
-
-  const { error: answerError } = await supabase
-    .from('mock_exam_student_answer')
-    .upsert(
-      score.answer_rows.map((answer) => ({ mock_exam_result_id: result.id, ...answer })),
-      { onConflict: 'mock_exam_result_id,mock_exam_question_id' },
-    )
-
-  if (answerError) throw new Error(answerError.message)
-  return result
-}
-
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증이 필요합니다', 401)
@@ -155,6 +118,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     typeof file.mimeType === 'string'
   ))
   if (files.length === 0) return err('업로드할 OMR 파일이 없습니다')
+
+  let expected: Awaited<ReturnType<typeof captureMockInputs>>
+  try { expected = await withTeacherTransaction(user.id, context => captureMockInputs(context, id)) }
+  catch (error) { return saveErrorResponse(error) }
 
   const [{ data: exam }, { data: questions, error: questionError }, { data: students, error: studentError }] = await Promise.all([
     supabase.from('mock_exam').select('grade, grade_cutoffs').eq('id', id).single(),
@@ -215,14 +182,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     if (canAutoSave) {
       try {
-        const result = await saveResult(
-          supabase,
-          id,
-          best.id,
-          questionRows,
-          (exam as ExamRow).grade_cutoffs,
-          page.answers,
-        )
+        const result = await withTeacherTransaction(user.id, context => saveMockResult(context, id,
+          { student_id: best.id, answers: answersForSave(page.answers), status: 'draft' },
+          { version: expected.version, result: expected.results[best.id] ?? null }))
         usedStudentIds.add(best.id)
         savedCount += 1
         items.push({
@@ -238,7 +200,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         })
         continue
       } catch (error) {
-        warnings.push(error instanceof Error ? error.message : '성적 저장에 실패했습니다.')
+        warnings.push(error instanceof Error && error.name === 'SaveError' ? error.message : '성적 저장에 실패했습니다. 새로고침 후 다시 시도해주세요.')
       }
     }
 
