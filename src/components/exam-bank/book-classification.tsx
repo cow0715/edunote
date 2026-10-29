@@ -3,7 +3,7 @@
 import { useId, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { BOOK_CATALOG, VOLUME_LABELS, bookTitle, type BookCode, type BookVolume } from '@/lib/book-pdf/catalog'
+import { BOOK_CATALOG, VOLUME_LABELS, bookTitle, bookVolumes, validBookVolume, type BookCode, type BookVolume } from '@/lib/book-pdf/catalog'
 import type { BookDocument } from '@/lib/book-pdf/types'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -23,13 +23,13 @@ export function BookClassificationFields({ value, onChange, disabled, lockedCode
     </label>
     <fieldset disabled={disabled} className="space-y-2"><legend className="mb-2 text-sm font-medium">교재 선택</legend>
       {BOOK_CATALOG.map((book) => <label key={book.code} className={`flex min-h-14 cursor-pointer items-start gap-3 rounded-xl border p-3 ${value.bookCode === book.code ? 'border-foreground/40 bg-muted' : 'border-border bg-background'} ${lockedCode && lockedCode !== book.code ? 'cursor-not-allowed opacity-50' : ''}`}>
-        <input type="radio" name={`${id}-book`} value={book.code} checked={value.bookCode === book.code} disabled={!!lockedCode && lockedCode !== book.code} onChange={() => onChange({ ...value, bookCode: book.code })} className="mt-1" />
+        <input type="radio" name={`${id}-book`} value={book.code} checked={value.bookCode === book.code} disabled={!!lockedCode && lockedCode !== book.code} onChange={() => onChange({ ...value, bookCode: book.code, volume: validBookVolume(book.code, value.volume) ? value.volume : 'full' })} className="mt-1" />
         <span className="min-w-0"><span className="block text-sm font-medium">{book.label}</span><span className="mt-1 block text-xs text-muted-foreground">{book.description}</span></span>
       </label>)}
     </fieldset>
     <fieldset disabled={disabled}><legend className="mb-2 text-sm font-medium">분권</legend><div className="flex flex-wrap gap-2">
-      {(Object.entries(VOLUME_LABELS) as [BookVolume, string][]).map(([volume, label]) => <label key={volume} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-4 text-sm ${value.volume === volume ? 'bg-muted border-foreground/40' : 'bg-background'}`}>
-        <input type="radio" name={`${id}-volume`} value={volume} checked={value.volume === volume} onChange={() => onChange({ ...value, volume })} />{label}
+      {bookVolumes(value.bookCode).map((volume) => <label key={volume} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-4 text-sm ${value.volume === volume ? 'bg-muted border-foreground/40' : 'bg-background'}`}>
+        <input type="radio" name={`${id}-volume`} value={volume} checked={value.volume === volume} onChange={() => onChange({ ...value, volume })} />{VOLUME_LABELS[volume]}
       </label>)}
     </div></fieldset>
   </div>

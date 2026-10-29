@@ -92,7 +92,7 @@ export function resolveSourceMap(pages: SourcePage[], input: SourceMap) {
     // Label-only omissions must not hide a source sentence.
     // A missing closing bracket can be a PDF decoding defect. Only an exact
     // known heading is allowed; any trailing source content still blocks it.
-    if (ignored.reason === 'field_label' && !/^\s*(?:\[(?:정답|해석|해설|풀이|어휘|소재|Answer|Translation|Explanation|Vocabulary)\]?\s*)+$/.test(text)) errors.push(`ignored${i}:not_a_field_label`)
+    if (ignored.reason === 'field_label' && !/^\s*(?:\[\s*(?:정답|해석|해설|풀이|어휘|소재|Answer|Translation|Explanation|Vocabulary)\s*\]?\s*)+$/.test(text)) errors.push(`ignored${i}:not_a_field_label`)
     if (ignored.reason === 'vocabulary_bullet' && !/^[\so□▪▫◦○●]+$/.test(text)) errors.push(`ignored${i}:not_a_list_bullet`)
     if (ignored.reason === 'page_furniture' && ignored.refs.some((r) => {
       const l = byId.get(r.s)?.line, p = pages.find((p) => p.page === l?.page)

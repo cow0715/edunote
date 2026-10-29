@@ -8,6 +8,7 @@ export const SOURCE_AUDIT_PROMPT = `원본 페이지 이미지가 유일한 판�
 매핑에 후보가 없는 문항·구역이 이미지에 있으면 inventory 오류로 남깁니다. 도표 픽셀은 원본으로 보존하므로 도표를 텍스트로 재생성하지 않습니다. 실제 문제의 텍스트·선지는 검증합니다.
 공백·줄바꿈·동등한 따옴표·원형 번호 모양은 내용 오류가 아닙니다. native의 어휘 목록 o는 원본의 사각형 기호를 뜻할 수 있습니다. <strong> 또는 **는 굵게, <u>는 밑줄입니다. 같은 문자의 렌더링된 서식으로 비교하세요. 한국어 기본 글꼴의 굵기는 오류로 취급하지 말고 의미 있는 원문 강조를 보세요.
 공통 지문에는 여러 문항이 속할 수 있고 소재가 한 번만 인쇄되면 각 문항이 공유합니다. (A)~(D)는 인쇄 순서를 유지해야 합니다. type은 문항의 실제 유형을 대조합니다.
+강·회차·Mini Test·Practice를 포함한 출처로 문항을 대조하세요. 양쪽 열의 반복 출처는 한 문항이며, [해설] 표제가 없어도 실제 풀이 문장이 인쇄되어 있으면 solution 누락을 검사하세요. 표제 누락을 원문 해설 부재로 단정하지 마세요.
 중요: 후보 extraction.questions[].answer는 1부터 세는 인쇄 정답 번호입니다. 1=①,2=②,3=③,4=④,5=⑤입니다. printed_answer_symbol은 후보의 그 숫자를 기호로 표시한 것일 뿐 정답표가 아닙니다. answer:4는 ④이므로 ⑤라고 오해하지 마세요. 아래 target.g/target.q/target.choice의 0부터 세는 주소와 정답 번호를 혼동하지 마세요.
 JSON으로 오류 위치만 반환합니다. target의 g/q는 제공된 candidate의 0부터 시작하는 묶음/문항 인덱스입니다. 공유 필드 passage/translation/vocabulary는 q:null, choice:null. 문항 필드 stem/answer/intent/solution/type/label은 q:문항인덱스, choice:null. 개별 선지는 field:choice, choice:0~4. 존재하지 않는 묶음·문항은 target:null, kind:inventory로 기록합니다.
 kind는 native_text/mapping/formatting/metadata/inventory. pages에는 실제 올바른 원문을 읽을 이미지 쪽번호를 넣습니다. reason에는 구체적인 불일치를 짧게 적고, 정상 처리 설명은 오류로 적지 마세요. 출력에 본문 전체나 수정문은 쓰지 마세요.

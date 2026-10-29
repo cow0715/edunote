@@ -10,7 +10,7 @@ import type { BookDocument, BookDraftUnit } from './types'
 import { processNativeBookUnit, type NativeBookResult } from './native-pipeline'
 import { NATIVE_RECOVERY_REVISION, needsUpdatedNativeRecovery } from './recovery-policy'
 import { BookBatchPending } from './batch-policy'
-import { classificationConflict, getBook } from './catalog'
+import { classificationConflict, sourceClassificationConflict, getBook } from './catalog'
 
 export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, bytes: Uint8Array) {
   const pdfHash = createHash('sha256').update(bytes).digest('hex')
@@ -48,6 +48,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   await reportPdfStage('원문 문항·정답·연결 페이지를 조사하는 중')
   const manifest = inventoryBook(await readBookPages(bytes), String(job.payload.fileName ?? ''))
   const metadataError = classificationConflict(document, manifest.printed_years)
+    ?? sourceClassificationConflict(document, manifest.units.flatMap((unit) => unit.questions))
   const saved = await client.from('book_pdf_document').update({ source_path: job.source_path,
     source_sha256: pdfHash, academic_year: document.book_code ? document.academic_year : manifest.printed_years.length === 1 ? manifest.printed_years[0] : null,
     metadata_reviewed: !metadataError, manifest: { ...manifest, ...(metadataError ? { classification_error: metadataError } : {}), units: manifest.units.map(({ key, order, pages, questions }) => ({ key, order, pages, questions })) } })
