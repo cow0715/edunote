@@ -11,6 +11,7 @@ const response = (value:unknown) => ({text:JSON.stringify(value),stopReason:'end
 let f=nativeFixture()
 beforeEach(() => {
   vi.clearAllMocks();f=nativeFixture();mocks.read.mockResolvedValue(f.pages);mocks.render.mockResolvedValue(f.images)
+  f.mapping.layout_version = 1; f.mapping.breaks = []
   mocks.call.mockResolvedValueOnce(response(f.mapping)).mockResolvedValueOnce(response({status:'pass',checks:{content:true,mapping:true,formatting:true,inventory:true},issues:[]}))
 })
 describe('real mapping/audit/enrichment adapters connected inside the worker unit', () => {

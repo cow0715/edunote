@@ -276,7 +276,7 @@ export const QuestionCard = memo(function QuestionCard({
         {q.passage && (
           <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-3">
             <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap text-justify">
-              <MarkdownText text={q.exam_bank?.material_kind === 'textbook' ? readablePassage(q.passage) : q.passage} />
+              <MarkdownText text={q.exam_bank?.material_kind === 'textbook' ? readablePassage(q.passage, !!q.source_document_id) : q.passage} />
             </p>
           </div>
         )}
@@ -372,25 +372,25 @@ export const QuestionCard = memo(function QuestionCard({
                 {q.explanation_intent && (
                   <div>
                     <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">출제의도</span>
-                    <p className="text-sm text-gray-700 mt-0.5"><MarkdownText text={readablePassage(q.explanation_intent)} /></p>
+                    <p className="text-sm text-gray-700 mt-0.5"><MarkdownText text={readablePassage(q.explanation_intent, !!q.source_document_id)} /></p>
                   </div>
                 )}
                 {q.explanation_translation && (
                   <div>
                     <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">해석</span>
-                    <p className="text-sm text-gray-600 mt-0.5 leading-relaxed whitespace-pre-wrap"><MarkdownText text={readablePassage(q.explanation_translation)} /></p>
+                    <p className="text-sm text-gray-600 mt-0.5 leading-relaxed whitespace-pre-wrap"><MarkdownText text={readablePassage(q.explanation_translation, !!q.source_document_id)} /></p>
                   </div>
                 )}
                 {q.explanation_solution && (
                   <div>
                     <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">풀이</span>
-                    <p className="text-sm text-gray-700 mt-0.5 leading-relaxed"><MarkdownText text={readablePassage(q.explanation_solution)} /></p>
+                    <p className="text-sm text-gray-700 mt-0.5 leading-relaxed"><MarkdownText text={readablePassage(q.explanation_solution, !!q.source_document_id)} /></p>
                   </div>
                 )}
                 {q.explanation_vocabulary && (
                   <div>
                     <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">Words &amp; Phrases</span>
-                    <p className="text-sm text-gray-600 mt-0.5 leading-relaxed"><MarkdownText text={readablePassage(q.explanation_vocabulary)} /></p>
+                    <p className="text-sm text-gray-600 mt-0.5 leading-relaxed"><MarkdownText text={readablePassage(q.explanation_vocabulary, !!q.source_document_id)} /></p>
                   </div>
                 )}
               </>

@@ -27,7 +27,7 @@ function qualityError(error: unknown) {
  * never sends a verified PDF back through paid mapping/image-audit calls. */
 export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdfHash: string; bytes: Uint8Array }): Promise<NativeBookResult> {
   const { unit, pdfHash } = input, context = getPdfWorkerContext()
-  const sourceKey = bookFingerprint({ pipeline: 'native-image-v1', unit: bookSourceFingerprint(unit), pdfHash, model: MODEL_IDS.sonnet55, render: 'poppler-2000' })
+  const sourceKey = bookFingerprint({ pipeline: 'native-image-v1', layout: 1, unit: bookSourceFingerprint(unit), pdfHash, model: MODEL_IDS.sonnet55, render: 'poppler-2000' })
   let source = await context?.read<SourceResult>(sourceKey) ?? null
   if (source && (!source.extraction || source.verification.pdf_hash !== pdfHash || !bookSourceProofMatches(source.verification, source.extraction, unit)
     || source.validation.errors.length)) source = null
@@ -67,7 +67,7 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
     let previous: unknown, errors: string[] = [], mapping: ReturnType<typeof sourceMapSchema.parse> | null = null
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const mapped = await mapBookSource({ pages, pdf, targets, ...(attempt ? { repair: { previous, errors } } : {}) })
+        const mapped = await mapBookSource({ pages, pdf, targets, requireLayout: true, ...(attempt ? { repair: { previous, errors } } : {}) })
         previous = mapped.mapping
         const warnings = new Set(pages.flatMap((p) => p.issues))
         errors = mapped.resolved.errors.filter((e) => !warnings.has(e))

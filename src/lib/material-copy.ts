@@ -1,7 +1,7 @@
 import { joinBankNumberedContent } from './bank-numbered-text'
 import { materialInlineHtml, materialInlinePlain, parseMaterialInline, type MaterialInline } from './material-inline'
 
-type CopyMode = 'prose' | 'list'
+type CopyMode = 'prose' | 'list' | 'stored'
 const hangul = /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/
 const hardHyphen = /[-\u2010\u2011]$/
 const blockStart = /^(?:[①-⑳ⓐ-ⓩ㉠-㉻•●○◆■□▶▪]|\([A-Za-z]\)|\[[A-Za-z]\]|\d+[.)]\s|[-*＊]{1,3}\s*\S|\[(?:해석|풀이|출제의도|어휘|AI[^\]]*)\]|(?:From|To|Date|Subject):)/
@@ -12,6 +12,7 @@ const heading = /^(?:\([A-Za-z]\)|\[[A-Za-z]\]|[①-⑳]|출제의도|해석|풀
  * Without PDF coordinates, a bare Hangul boundary or a printed hyphen cannot prove
  * whether a word was split. Keep those breaks instead of guessing a new word. */
 export function normalizeCopyParagraphs(text: string, mode: CopyMode = 'prose'): string {
+  if (mode === 'stored') return text
   const source = joinBankNumberedContent(text)
   const raw = source.split('\n')
   const plain = materialInlinePlain(parseMaterialInline(source)).split('\n')

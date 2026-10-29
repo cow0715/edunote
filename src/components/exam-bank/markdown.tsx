@@ -49,7 +49,7 @@ export function MarkdownText({ text, className }: { text: string; className?: st
   const rendered = useMemo(() => {
     const lines = text.split('\n')
     return lines.map((line, i) => (
-      <span key={i}>
+      <span key={i} className={/^\[AI\s*보완\s*(?:풀이|어휘)\]$/.test(mdToPlain(line).trim()) ? 'text-[11px] font-semibold text-amber-700 uppercase tracking-wide' : undefined}>
         {renderInline(parseMaterialInline(line))}
         {i < lines.length - 1 && <br />}
       </span>

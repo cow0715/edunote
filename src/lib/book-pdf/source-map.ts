@@ -8,6 +8,9 @@ const ref = z.object({ s: z.number().int().positive(), e: z.number().int().posit
   .transform(({ s, e, ...rest }) => ({ s, e: e ?? s, ...rest }))
 const refs = z.array(ref).max(200)
 export const sourceMapSchema = z.object({
+  layout_version: z.literal(1).optional(),
+  breaks: z.array(z.object({ after: z.number().int().positive(), before: z.number().int().positive(),
+    separator: z.enum(['join', 'space', 'line', 'paragraph']) }).strict()).max(3000).optional(),
   groups: z.array(z.object({
     passage: refs, translation: refs, vocabulary: refs, visual: refs,
     questions: z.array(z.object({ id: z.string().min(1).max(100), label: refs, type: z.string().min(1).max(80), stem: refs,
@@ -38,11 +41,19 @@ function marked(line: SourceLine, start: number, end: number) {
 export function resolveSourceMap(pages: SourcePage[], input: SourceMap) {
   const lines = pages.flatMap((p) => p.lines), byId = new Map(lines.map((l, i) => [l.id, { line: l, index: i }]))
   const owners = new Map<string, string>(), errors = [...pages.flatMap((p) => p.issues)]
+  const separators = new Map<string, string>()
+  for (const boundary of input.breaks ?? []) {
+    const key = `${boundary.after}:${boundary.before}`
+    if (!byId.has(boundary.after) || !byId.has(boundary.before) || boundary.after === boundary.before || separators.has(key)) errors.push('invalid_layout_boundary')
+    separators.set(key, { join: '', space: ' ', line: '\n', paragraph: '\n\n' }[boundary.separator])
+  }
   const allKeys = input.groups.flatMap((g) => g.questions.map((q) => q.id))
   if (new Set(lines.map((l) => l.id)).size !== lines.length) errors.push('duplicate_native_line_id')
   if (new Set(allKeys).size !== allKeys.length) errors.push('duplicate_question_id')
   function read(ranges: SourceRef[], owner: string, claim = true, raw = false) {
     const output: string[] = [], used = new Set<string>()
+    let previous: SourceLine | undefined
+    let previousEnd = 0
     for (const range of ranges) {
       const first = byId.get(range.s), last = byId.get(range.e)
       if (!first || !last || first.index > last.index) { errors.push(`${owner}:invalid_source_range`); continue }
@@ -62,10 +73,18 @@ export function resolveSourceMap(pages: SourcePage[], input: SourceMap) {
             owners.set(key, owner)
           }
         }
+        if (previous) {
+          const separator = separators.get(`${previous.id}:${line.id}`)
+          const sameRow = previous.page === line.page && Math.abs(previous.y - line.y) < 1.5
+          if (input.layout_version === 1 && separator === undefined && !sameRow && !raw && !owner.startsWith('ignored') && !owner.endsWith(':visual')) errors.push(`${owner}:missing_layout_boundary:${previous.id}:${line.id}`)
+          output.push(previous.id === line.id && previousEnd === a ? '' : separator ?? (input.layout_version === 1 && sameRow ? ' ' : '\n'))
+        }
         output.push(raw ? line.text.slice(a, b) : marked(line, a, b))
+        previous = line
+        previousEnd = b
       }
     }
-    return output.join('\n').trim()
+    return output.join('').trim()
   }
   const groups = input.groups.map((group, i) => {
     const prefix = `g${i}`, passage = read(group.passage, `${prefix}:passage`)
