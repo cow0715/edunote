@@ -9,6 +9,15 @@ vi.mock('@/components/pdf-import/job-list', () => ({ PdfImportJobList: () => nul
 vi.mock('@/lib/supabase/client', () => ({ createClient: vi.fn() }))
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 describe('automatic import result UI', () => {
+  it('distinguishes registered and detected years and names the metadata hold',async()=>{
+    vi.stubGlobal('fetch',vi.fn(async()=>Response.json({document:{...document(),status:'review',manifest:{...manifest,printed_years:[2023],classification_error:'선택한 2027학년도와 감지된 2023학년도가 다릅니다.',unit_count:105}},units:[]})))
+    const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}})
+    render(<QueryClientProvider client={client}><BookResult id="doc" /></QueryClientProvider>)
+    expect(await screen.findByText(/등록 학년도: 2027 · PDF 학년도 표기: 2023/)).toBeTruthy()
+    expect(screen.getByText(/교재 분류 검사에서 등록을 보류/)).toBeTruthy()
+    expect(screen.queryByText(/원문 문항 경계를 확정할 수 없어/)).toBeNull()
+    client.clear()
+  })
   it('shows automatic results without per-question approval controls', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url === '/api/book-pdf') return Response.json({ enabled: true, documents: [{ id: 'doc', title: '교재', status: 'published' }] })

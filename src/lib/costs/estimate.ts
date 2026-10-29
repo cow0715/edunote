@@ -37,7 +37,7 @@ export type UsageEstimate = { row: UsageGroup; amount: number | null; currency: 
 /** Missing/unknown buckets are excluded, never silently priced as zero. No FX conversion. */
 export function estimateUsageRow(row: UsageGroup): UsageEstimate | null {
   if (row.provider === 'claude') {
-    const amount = claudeTokenCost(row.model, { input: row.input_tokens, output: row.output_tokens, read: row.cache_read_tokens, write: row.cache_write_tokens })
+    const amount = claudeTokenCost(row.model, { input: row.input_tokens, output: row.output_tokens, read: row.cache_read_tokens, write: row.cache_write_tokens }, { tier: row.service_tier ?? 'standard' })
     return { row, amount, currency: 'USD', reason: amount === null ? '모델 단가·토큰 기록 확인 필요' : null }
   }
   if (row.provider === 'naver') {

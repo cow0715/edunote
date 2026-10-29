@@ -6,6 +6,7 @@ import { isPdfBatchJob, PdfBatchPending, PdfBatchRequestFailed, PdfBatchStopped 
 import type { PdfBatchTransport } from '../src/lib/pdf-import/batch-transport'
 import { examImportIssues } from '../src/lib/pdf-import/exam-completeness'
 import { savedExamProgress } from '../src/lib/pdf-import/exam-progress'
+import { PdfCostStopped } from '../src/lib/pdf-import/cost-policy'
 
 export async function main() {
   if (process.argv.includes('--help')) {
@@ -14,7 +15,7 @@ export async function main() {
   }
   const id = process.env.PDF_IMPORT_JOB_ID
   if (!isUuid(id)) throw new Error('PDF_IMPORT_JOB_ID에 작업 UUID를 지정해주세요.')
-  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY가 필요합니다.')
+  if (!process.env.ANTHROPIC_API_KEY && process.env.PDF_IMPORT_CACHE_ONLY !== 'true') throw new Error('ANTHROPIC_API_KEY가 필요합니다.')
   const client = createServiceClient()
   const token = randomUUID()
   const controller = new AbortController()
@@ -50,6 +51,7 @@ export async function main() {
     void heartbeat().catch((error) => controller.abort(error)).finally(() => { beating = false })
   }, 30_000)
   const context: PdfWorkerContext = {
+    cacheOnly: process.env.PDF_IMPORT_CACHE_ONLY === 'true',
     signal: controller.signal, concurrency, execute: createCallLimiter(concurrency), stage: heartbeat,
     read: async <T>(key: string) => {
       const { data, error } = await client.from('pdf_import_checkpoint').select('value').eq('job_id', id).eq('call_key', key).maybeSingle()
@@ -60,6 +62,10 @@ export async function main() {
       const { error } = await client.rpc('pdf_import_save_checkpoint', { p_id: id, p_token: token, p_key: key, p_value: value })
       if (error) throw new Error(error.message)
     },
+  }
+  if (job.kind === 'bank_book') context.quality = async (unit, status) => {
+    const { error } = await client.rpc('book_pdf_cost_quality', { p_job: id, p_token: token, p_unit: unit, p_status: status })
+    if (error) throw new PdfBatchStopped('교재 이상률 기록 실패로 새 접수를 중지했습니다. 비용 관리 SQL을 확인해주세요.')
   }
   let batch: PdfBatchTransport | undefined
   const suspend = async (submit?: () => Promise<void>) => {
@@ -75,9 +81,13 @@ export async function main() {
     console.log(`[pdf-worker] batch-waiting ${id}`)
   }
   try {
+    if (job.kind === 'bank_book' && !isPdfBatchJob(job) && !context.cacheOnly) {
+      throw new PdfBatchStopped('교재는 비용 보호가 적용된 Batch 모드에서만 새 요청을 보낼 수 있습니다. 기존 응답 복구는 가능합니다.')
+    }
     if (isPdfBatchJob(job)) {
-      const { PdfBatchTransport, anthropicPdfBatchProvider } = await import('../src/lib/pdf-import/batch-transport')
-      batch = new PdfBatchTransport(client, { ...job, lease_token: token }, context, anthropicPdfBatchProvider(controller.signal))
+      const { PdfBatchTransport, anthropicPdfBatchProvider, cachedPdfBatchProvider } = await import('../src/lib/pdf-import/batch-transport')
+      batch = new PdfBatchTransport(client, { ...job, lease_token: token }, context,
+        context.cacheOnly ? cachedPdfBatchProvider() : anthropicPdfBatchProvider(controller.signal))
       if (await batch.poll()) { await suspend(); return }
       context.batchCall = batch.call
     }
@@ -114,7 +124,7 @@ export async function main() {
     try { progress = await savedExamProgress(context, job!) } catch { /* Preserve the original error if the checkpoint DB is unavailable. */ }
     if (error instanceof PdfBatchStopped || error instanceof PdfBatchRequestFailed) {
       const { data, error: finishError } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token,
-        p_status: 'failed', p_result: { ...progress, ...(error instanceof PdfBatchRequestFailed ? { batch_exhausted: true } : { batch_stopped: true }) }, p_error: message.slice(0,500) })
+        p_status: 'failed', p_result: { ...progress, ...(error instanceof PdfCostStopped ? { cost_control: error.summary } : {}), ...(error instanceof PdfBatchRequestFailed ? { batch_exhausted: true } : { batch_stopped: true }) }, p_error: message.slice(0,500) })
       if (finishError || !data) throw new Error('배치 중단 상태 저장 실패')
       console.log(`[pdf-worker] batch-stopped ${id}`)
       return

@@ -65,3 +65,4 @@ design-data/
 
 # Local PDF audit outputs contain the user's original document text.
 tmp/pdfs/
+/tmp/*.log

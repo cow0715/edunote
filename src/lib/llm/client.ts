@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { jsonrepair } from 'jsonrepair'
 import { checkpointCall, checkpointKey, getPdfWorkerContext } from '../pdf-import/context'
-import { isPdfBatchTask } from '../pdf-import/batch-policy'
+import { isPdfBatchTask, PdfBatchStopped } from '../pdf-import/batch-policy'
 import { LlmError } from './errors'
 import { recordUsage } from '../costs/record'
 import { getModel, getModelCatalog } from './models'
@@ -93,7 +93,10 @@ export async function callLlmTextDetailed(options: CallLlmOptions): Promise<LlmD
   const execution = options.execution ?? createLlmExecution()
   const workerOptions = { ...options, execution, signal: options.signal ? AbortSignal.any([options.signal, context.signal]) : context.signal }
   // Execution IDs and AbortSignals are transient. Routing and prompts determine reuse.
-  if (options.phase === 'prewarm') return callLlmTextUncached(workerOptions)
+  if (options.phase === 'prewarm') {
+    if (context.cacheOnly) throw new PdfBatchStopped('저장 응답 복구 중에는 유료 예열을 허용하지 않습니다.')
+    return callLlmTextUncached(workerOptions)
+  }
   const checkpoint = callCheckpoint(options, execution)
   return checkpointCall(checkpoint, async () => {
     if (context.batchCall && isPdfBatchTask(options.task)) {
@@ -107,6 +110,7 @@ export async function callLlmTextDetailed(options: CallLlmOptions): Promise<LlmD
       }
       return result
     }
+    if (context.cacheOnly) throw new PdfBatchStopped('저장된 응답이 없어 중지했습니다. 추가 비용 방지 모드입니다.')
     return callLlmTextUncached(workerOptions)
   }, (result) => {
     if (result.finishReason !== 'complete') return false

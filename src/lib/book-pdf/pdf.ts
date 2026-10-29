@@ -29,6 +29,7 @@ export async function readBookPages(bytes: Uint8Array): Promise<BookPage[]> {
       const all = content.items.filter((item): item is typeof item & TextItem => 'str' in item)
       // The outer 5% contains the vertical publisher tab, outside both body columns.
       const body = all.filter((t) => t.transform[5] > 32 && t.transform[5] < viewport.height - 30 && t.transform[4] < viewport.width * 0.95)
+      const metadata = all.filter((t) => t.transform[5] <= 32 || t.transform[5] >= viewport.height - 30 || t.transform[4] >= viewport.width * 0.95)
       const strokes = bookUnderlineSegments(await page.getOperatorList(), OPS)
       const underlines = strokes.flatMap((stroke) => {
         const selected = body.filter((item) => bookItemUnderlined(item, stroke))
@@ -49,7 +50,7 @@ export async function readBookPages(bytes: Uint8Array): Promise<BookPage[]> {
         return { page: i, side, text: item.str, context: lines(context) }
       })
       result.push({ page: i, left: lines(body.filter((t) => t.transform[4] < viewport.width / 2)),
-        right: lines(body.filter((t) => t.transform[4] >= viewport.width / 2)), full: lines(all), ...(underlines.length ? { underlines } : {}), ...(bold.length ? { bold } : {}) })
+        right: lines(body.filter((t) => t.transform[4] >= viewport.width / 2)), full: lines(all), metadata_text: lines(metadata), ...(underlines.length ? { underlines } : {}), ...(bold.length ? { bold } : {}) })
       page.cleanup()
     }
     return result

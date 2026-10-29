@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nativeFixture } from '../fixtures/book-native'
 import { pdfBytes, pdfHash } from '../fixtures/book-pdf'
 import { createCallLimiter, withPdfWorkerContext } from '@/lib/pdf-import/context'
-import { bookProofMatches } from '@/lib/book-pdf/proof'
+import { bookFingerprint, bookSourceFingerprint, bookProofMatches } from '@/lib/book-pdf/proof'
 import { BookBatchPending, BookBatchRequestFailed } from '@/lib/book-pdf/batch-policy'
 const mocks = vi.hoisted(() => ({ read: vi.fn(), map: vi.fn(), render: vi.fn(), audit: vi.fn(), enrich: vi.fn() }))
 vi.mock('@/lib/book-pdf/layout-source', () => ({ readLayoutSource: mocks.read }))
@@ -23,6 +23,26 @@ beforeEach(() => {
 })
 
 describe('native textbook worker pipeline', () => {
+  it('reuses an image-verified layout-v1 source after deployment without remapping or rasterizing', async () => {
+    const source = await processNativeBookUnit(input())
+    const saved = { extraction: source.extraction, validation: source.validation, verification: source.verification }
+    const key = bookFingerprint({ pipeline: 'native-image-v1', layout: 1, unit: bookSourceFingerprint(fixture.unit), pdfHash, model: 'claude-sonnet-5-5', render: 'poppler-2000' })
+    vi.clearAllMocks()
+    const result = await withPdfWorkerContext({ signal: new AbortController().signal, concurrency: 1, execute: (fn) => fn(),
+      read: async <T,>(k: string) => (k === key ? saved : null) as T | null, write: async () => {}, stage: async () => {} },
+    () => processNativeBookUnit(input()))
+    expect(bookProofMatches({ ...result, manifest: fixture.unit, version: 1, verified_version: 1 })).toBe(true)
+    expect(mocks.read).not.toHaveBeenCalled(); expect(mocks.map).not.toHaveBeenCalled(); expect(mocks.render).not.toHaveBeenCalled(); expect(mocks.audit).not.toHaveBeenCalled()
+  })
+  it('rejects a legacy checkpoint bound to a different PDF', async () => {
+    const source = await processNativeBookUnit(input())
+    vi.clearAllMocks()
+    const result = await withPdfWorkerContext({ signal: new AbortController().signal, concurrency: 1, execute: (fn) => fn(),
+      read: async <T,>() => ({ ...source, verification: { ...source.verification, pdf_hash: 'b'.repeat(64) } }) as T, write: async () => {}, stage: async () => {} },
+    () => processNativeBookUnit(input()))
+    expect(result.verification.pdf_hash).toBe(pdfHash)
+    expect(mocks.map).toHaveBeenCalledOnce(); expect(mocks.audit).toHaveBeenCalledOnce()
+  })
   it('keeps enrichment input identical after JSONB reorders a verified-source checkpoint', async () => {
     const stored = new Map<string, unknown>()
     const sorted = (value: unknown): unknown => Array.isArray(value) ? value.map(sorted)

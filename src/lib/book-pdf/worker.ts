@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { createCallLimiter, getPdfWorkerContext, reportPdfStage } from '../pdf-import/context'
+import { createCallLimiter, getPdfWorkerContext, reportPdfStage, withPdfUnit } from '../pdf-import/context'
 import type { PdfImportJob } from '../pdf-import/types'
 import { inventoryBook } from './inventory'
 import { bookPageSlice, readBookPages } from './pdf'
@@ -11,6 +11,7 @@ import { processNativeBookUnit, type NativeBookResult } from './native-pipeline'
 import { NATIVE_RECOVERY_REVISION, needsUpdatedNativeRecovery } from './recovery-policy'
 import { BookBatchPending } from './batch-policy'
 import { classificationConflict, sourceClassificationConflict, getBook } from './catalog'
+import { BOOK_METADATA_REVISION, oldMetadataRevision } from './academic-year'
 
 export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, bytes: Uint8Array) {
   const pdfHash = createHash('sha256').update(bytes).digest('hex')
@@ -35,10 +36,11 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
     // Resume a crash after staging but before publication without paid reparse.
     const { data, error } = await client.from('book_pdf_unit').select('*').eq('document_id', document.id)
     if (error) throw new Error(error.message)
-    if (document.manifest && !document.manifest.errors.length && data?.length === document.manifest.units.length && data.every((u) => bookProofMatches(u as BookDraftUnit))) {
+    if (document.manifest && !document.manifest.classification_error && !document.manifest.errors.length && data?.length === document.manifest.units.length && data.every((u) => bookProofMatches(u as BookDraftUnit))) {
       return { document_id: document.id, exam_id: await publishVerifiedBook(client, document), auto_published: true }
     }
-    if (document.manifest && !document.manifest.errors.length && data?.some((u) => needsUpdatedNativeRecovery((u as BookDraftUnit).verification))) {
+    const recheckMetadata = !!document.manifest?.classification_error && oldMetadataRevision(document.manifest.metadata_revision)
+    if (recheckMetadata || (document.manifest && !document.manifest.errors.length && data?.some((u) => needsUpdatedNativeRecovery((u as BookDraftUnit).verification)))) {
       // Keep accepted units and checkpoints; only a new deployed policy may
       // reopen an exhausted hold. A same-version restart keeps its budget.
       const resumed = await client.from('book_pdf_document').update({ status: 'processing' }).eq('id', document.id).eq('status', 'review')
@@ -56,7 +58,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   if (saved.error) throw new Error(saved.error.message)
   if (metadataError) {
     await stage(null, null)
-    return { document_id: job.target_id, auto_published: false, metadata_conflict: true, inventory_errors: [metadataError], verification_unresolved: true, recovery_revision: NATIVE_RECOVERY_REVISION }
+    return { document_id: job.target_id, auto_published: false, metadata_conflict: true, metadata_revision: BOOK_METADATA_REVISION, inventory_errors: [metadataError], verification_unresolved: true, recovery_revision: NATIVE_RECOVERY_REVISION }
   }
   if (manifest.errors.length) {
     await stage(null, null)
@@ -71,6 +73,9 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   const pending = manifest.units.filter((unit) => {
     const old = previous.get(unit.key)
     if (old && bookProofMatches(old) && old.verification.pdf_hash === pdfHash) return false
+    // Explicit no-cost recovery can replay exhausted candidates using stored
+    // responses. The transport stops at a missing response and cannot submit.
+    if (getPdfWorkerContext()?.cacheOnly) return true
     // A restart for another unit's network failure must not reset this unit's
     // exhausted repair budget or pay to replay its rejected candidates again.
     if (old?.verification?.status === 'unresolved' && !needsUpdatedNativeRecovery(old.verification) && (old.verification.protocol === 2 ? old.verification.exhausted : old.verification.attempts >= 3)
@@ -82,8 +87,11 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   const unitLimit = createCallLimiter(Math.min(2, getPdfWorkerContext()?.concurrency ?? 2))
   const settled = await Promise.allSettled(pending.map((unit) => unitLimit(async () => {
     getPdfWorkerContext()?.signal.throwIfAborted()
+    // Once this batch is full, don't re-slice and re-read the rest of a large PDF
+    // merely to discover that the paid request window is already exhausted.
+    if (getPdfWorkerContext()?.canPrepareUnit?.(unit.key) === false) throw new BookBatchPending()
     const smallPdf = await bookPageSlice(bytes, unit.pages)
-    const verified = await processNativeBookUnit({ unit, pdfHash, bytes: new Uint8Array(Buffer.from(smallPdf, 'base64')) })
+    const verified = await withPdfUnit(unit.key, () => processNativeBookUnit({ unit, pdfHash, bytes: new Uint8Array(Buffer.from(smallPdf, 'base64')) }))
     await stage(verified, unit.key)
   })))
   const failures = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected')

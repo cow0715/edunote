@@ -18,4 +18,11 @@ describe('versioned textbook recovery', () => {
     expect(bookQualityRetryBlocked({ kind: 'bank_questions', result: job.result })).toBe(false)
     expect(bookQualityRetryBlocked({ kind: 'bank_book', result: null })).toBe(false)
   })
+  it('reopens only the old metadata gate without reopening paid quality holds', () => {
+    const job={kind:'bank_book' as const,result:{verification_unresolved:true,recovery_revision:NATIVE_RECOVERY_REVISION,metadata_conflict:true}}
+    expect(bookQualityRetryBlocked(job)).toBe(false)
+    expect(bookQualityRetryBlocked({...job,result:{...job.result,metadata_revision:2}})).toBe(true)
+    expect(bookQualityRetryBlocked({...job,result:{...job.result,metadata_revision:'bad'}})).toBe(true)
+    expect(bookQualityRetryBlocked({...job,result:{...job.result,metadata_conflict:false}})).toBe(true)
+  })
 })

@@ -38,11 +38,11 @@ export function BookResult({ id }: { id: string }) {
     <p className="text-sm text-muted-foreground">{statusText[doc.status]}{manifest && ` · ${manifest.question_count}문항 · ${passed}/${manifest.unit_count}묶음 자동 검증 통과`}</p>
     <p className="text-sm text-muted-foreground">문항별 확인이나 재요청 없이 원문·정답·문항 연결·서식을 대조하고 오류를 복구합니다. 검증된 원문으로 풀이·어휘를 보완하며, 확정하지 못한 자료는 등록하지 않습니다.</p>
     {manifest && <div className="space-y-1 text-sm">
-      <p>인쇄 학년도: {doc.academic_year ?? '미상'} · 파일명 연도: {manifest.filename_year ?? '미상'}</p>
+      <p>등록 학년도: {doc.academic_year ?? '미상'} · PDF 학년도 표기: {manifest.printed_years.length ? manifest.printed_years.join(', ') : '미확인'} · 파일명 연도: {manifest.filename_year ?? '미상'}</p>
       {manifest.errors.map((e) => <p key={e} role="alert" className="text-destructive">{e}</p>)}
       {manifest.warnings.map((w) => <p key={w} className="text-muted-foreground">{w}</p>)}
     </div>}
-    {doc.status === 'review' && <p className="text-sm text-destructive">{manifest?.errors.length ? '원문 문항 경계를 확정할 수 없어 등록을 보류했습니다.' : '자동 복구 후에도 확정되지 않은 묶음이 있어 등록을 보류했습니다. 미통과 사유를 남겼습니다.'}</p>}
+    {doc.status === 'review' && <p className="text-sm text-destructive">{manifest?.classification_error ? '교재 분류 검사에서 등록을 보류했습니다. 위 사유를 확인해주세요.' : manifest?.errors.length ? '원문 문항 경계를 확정할 수 없어 등록을 보류했습니다.' : '자동 복구 후에도 확정되지 않은 묶음이 있어 등록을 보류했습니다. 미통과 사유를 남겼습니다.'}</p>}
     {unresolved.length > 0 && <div className="space-y-2"><h3 className="text-sm font-medium">자동 복구 미해결 {unresolved.length}묶음</h3><div className="divide-y rounded-lg border">{unresolved.map(row)}</div></div>}
     <details className="rounded-lg border"><summary className="cursor-pointer p-3 text-sm">전체 처리 내역 {units.length}묶음</summary><div className="divide-y border-t">{units.map(row)}</div></details>
     <Dialog open={!!unit} onOpenChange={(open) => { if (!open) setUnit(null) }}><DialogContent className="flex max-h-[95dvh] flex-col overflow-hidden shadow-none sm:max-w-[96vw]">

@@ -28,15 +28,22 @@ function qualityError(error: unknown) {
 export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdfHash: string; bytes: Uint8Array }): Promise<NativeBookResult> {
   const { unit, pdfHash } = input, context = getPdfWorkerContext()
   const sourceKey = bookFingerprint({ pipeline: 'native-image-v1', unit: bookSourceFingerprint(unit), pdfHash, model: MODEL_IDS.sonnet55, render: 'poppler-2000' })
-  let source = await context?.read<SourceResult>(sourceKey) ?? null
-  if (source && (!source.extraction || source.verification.pdf_hash !== pdfHash || !bookSourceProofMatches(source.verification, source.extraction, unit)
-    || source.validation.errors.length)) source = null
+  const layoutKey = bookFingerprint({ pipeline: 'native-image-v1', layout: 1, unit: bookSourceFingerprint(unit), pdfHash, model: MODEL_IDS.sonnet55, render: 'poppler-2000' })
+  let source: SourceResult | null = null
+  // Deployments must not invalidate paid, image-verified source material merely
+  // because paragraph-layout support was added or removed from the request.
+  for (const key of [sourceKey, layoutKey]) {
+    const saved = await context?.read<SourceResult>(key)
+    if (saved?.extraction && saved.verification?.pdf_hash === pdfHash && bookSourceProofMatches(saved.verification, saved.extraction, unit)
+      && Array.isArray(saved.validation?.errors) && !saved.validation.errors.length) { source = saved; break }
+  }
   if (!source) {
     source = await parseSource()
     context?.signal.throwIfAborted()
     if (source.verification.status === 'passed') await context?.write(sourceKey, source)
   }
   if (!source.extraction || source.verification.status !== 'passed') return { ...source, enrichment: null }
+  await context?.quality?.(unit.key, 'passed')
   // JSONB restores object keys in a different order. Match the fresh extraction's
   // schema order before JSON.stringify, otherwise a resumed supplement gets a
   // different request identity and the completed batch response cannot be reused.
@@ -48,6 +55,7 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
     return { ...source, enrichment, verification: { ...source.verification, enrichment_hash: bookFingerprint(enrichment) } }
   } catch (error) {
     if (!qualityError(error) && !(error instanceof BookBatchRequestFailed)) throw error
+    await context?.quality?.(unit.key, 'failed')
     return { ...source, enrichment: null, verification: { ...source.verification, status: 'unresolved', exhausted: true, recovery_revision: NATIVE_RECOVERY_REVISION,
       issues: [error instanceof BookBatchRequestFailed ? error.message : '원문 검증은 완료했지만 풀이·어휘 보완 응답을 확정하지 못했습니다.'] } }
   }
@@ -56,7 +64,8 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
     let extraction: BookExtraction | null = null
     const base: BookVerification = { protocol: 2, pipeline: 'native-image-v1', status: 'unresolved', attempts: 0,
       exhausted: true, recovery_revision: NATIVE_RECOVERY_REVISION, models: [MODEL_IDS.sonnet55], issues: [], source_hash: bookSourceFingerprint(unit), pdf_hash: pdfHash, extraction_hash: null, checks: null }
-    function unresolved(issues: string[]) {
+    async function unresolved(issues: string[]) {
+      await context?.quality?.(unit.key, 'failed')
       return { extraction, validation: { errors: issues, warnings: [], english_coverage: 0, translation_coverage: 0 },
         verification: { ...base, issues, extraction_hash: extraction ? bookFingerprint(extraction) : null } }
     }
@@ -71,13 +80,15 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
         previous = mapped.mapping
         const warnings = new Set(pages.flatMap((p) => p.issues))
         errors = mapped.resolved.errors.filter((e) => !warnings.has(e))
-        if (errors.length) continue
+        if (errors.length) { await context?.quality?.(unit.key, 'repair'); continue }
         mapping = bindBookMapping(unit, sourceMapSchema.parse(mapped.mapping))
+        await context?.quality?.(unit.key, 'mapped')
         break
       } catch (error) {
         if (error instanceof BookBatchRequestFailed) return unresolved([error.message])
         if (!qualityError(error) && !(error instanceof Error && /대상 지문|문항 식별자/.test(error.message))) throw error
         errors = [error instanceof Error ? error.message : '원문 매핑 형식 오류']
+        await context?.quality?.(unit.key, 'repair')
       }
     }
     if (!mapping) return unresolved(errors.length ? errors : ['원문 구역 연결을 확정하지 못했습니다.'])
@@ -92,6 +103,7 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
       const validation = validateNativeBookUnit(unit, extraction)
       if (validation.errors.length) return unresolved(validation.errors)
       const extractionHash = bookFingerprint(extraction)
+      await context?.quality?.(unit.key, 'passed')
       return { extraction, validation, verification: { ...base, source_regions: bookVisualRegions(pages, result.mapping, unit.visual_required), status: 'passed', exhausted: false, issues: [], extraction_hash: extractionHash,
         checks: { boundaries: true, legibility: true, formatting: true, visual_reference: true },
         audit: { pages: [...unit.pages], image_hashes: Object.fromEntries(images.map((i) => [i.page, i.sha256])), native_hash: bookFingerprint(pages),

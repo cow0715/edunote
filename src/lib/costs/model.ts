@@ -19,7 +19,7 @@ export const entrySchema = z.object({
   note: z.string().trim().max(200).default(''),
 })
 export type CostEntry = z.infer<typeof entrySchema> & { id: string; source: string; updated_at: string }
-export type UsageGroup = { provider: string; feature: string; model: string; calls: number; units: number; input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number }
+export type UsageGroup = { provider: string; feature: string; model: string; service_tier?: 'standard' | 'batch'; calls: number; units: number; input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number }
 export function koreanMonth(now = new Date()) {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit' }).format(now)
 }

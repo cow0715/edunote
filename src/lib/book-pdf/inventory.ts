@@ -1,5 +1,6 @@
 import type { BookManifest, BookPage, BookQuestionRef, BookUnitManifest } from './types'
 import { bookQuestionPageStart, bookSharedRange, findBookSourceLabels } from './source-label'
+import { BOOK_METADATA_REVISION, printedBookYears } from './academic-year'
 
 const CIRCLED = '①②③④⑤'
 
@@ -69,10 +70,10 @@ export function inventoryBook(pages: BookPage[], filename: string): BookManifest
   const covered = new Set(units.flatMap((u) => u.pages))
   const ignored = pages.filter((p) => !covered.has(p.page)).map((p) => p.page)
   if (ignored.some((n) => n !== 1)) errors.push('표지 외에 처리하지 못한 페이지가 있습니다.')
-  const years = [...new Set(pages.flatMap((p) => [...p.full.matchAll(/(20\d{2})\s*학년도/g)].map((m) => Number(m[1]))))]
+  const years = printedBookYears(pages)
   const filenameYear = Number(filename.match(/20\d{2}/)?.[0]) || null
   const warnings = ['문항·정답 목록은 원문 텍스트에서 조사하고, 내용·연결·서식은 별도 AI 추출과 대조합니다.']
   if (years.length && filenameYear && !years.includes(filenameYear)) warnings.push(`파일명은 ${filenameYear}년, 인쇄 학년도는 ${years.join(', ')}년입니다. 단일 인쇄 학년도가 있으면 그 값을 적용합니다.`)
-  return { version: 1, page_count: pages.length, ignored_pages: ignored, printed_years: years, filename_year: filenameYear,
+  return { version: 1, metadata_revision: BOOK_METADATA_REVISION, page_count: pages.length, ignored_pages: ignored, printed_years: years, filename_year: filenameYear,
     question_count: anchors.length, units, errors, warnings }
 }

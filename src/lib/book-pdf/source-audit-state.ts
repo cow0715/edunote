@@ -14,6 +14,23 @@ export const sourceAuditSchema = z.object({
     pages: z.array(z.number().int().positive()).min(1).max(4), reason: z.string().min(1).max(1000) }).strict()).max(30),
 }).strict()
 export type SourceAudit = z.infer<typeof sourceAuditSchema>
+
+/** Some stored responses repeat the target address beside target. Remove only
+ * exact duplicates; conflicting addresses and all other unknown fields fail. */
+export function parseSourceAuditResponse(value: unknown) {
+  if (!value || typeof value !== 'object' || !('issues' in value) || !Array.isArray(value.issues)) return sourceAuditSchema.safeParse(value)
+  const issues = value.issues.map((issue: unknown) => {
+    if (!issue || typeof issue !== 'object' || !('target' in issue)) return issue
+    const parsed = sourceAuditTargetSchema.safeParse(issue.target)
+    if (!parsed.success) return issue
+    const copy = { ...issue } as Record<string, unknown>
+    for (const field of ['g', 'q', 'field', 'choice'] as const) {
+      if (field in copy && copy[field] === parsed.data[field]) delete copy[field]
+    }
+    return copy
+  })
+  return sourceAuditSchema.safeParse({ ...value, issues })
+}
 const editRef = sourceMapSchema.shape.groups.element.shape.passage
 export const selectiveSourceRepairSchema = z.object({ edits: z.array(z.discriminatedUnion('mode', [
   z.object({ target: sourceAuditTargetSchema, mode: z.literal('refs'), refs: editRef }).strict(),

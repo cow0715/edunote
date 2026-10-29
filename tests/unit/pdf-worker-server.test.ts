@@ -81,6 +81,10 @@ describe('PDF job reservation', () => {
     expect(result.can_retry).toBe(true)
     expect(publicPdfJob({ ...job, kind: 'bank_book', status: 'failed', result: { verification_unresolved: true } }).can_retry).toBe(true)
     expect(publicPdfJob({ ...job, kind: 'bank_book', status: 'failed', result: { verification_unresolved: true, recovery_revision: NATIVE_RECOVERY_REVISION } }).can_retry).toBe(false)
+    const metadataHold = { ...job, kind: 'bank_book' as const, status: 'failed' as const, error: '원문 경계 검사 실패',
+      result: { metadata_conflict: true, verification_unresolved: true, recovery_revision: NATIVE_RECOVERY_REVISION, inventory_errors: ['교재 학년도 불일치'] } }
+    expect(publicPdfJob(metadataHold)).toMatchObject({ can_retry: true, stage: '교재 분류 확인 필요', error: '교재 학년도 불일치' })
+    expect(publicPdfJob({ ...metadataHold, result: { ...metadataHold.result, metadata_revision: 2 } }).can_retry).toBe(false)
     expect(publicPdfJob({ ...job, kind: 'bank_book', status: 'waiting_batch', lease_expires_at: null }).can_retry).toBe(false)
     const stalled = publicPdfJob({ ...job, kind: 'bank_book', status: 'waiting_batch', lease_expires_at: null, resume_after: new Date(Date.now()-31*60_000).toISOString() })
     expect(stalled.can_retry).toBe(true)

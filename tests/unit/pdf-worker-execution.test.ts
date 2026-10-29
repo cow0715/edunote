@@ -8,6 +8,7 @@ const batchMock = vi.hoisted(() => ({ poll: vi.fn(), submit: vi.fn(), call: vi.f
 vi.mock('@/lib/pdf-import/batch-transport', () => ({
   PdfBatchTransport: class { poll = batchMock.poll; submit = batchMock.submit; call = batchMock.call },
   anthropicPdfBatchProvider: vi.fn(),
+  cachedPdfBatchProvider: vi.fn(),
 }))
 vi.mock('@/lib/pdf-import/batch-wake', () => ({ scheduleBookBatchWake: batchMock.wake }))
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({
@@ -36,6 +37,19 @@ beforeEach(() => {
 })
 afterEach(() => { vi.unstubAllEnvs() })
 describe('single-job worker execution', () => {
+  it('blocks legacy direct-generation textbook jobs before the import handler',async()=>{
+    mocks.rpc.mockImplementation(async(name:string)=>({data:name==='pdf_import_claim'?[{...job,kind:'bank_book',payload:{}}]:true,error:null}))
+    await expect(main()).resolves.toBeUndefined()
+    expect(mocks.run).not.toHaveBeenCalled();expect(batchMock.submit).not.toHaveBeenCalled()
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish',expect.objectContaining({p_status:'failed',p_result:{batch_stopped:true}}))
+  })
+  it('can replay a stored textbook Batch without a provider key or automatic resubmission',async()=>{
+    vi.stubEnv('PDF_IMPORT_CACHE_ONLY','true');vi.stubEnv('ANTHROPIC_API_KEY','')
+    mocks.rpc.mockImplementation(async(name:string)=>({data:name==='pdf_import_claim'?[{...job,kind:'bank_book',payload:{bookProcessing:'batch-v1'}}]:true,error:null}))
+    mocks.run.mockImplementation(async()=>{expect(getPdfWorkerContext()?.cacheOnly).toBe(true);return {ok:true}})
+    await expect(main()).resolves.toBeUndefined()
+    expect(batchMock.submit).not.toHaveBeenCalled();expect(batchMock.wake).not.toHaveBeenCalled()
+  })
   it('keeps previously saved numbered failures visible when vocabulary later exhausts its requests', async () => {
     const issues = [{ stage: 'questions', question_number: 22, reason: '번호 누락', attempts: 3 }]
     const questionPhase = checkpointKey({ phase: 'bank-questions-saved-v1', job: id })
@@ -151,7 +165,7 @@ describe('single-job worker execution', () => {
     expect(process.listenerCount('SIGTERM')).toBe(signals)
   })
   it('records exhausted quality checks as failed without another paid platform retry', async () => {
-    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pdf_import_claim' ? [{ ...job, kind: 'bank_book' }] : true, error: null }))
+    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pdf_import_claim' ? [{ ...job, kind: 'bank_book', payload: {bookProcessing:'batch-v1'} }] : true, error: null }))
     mocks.run.mockResolvedValue({ verification_unresolved: true, auto_published: false })
     await expect(main()).resolves.toBeUndefined()
     expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'failed', p_result: { verification_unresolved: true, auto_published: false } }))

@@ -2,11 +2,11 @@ import { z } from 'zod'
 import type { MaterialSupplement } from '../llm/material-enrichment-contract'
 
 export type BookUnderline = { page: number; side: 'left' | 'right'; text: string; context: string }
-export type BookPage = { page: number; left: string; right: string; full: string; underlines?: BookUnderline[]; bold?: BookUnderline[] }
+export type BookPage = { page: number; left: string; right: string; full: string; metadata_text?: string; underlines?: BookUnderline[]; bold?: BookUnderline[] }
 export type BookQuestionRef = { key: string; chapter: number; section: 'gateway' | 'exercise' | 'practice'; number: number; label: string; label_page: number; printed_answer: number | null;
   source_kind?: 'chapter' | 'mini_test' | 'type' | 'practical' }
 export type BookUnitManifest = { key: string; order: number; pages: number[]; questions: BookQuestionRef[]; left_text: string; right_text: string; translation: string; visual_required: boolean; underlines?: BookUnderline[]; bold?: BookUnderline[] }
-export type BookManifest = { version: 1; page_count: number; ignored_pages: number[]; printed_years: number[]; filename_year: number | null; question_count: number; units: BookUnitManifest[]; errors: string[]; warnings: string[] }
+export type BookManifest = { version: 1; metadata_revision?: number; page_count: number; ignored_pages: number[]; printed_years: number[]; filename_year: number | null; question_count: number; units: BookUnitManifest[]; errors: string[]; warnings: string[] }
 export type BookValidation = { errors: string[]; warnings: string[]; english_coverage: number; translation_coverage: number }
 
 const text = z.string().max(80_000)

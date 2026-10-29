@@ -7,6 +7,7 @@ import { nativeFixture } from '../fixtures/book-native'
 import { bookFingerprint, bookSourceFingerprint } from '@/lib/book-pdf/proof'
 import { NATIVE_RECOVERY_REVISION } from '@/lib/book-pdf/recovery-policy'
 import { BookBatchPending } from '@/lib/book-pdf/batch-policy'
+import { withPdfWorkerContext } from '@/lib/pdf-import/context'
 const mocks = vi.hoisted(() => ({ verify: vi.fn(), warm: vi.fn(), read: vi.fn(), slice: vi.fn(), inventory: vi.fn(), publish: vi.fn() }))
 vi.mock('@/lib/book-pdf/pdf', () => ({ readBookPages: mocks.read, bookPageSlice: mocks.slice }))
 vi.mock('@/lib/book-pdf/inventory', () => ({ inventoryBook: mocks.inventory }))
@@ -48,6 +49,41 @@ beforeEach(() => {
   mocks.publish.mockResolvedValue('bank')
 })
 describe('automatic textbook worker', () => {
+  it('defers native PDF preparation after the batch window fills',async()=>{
+    const db=database()
+    const result=await withPdfWorkerContext({signal:new AbortController().signal,concurrency:1,execute:fn=>fn(),
+      read:async()=>null,write:async()=>{},stage:async()=>{},canPrepareUnit:()=>false},()=>importBookPdf(db.client,job,pdfBytes))
+    expect(result).toMatchObject({batch_waiting:true})
+    expect(mocks.slice).not.toHaveBeenCalled();expect(mocks.verify).not.toHaveBeenCalled();expect(mocks.publish).not.toHaveBeenCalled()
+  })
+  it('can inspect exhausted candidates in explicit cache-only recovery without resetting the normal repair policy', async () => {
+    const db = database('processing', true), f = nativeFixture()
+    db.rows[0].verification = { ...f.proof, status: 'unresolved', exhausted: true, recovery_revision: NATIVE_RECOVERY_REVISION,
+      source_hash: bookSourceFingerprint(db.rows[0].manifest), extraction_hash: bookFingerprint(db.rows[0].extraction) }
+    db.rows[0].verified_version = null
+    await withPdfWorkerContext({ cacheOnly: true, signal: new AbortController().signal, concurrency: 1, execute: (fn) => fn(),
+      read: async () => null, write: async () => {}, stage: async () => {} }, () => importBookPdf(db.client, job, pdfBytes))
+    expect(mocks.verify).toHaveBeenCalledOnce()
+    expect(mocks.warm).not.toHaveBeenCalled()
+  })
+  it('rechecks a legacy metadata-only hold and proceeds with the same document', async () => {
+    const db=database('review')
+    db.doc.book_code='suteuk_english'
+    db.doc.manifest={...db.doc.manifest!,printed_years:[2023],classification_error:'선택한 2027학년도와 PDF에 인쇄된 2023학년도가 다릅니다.'}
+    mocks.inventory.mockReturnValue({...manifest,printed_years:[],metadata_revision:2})
+    expect(await importBookPdf(db.client,job,pdfBytes)).toMatchObject({document_id:job.target_id,auto_published:true})
+    expect(mocks.read).toHaveBeenCalledOnce()
+    expect(mocks.verify).toHaveBeenCalledOnce()
+    expect(db.doc.academic_year).toBe(2027)
+    expect(db.doc.manifest?.classification_error).toBeUndefined()
+  })
+  it('does not endlessly reopen a current-policy metadata hold', async () => {
+    const db=database('review')
+    db.doc.manifest={...db.doc.manifest!,metadata_revision:2,classification_error:'실제 표지 학년도 불일치'}
+    expect(await importBookPdf(db.client,job,pdfBytes)).toMatchObject({verification_unresolved:true})
+    expect(mocks.read).not.toHaveBeenCalled()
+    expect(mocks.verify).not.toHaveBeenCalled()
+  })
   it('holds a selected book that disagrees with its printed source before paid mapping', async () => {
     const { client, doc } = database()
     doc.book_code = 'suwan_english'

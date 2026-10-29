@@ -12,6 +12,48 @@ function fixture() {
   return { pages, mapping }
 }
 describe('native source mapping', () => {
+  it('accepts a duplicate metadata annotation but never overlapping source prose', () => {
+    const { pages, mapping } = fixture()
+    mapping.ignored = [{ refs: [ref(4)], reason: 'section_label' }]
+    expect(resolveSourceMap(pages, mapping).errors).toEqual([])
+    mapping.ignored[0].refs = [ref(1)]
+    expect(resolveSourceMap(pages, mapping).errors).toContain('ignored0:overlapping_source:1')
+  })
+  it('accepts the PDF Wingdings vocabulary box without hiding vocabulary characters', () => {
+    const { pages, mapping } = fixture()
+    pages[0].lines[2].text = '\uF06F intact 온전한'
+    mapping.groups[0].vocabulary = [{ s: 3, e: 3, a: 1 }]
+    expect(resolveSourceMap(pages, mapping).errors).toEqual([])
+    mapping.groups[0].vocabulary = [ref(3)]
+    mapping.ignored = [{ refs: [{ s: 3, e: 3, b: 1 }], reason: 'vocabulary_bullet' }]
+    expect(resolveSourceMap(pages, mapping).errors).toEqual([])
+    expect(resolveSourceMap(pages, mapping).groups[0].extraction.vocabulary).toBe('\uF06F intact 온전한')
+    mapping.ignored[0].refs[0].b = 4
+    expect(resolveSourceMap(pages, mapping).errors).toContain('ignored0:not_a_list_bullet')
+    expect(resolveSourceMap(pages, mapping).errors).toContain('ignored0:overlapping_source:3')
+  })
+  it('never treats an unassigned first letter or a box in prose as a vocabulary bullet', () => {
+    const { pages, mapping } = fixture()
+    pages[0].lines[2].text = 'ordinary 보통의'
+    mapping.groups[0].vocabulary = [{ s: 3, e: 3, a: 1 }]
+    expect(resolveSourceMap(pages, mapping).uncovered).toContain(3)
+    pages[0].lines[0].text = '\uF06F actual source sentence'
+    mapping.groups[0].passage = [{ s: 1, e: 1, a: 1 }]
+    expect(resolveSourceMap(pages, mapping).uncovered).toContain(1)
+  })
+  it('reads layout-aware responses and keeps missing prose boundaries unresolved, but accepts a split identity label', () => {
+    const { pages, mapping } = fixture()
+    mapping.layout_version = 1; mapping.breaks = []
+    pages[0].lines.push({ ...pages[0].lines[3], id: 14, y: 20, text: '1번' })
+    mapping.groups[0].questions[0].label.push(ref(14))
+    expect(sourceMapSchema.safeParse(mapping).success).toBe(true)
+    expect(resolveSourceMap(pages, mapping).errors).toEqual([])
+    mapping.groups[0].questions[0].label.pop()
+    mapping.groups[0].passage.push(ref(14))
+    expect(resolveSourceMap(pages, mapping).errors).toContain('g0:passage:missing_layout_boundary:1:14')
+    mapping.breaks = [{ after: 1, before: 14, separator: 'paragraph' }]
+    expect(resolveSourceMap(pages, mapping).groups[0].extraction.passage).toBe('本文\n\n1번')
+  })
   it('accounts for a repeated answer-column source label without creating another question', () => {
     const { pages, mapping } = fixture()
     const label = '[수능완성 실전편 ( ) 1 회 18번 ]'

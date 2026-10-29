@@ -4,6 +4,11 @@ import type { CallLlmOptions, LlmDetailedResult } from '../llm/types'
 
 /** A worker-scoped checkpoint store. Normal web requests never acquire this context. */
 export type PdfWorkerContext = {
+  /** Recovery may consume stored responses but must never create paid work. */
+  cacheOnly?: boolean
+  unitKey?: string
+  quality?: (unit: string, status: 'mapped' | 'repair' | 'failed' | 'passed') => Promise<void>
+  canPrepareUnit?: (unit: string) => boolean
   signal: AbortSignal
   concurrency: number
   execute: <T>(call: () => Promise<T>) => Promise<T>
@@ -19,6 +24,10 @@ export function withPdfWorkerContext<T>(context: PdfWorkerContext, work: () => P
 }
 
 export function getPdfWorkerContext() { return storage.getStore() }
+export function withPdfUnit<T>(unitKey: string, work: () => Promise<T>) {
+  const context = storage.getStore()
+  return context ? storage.run({ ...context, unitKey }, work) : work()
+}
 
 export function createCallLimiter(concurrency: number): PdfWorkerContext['execute'] {
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error('동시 호출 수는 양의 정수여야 합니다.')
