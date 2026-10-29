@@ -11,26 +11,26 @@ vi.mock('@/lib/api', () => ({
 }))
 vi.mock('@/lib/class-periods', () => ({ buildWeekDisplayMap: () => new Map() }))
 import PrintPage from '@/app/(admin)/dashboard/[classId]/weeks/[weekId]/answer-sheet/print/page'
-it('renders exactly two slots for the reported question, and five optional slots for all-selection', async () => {
+it('renders exactly two slots for the reported question, and five slots without guidance for all-selection', async () => {
   let html = renderToStaticMarkup(await PrintPage({ params: Promise.resolve({ classId: 'class', weekId: 'week' }) }))
   expect(html.match(/class="print-error-slot"/g)).toHaveLength(2)
   expect(html).not.toContain('필요한 칸만 작성')
-  state.stem = '①~⑤ 중 틀린 것을 모두 찾아 고치시오.'
+  state.stem = '잘못된 것을 있는 대로 골라 고치시오.\nⓐ 지문 참조\n<보기>\n(A) A\n(B) B\n(C) C\n(D) D\n(E) E'
   html = renderToStaticMarkup(await PrintPage({ params: Promise.resolve({ classId: 'class', weekId: 'week' }) }))
   expect(html.match(/class="print-error-slot"/g)).toHaveLength(5)
-  expect(html).toContain('필요한 칸만 작성')
+  expect(html).not.toContain('필요한 칸만 작성')
 })
 
 import { GET } from '@/app/api/weeks/[id]/answer-sheet-html/route'
-it('uses the same slot count and optional guidance in the Word download', async () => {
+it('uses the same slot count without guidance in the Word download', async () => {
   state.stem = '①~⑤ 중 틀린 것을 2개 찾아 고치시오.'
   let response = await GET(new Request('https://example.test'), { params: Promise.resolve({ id: 'week' }) })
   let html = await response.text()
   expect(html.match(/번호·기호/g)).toHaveLength(2)
   expect(html).not.toContain('필요한 칸만 작성')
-  state.stem = '①~⑤ 중 틀린 것을 모두 찾아 고치시오.'
+  state.stem = '잘못된 것을 있는 대로 골라 고치시오.\nⓐ 지문 참조\n<보기>\n(A) A\n(B) B\n(C) C\n(D) D\n(E) E'
   response = await GET(new Request('https://example.test'), { params: Promise.resolve({ id: 'week' }) })
   html = await response.text()
   expect(html.match(/번호·기호/g)).toHaveLength(5)
-  expect(html).toContain('필요한 칸만 작성')
+  expect(html).not.toContain('필요한 칸만 작성')
 })
