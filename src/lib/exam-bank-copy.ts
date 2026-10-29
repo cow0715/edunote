@@ -1,3 +1,4 @@
+import { bankChoiceText } from './bank-numbered-text'
 import { copyBlockHtml, copyBlockText } from './material-copy'
 import { materialInlineHtml } from './material-inline'
 
@@ -9,7 +10,7 @@ const labelHtml = (label: string) => `<p><strong>${materialInlineHtml([{ kind: '
 // One source-independent path for textbooks, CSAT and mock exams, individual and bulk copy.
 export function buildQuestionCopyText(q: QuestionCopy, label: string) {
   const blocks = [`[${label}]`, copyBlockText(q.question_text), copyBlockText(q.passage ?? '')].filter(Boolean)
-  if (q.choices.length) blocks.push(q.choices.map((c) => copyBlockText(c)).join('\n'))
+  if (q.choices.length) blocks.push(q.choices.map((c) => copyBlockText(bankChoiceText(c))).join('\n'))
   if (q.answer) blocks.push(`정답: ${q.answer}`)
   const rates = q.choice_rates?.some((r) => r != null)
     ? q.choices.map((_, i) => q.choice_rates?.[i] != null ? `${circled[i]} ${q.choice_rates[i]}%` : '').filter(Boolean).join('   ') : ''
@@ -19,7 +20,7 @@ export function buildQuestionCopyText(q: QuestionCopy, label: string) {
 
 export function buildQuestionCopyHtml(q: QuestionCopy, label: string) {
   return labelHtml(label) + copyBlockHtml(q.question_text) + copyBlockHtml(q.passage ?? '')
-    + q.choices.map((c) => copyBlockHtml(c)).join('')
+    + q.choices.map((c) => copyBlockHtml(bankChoiceText(c))).join('')
     + (q.answer ? copyBlockHtml(`정답: ${q.answer}`) : '')
 }
 

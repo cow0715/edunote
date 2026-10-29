@@ -1,5 +1,7 @@
 'use client'
 
+import { fetchAllBankCopyRows } from '@/lib/bank-copy-pagination'
+
 import { examSearchYears } from '@/lib/exam-search-years'
 import { questionSourceLabel } from '@/lib/book-pdf/labels'
 import { mergeBankSearch } from '@/lib/exam-bank-navigation'
@@ -225,14 +227,7 @@ export function QuestionSearch() {
     setAppliedFilters(EMPTY_FILTERS)
   }
 
-  const fetchAll = async () => {
-    const params = new URLSearchParams(filterKey)
-    params.set('all', '1')
-    const res = await fetch(`/api/exam-bank/questions?${params}`)
-    const json = await res.json()
-    if (!res.ok) throw new Error(json.error || '전체 조회 실패')
-    return (json.data ?? []) as ExamBankQuestion[]
-  }
+  const fetchAll = () => fetchAllBankCopyRows<ExamBankQuestion>(filterKey, total)
 
   const getExamLabel = questionSourceLabel
 

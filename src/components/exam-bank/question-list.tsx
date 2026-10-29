@@ -1,5 +1,7 @@
 'use client'
 
+import { bankChoiceText } from '@/lib/bank-numbered-text'
+
 import { BankSourceImages } from './source-images'
 
 import { readablePassage } from '@/lib/material-display'
@@ -293,7 +295,7 @@ export const QuestionCard = memo(function QuestionCard({
                     isAnswer ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-600'
                   }`}
                 >
-                  <span className="shrink-0 break-words">{c}</span>
+                  <span className="shrink-0 break-words">{bankChoiceText(c)}</span>
                   {/* 선지별 선택률 */}
                   {hasChoiceRates && q.choice_rates?.[i] != null && (
                     <span className={`ml-auto text-[11px] shrink-0 ${isAnswer ? 'text-blue-500 font-semibold' : 'text-gray-400'}`}>
@@ -370,25 +372,25 @@ export const QuestionCard = memo(function QuestionCard({
                 {q.explanation_intent && (
                   <div>
                     <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">출제의도</span>
-                    <p className="text-sm text-gray-700 mt-0.5">{q.explanation_intent}</p>
+                    <p className="text-sm text-gray-700 mt-0.5"><MarkdownText text={readablePassage(q.explanation_intent)} /></p>
                   </div>
                 )}
                 {q.explanation_translation && (
                   <div>
                     <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">해석</span>
-                    <p className="text-sm text-gray-600 mt-0.5 leading-relaxed whitespace-pre-wrap">{q.explanation_translation}</p>
+                    <p className="text-sm text-gray-600 mt-0.5 leading-relaxed whitespace-pre-wrap"><MarkdownText text={readablePassage(q.explanation_translation)} /></p>
                   </div>
                 )}
                 {q.explanation_solution && (
                   <div>
                     <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">풀이</span>
-                    <p className="text-sm text-gray-700 mt-0.5 leading-relaxed">{q.explanation_solution}</p>
+                    <p className="text-sm text-gray-700 mt-0.5 leading-relaxed"><MarkdownText text={readablePassage(q.explanation_solution)} /></p>
                   </div>
                 )}
                 {q.explanation_vocabulary && (
                   <div>
                     <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">Words &amp; Phrases</span>
-                    <p className="text-sm text-gray-600 mt-0.5 leading-relaxed">{q.explanation_vocabulary}</p>
+                    <p className="text-sm text-gray-600 mt-0.5 leading-relaxed"><MarkdownText text={readablePassage(q.explanation_vocabulary)} /></p>
                   </div>
                 )}
               </>
