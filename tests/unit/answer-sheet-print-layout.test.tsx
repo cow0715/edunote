@@ -22,8 +22,9 @@ describe('printable diagnostic answer sheet', () => {
     expect(screen.getAllByRole('rowheader').map(e => e.textContent)).toEqual(['6번', '서답형 1', '7번'])
   })
   it('does not reveal find-error symbols or correct answers', () => {
-    render(<AnswerSheetDocument weekLabel="1주차" questions={['b', 'd'].map(sub => ({ ...question(1, sub), question_style: 'find_error' }))} />)
-    expect(screen.getAllByText(/번호·기호/)).toHaveLength(3)
+    render(<AnswerSheetDocument weekLabel="1주차" questions={['b', 'd'].map(sub => ({ ...question(1, sub), question_style: 'find_error', question_text: '①~⑤ 중 틀린 것을 모두 찾아 고치시오.' }))} />)
+    expect(screen.getAllByText(/번호·기호/)).toHaveLength(5)
+    expect(screen.getByText(/필요한 칸만 작성/)).toBeTruthy()
     expect(screen.queryByText('(b)')).toBeNull()
     expect(screen.queryByText('(d)')).toBeNull()
     expect(screen.queryByText('SECRET ANSWER')).toBeNull()

@@ -195,7 +195,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
   // 이 주차의 모든 문항 정보 한 번에 조회 (style, correct_answer, 모범답안)
   const { data: allQuestions, error: questionsError } = await supabase
     .from('exam_question')
-    .select('id, question_number, sub_label, correct_answer, extra_correct_answers, all_correct, correct_answer_text, grading_criteria, question_style')
+    .select('id, question_number, sub_label, correct_answer, extra_correct_answers, all_correct, correct_answer_text, grading_criteria, question_style, question_text, question_stem, passage')
     .eq('week_id', weekId)
 
   if (questionsError) throw new SaveError('문항 조회 실패', 503)
@@ -374,6 +374,9 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
           question_number: q.question_number,
           sub_label: q.sub_label ?? null,
           correct_answer_text: q.correct_answer_text ?? '',
+          question_text: q.question_text,
+          question_stem: q.question_stem,
+          passage: q.passage,
           grading_criteria: q.grading_criteria,
           question_style: q.question_style as 'subjective' | 'find_error',
         } : null
