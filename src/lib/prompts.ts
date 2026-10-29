@@ -1,3 +1,4 @@
+import { answerSheetSlots, OPTIONAL_SLOT_GUIDANCE, type SlotQuestion } from './answer-sheet-slots'
 import { questionLabel, sortQuestionsByPdf, type QuestionPresentation } from './question-presentation'
 
 // AI 프롬프트 모음 — 여기서 직접 수정하세요
@@ -570,7 +571,7 @@ ${buildVocabOcrExampleSection(exampleItems)}`
 
 // ── 시험 답안지 OCR ───────────────────────────────────────────────────────
 
-export type ExamOcrQuestion = QuestionPresentation & {
+export type ExamOcrQuestion = QuestionPresentation & SlotQuestion & {
   question_number: number
   sub_label: string | null
   question_style: 'objective' | 'ox' | 'subjective' | 'find_error' | 'multi_select'
@@ -596,6 +597,11 @@ function buildExamQuestionList(questions: ExamOcrQuestion[]): string {
   }
   const lines: string[] = []
   for (const [num, group] of grouped) {
+    if (group[0].question_style === 'find_error') {
+      const slots = answerSheetSlots(group)
+      lines.push(`오류교정 문맥: ${group[0].question_stem ?? ''}\n${group[0].question_text ?? ''}\n${group[0].passage ?? ''}`)
+      lines.push(`인쇄 답란 ${slots.count}칸. ${slots.optional ? OPTIONAL_SLOT_GUIDANCE : '지시된 개수만 작성.'} 답란 위치는 정답 기호가 아니다.`)
+    }
     if (group.length === 1 && !group[0].sub_label) {
       lines.push(group[0].source_question_number
         ? `- 인쇄 ${questionLabel(group[0])}: ${labelFor(group[0])} → 출력 question_number=${num}, sub_label=null`
@@ -621,9 +627,12 @@ const EXAM_OCR_RULES = `규칙:
 - 오류교정: 답안지에 「번호·기호 [ ] 고친 표현: ___」 슬롯이 여러 개 있다. 학생이 기입한 슬롯마다
   기호와 고친 표현을 각각 읽어 student_answer_text에 "기호:고친표현" 형식으로 저장
   (예: 기호 칸에 b, 고침 칸에 "Rarely did the workers have time to relax" → "b:Rarely did the workers have time to relax").
-  기호 칸이 비었으면 고친 표현만 저장. 빈 슬롯은 제외.
+  기호 칸이 비었으면 고친 표현만 저장. 번호와 표현이 모두 빈 슬롯은 제외하고, 번호만 쓴 슬롯은 보존. 남은 인쇄 빈칸을 오답이나 추가 소문항으로 생성하지 말 것.
   같은 문항에 소문항이 여러 개면 기입된 슬롯을 위에서부터 문항 목록의 sub_label 순서에 차례로 배정
-  (학생이 쓴 기호가 sub_label과 달라도 그대로 배정 — 기호 매칭은 채점이 처리한다)
+  (학생이 쓴 기호가 sub_label과 달라도 그대로 배정 — 기호 매칭은 채점이 처리한다).
+  ①~⑤ 번호 표기와 a~e 내부 기호는 같은 보기의 순서다. 읽은 번호를 그대로 보존한다.
+  작성된 슬롯이 저장할 sub_label 수보다 많으면 남은 답들을 마지막 sub_label 텍스트에 줄바꿈으로 이어 보존한다. 절대 버리거나 정답처럼 추측하지 않는다.
+  오류교정은 아래 일반 소문항 (a)(b) 위치 규칙보다 이 슬롯 규칙을 우선한다.
 - O/X 교정형: student_answer_text에 "O" 또는 "X 수정어" (예: "X has been")
 - T/F 판단형: 학생이 T 또는 F 에 동그라미/기입 — student_answer_text에 "T" 또는 "F" 한 글자만 (수정어 없음, O/X 로 바꾸지 말 것)
 - 복수정답: 학생이 ①~⑤ 중 여러 개를 동그라미/색칠/체크한 것을 모두 읽고 student_answer_text에 쉼표 구분 숫자로 저장 (예: ①과 ③이 표시됨 → "1,3")

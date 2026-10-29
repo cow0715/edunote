@@ -12,6 +12,9 @@ export type SubjectiveQuestion = {
   sub_label: string | null
   correct_answer_text: string
   grading_criteria: string | null
+  question_text?: string | null
+  question_stem?: string | null
+  passage?: string | null
   question_style?: 'subjective' | 'find_error'
 }
 
@@ -191,7 +194,7 @@ async function gradeSingleBatch(
 아래 [find_error] 표시된 문항에만 적용.
 
 1. 모범답안 형식: "번호:수정내용" (예: "1:If human gene editing turns out to be both safe and effective")
-   · 번호 = 지문의 ①~⑤ 중 틀린 문장의 기호
+   · 번호 = 지문의 ①~⑤ 중 틀린 문장의 기호. 내부 a~e는 보기 순서로 ①~⑤와 동일하다 (a=①, e=⑤).
    · 수정내용 = 그 문장의 올바른 형태
 
 2. 학생이 쓸 수 있는 형식 (모두 허용):
@@ -200,6 +203,8 @@ async function gradeSingleBatch(
    (C) "turns out" (수정어만, 기호 없음)
    (D) "is turned out → turns out" (before → after)
    (E) "①" 또는 "1" (기호만, 수정 없음) → 오답
+
+3. 인쇄 답란의 빈 슬롯은 추가 오답이 아니다. 실제 정답 중 미응답인 항목은 오답이다. 여러 답을 적은 텍스트는 모두 확인하고 잘못된 추가 선택을 무시하지 않는다.
 
 3. 같은 question_number 안의 서로 다른 sub_label 답안은 **순서 무관 집합 매칭**:
    · 학생의 17(a)가 모범답안 ⑤와, 17(b)가 모범답안 ①과 매칭되어도 정답 가능
@@ -225,6 +230,9 @@ ${findErrorRules}
 ## 문제 정보
 ${questions.map((q) => `
 [${qLabel(q)}]${q.question_style === 'find_error' ? ' [find_error]' : ''}
+문제 지시문: ${q.question_stem ?? ''}
+문제 원문: ${q.question_text ?? ''}
+공통 지문: ${q.passage ?? ''}
 모범답안: ${q.correct_answer_text}
 채점 기준: ${q.grading_criteria ?? '모범답안과 의미 및 문법이 일치하는지 확인'}
 `).join('')}

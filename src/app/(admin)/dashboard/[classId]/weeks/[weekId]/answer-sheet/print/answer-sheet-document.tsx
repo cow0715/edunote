@@ -1,7 +1,8 @@
+import { answerSheetSlots, OPTIONAL_SLOT_GUIDANCE, type SlotQuestion } from '@/lib/answer-sheet-slots'
 import { groupQuestionParents, questionLabel, type QuestionPresentation } from '@/lib/question-presentation'
 import { oxChoiceLabels, oxNotationForGroup } from '@/lib/ox-grading'
 
-export type PrintQuestion = QuestionPresentation & {
+export type PrintQuestion = QuestionPresentation & SlotQuestion & {
   question_number: number
   sub_label: string | null
   question_style: string
@@ -15,7 +16,7 @@ function buildRows(questions: PrintQuestion[]) {
     const stacked = group.length > 3 && style !== 'find_error'
     return {
       qNum, group, stacked,
-      minHeight: style === 'find_error' ? Math.max(3, group.length) * 20 + 12 : (short ? 36 : 44) * (stacked ? group.length : 1),
+      minHeight: style === 'find_error' ? answerSheetSlots(group).count * 20 + 24 : (short ? 36 : 44) * (stacked ? group.length : 1),
       weight: style === 'find_error' ? 3.2 : short ? 1 : 2.4,
     }
   })
@@ -46,9 +47,10 @@ function AnswerArea({ row }: { row: ReturnType<typeof buildRows>[number] }) {
   const first = row.group[0]
   const hasSub = row.group.length > 1 || first.sub_label != null
   if (first.question_style === 'find_error') {
-    // Fixed unlabeled slots avoid revealing the correct symbols or the answer count.
+    const { count, optional } = answerSheetSlots(row.group)
     return <div className="print-error-slots" style={{ minHeight: `${row.heightPt}pt` }}>
-      {Array.from({ length: Math.max(3, row.group.length) }, (_, i) => <div className="print-error-slot" key={i}>
+      {optional && <p className="print-error-guidance">{OPTIONAL_SLOT_GUIDANCE}</p>}
+      {Array.from({ length: count }, (_, i) => <div className="print-error-slot" key={i}>
         <span>번호·기호 [&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]</span><span>고친 표현:</span><span className="print-error-line" />
       </div>)}
     </div>
@@ -113,6 +115,7 @@ export const ANSWER_SHEET_PRINT_CSS = `
   .print-choice-marks { display: flex; justify-content: space-between; align-items: center; width: 220pt; max-width: 100%; gap: 5pt; font-size: 14pt; font-weight: 600; line-height: 1; }
   .print-ox-guide { display: flex; flex-wrap: wrap; gap: 8pt; font-size: 10pt; }
   .print-error-slots { display: flex; flex-direction: column; justify-content: space-evenly; gap: 5pt; padding: 6pt 10pt; box-sizing: border-box; }
+  .print-error-guidance { margin: 0; font-size: 9pt; }
   .print-error-slot { display: flex; align-items: flex-end; gap: 5pt; font-size: 9pt; }
   .print-error-line { flex: 1; height: 12pt; border-bottom: .5pt solid #8B95A1; }
   @media print {

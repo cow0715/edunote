@@ -25,7 +25,7 @@ export default async function AnswerSheetPrintPage({
 
   const { data: questions } = await supabase
     .from('exam_question')
-    .select('question_number, sub_label, question_style, correct_answer_text, source_section, source_question_number, display_order, passage_group, shared_passage')
+    .select('question_number, sub_label, question_style, question_stem, question_text, passage, choices, correct_answer_text, source_section, source_question_number, display_order, passage_group, shared_passage')
     .eq('week_id', weekId)
     .eq('exam_type', 'reading')
     .order('question_number')

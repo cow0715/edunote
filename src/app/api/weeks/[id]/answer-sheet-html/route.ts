@@ -1,3 +1,4 @@
+import { answerSheetSlots, OPTIONAL_SLOT_GUIDANCE } from '@/lib/answer-sheet-slots'
 import { groupQuestionParents, questionLabel } from '@/lib/question-presentation'
 import { getAuth, getTeacherId, assertWeekOwner, err } from '@/lib/api'
 import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
@@ -21,7 +22,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   // 문항 조회
   const { data: questions } = await supabase
     .from('exam_question')
-    .select('question_number, sub_label, question_style, correct_answer_text, source_section, source_question_number, display_order, passage_group, shared_passage')
+    .select('question_number, sub_label, question_style, question_stem, question_text, passage, choices, correct_answer_text, source_section, source_question_number, display_order, passage_group, shared_passage')
     .eq('week_id', weekId)
     .eq('exam_type', 'reading')
     .order('question_number')
@@ -65,7 +66,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const availablePt = 255 * 2.835
   const isFindError = (row: RowInfo) => row.group[0]?.question_style === 'find_error'
   // find_error 는 「기호[ ] 고친 표현」 슬롯이 세로로 3줄 이상 서므로 기본 높이가 크다
-  const minHeights = rowInfos.map((row) => isFindError(row) ? 68 : row.isShort ? 36 : 44)
+  const minHeights = rowInfos.map((row) => isFindError(row) ? 20 + answerSheetSlots(row.group).count * 20 : row.isShort ? 36 : 44)
   const minTotal = minHeights.reduce((sum, height) => sum + height, 0)
   const weights = rowInfos.map((row) => isFindError(row) ? 3.2 : row.isShort ? 1 : 2.4)
   const weightTotal = weights.reduce((sum, weight) => sum + weight, 0)
@@ -127,12 +128,12 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     } else if (style === 'multi_select') {
       rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td><td ${answerAttr} colspan="${answerColSpan}">&nbsp;</td></tr>`)
     } else if (style === 'find_error') {
-      // 소문항 기호를 인쇄하면 정답 유출 + 칸 수가 정답 수 힌트 → 기호 없는 고정 슬롯(최소 3칸)
-      const slotCount = Math.max(3, group.length)
+      // 정답 기호를 노출하지 않고, 원문 지시와 보기 수에 맞춰 답란을 제공한다.
+      const { count: slotCount, optional } = answerSheetSlots(group)
       const slotLines = Array.from({ length: slotCount })
         .map(() => '번호·기호 [&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;] &nbsp; 고친 표현: ____________________________________________')
         .join('<br/><br/>')
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:11px;font-weight:600;">${slotLines}</span></td></tr>`)
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:11px;font-weight:600;">${optional ? `${OPTIONAL_SLOT_GUIDANCE}<br/>` : ''}${slotLines}</span></td></tr>`)
     } else if (style === 'subjective' && hasSub) {
       const cells = group.map((q) =>
         `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}>&nbsp;</td>`

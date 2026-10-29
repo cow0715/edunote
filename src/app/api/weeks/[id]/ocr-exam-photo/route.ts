@@ -78,7 +78,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const { data: questions } = await supabase
     .from('exam_question')
-    .select('question_number, sub_label, question_style, correct_answer_text, source_section, source_question_number, display_order')
+    .select('question_number, sub_label, question_style, question_stem, question_text, passage, choices, correct_answer_text, source_section, source_question_number, display_order')
     .eq('week_id', weekId)
     .eq('exam_type', 'reading')
     .order('question_number')
@@ -90,6 +90,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     source_section: q.source_section,
     source_question_number: q.source_question_number,
     display_order: q.display_order,
+    question_stem: q.question_stem,
+    question_text: q.question_text,
+    passage: q.passage,
+    choices: q.choices,
     sub_label: q.sub_label ?? null,
     question_style: q.question_style as ExamOcrQuestion['question_style'],
     // T/F 판단형 답안지는 모델에게 T/F 로 읽으라고 알려준다 (O/X 로 오인 방지)
