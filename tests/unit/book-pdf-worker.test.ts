@@ -27,7 +27,7 @@ function database(status = 'processing', completed = false, leaseLost = false) {
   }, from(table: string) {
     const query = { select: () => query, eq: () => query,
       single: async () => ({ data: doc, error: null }),
-      upsert: () => { if (!rows.length) rows.push({ ...draft(), extraction: null, verified_version: null, verification: { ...verification(), status: 'pending' } }); return query },
+      upsert: (records: {manifest: BookDraftUnit['manifest']}[]) => { if (!rows.length) rows.push({ ...draft(), manifest: records[0].manifest, extraction: null, verified_version: null, verification: { ...verification(), status: 'pending' } }); return query },
       update: (value: Record<string, unknown>) => { Object.assign(doc, value); return query },
       then: (resolve: (r: unknown) => unknown) => Promise.resolve({ data: table === 'book_pdf_unit' ? rows : null, error: null }).then(resolve),
     }
@@ -48,11 +48,25 @@ beforeEach(() => {
   mocks.publish.mockResolvedValue('bank')
 })
 describe('automatic textbook worker', () => {
-  it('blocks unverified book layouts before native extraction or any paid calls', async () => {
+  it('holds a selected book that disagrees with its printed source before paid mapping', async () => {
     const { client, doc } = database()
     doc.book_code = 'suwan_english'
-    expect(await importBookPdf(client, job, pdfBytes)).toMatchObject({ verification_unresolved: true })
-    expect(mocks.read).not.toHaveBeenCalled(); expect(mocks.verify).not.toHaveBeenCalled(); expect(mocks.publish).not.toHaveBeenCalled()
+    expect(await importBookPdf(client, job, pdfBytes)).toMatchObject({ metadata_conflict: true, verification_unresolved: true })
+    expect(mocks.read).toHaveBeenCalledOnce(); expect(mocks.verify).not.toHaveBeenCalled(); expect(mocks.publish).not.toHaveBeenCalled()
+  })
+  it.each([
+    ['suteuk_reading','upper','chapter'], ['suteuk_reading','lower','mini_test'],
+    ['suwan_english','type','type'], ['suwan_english','practical','practical'],
+  ] as const)('keeps source audit, supplement and publication for %s %s', async (code,volume,kind) => {
+    const { client,doc,calls } = database()
+    doc.book_code=code; doc.volume=volume
+    const local=structuredClone(manifest);local.units[0].questions[0].source_kind=kind
+    mocks.inventory.mockReturnValue(local)
+    expect(await importBookPdf(client, job, pdfBytes)).toMatchObject({auto_published:true})
+    expect(mocks.verify).toHaveBeenCalledOnce()
+    expect(calls[0].args.p_verification).toMatchObject({status:'passed',protocol:2})
+    expect(calls[0].args.p_enrichment).toMatchObject({status:'complete'})
+    expect(mocks.warm).not.toHaveBeenCalled()
   })
   it('holds a selected academic-year conflict before mapping and preserves the selected metadata', async () => {
     const { client, doc, rows } = database()

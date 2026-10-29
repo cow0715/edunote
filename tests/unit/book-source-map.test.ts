@@ -12,6 +12,29 @@ function fixture() {
   return { pages, mapping }
 }
 describe('native source mapping', () => {
+  it('accounts for a repeated answer-column source label without creating another question', () => {
+    const { pages, mapping } = fixture()
+    const label = '[수능완성 실전편 ( ) 1 회 18번 ]'
+    pages[0].lines[3].text=label
+    pages[0].lines.push({...pages[0].lines[3],id:14,x:330,text:label})
+    mapping.ignored=[{refs:[ref(14)],reason:'section_label'}]
+    const result=resolveSourceMap(pages,mapping)
+    expect(result.errors).toEqual([])
+    expect(result.groups[0].extraction.questions).toHaveLength(1)
+    expect(result.uncovered).toEqual([])
+  })
+  it('preserves an unlabelled source solution and accepts spaced field labels', () => {
+    const { pages, mapping } = fixture()
+    pages[0].lines[10].text = '[정답 ]②'
+    pages[0].lines[12].text = '해설 표시 없이 인쇄된 실제 풀이'
+    pages[0].lines.push({ ...pages[0].lines[0], id:14, text:'[해설 ]' })
+    mapping.ignored = [{refs:[ref(14)],reason:'field_label'}]
+    const result = resolveSourceMap(pages, mapping)
+    expect(result.errors).toEqual([])
+    expect(result.groups[0].extraction.questions[0].solution).toBe('해설 표시 없이 인쇄된 실제 풀이')
+    mapping.groups[0].questions[0].solution = []
+    expect(resolveSourceMap(pages, mapping).uncovered).toContain(13)
+  })
   it('copies source text and derives the answer from the printed source', () => {
     const { pages, mapping } = fixture(), r = resolveSourceMap(pages, sourceMapSchema.parse(mapping))
     expect(r.errors).toEqual([])

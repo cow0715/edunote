@@ -26,6 +26,7 @@ export async function POST(request: Request) {
   if (!book.supported) return err(`${book.label}는 PDF 형식 확인 전입니다. 아직 등록할 수 없습니다.`, 422)
   const hint = bookFileHints(p.fileName)
   if (hint.code && hint.code !== p.bookCode) return err('선택한 교재와 파일명의 교재가 다릅니다. 파일을 확인해주세요.', 422)
+  if (hint.volume && hint.volume !== p.volume) return err('선택한 분권과 파일명의 상·하 또는 유형편·실전편이 다릅니다. 파일을 확인해주세요.', 422)
   if (!workerEnabled() || process.env.BOOK_PDF_IMPORT_ENABLED !== 'true') return err('교재 PDF 워커 설정이 완료되지 않았습니다.', 503)
   if (!p.storagePath.startsWith(`${auth.user!.id}/`) || p.storagePath.includes('..')) return err('업로드 파일 경로가 올바르지 않습니다.', 403)
   const client = createServiceClient()

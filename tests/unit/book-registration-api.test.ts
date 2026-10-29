@@ -17,9 +17,14 @@ beforeEach(()=>{
   m.service.mockReturnValue({rpc:m.rpc,from:()=>q,storage:{from:()=>({download:m.download,remove:m.remove})}})
 })
 describe('structured textbook registration',()=>{
-  it.each(['suteuk_reading','suwan_english'])('blocks %s before any storage, DB reservation or paid work',async bookCode=>{
-    const response=await POST(request({bookCode}))
-    expect(response.status).toBe(422);expect(m.service).not.toHaveBeenCalled();expect(m.register).not.toHaveBeenCalled()
+  it.each([
+    ['suteuk_reading','upper','수능영독(상).pdf'], ['suteuk_reading','lower','수특영독(하).pdf'],
+    ['suwan_english','type','수완(유형).pdf'], ['suwan_english','practical','수완(실전).pdf'],
+  ])('registers verified %s %s through the existing Batch worker',async (bookCode,volume,fileName)=>{
+    const response=await POST(request({bookCode,volume,fileName}))
+    expect(response.status).toBe(202)
+    expect(m.rpc).toHaveBeenCalledWith('book_pdf_reserve',expect.objectContaining({p_code:bookCode,p_volume:volume}))
+    expect(m.register).toHaveBeenCalledWith(expect.objectContaining({kind:'bank_book',payload:expect.objectContaining({bookProcessing:'batch-v1'})}))
   })
   it('hashes the actual owned PDF and uses the verified Batch worker',async()=>{
     expect((await POST(request())).status).toBe(202)
@@ -40,6 +45,7 @@ describe('structured textbook registration',()=>{
   it('rejects wrong ownership paths and mismatched book names before downloading',async()=>{
     expect((await POST(request({storagePath:'other/file.pdf'}))).status).toBe(403)
     expect((await POST(request({fileName:'수능완성 영어.pdf'}))).status).toBe(422)
+    expect((await POST(request({bookCode:'suwan_english',volume:'type',fileName:'수완(실전).pdf'}))).status).toBe(422)
     expect(m.download).not.toHaveBeenCalled()
   })
   it('requires authentication and never accepts title-only registration',async()=>{

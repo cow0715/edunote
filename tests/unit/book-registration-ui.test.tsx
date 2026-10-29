@@ -12,13 +12,20 @@ beforeEach(()=>{client=new QueryClient({defaultOptions:{queries:{retry:false,gcT
 afterEach(()=>{cleanup();client.clear();vi.unstubAllGlobals()})
 function show(node:React.ReactNode){return render(<QueryClientProvider client={client}>{node}</QueryClientProvider>)}
 describe('unified registration UI',()=>{
-  it('offers three visible books and prevents uploading unsupported layouts',async()=>{
+  it('enables verified reading and Suwan PDF selection with compatible volume choices',async()=>{
     show(<BookUploadForm onRegistered={vi.fn()} />)
     expect(await screen.findByRole('radio',{name:/수능특강 영어독해연습/})).toBeTruthy()
     fireEvent.click(screen.getByRole('radio',{name:/수능특강 영어독해연습/}))
-    expect(screen.getByRole('status').textContent).toContain('PDF 형식을 확인하기 전')
+    expect(screen.queryByRole('status')).toBeNull()
     expect((screen.getByRole('button',{name:'교재 등록 시작'}) as HTMLButtonElement).disabled).toBe(true)
-    expect((screen.getByRole('button',{name:'교재 원본 PDF 선택'}) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button',{name:'교재 원본 PDF 선택'}) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByRole('radio',{name:'상'}))
+    fireEvent.click(screen.getByRole('radio',{name:/수능완성 영어/}))
+    expect((screen.getByRole('radio',{name:'전체'}) as HTMLInputElement).checked).toBe(true)
+    expect(screen.queryByRole('radio',{name:'상'})).toBeNull()
+    fireEvent.click(screen.getByRole('radio',{name:'실전편'}))
+    expect((screen.getByRole('radio',{name:'실전편'}) as HTMLInputElement).checked).toBe(true)
+    expect(screen.getByText(/학년도 수능완성 영어 · 실전편/)).toBeTruthy()
     expect(screen.queryByPlaceholderText('예: 수능특강 영어 상')).toBeNull()
     expect(vi.mocked(fetch).mock.calls.every(([,init])=>!init?.method||init.method==='GET')).toBe(true)
   })
