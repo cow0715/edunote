@@ -1,3 +1,4 @@
+import { normalizeNewCorrectionKey } from './week-answer-contract'
 import { normalizeFindErrorKeyText } from './find-error-grading'
 import { z } from 'zod'
 import type { ParsedAnswer } from './llm/week'
@@ -10,7 +11,7 @@ const evidence = z.object({ file_index: z.number().int().positive(), page: z.num
 
 /** Validate model data before any .trim(), normalization or persistence. Identity
  * conflicts are retried; malformed optional content is flagged for source review. */
-export function sanitizeWeekExtraction(value: unknown): ParsedAnswer {
+export function sanitizeWeekExtraction(value: unknown, validateNew = false): ParsedAnswer {
   const parsed = identity.safeParse(value)
   if (!parsed.success) throw new Error('문항 번호·소문항·답안 유형을 확인하지 못했습니다.')
   const raw = value as Record<string, unknown>
@@ -24,7 +25,7 @@ export function sanitizeWeekExtraction(value: unknown): ParsedAnswer {
   const proof = evidence.safeParse(raw.answer_evidence)
   const box = bbox.safeParse(raw.source_bbox)
   const answerText = text('correct_answer_text')
-  const normalizedKey = parsed.data.question_style === 'find_error' ? normalizeFindErrorKeyText(answerText) ?? answerText : answerText
+  const normalizedKey = parsed.data.question_style === 'find_error' ? (validateNew ? normalizeNewCorrectionKey(answerText) : normalizeFindErrorKeyText(answerText)) ?? answerText : answerText
   const symbol = normalizedKey?.match(/^([a-z]|[1-9][0-9]?):/i)?.[1].toLowerCase()
   const derivedLabel = symbol && /^[0-9]+$/.test(symbol) ? Number(symbol) <= 26 ? String.fromCharCode(96 + Number(symbol)) : null : symbol ?? null
   const subLabel = parsed.data.sub_label ?? (parsed.data.question_style === 'find_error' && raw.answer_status === 'found' && proof.success ? derivedLabel : null)

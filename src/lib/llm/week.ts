@@ -127,7 +127,7 @@ export async function parseAnswerSheet(
   fileData: string,  // base64
   mimeType: string,  // image/jpeg, image/png, application/pdf 등
   tagCategories: TagCategory[] = [],
-  options: TaskCallOptions = {},
+  options: TaskCallOptions & { validateAnswerContract?: boolean } = {},
 ): Promise<ParsedAnswer[]> {
   const { text: raw, stopReason } = await callLlmTextDetailed({
     task: 'week.parseAnswers',
@@ -164,7 +164,7 @@ export type AnswerSheetRangedResult = {
 export async function parseAnswerSheetRanged(
   files: RangedFile[],
   tagCategories: TagCategory[] = [],
-  options: TaskCallOptions = {},
+  options: TaskCallOptions & { validateAnswerContract?: boolean } = {},
 ): Promise<AnswerSheetRangedResult> {
   const result = await parseWeekInventory(files, buildAnswerSheetPrompt(tagCategories), options)
   return { items: result.items, calls: result.calls, discoveredNumbers: result.targets.map((t) => t.question_number), skippedNumbers: [] }

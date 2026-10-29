@@ -8,7 +8,7 @@ import { ANSWER_KEY_COLUMNS, prepareAnswerReview, type ExistingAnswerKey, type R
 
 export type ReviewFile = ProblemSheetUploadInput & { fileData: string; role?: ReviewSource['role']; bucket?: string; path?: string }
 
-export async function parseAnswerSheetReview(files: ReviewFile[], tags: TagCategory[] = [], options: TaskCallOptions = {}) {
+export async function parseAnswerSheetReview(files: ReviewFile[], tags: TagCategory[] = [], options: TaskCallOptions & { validateAnswerContract?: boolean } = {}) {
   const pages: string[][] = []
   const sources: ReviewSource[] = []
   for (const [index, file] of files.entries()) {
@@ -40,7 +40,7 @@ export async function createWeekAnswerDraft(client: SupabaseClient, input: {
     if (previous.error) throw new Error('정답 검토 기능이 아직 준비되지 않았습니다. 관리자에게 설정 확인을 요청해 주세요.')
     if (previous.data) return { ok: true, draft_id: previous.data.id, needs_review: previous.data.status !== 'confirmed' }
   }
-  const result = await parseAnswerSheetReview(input.files, input.tags, input.options)
+  const result = await parseAnswerSheetReview(input.files, input.tags, { ...input.options, validateAnswerContract: input.baseQuestions.length === 0 })
   const { data, error } = await client.from('week_answer_draft').insert({ teacher_id: input.teacherId, week_id: input.weekId,
     job_id: input.jobId ?? null, sources: result.sources, answers: result.answers, base_questions: input.baseQuestions })
     .select('id').single()

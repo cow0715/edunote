@@ -1,3 +1,4 @@
+import { weekAnswerContractIssues, normalizeNewCorrectionKey } from './week-answer-contract'
 import { regionPixels, validSourceRegion } from './source-region'
 import { assertPreservableReadingReparse } from '@/lib/preserve-reading-reparse'
 import type { SupabaseServerClient } from '@/lib/api'
@@ -341,7 +342,7 @@ export function createTagMatcher(tagList: TagListEntry[]): MatchTagId {
   }
 }
 
-export function normalizeParsedAnswers(parsedAnswers: ParsedAnswer[]): ParsedAnswer[] {
+export function normalizeParsedAnswers(parsedAnswers: ParsedAnswer[], validateNew = false): ParsedAnswer[] {
   const sanitized = parsedAnswers
     .map((answer) => {
       const questionNumber = coerceQuestionNumber(answer.question_number)
@@ -349,7 +350,7 @@ export function normalizeParsedAnswers(parsedAnswers: ParsedAnswer[]): ParsedAns
 
       // find_error 정답키는 "기호:수정어" 규격으로 정규화 (기호 표기·화살표 이탈 흡수)
       const correctAnswerText = answer.question_style === 'find_error'
-        ? normalizeFindErrorKeyText(answer.correct_answer_text) ?? answer.correct_answer_text
+        ? (validateNew ? normalizeNewCorrectionKey(answer.correct_answer_text) : normalizeFindErrorKeyText(answer.correct_answer_text)) ?? answer.correct_answer_text
         : answer.correct_answer_text
 
       // 번호·소문항·find_error 키를 먼저 잡고, 그 위에서 형태(빈 값·선지 기호·정답키 표기)를
@@ -532,7 +533,7 @@ function normalizeSourceFieldsForChunk<T extends {
 export async function parseAnswerSheetDocumentRanged(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
-  options: TaskCallOptions = {},
+  options: TaskCallOptions & { validateAnswerContract?: boolean } = {},
 ): Promise<{ answers: ParsedAnswer[]; discoveredNumbers: number[]; skippedNumbers: number[] }> {
   if (!files.length || files.some((file) => !file.fileData)) {
     throw new Error('업로드 파일 데이터를 읽지 못했습니다.')
@@ -548,7 +549,7 @@ export async function parseAnswerSheetDocumentRanged(
       needs_source_image: shouldStoreSourceImage(answer),
       source_image_reason: answer.source_image_reason ?? null,
     }))
-  answers = normalizeParsedAnswers(answers)
+  answers = normalizeParsedAnswers(answers, options.validateAnswerContract)
     .map((answer) => applyUnderlineMarkupToParts(answer.question_text
       ? { ...answer, question_text: applyUnderlineMarkupToQuestionText(answer.question_text) }
       : answer))
@@ -560,6 +561,10 @@ export async function parseAnswerSheetDocumentRanged(
     const issues = weekTargetIssues(target, answers.filter((a) => a.question_number === target.question_number))
     if (issues.length) throw new Error(`정규화 후 문항 누락 검증 실패: ${issues.join(', ')}`)
   }
+  if (options.validateAnswerContract) {
+    const issues = weekAnswerContractIssues(answers)
+    if (issues.length) throw new Error(`정규화 후 답안 형식 검증 실패: ${issues.join(', ')}`)
+  }
   return { answers, discoveredNumbers: result.discoveredNumbers, skippedNumbers: result.skippedNumbers }
 }
 
@@ -570,7 +575,7 @@ export async function parseAnswerSheetDocumentRanged(
 export async function parseAnswerSheetDocument(
   files: ProblemSheetUploadInput[],
   tagCategories: TagCategory[] = [],
-  options: TaskCallOptions = {},
+  options: TaskCallOptions & { validateAnswerContract?: boolean } = {},
 ): Promise<{ answers: ParsedAnswer[]; skipped: SkippedRange[]; skippedQuestionNumbers?: number[] }> {
   // A whole-document fallback has no independent inventory and can silently
   // accept the same partial result. Propagate coverage failures to the caller.

@@ -126,3 +126,50 @@ describe('week inventory extraction through document normalization (mocked LLM)'
     expect(normalizeParsedAnswers(rows).map((a) => a.sub_label)).toEqual(['b', 'c'])
   })
 })
+
+
+describe('strict contract for new exams only (mocked LLM)', () => {
+  function setupCorrection(responses: ParsedAnswer[][]) {
+    let attempts = 0
+    mocks.call.mockImplementation(async ({ content }: { content: { text?: string }[] }) => {
+      const instruction = content.at(-1)?.text ?? ''
+      if (instruction.startsWith('문항 목록 조사:')) return respond({ counts: { general: 1, written: 0 }, questions: [
+        { section: 'general', number: 2, sub_labels: [null], display_order: 1, passage_group: null },
+      ] })
+      return respond(responses[Math.min(attempts++, responses.length - 1)])
+    })
+  }
+  const correction = (sub: string | null, key: string, style: ParsedAnswer['question_style'] = 'find_error'): ParsedAnswer => ({
+    ...answer(2, sub), source_section: 'general', source_question_number: 2, shared_passage: null,
+    question_text: '①~⑤ 중 틀린 것을 2개 찾아 번호를 쓰고 고치시오.', question_stem: null,
+    question_style: style, correct_answer_text: key, answer_status: 'found',
+    answer_evidence: { file_index: 1, page: 1, quote: '정답 ② asked ⑤ were' },
+  })
+  it('automatically re-extracts a misclassified merged response and repairs correction inventory coverage', async () => {
+    setupCorrection([[correction(null, 'b:asked / e:were', 'subjective')], [correction('b', 'b:asked'), correction('e', 'e:were')]])
+    const result = await parseAnswerSheetDocument(files, [], { validateAnswerContract: true })
+    expect(result.answers.map(a => [a.question_style, a.sub_label, a.correct_answer_text])).toEqual([['find_error', 'b', 'b:asked'], ['find_error', 'e', 'e:were']])
+    expect(mocks.call).toHaveBeenCalledTimes(3)
+    expect(mocks.call.mock.calls[2][0].content.at(-1).text).toContain('find_error')
+  })
+  it('splits unnumbered word corrections without inventing a find-error symbol', async () => {
+    const words = ['different → similar', 'undermine → reinforce'].map((key, i) => ({
+      ...correction(i ? 'b' : 'a', key, 'subjective'), question_text: '문맥상 부적절한 단어 2개를 골라 쓰고 고치시오.',
+    }))
+    setupCorrection([words])
+    const result = await parseAnswerSheetDocument(files, [], { validateAnswerContract: true })
+    expect(result.answers.map(a => a.question_style)).toEqual(['subjective', 'subjective'])
+    expect(result.answers.map(a => a.sub_label)).toEqual(['a', 'b'])
+  })
+  it('fails before returning persistable answers when retry still has the wrong shape', async () => {
+    setupCorrection([[correction(null, 'b:asked / e:were', 'subjective')]])
+    await expect(parseAnswerSheetDocument(files, [], { validateAnswerContract: true })).rejects.toThrow('문항 누락 검증 실패')
+    expect(mocks.call).toHaveBeenCalledTimes(3)
+  })
+  it('does not apply the new strict contract to existing reparse callers', async () => {
+    setupCorrection([[correction(null, 'b:asked / e:were', 'subjective')]])
+    const result = await parseAnswerSheetDocument(files)
+    expect(result.answers[0].question_style).toBe('subjective')
+    expect(mocks.call).toHaveBeenCalledTimes(2)
+  })
+})

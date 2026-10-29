@@ -1,3 +1,4 @@
+import { weekAnswerContractIssues } from './week-answer-contract'
 import { z } from 'zod'
 import type { ParsedAnswer } from './llm/week'
 
@@ -105,5 +106,9 @@ export function resolveAnswerReview(draft: Pick<AnswerDraft, 'answers' | 'base_q
   })
   if (new Set(reviewed.map(answerKey)).size !== reviewed.length) throw new Error('문항 번호·소문항이 중복됐습니다.')
   if (existing.size && (reviewed.length !== existing.size || reviewed.some(q => !existing.has(answerKey(q))))) throw new Error('기존 시험의 문항 구성은 보존해야 합니다. 다른 시험은 새 주차에 등록해 주세요.')
+  if (draft.base_questions.length === 0) {
+    const issues = weekAnswerContractIssues(reviewed.map(q => ({ ...q, correct_answer: q.correct_answer ?? 0, answer_status: 'found' })))
+    if (issues.length) throw new Error(`답안 형식 확인 필요: ${issues.join(', ')}`)
+  }
   return reviewed
 }
