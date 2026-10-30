@@ -10,11 +10,15 @@ import type { BookDocument, BookDraftUnit } from './types'
 import { processNativeBookUnit, type NativeBookResult } from './native-pipeline'
 import { NATIVE_RECOVERY_REVISION, needsUpdatedNativeRecovery } from './recovery-policy'
 import { BookBatchPending } from './batch-policy'
+import { PdfBatchStopped } from '../pdf-import/batch-policy'
+import { BOOK_PROFILE_VERSION } from './profiles'
+import { prepareBookProfiles, saveBookProfilePlan } from './profile-preflight'
 import { classificationConflict, sourceClassificationConflict, getBook } from './catalog'
 import { BOOK_METADATA_REVISION, oldMetadataRevision } from './academic-year'
 
-export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, bytes: Uint8Array) {
+export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, bytes: Uint8Array): Promise<Record<string, unknown>> {
   const pdfHash = createHash('sha256').update(bytes).digest('hex')
+  const profileMode = job.payload.bookProfile === BOOK_PROFILE_VERSION, context = getPdfWorkerContext()
   async function stage(unit: NativeBookResult | null, unitKey: string | null) {
     const { error } = await client.rpc('book_pdf_stage', { p_job_id: job.id, p_token: job.lease_token,
       p_unit_key: unitKey, p_extraction: unit?.extraction ?? null, p_validation: unit?.validation ?? null, p_verification: unit?.verification ?? null,
@@ -40,7 +44,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
       return { document_id: document.id, exam_id: await publishVerifiedBook(client, document), auto_published: true }
     }
     const recheckMetadata = !!document.manifest?.classification_error && oldMetadataRevision(document.manifest.metadata_revision)
-    if (recheckMetadata || (document.manifest && !document.manifest.errors.length && data?.some((u) => needsUpdatedNativeRecovery((u as BookDraftUnit).verification)))) {
+    if (profileMode || recheckMetadata || (document.manifest && !document.manifest.errors.length && data?.some((u) => needsUpdatedNativeRecovery((u as BookDraftUnit).verification)))) {
       // Keep accepted units and checkpoints; only a new deployed policy may
       // reopen an exhausted hold. A same-version restart keeps its budget.
       const resumed = await client.from('book_pdf_document').update({ status: 'processing' }).eq('id', document.id).eq('status', 'review')
@@ -48,7 +52,12 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
     } else return { document_id: document.id, auto_published: false, verification_unresolved: true, recovery_revision: NATIVE_RECOVERY_REVISION }
   }
   await reportPdfStage('원문 문항·정답·연결 페이지를 조사하는 중')
-  const manifest = inventoryBook(await readBookPages(bytes), String(job.payload.fileName ?? ''))
+  const inventoryKey = bookFingerprint({ inventory: BOOK_METADATA_REVISION, profile: BOOK_PROFILE_VERSION, pdfHash })
+  let manifest = profileMode ? await context?.read<ReturnType<typeof inventoryBook>>(inventoryKey) : null
+  if (!manifest) {
+    manifest = inventoryBook(await readBookPages(bytes), String(job.payload.fileName ?? ''))
+    if (profileMode) await context?.write(inventoryKey, manifest)
+  }
   const metadataError = classificationConflict(document, manifest.printed_years)
     ?? sourceClassificationConflict(document, manifest.units.flatMap((unit) => unit.questions))
   const saved = await client.from('book_pdf_document').update({ source_path: job.source_path,
@@ -70,12 +79,18 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   const existing = await client.from('book_pdf_unit').select('*').eq('document_id', job.target_id)
   if (existing.error) throw new Error(existing.error.message)
   const previous = new Map((existing.data as BookDraftUnit[]).map((u) => [u.unit_key, u]))
+  const prepared = profileMode ? await prepareBookProfiles(bytes, manifest, pdfHash) : null
+  const phase = prepared && !context?.cacheOnly ? await saveBookProfilePlan(client, job, prepared.plan) : null
   const pending = manifest.units.filter((unit) => {
+    if (phase?.phase === 'pilot' && !phase.pilot_keys.includes(unit.key)) return false
     const old = previous.get(unit.key)
     if (old && bookProofMatches(old) && old.verification.pdf_hash === pdfHash) return false
     // Explicit no-cost recovery can replay exhausted candidates using stored
     // responses. The transport stops at a missing response and cannot submit.
     if (getPdfWorkerContext()?.cacheOnly) return true
+    // The new format adapter may replay old held units, but retains immutable
+    // response identities and the ledger's existing spend and attempt ceilings.
+    if (profileMode) return true
     // A restart for another unit's network failure must not reset this unit's
     // exhausted repair budget or pay to replay its rejected candidates again.
     if (old?.verification?.status === 'unresolved' && !needsUpdatedNativeRecovery(old.verification) && (old.verification.protocol === 2 ? old.verification.exhausted : old.verification.attempts >= 3)
@@ -91,13 +106,20 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
     // merely to discover that the paid request window is already exhausted.
     if (getPdfWorkerContext()?.canPrepareUnit?.(unit.key) === false) throw new BookBatchPending()
     const smallPdf = await bookPageSlice(bytes, unit.pages)
-    const verified = await withPdfUnit(unit.key, () => processNativeBookUnit({ unit, pdfHash, bytes: new Uint8Array(Buffer.from(smallPdf, 'base64')) }))
+    const verified = await withPdfUnit(unit.key, () => processNativeBookUnit({ unit, pdfHash, bytes: new Uint8Array(Buffer.from(smallPdf, 'base64')),
+      ...(prepared ? { prepared: prepared.sources.get(unit.key) } : {}) }))
     await stage(verified, unit.key)
   })))
   const failures = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
   const fatal = failures.find((r) => !(r.reason instanceof BookBatchPending))
   if (fatal) throw fatal.reason
   if (failures.length) return { document_id: job.target_id, batch_waiting: true }
+  if (phase?.phase === 'pilot') {
+    const { data, error } = await client.rpc('book_pdf_profile_expand', { p_job: job.id, p_token: job.lease_token })
+    if (error || !data?.allowed) throw new PdfBatchStopped(data?.reason || '대표 구간의 원본 검증·예산 견적을 확정하지 못해 보류했습니다.')
+    // Phase is durable; recursion advances exactly once and reuses all source checkpoints.
+    return importBookPdf(client, job, bytes)
+  }
   await reportPdfStage('검증 결과를 확정하고 문제은행에 등록하는 중')
   await stage(null, null)
   const finished = await currentDocument()

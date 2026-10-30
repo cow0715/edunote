@@ -53,6 +53,20 @@ export async function POST(request: Request) {
   try {
     const prior = await previousJob()
     if (doc.reused && (doc.status !== 'processing' || doc.exam_bank_id || prior)) return await reuse(prior)
+    if (p.bookCode === 'suteuk_reading' || p.bookCode === 'suwan_english') {
+      // Single-file entry uses the same profile/pilot/cost gates as a four-file
+      // bundle. A deterministic request identity survives a registration crash.
+      const h = createHash('sha256').update(JSON.stringify([auth.teacherId, p])).digest('hex')
+      const requestKey = `${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-8${h.slice(17,20)}-${h.slice(20,32)}`
+      const { POST: registerBundle } = await import('./bundles/route')
+      const response = await registerBundle(new Request(new URL('/api/book-pdf/bundles', request.url), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestKey, files: [p] }),
+      }))
+      const body = await response.json()
+      if (!response.ok) return err(body.error || '교재 묶음 접수 실패', response.status)
+      const linked = await previousJob()
+      return ok({ ...body, document_id: doc.id, job_id: linked?.id, status: linked?.status }, { status: response.status })
+    }
     const job = await registerPdfImport({ kind: 'bank_book', teacherId: auth.teacherId!, authId: auth.user!.id, targetId: doc.id,
       storagePath: p.storagePath, payload: { fileName: p.fileName, title: doc.title, mimeType: 'application/pdf', bookProcessing: 'batch-v1', bookCode: doc.book_code } })
     return ok({ ...job, document_id: job.target_id }, { status: 202 })

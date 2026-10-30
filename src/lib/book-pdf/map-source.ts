@@ -1,5 +1,5 @@
 import { buildFileBlock, callLlmTextDetailed, parseJsonObjectResponse } from '../llm/client'
-import { resolveSourceMap, sourceMapEvidence, sourceMapSchema, type SourcePage } from './source-map'
+import { resolveSourceMap, sourceMapEvidence, sourceMapSchema, type SourcePage, type SourceMap } from './source-map'
 import { readCachedBookCall } from './checkpoints'
 import { LEGACY_LAYOUT_SOURCE_MAP_PROMPT } from './legacy-prompts'
 import type { CallLlmOptions } from '../llm/types'
@@ -23,13 +23,36 @@ type: purpose,mood,claim,implication,topic,title,summary,blank_vocabulary,blank_
 id는 해당 자료 내 문항 고유 식별자. label에는 실제 교재 출처표기(예: [수능특강(영어) 19강 Gateway 2번])와 문항 번호를 연결해서 지정하세요. 누락·불확실한 연결·native 글자와 이미지 불일치는 issues에 기록하세요. 이 경우 추측하지 마세요.
 JSON만 반환: {"groups":[{"passage":[{"s":1,"e":4}],"translation":[],"vocabulary":[],"visual":[],"questions":[{"id":"q1","label":[],"type":"topic","stem":[],"choices":[[],[],[],[],[]],"answer":[],"intent":[],"solution":[]}]}],"ignored":[{"refs":[{"s":5,"e":5}],"reason":"field_label"}],"issues":[]}`
 
-export async function mapBookSource(input: { pages: SourcePage[]; pdf: string; targets?: { key: string; label: string }[]; repair?: { previous: unknown; errors: string[] } }) {
+export async function mapBookSource(input: { pages: SourcePage[]; pdf: string; targets?: { key: string; label: string }[]; repair?: { previous: unknown; errors: string[] }; profileMapping?: SourceMap | null }) {
   const options = (prompt: string): CallLlmOptions => ({ task: 'book.mapSource', stream: true, maxTokens: 12000,
     content: [buildFileBlock(input.pdf, 'application/pdf'), { type: 'text', text: prompt
       + (input.targets ? '\ntargets가 있으면 그 key를 question.id로 그대로 쓰고 원문 출처표기와 대조하세요. 대상 묶음은 한 그룹으로 반환하세요. targets에는 정답이 없으며 원본을 직접 읽으세요.' : '') },
       { type: 'text', text: JSON.stringify({ pages: sourceMapEvidence(input.pages), ...(input.targets ? { targets: input.targets } : {}), ...(input.repair ? { repair: input.repair } : {}) }) }] })
   const request = options(SOURCE_MAP_PROMPT)
-  const call = await readCachedBookCall([request, options(LEGACY_LAYOUT_SOURCE_MAP_PROMPT)]) ?? await callLlmTextDetailed(request)
+  const versions = [request, options(LEGACY_LAYOUT_SOURCE_MAP_PROMPT)]
+  let cached: Awaited<ReturnType<typeof readCachedBookCall>> = null
+  // An invalid original-format candidate must not hide an already paid, valid
+  // layout-v1 candidate for the SAME PDF, coordinates and targets. This is a
+  // structural choice only; image audit and publication proof are still required.
+  const warnings = new Set(input.pages.flatMap(p => p.issues))
+  for (const version of versions) {
+    const candidate = await readCachedBookCall([version])
+    if (!candidate) continue
+    cached ??= candidate
+    if (candidate.stopReason !== 'end_turn') continue
+    try {
+      const parsed = sourceMapSchema.safeParse(parseJsonObjectResponse(candidate.text, 'book-source-map'))
+      if (!parsed.success) continue
+      const keys = parsed.data.groups.flatMap(g => g.questions.map(q => q.id))
+      if (input.targets && (parsed.data.groups.length !== 1 || keys.length !== input.targets.length || input.targets.some(t => !keys.includes(t.key)))) continue
+      const resolved = resolveSourceMap(input.pages, parsed.data)
+      if (resolved.errors.every(e => warnings.has(e))) return { mapping: parsed.data, resolved, usage: candidate.usage }
+    } catch { /* Try the next exact persisted version, never a guessed key. */ }
+  }
+  // A failed paid candidate is retained in the checkpoint store, but must not
+  // hide a complete format-specific mapping. Both paths still need image audit.
+  if (input.profileMapping && !input.repair) return { mapping: input.profileMapping, resolved: resolveSourceMap(input.pages, input.profileMapping), usage: null }
+  const call = cached ?? await callLlmTextDetailed(request)
   if (call.stopReason !== 'end_turn') throw Error('Source mapping response was not complete')
   let mapping: unknown
   try { mapping = parseJsonObjectResponse(call.text, 'book-source-map') } catch { mapping = call.text }

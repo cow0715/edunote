@@ -6,12 +6,14 @@ import { BookResult } from './book-import-panel'
 import { UploadDialog } from './upload-dialog'
 import { BulkExplanationDialog } from './bulk-explanation-dialog'
 import { PdfImportJobList } from '@/components/pdf-import/job-list'
+import { BookBundleHistory, useBookBundles } from './book-bundle'
 
 export function RegistrationPanel({ documentId, onOpenBook, onOpenMaterial }: {
   documentId: string | null; onOpenBook: (id: string) => void; onOpenMaterial: (id: string) => void
 }) {
   const [kind, setKind] = useState<'book' | 'exam'>('book'), [bulkOpen, setBulkOpen] = useState(false)
   const [opened, setOpened] = useState({ book: true, exam: false })
+  const bundles = useBookBundles().data?.bundles ?? []
   function select(value: 'book' | 'exam') { setKind(value); setOpened((previous) => ({ ...previous, [value]: true })) }
   return <div className="mx-auto w-full max-w-3xl space-y-8">
     <section className="min-w-0 space-y-5" aria-label="새 자료 등록">
@@ -24,7 +26,7 @@ export function RegistrationPanel({ documentId, onOpenBook, onOpenMaterial }: {
     {opened.exam && <div hidden={kind !== 'exam'} className="space-y-3"><UploadDialog inline open onOpenChange={() => {}} /><div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><p>기존 기출에 해설지만 추가하려면</p><Button variant="ghost" className="min-h-11" onClick={() => setBulkOpen(true)}>일괄 해설 등록</Button></div></div>}
     </section>
     {documentId && <div id="book-result"><BookResult key={documentId} id={documentId} /></div>}
-    <section className="min-w-0 border-t pt-6" aria-label="등록 및 처리 내역"><PdfImportJobList onOpenBook={onOpenBook} onOpenMaterial={onOpenMaterial} /></section>
+    <section className="min-w-0 space-y-5 border-t pt-6" aria-label="등록 및 처리 내역"><BookBundleHistory bundles={bundles} onOpenBook={onOpenBook} /><PdfImportJobList excludedTargetIds={bundles.flatMap(b => b.files.map(f => f.document_id))} onOpenBook={onOpenBook} onOpenMaterial={onOpenMaterial} /></section>
     <BulkExplanationDialog open={bulkOpen} onOpenChange={setBulkOpen} />
   </div>
 }

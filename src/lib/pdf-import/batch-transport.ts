@@ -11,13 +11,16 @@ import { getPdfWorkerContext } from './context'
 import { costEnvironment } from '../costs/record'
 import { BOOK_BATCH_WINDOW, batchCostReservation, bookCostProtocol, PdfCostStopped, type BookCostSummary } from './cost-policy'
 import { SOURCE_MAP_PROMPT } from '../book-pdf/map-source'
-import { SOURCE_AUDIT_PROMPT, SOURCE_REPAIR_PROMPT } from '../book-pdf/audit-source'
+import { BOOK_PROFILE_VERSION } from '../book-pdf/profiles'
+import { EXPLANATION_WRITING_RULES } from '../llm/material-enrichment-contract'
+import { NATIVE_RECOVERY_REVISION } from '../book-pdf/recovery-policy'
+import { SOURCE_AUDIT_PROMPT, SOURCE_AUDIT_REPAIR_PROMPT, SOURCE_PATCH_REPAIR_PROMPT } from '../book-pdf/audit-source'
 import type { PdfImportJob } from './types'
 import { allowsPdfBatchTask } from './batch-policy'
-import { PDF_BATCH_MAX_BYTES, PDF_BATCH_REQUEST_ATTEMPTS, PdfBatchPending, PdfBatchRequestFailed, PdfBatchStopped, retryableBatchResult } from './batch-policy'
+import { PDF_BATCH_MAX_BYTES, PDF_BATCH_REQUEST_ATTEMPTS, PdfBatchPending, PdfBundleDeferred, PdfBatchRequestFailed, PdfBatchStopped, retryableBatchResult } from './batch-policy'
 
 type RequestMeta = { key: string; retryGroup?: string; unitKey?: string; maxOutputTokens?: number; task: CallLlmOptions['task']; model: string; configVersion: string; promptHash: string; promptVersion: string; schemaVersion: string }
-type BatchRow = { id: string; provider_id: string | null; state: 'submitting' | 'submitted' | 'ended' | 'rejected'; requests: RequestMeta[]; created_at: string }
+type BatchRow = { id: string; provider_id: string | null; state: 'submitting' | 'submitted' | 'ended' | 'rejected'; requests: RequestMeta[]; created_at: string; outcomes?: Record<string, string> }
 type Delivery = { result: LlmDetailedResult } | { error: string; attempts?: number }
 type Pending = { meta: RequestMeta; request: BatchCreateParams.Request; bytes: number }
 export type PdfBatchProvider = {
@@ -53,7 +56,7 @@ export class PdfBatchTransport {
   private pending = new Map<string, Pending>()
   private pendingBytes = 32
   constructor(private db: SupabaseClient, private job: PdfImportJob, private context: PdfWorkerContext, private provider: PdfBatchProvider) {
-    if (job.kind === 'bank_book' && !context.cacheOnly) context.canPrepareUnit = (unit) => this.pending.size < BOOK_BATCH_WINDOW
+    if (job.kind === 'bank_book' && !context.cacheOnly) context.canPrepareUnit = (unit) => this.pending.size < (job.payload?.bookProfile === BOOK_PROFILE_VERSION ? 4 : BOOK_BATCH_WINDOW)
       || [...this.pending.values()].some((entry) => entry.meta.unitKey === unit)
   }
 
@@ -61,7 +64,7 @@ export class PdfBatchTransport {
     const { error } = await this.db.rpc('book_pdf_batch_update', { p_job: this.job.id, p_token: this.job.lease_token,
       p_batch: row.id, p_state: state, p_provider: providerId, p_outcomes: outcomes })
     if (error) throw new Error('PDF 배치 상태 저장 실패')
-    row.state = state; row.provider_id = providerId
+    row.state = state; row.provider_id = providerId; row.outcomes = outcomes
   }
 
   private async recordBatchUsage(row: BatchRow) {
@@ -132,7 +135,8 @@ export class PdfBatchTransport {
   }
 
   private attempts(key: string, group = key) {
-    return this.rows.flatMap((row) => row.requests).filter((meta) => meta.key === key || meta.key === group || meta.retryGroup === group).length
+    return this.rows.filter(row => !(row.state === 'rejected' && row.outcomes?.__not_sent__ === 'deferred'))
+      .flatMap((row) => row.requests).filter((meta) => meta.key === key || meta.key === group || meta.retryGroup === group).length
   }
 
   call = async (options: CallLlmOptions, key: string): Promise<LlmDetailedResult> => {
@@ -156,7 +160,7 @@ export class PdfBatchTransport {
       if (this.pending.size >= 1000 || this.pendingBytes + bytes + 1 > PDF_BATCH_MAX_BYTES) throw new PdfBatchPending()
       const unitKey = getPdfWorkerContext()?.unitKey ?? this.context.unitKey
       if (this.job.kind === 'bank_book' && !/^unit-[0-9]+$/.test(unitKey ?? '')) throw new PdfBatchStopped('교재 비용을 연결할 지문 식별자가 없어 접수를 중지했습니다.')
-      if (this.job.kind === 'bank_book' && this.pending.size >= BOOK_BATCH_WINDOW) throw new PdfBatchPending()
+      if (this.job.kind === 'bank_book' && this.pending.size >= (this.job.payload?.bookProfile === BOOK_PROFILE_VERSION ? 4 : BOOK_BATCH_WINDOW)) throw new PdfBatchPending()
       this.pending.set(key, { request, bytes, meta: { key, ...(this.job.kind === 'bank_book' ? { unitKey, maxOutputTokens: options.maxTokens } : {}), ...(options.batchRetryGroup ? { retryGroup: options.batchRetryGroup } : {}), task: options.task, model: model.id, configVersion: options.execution.configVersion,
         promptHash: createHash('sha256').update(typeof options.content === 'string' ? options.content : JSON.stringify(options.content)).digest('hex'),
         promptVersion: task.promptVersion, schemaVersion: task.schemaVersion } })
@@ -183,7 +187,11 @@ export class PdfBatchTransport {
         const status = await this.db.rpc('book_pdf_cost_summary', { p_job: this.job.id, p_token: this.job.lease_token })
         if (status.error || !status.data) throw new PdfBatchStopped('파일 예산을 확인하지 못해 접수를 중지했습니다. 비용 관리 SQL을 확인해주세요.')
         const info = status.data as BookCostSummary
-        if (!info.allowed) throw new PdfCostStopped(info)
+        if (!info.allowed) { if (['bundle_busy', 'bundle_preparing'].includes(info.reason ?? '')) throw new PdfBundleDeferred(); throw new PdfCostStopped(info) }
+        if (!Number.isSafeInteger(info.call_limit) || info.call_limit! <= 0 || !Number.isSafeInteger(info.calls_used) || info.calls_used! < 0) {
+          throw new PdfBatchStopped('파일 누적 호출 상한 SQL이 적용되지 않아 새 접수를 중지했습니다.')
+        }
+        if (info.calls_used! + entries.length > info.call_limit!) throw new PdfCostStopped({ ...info, allowed: false, reason: 'file_call_limit' })
         if (!this.provider.countTokens) throw new PdfBatchStopped('입력 토큰 계산 기능이 없어 접수를 중지했습니다.')
         for (const entry of entries) {
           const countKey = `batch-token-count:${entry.meta.key}`
@@ -197,14 +205,21 @@ export class PdfBatchTransport {
         }
       }
       const { data, error } = await this.db.rpc('book_pdf_batch_prepare', { p_job: this.job.id, p_token: this.job.lease_token, p_requests: entries.map((r) => r.meta) })
-      if (error || !data?.[0]) throw new Error('배치 접수 기록을 확보하지 못했습니다.')
+      if (error || !data?.[0]) {
+        if (this.job.kind === 'bank_book') throw new PdfBatchStopped('교재 배치 호출 상한 또는 접수 기록 검사를 통과하지 못했습니다. 새 요청을 보내지 않았습니다.')
+        throw new Error('배치 접수 기록을 확보하지 못했습니다.')
+      }
       const row = data[0] as BatchRow
       this.rows.push(row)
       if (this.job.kind === 'bank_book') {
         const result = await this.db.rpc('book_pdf_cost_reserve', { p_job: this.job.id, p_token: this.job.lease_token,
-          p_batch: row.id, p_estimates: estimates, p_protocol: bookCostProtocol([SOURCE_MAP_PROMPT, SOURCE_AUDIT_PROMPT, SOURCE_REPAIR_PROMPT], entries[0].meta.configVersion) })
+          p_batch: row.id, p_estimates: estimates, p_protocol: bookCostProtocol([SOURCE_MAP_PROMPT, SOURCE_AUDIT_PROMPT, SOURCE_AUDIT_REPAIR_PROMPT, SOURCE_PATCH_REPAIR_PROMPT,
+            EXPLANATION_WRITING_RULES, `native-recovery:${NATIVE_RECOVERY_REVISION}`,
+            ...(this.job.payload?.bookProfile === BOOK_PROFILE_VERSION ? [BOOK_PROFILE_VERSION] : [])], entries[0].meta.configVersion) })
         if (result.error || !result.data || !result.data.allowed) {
-          await this.update(row, 'rejected', null)
+          const deferred = ['bundle_busy', 'bundle_preparing'].includes(result.data?.reason ?? '')
+          await this.update(row, 'rejected', null, deferred ? { __not_sent__: 'deferred' } : {})
+          if (deferred) throw new PdfBundleDeferred()
           if (result.data) throw new PdfCostStopped(result.data as BookCostSummary)
           throw new PdfBatchStopped('파일 예산 예약에 실패해 생성 요청을 보내지 않았습니다.')
         }

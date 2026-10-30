@@ -32,10 +32,26 @@ export function parseSourceAuditResponse(value: unknown) {
   return sourceAuditSchema.safeParse({ ...value, issues })
 }
 const editRef = sourceMapSchema.shape.groups.element.shape.passage
+const sourcePatchSchema = z.object({ before: z.string().max(4096), after: z.string().max(4096) }).strict()
 export const selectiveSourceRepairSchema = z.object({ edits: z.array(z.discriminatedUnion('mode', [
   z.object({ target: sourceAuditTargetSchema, mode: z.literal('refs'), refs: editRef }).strict(),
   z.object({ target: sourceAuditTargetSchema, mode: z.literal('text'), text: z.string().max(80_000), pages: z.array(z.number().int().positive()).min(1).max(4) }).strict(),
-])).max(30), issues: z.array(z.string().min(1).max(1000)).max(30) }).strict()
+  z.object({ target: sourceAuditTargetSchema, mode: z.literal('patch'), patches: z.array(sourcePatchSchema).min(1).max(30),
+    pages: z.array(z.number().int().positive()).min(1).max(4) }).strict(),
+])).max(30), issues: z.array(z.string().min(1).max(1000)).max(30), base_hash: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict()
+/** Whole-field text is accepted only when replaying old responses. New requests
+ * use exact anchored patches, except the short answer/type scalar values. */
+export const compactSourceRepairSchema = selectiveSourceRepairSchema.superRefine((repair, ctx) => {
+  if (!repair.base_hash) ctx.addIssue({ code: 'custom', message: 'Missing candidate hash' })
+  for (const edit of repair.edits) {
+    if (edit.mode === 'text' && (!['answer', 'type'].includes(edit.target.field) || edit.text.length > 64)) {
+      ctx.addIssue({ code: 'custom', message: 'Whole-field text is not permitted in compact repairs' })
+    }
+    if (edit.mode === 'patch' && ['answer', 'type'].includes(edit.target.field)) {
+      ctx.addIssue({ code: 'custom', message: 'Scalar metadata requires an explicit printed value' })
+    }
+  }
+})
 export type SelectiveSourceRepair = z.infer<typeof selectiveSourceRepairSchema>
 const types = new Set(['purpose', 'mood', 'claim', 'implication', 'topic', 'title', 'summary', 'blank_vocabulary', 'blank_phrase', 'grammar', 'vocabulary', 'reference', 'content_match', 'notice', 'order', 'insert', 'irrelevant', 'long_order', 'long_content_match', 'long_title', 'chart', 'other'])
 export const sourceDraftHash = (draft: SourceDraft) => createHash('sha256').update(JSON.stringify(draft)).digest('hex')
@@ -115,11 +131,33 @@ function setText(draft: SourceDraft, t: SourceAuditTarget, text: string) {
   } else q[t.field] = text
 }
 
+/** Locate every edit in the SAME unmodified field. Never fuzzy-match, normalize
+ * whitespace or apply a patch to text produced by another patch. */
+export function applySourceTextPatches(text: string, patches: z.infer<typeof sourcePatchSchema>[]) {
+  const spans = patches.map(({ before, after }) => {
+    if (before === after) throw Error('Source patch makes no change')
+    if (!before && (text || patches.length !== 1)) throw Error('Empty patch anchor is only valid for an empty field')
+    const start = text.indexOf(before), end = start + before.length
+    if (start < 0 || (before && text.indexOf(before, start + 1) !== -1)) throw Error('Source patch anchor must match exactly once')
+    const splitsSurrogate = (offset: number) => offset > 0 && offset < text.length
+      && /[\uD800-\uDBFF]/.test(text[offset - 1]) && /[\uDC00-\uDFFF]/.test(text[offset])
+    if (splitsSurrogate(start) || splitsSurrogate(end)) throw Error('Source patch splits a Unicode character')
+    return { start, end, after }
+  }).sort((a, b) => a.start - b.start)
+  for (let i = 1; i < spans.length; i++) if (spans[i].start < spans[i - 1].end) throw Error('Overlapping source patches')
+  let result = text
+  for (const span of spans.toReversed()) result = result.slice(0, span.start) + span.after + result.slice(span.end)
+  if (result.length > 80_000) throw Error('Repaired source field is too large')
+  return result
+}
+
 /** Atomic, allow-listed field changes. Native source remains unchanged and each
  * OCR override records the before/after values and source-image provenance. */
 export function applySelectiveSourceRepair(input: { pages: SourcePage[]; mapping: SourceMap; draft: SourceDraft; audit: SourceAudit;
   repair: SelectiveSourceRepair; expectedHash: string; imageHashes: Record<number, string> }) {
   if (sourceDraftHash(input.draft) !== input.expectedHash) throw Error('Stale source repair')
+  if ((input.repair.base_hash !== undefined || input.repair.edits.some((e) => e.mode === 'patch'))
+    && input.repair.base_hash !== input.expectedHash) throw Error('Stale source patch hash')
   const auditErrors = sourceAuditErrors(input.audit, input.draft, input.pages)
   if (auditErrors.length) throw Error(auditErrors.join(';'))
   if (input.audit.status !== 'repair' || input.repair.issues.length) throw Error('Repair is not actionable')
@@ -159,7 +197,8 @@ export function applySelectiveSourceRepair(input: { pages: SourcePage[]; mapping
       const issue = allowed.get(sourceTargetKey(edit.target))!
       const permitted = sourceRepairPages(issue, input.pages, input.mapping)
       if (edit.pages.some((p) => !permitted.includes(p) || !input.imageHashes[p])) throw Error('Repair image is outside the audited source')
-      setText(draft, edit.target, edit.text)
+      setText(draft, edit.target, edit.mode === 'patch'
+        ? applySourceTextPatches(String(before), edit.patches) : edit.text)
     }
     return { target: edit.target, mode: edit.mode, before, after: sourceTargetValue(draft, edit.target),
       imageHashes: Object.fromEntries(sourceRepairPages(allowed.get(sourceTargetKey(edit.target))!, input.pages, input.mapping).map((p) => [p, input.imageHashes[p]])), sourceRefs: edit.mode === 'refs' ? edit.refs : null }

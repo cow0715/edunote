@@ -11,6 +11,7 @@ import { bookFileIssue, bookSelectionIssue, inferBookSelection } from '@/lib/boo
 import type { BookDocument } from '@/lib/book-pdf/types'
 import { BookClassificationFields, type Classification } from './book-classification'
 import { FileUpload } from '@/components/ui/file-upload'
+import { BookBundleUpload } from './book-bundle'
 import { Button } from '@/components/ui/button'
 
 export function useBookDocuments() {
@@ -21,6 +22,7 @@ export function useBookDocuments() {
   }, refetchInterval: (q) => q.state.data?.documents.some((d) => d.status === 'processing') ? 15_000 : false })
 }
 export function BookUploadForm({ onRegistered }: { onRegistered: (id: string) => void }) {
+  const [bundleMode, setBundleMode] = useState(false)
   const [value, setValue] = useState<Classification>({ bookCode: '', academicYear: new Date().getFullYear() + 1, volume: 'full' })
   const [file, setFile] = useState<File | null>(null), [pages, setPages] = useState<number | null>(null)
   const [checking, setChecking] = useState(false), [uploading, setUploading] = useState(false), [error, setError] = useState('')
@@ -62,14 +64,16 @@ export function BookUploadForm({ onRegistered }: { onRegistered: (id: string) =>
       const response = await fetch('/api/book-pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...value, fileName: file.name, storagePath: path }) })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || '교재 등록 실패')
-      await Promise.all(['book-pdf', 'pdf-import-jobs'].map((key) => client.invalidateQueries({ queryKey: [key] })))
+      await Promise.all(['book-pdf', 'pdf-import-jobs', 'book-bundles'].map((key) => client.invalidateQueries({ queryKey: [key] })))
       onRegistered(data.document_id)
       toast.success(data.reused ? '동일한 파일의 기존 자료를 열었습니다. 재파싱하지 않았습니다.' : '등록을 접수했습니다. 이 화면을 닫아도 계속 처리합니다.')
       await choose(null)
     } catch (e) { setError(e instanceof Error ? e.message : '교재 등록 실패') }
     finally { submitting.current = false; setUploading(false) }
   }
+  if (bundleMode) return <BookBundleUpload onBack={() => setBundleMode(false)} />
   return <section className="space-y-5" aria-label="교재 PDF 등록">
+    <div className="flex justify-end"><Button variant="ghost" className="min-h-11" onClick={() => setBundleMode(true)}>여러 교재 함께 등록</Button></div>
     <div className="space-y-2"><p className="text-sm font-medium">교재 PDF</p><FileUpload compact className="w-full [&>button:first-of-type]:min-h-14 [&>button:first-of-type]:w-full [&>button:first-of-type]:justify-start" label="교재 원본 PDF 선택" description="PDF 1개 · 50MB 이하 · 최대 600페이지" accept="application/pdf,.pdf" inputRef={fileRef} fileName={file?.name} disabled={uploading} loading={checking} onChange={(e) => void choose(e.target.files?.[0] ?? null)} onClear={() => void choose(null)} /><p className="text-xs text-muted-foreground">PDF 1개 · 50MB 이하 · 최대 600페이지{file && hints?.code ? ' · 파일명으로 교재·분권을 채웠습니다.' : ''}</p></div>
     <BookClassificationFields compact value={value} onChange={setValue} disabled={uploading} />
     {hints?.year && hints.year !== value.academicYear && <p className="text-xs leading-relaxed text-muted-foreground">파일명에는 {hints.year}년이 있습니다. 책에 적힌 학년도를 확인해주세요.</p>}

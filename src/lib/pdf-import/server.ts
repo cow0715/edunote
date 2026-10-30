@@ -24,6 +24,7 @@ export async function registerPdfImport(input: {
   kind: PdfImportKind; teacherId: string; authId: string; targetId?: string
   storagePath: string; payload: Record<string, unknown>
   explanationStoragePath?: string
+  deferDispatch?: boolean
 }) {
   gcpWorkerConfig(input.kind) // Fail before reserving work when configuration is missing.
   const client = createServiceClient()
@@ -63,7 +64,7 @@ export async function registerPdfImport(input: {
     await client.storage.from('exam-pdf-temp').remove([input.storagePath, ...(input.explanationStoragePath ? [input.explanationStoragePath] : [])])
   } catch { /* Cleanup failure must not hide an already accepted durable job. */ }
   try {
-    await dispatchPdfJob(id, input.kind)
+    if (!input.deferDispatch) await dispatchPdfJob(id, input.kind)
   } catch {
     // The HTTP outcome may be uncertain. Preserve queued work and let the owner retry safely.
     try {

@@ -9,6 +9,8 @@ export const PDF_BATCH_MODE = 'batch-v1'
 export class PdfBatchPending extends Error {
   constructor() { super('PDF 배치 결과 대기') }
 }
+/** Queue/capacity barriers have no model requests to submit. */
+export class PdfBundleDeferred extends PdfBatchPending {}
 export class PdfBatchRequestFailed extends Error {
   constructor(message: string, readonly attempts?: number) { super(message) }
 }

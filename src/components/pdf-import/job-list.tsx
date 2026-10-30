@@ -12,7 +12,7 @@ const EMPTY_JOBS: ImportJob[] = []
 
 const labels: Record<PdfImportKind, string> = { bank_questions: '문제은행 등록', bank_explanation: '문제은행 해설', bank_book: '교재 추출', week_answers: '주차 PDF 등록' }
 
-export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial }: { weekId?: string; onOpenBook?: (id: string) => void; onOpenMaterial?: (id: string) => void }) {
+export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedTargetIds = [] }: { weekId?: string; onOpenBook?: (id: string) => void; onOpenMaterial?: (id: string) => void; excludedTargetIds?: string[] }) {
   const client = useQueryClient()
   const completed = useRef(new Set<string>())
   const [retrying, setRetrying] = useState<string | null>(null)
@@ -25,7 +25,8 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial }: { weekI
     const prefixes = weekId ? ['exam-questions', 'grade', 'week', 'answer-review'] : ['exam-bank', 'exam-bank-search', 'exam-bank-question-search', 'exam-bank-questions', 'book-pdf', 'vocab-collections']
     prefixes.forEach((prefix) => { void client.invalidateQueries({ queryKey: weekId ? [prefix, weekId] : [prefix] }) })
   }, [jobs, client, weekId])
-  const filtered = jobs.filter((job) => job.status !== 'succeeded').concat(jobs.filter((job) => job.status === 'succeeded').slice(0, weekId ? 3 : 30))
+  const visible = jobs.filter(job => !excludedTargetIds.includes(job.target_id))
+  const filtered = visible.filter((job) => job.status !== 'succeeded').concat(visible.filter((job) => job.status === 'succeeded').slice(0, weekId ? 3 : 30))
   if (query.error) return <div role="alert" className="rounded-xl border p-4 text-sm"><p>{query.error.message}</p><Button variant="outline" onClick={() => void query.refetch()}>다시 불러오기</Button></div>
   if (!filtered.length) return weekId ? null : <p className="text-sm text-muted-foreground">{query.isLoading ? '처리 내역을 불러오는 중…' : '등록 내역이 없습니다.'}</p>
   async function retry(id: string) {

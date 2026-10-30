@@ -8,6 +8,8 @@ import { createLlmExecution } from '@/lib/llm/client'
 import type { CallLlmOptions } from '@/lib/llm/types'
 import type { PdfImportJob } from '@/lib/pdf-import/types'
 import type { PdfWorkerContext } from '@/lib/pdf-import/context'
+import { BOOK_PROFILE_VERSION } from '@/lib/book-pdf/profiles'
+import { PdfBundleDeferred } from '@/lib/pdf-import/batch-policy'
 
 const key = 'a'.repeat(64)
 function fixture(kind: PdfImportJob['kind'] = 'bank_book') {
@@ -15,7 +17,7 @@ function fixture(kind: PdfImportJob['kind'] = 'bank_book') {
   const saved = new Map<string, unknown>()
   const db = { from: () => ({ select: () => ({ eq: () => ({ order: async () => ({ data: structuredClone(rows), error: null }) }) }) }),
     rpc: vi.fn(async (name, args): Promise<{ data?: unknown; error: null }> => {
-      if (name === 'book_pdf_cost_summary' || name === 'book_pdf_cost_reserve') return { data: { allowed: true, reason: null, limit_usd: 5, spent_usd: 0, reserved_usd: 0 }, error: null }
+      if (name === 'book_pdf_cost_summary' || name === 'book_pdf_cost_reserve') return { data: { allowed: true, reason: null, limit_usd: 5, spent_usd: 0, reserved_usd: 0, call_limit: 1000, calls_used: 0 }, error: null }
       if (name === 'pdf_batch_record_usage') return { error: null }
       if (name === 'book_pdf_batch_prepare') {
         const row = { id: `row-${rows.length}`, state: 'submitting', provider_id: null, requests: args.p_requests, created_at: new Date().toISOString() }
@@ -30,10 +32,10 @@ function fixture(kind: PdfImportJob['kind'] = 'bank_book') {
   const context: PdfWorkerContext = { unitKey: 'unit-1', signal: new AbortController().signal, concurrency: 2, execute: (call) => call(),
     stage: async () => {}, read: async <T>(k: string) => saved.get(k) as T ?? null,
     write: async (k, v) => { if (!saved.has(k)) saved.set(k, v) } }
-  const job = { id: 'job', kind, lease_token: 'lease' } as PdfImportJob
+  const job = { id: 'job', kind, lease_token: 'lease', payload: {} } as PdfImportJob
   const broker = () => new BookBatchTransport(db as unknown as SupabaseClient, job, context, provider as BookBatchProvider)
   const options: CallLlmOptions = { task: 'book.mapSource', maxTokens: 12000, content: 'test source', execution: createLlmExecution() }
-  return { rows, saved, db, provider, context, broker, options }
+  return { rows, saved, db, provider, context, broker, options, job }
 }
 function success(stop = 'end_turn'): MessageBatchIndividualResponse {
   return { custom_id: key, result: { type: 'succeeded', message: { content: [{ type: 'text', text: '{"groups":[]}' }],
@@ -42,6 +44,44 @@ function success(stop = 'end_turn'): MessageBatchIndividualResponse {
 const responseStream = (responses: MessageBatchIndividualResponse[]) => (async function* () { for (const r of responses) yield r })()
 
 describe('durable textbook Batch API transport', () => {
+  it('limits format-profile collection to four requests while leaving the legacy window intact',async()=>{
+    const f=fixture();f.job.payload.bookProfile=BOOK_PROFILE_VERSION
+    const broker=f.broker();await broker.poll()
+    for(let n=0;n<6;n++)await expect(broker.call({...f.options,content:`unit ${n}`},n.toString(16).padStart(64,'b'))).rejects.toBeInstanceOf(BookBatchPending)
+    expect(f.context.canPrepareUnit?.('unit-2')).toBe(false)
+    await broker.submit()
+    expect(f.provider.create.mock.calls[0][0]).toHaveLength(4)
+  })
+  it('defers a bundle capacity barrier without counting tokens or contacting the provider',async()=>{
+    const f=fixture(),broker=f.broker();await broker.poll()
+    await expect(broker.call(f.options,key)).rejects.toBeInstanceOf(BookBatchPending)
+    f.db.rpc.mockImplementationOnce(async()=>({data:{allowed:false,reason:'bundle_preparing'},error:null}))
+    await expect(broker.submit()).rejects.toBeInstanceOf(PdfBundleDeferred)
+    expect(f.provider.countTokens).not.toHaveBeenCalled();expect(f.provider.create).not.toHaveBeenCalled()
+  })
+  it('blocks a file call ceiling before token counting or provider submission', async () => {
+    const f=fixture(), broker=f.broker(); await broker.poll()
+    await expect(broker.call(f.options,key)).rejects.toBeInstanceOf(BookBatchPending)
+    f.db.rpc.mockImplementationOnce(async()=>({data:{allowed:true,reason:null,limit_usd:5,spent_usd:0,reserved_usd:0,call_limit:1,calls_used:1},error:null}))
+    await expect(broker.submit()).rejects.toThrow('누적 AI 호출 상한')
+    expect(f.provider.countTokens).not.toHaveBeenCalled(); expect(f.provider.create).not.toHaveBeenCalled()
+  })
+  it('fails closed when the server does not expose a durable call ceiling', async () => {
+    const f=fixture(), broker=f.broker(); await broker.poll()
+    await expect(broker.call(f.options,key)).rejects.toBeInstanceOf(BookBatchPending)
+    f.db.rpc.mockImplementationOnce(async()=>({data:{allowed:true,reason:null,limit_usd:5,spent_usd:0,reserved_usd:0},error:null}))
+    await expect(broker.submit()).rejects.toThrow('누적 호출 상한 SQL')
+    expect(f.provider.countTokens).not.toHaveBeenCalled(); expect(f.provider.create).not.toHaveBeenCalled()
+  })
+  it('does not submit if a concurrent claim consumes the last server call slot', async () => {
+    const f=fixture(), broker=f.broker(); await broker.poll()
+    await expect(broker.call(f.options,key)).rejects.toBeInstanceOf(BookBatchPending)
+    const original=f.db.rpc.getMockImplementation()!
+    f.db.rpc.mockImplementation(async(name,args)=> name === 'book_pdf_batch_prepare'
+      ? { data: null, error: { message: 'file cumulative call limit exceeded' } } as never : original(name,args))
+    await expect(broker.submit()).rejects.toBeInstanceOf(BookBatchStopped)
+    expect(f.provider.create).not.toHaveBeenCalled()
+  })
   it('blocks an over-budget file before counting or sending any new request', async () => {
     const f=fixture(),broker=f.broker();await broker.poll()
     await expect(broker.call(f.options,key)).rejects.toBeInstanceOf(BookBatchPending)

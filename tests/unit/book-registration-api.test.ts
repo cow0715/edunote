@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
-const m=vi.hoisted(()=>({auth:vi.fn(),service:vi.fn(),rpc:vi.fn(),download:vi.fn(),remove:vi.fn(),previous:vi.fn(),register:vi.fn()}))
+const m=vi.hoisted(()=>({auth:vi.fn(),service:vi.fn(),rpc:vi.fn(),download:vi.fn(),remove:vi.fn(),previous:vi.fn(),register:vi.fn(),bundle:vi.fn()}))
 vi.mock('@/lib/book-pdf/server',()=>({bookTeacher:m.auth}))
 vi.mock('@/lib/supabase/service',()=>({createServiceClient:m.service}))
 vi.mock('@/lib/pdf-import/server',()=>({registerPdfImport:m.register}))
+vi.mock('@/app/api/book-pdf/bundles/route',()=>({POST:m.bundle}))
 import {POST} from '@/app/api/book-pdf/route'
 const valid={bookCode:'suteuk_english',academicYear:2027,volume:'upper',fileName:'수능특강 영어(상).pdf',storagePath:'user/source.pdf'}
 const request=(patch:Record<string,unknown>={})=>new Request('https://app/api/book-pdf',{method:'POST',body:JSON.stringify({...valid,...patch})})
@@ -13,6 +14,7 @@ beforeEach(()=>{
   m.rpc.mockResolvedValue({data:{id:'doc',status:'processing',title:'2027학년도 수능특강 영어 · 상',book_code:'suteuk_english',reused:false},error:null})
   m.download.mockResolvedValue({data:new Blob(['%PDF-fixture']),error:null});m.remove.mockResolvedValue({error:null})
   m.previous.mockResolvedValue({data:null,error:null});m.register.mockResolvedValue({job_id:'job',target_id:'doc',accepted:true})
+  m.bundle.mockImplementation(async()=>Response.json({bundle_id:'bundle',accepted:true},{status:202}))
   const q={select:()=>q,eq:()=>q,order:()=>q,limit:()=>q,maybeSingle:m.previous}
   m.service.mockReturnValue({rpc:m.rpc,from:()=>q,storage:{from:()=>({download:m.download,remove:m.remove})}})
 })
@@ -20,11 +22,15 @@ describe('structured textbook registration',()=>{
   it.each([
     ['suteuk_reading','upper','수능영독(상).pdf'], ['suteuk_reading','lower','수특영독(하).pdf'],
     ['suwan_english','type','수완(유형).pdf'], ['suwan_english','practical','수완(실전).pdf'],
-  ])('registers verified %s %s through the existing Batch worker',async (bookCode,volume,fileName)=>{
+  ])('registers verified %s %s through the profile bundle gates',async (bookCode,volume,fileName)=>{
     const response=await POST(request({bookCode,volume,fileName}))
     expect(response.status).toBe(202)
     expect(m.rpc).toHaveBeenCalledWith('book_pdf_reserve',expect.objectContaining({p_code:bookCode,p_volume:volume}))
-    expect(m.register).toHaveBeenCalledWith(expect.objectContaining({kind:'bank_book',payload:expect.objectContaining({bookProcessing:'batch-v1'})}))
+    expect(m.bundle).toHaveBeenCalledOnce()
+    const body=await (m.bundle.mock.calls[0][0] as Request).json()
+    expect(body).toMatchObject({files:[{bookCode,volume,fileName}]})
+    expect(body.requestKey).toMatch(/^[a-f0-9-]{36}$/)
+    expect(m.register).not.toHaveBeenCalled()
   })
   it('hashes the actual owned PDF and uses the verified Batch worker',async()=>{
     expect((await POST(request())).status).toBe(202)

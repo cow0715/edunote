@@ -14,6 +14,7 @@ import { resolveSourceMap, sourceMapSchema } from './source-map'
 import { NATIVE_RECOVERY_REVISION } from './recovery-policy'
 import { BookBatchRequestFailed } from './batch-policy'
 import { bookExtractionSchema } from './types'
+import type { ProfileSource } from './profile-preflight'
 import type { BookEnrichment, BookExtraction, BookUnitManifest, BookValidation, BookVerification } from './types'
 
 type SourceResult = { extraction: BookExtraction | null; validation: BookValidation; verification: BookVerification }
@@ -25,7 +26,7 @@ function qualityError(error: unknown) {
 
 /** Source parsing and enrichment are separate checkpoints. A failed enrichment
  * never sends a verified PDF back through paid mapping/image-audit calls. */
-export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdfHash: string; bytes: Uint8Array }): Promise<NativeBookResult> {
+export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdfHash: string; bytes: Uint8Array; prepared?: ProfileSource }): Promise<NativeBookResult> {
   const { unit, pdfHash } = input, context = getPdfWorkerContext()
   const sourceKey = bookFingerprint({ pipeline: 'native-image-v1', unit: bookSourceFingerprint(unit), pdfHash, model: MODEL_IDS.sonnet55, render: 'poppler-2000' })
   const layoutKey = bookFingerprint({ pipeline: 'native-image-v1', layout: 1, unit: bookSourceFingerprint(unit), pdfHash, model: MODEL_IDS.sonnet55, render: 'poppler-2000' })
@@ -71,12 +72,12 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
     }
     if (!unit.pages.length || unit.pages.length > 4) return unresolved(['지문 묶음이 이미지 검증 범위(1~4페이지)를 벗어났습니다. 원문을 잘라 처리하지 않습니다.'])
     await reportPdfStage(`${unit.questions[0].label}: 원문 좌표 추출·연결을 확인하는 중`)
-    const pages = await readLayoutSource(input.bytes, unit.pages), pdf = Buffer.from(input.bytes).toString('base64')
+    const pages = input.prepared?.pages ?? await readLayoutSource(input.bytes, unit.pages), pdf = Buffer.from(input.bytes).toString('base64')
     const targets = unit.questions.map(({ key, label }) => ({ key, label }))
     let previous: unknown, errors: string[] = [], mapping: ReturnType<typeof sourceMapSchema.parse> | null = null
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const mapped = await mapBookSource({ pages, pdf, targets, ...(attempt ? { repair: { previous, errors } } : {}) })
+        const mapped = await mapBookSource({ pages, pdf, targets, ...(input.prepared ? { profileMapping: input.prepared.mapping } : {}), ...(attempt ? { repair: { previous, errors } } : {}) })
         previous = mapped.mapping
         const warnings = new Set(pages.flatMap((p) => p.issues))
         errors = mapped.resolved.errors.filter((e) => !warnings.has(e))

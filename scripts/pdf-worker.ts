@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { createServiceClient } from '../src/lib/supabase/service'
 import { createCallLimiter, withPdfWorkerContext, type PdfWorkerContext } from '../src/lib/pdf-import/context'
 import { isUuid, type PdfImportJob } from '../src/lib/pdf-import/types'
-import { isPdfBatchJob, PdfBatchPending, PdfBatchRequestFailed, PdfBatchStopped } from '../src/lib/pdf-import/batch-policy'
+import { isPdfBatchJob, PdfBatchPending, PdfBundleDeferred, PdfBatchRequestFailed, PdfBatchStopped } from '../src/lib/pdf-import/batch-policy'
 import type { PdfBatchTransport } from '../src/lib/pdf-import/batch-transport'
 import { examImportIssues } from '../src/lib/pdf-import/exam-completeness'
 import { savedExamProgress } from '../src/lib/pdf-import/exam-progress'
@@ -37,6 +37,15 @@ export async function main() {
     await new Promise((resolve) => setTimeout(resolve, 5_000))
   }
   if (!job) throw new Error('다른 워커가 작업 중입니다.')
+  if (job.kind === 'bank_book' && !job.payload.bookProfile) {
+    // Registration can link a stopped legacy job without touching it. Only a
+    // later explicitly resumed/claimed worker adopts the bundle adapter. Old
+    // paid checkpoints and the existing protocol/budget latch remain intact.
+    try {
+      const linked = await client.rpc('book_pdf_bundle_job', { p_job: id, p_token: token })
+      if (!linked.error && linked.data?.bookProfile === 'jugis-two-column-v1') job = { ...job, payload: { ...job.payload, ...linked.data } }
+    } catch { /* A legacy single-file deployment need not have bundle SQL yet. */ }
+  }
   process.once('SIGTERM', terminate)
   process.once('SIGINT', terminate)
   let beating = false
@@ -75,7 +84,7 @@ export async function main() {
     const resumeAt = await scheduleBookBatchWake(id!, token, controller.signal)
     // Do not incur AI costs until continuation is actually arranged. This also
     // validates queue/IAM configuration before the first paid batch submission.
-    await submit?.()
+    try { await submit?.() } catch (error) { if (!(error instanceof PdfBundleDeferred)) throw error }
     const { data, error } = await client.rpc('pdf_import_suspend_batch', { p_id: id, p_token: token, p_resume_at: resumeAt })
     if (error || !data) throw new Error('배치 대기 상태 저장 실패')
     console.log(`[pdf-worker] batch-waiting ${id}`)
@@ -96,6 +105,7 @@ export async function main() {
     try {
       result = await withPdfWorkerContext(context, () => runPdfImport(client, job!))
     } catch (error) {
+      if (error instanceof PdfBundleDeferred) { await suspend(); return }
       if (!(error instanceof PdfBatchPending) || !batch) throw error
       await suspend(() => batch!.submit())
       return

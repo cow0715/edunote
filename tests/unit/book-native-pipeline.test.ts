@@ -23,6 +23,13 @@ beforeEach(() => {
 })
 
 describe('native textbook worker pipeline', () => {
+  it('uses the native profile snapshot but still requires original-image audit and supplementation',async()=>{
+    const result=await processNativeBookUnit({...input(),prepared:{pages:fixture.pages,mapping:fixture.mapping,reasons:[]}})
+    expect(mocks.read).not.toHaveBeenCalled()
+    expect(mocks.map.mock.calls[0][0].profileMapping).toEqual(fixture.mapping)
+    expect(mocks.render).toHaveBeenCalledOnce();expect(mocks.audit).toHaveBeenCalledOnce();expect(mocks.enrich).toHaveBeenCalledOnce()
+    expect(bookProofMatches({...result,manifest:fixture.unit,version:1,verified_version:1})).toBe(true)
+  })
   it('reuses an image-verified layout-v1 source after deployment without remapping or rasterizing', async () => {
     const source = await processNativeBookUnit(input())
     const saved = { extraction: source.extraction, validation: source.validation, verification: source.verification }
