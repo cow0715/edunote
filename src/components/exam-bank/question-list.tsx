@@ -29,9 +29,13 @@ export function QuestionList({ examId, bookMode = false }: { examId: string; boo
   const queryClient = useQueryClient()
   const [editTarget, setEditTarget] = useState<ExamBankQuestion | null | 'new'>(null)
 
-  const { data: questions, isLoading } = useQuery<ExamBankQuestion[]>({
+  const { data: questions, isLoading, error, refetch } = useQuery<ExamBankQuestion[]>({
     queryKey: ['exam-bank-questions', examId],
-    queryFn: () => fetch(`/api/exam-bank/${examId}/questions`).then((r) => r.json()),
+    queryFn: async () => {
+      const response = await fetch(`/api/exam-bank/${examId}/questions`)
+      if (!response.ok) throw new Error('문항을 불러오지 못했습니다.')
+      return response.json()
+    },
   })
 
   const deleteMutation = useMutation({
@@ -54,6 +58,7 @@ export function QuestionList({ examId, bookMode = false }: { examId: string; boo
         </Button>
       </div>
 
+      {error && <div role="alert"><p>{error.message}</p><Button variant="outline" onClick={() => void refetch()}>다시 불러오기</Button></div>}
       {isLoading && <p className="text-sm text-gray-400">문항 로딩 중...</p>}
       {!isLoading && !questions?.length && <p className="text-sm text-gray-400">문항 없음</p>}
 

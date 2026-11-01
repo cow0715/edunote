@@ -19,6 +19,16 @@ function choose(name:string,label='교재 원본 PDF 선택'){
   fireEvent.change(screen.getByLabelText(label,{selector:'input'}),{target:{files:[file]}})
 }
 describe('unified registration UI',()=>{
+  it('resolves a material link to its processing result and switches books without uploading',async()=>{
+    vi.stubGlobal('fetch',vi.fn(async()=>Response.json({enabled:true,documents:[{id:'doc-a',title:'교재 A',exam_bank_id:'bank-a'},{id:'doc-b',title:'교재 B',exam_bank_id:'bank-b'}],bundles:[]})))
+    const open=vi.fn()
+    show(<RegistrationPanel documentId={null} materialId="bank-b" onOpenBook={open} onOpenMaterial={vi.fn()} />)
+    expect(await screen.findByText('교재 결과 doc-b')).toBeTruthy()
+    fireEvent.change(screen.getByRole('combobox',{name:'결과를 확인할 교재'}),{target:{value:'doc-a'}})
+    expect(open).toHaveBeenCalledWith('doc-a')
+    expect(m.client).not.toHaveBeenCalled()
+    expect(vi.mocked(fetch).mock.calls.every(([,init])=>!init?.method||init.method==='GET')).toBe(true)
+  })
   it('starts with the book form and separates history after registration controls',async()=>{
     show(<RegistrationPanel documentId={null} onOpenBook={vi.fn()} onOpenMaterial={vi.fn()} />)
     expect((screen.getByRole('radio',{name:'교재'}) as HTMLInputElement).checked).toBe(true)

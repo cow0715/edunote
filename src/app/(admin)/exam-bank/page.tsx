@@ -57,7 +57,7 @@ function BankContents() {
         <TabsContent value="vocab" className="mt-4">
           <VocabCollections />
         </TabsContent>
-        <TabsContent value="import" className="mt-4"><RegistrationPanel documentId={params.get('document')} onOpenBook={openBook} onOpenMaterial={(id) => navigate('list', 'material', id)} /></TabsContent>
+        <TabsContent value="import" className="mt-4"><RegistrationPanel documentId={params.get('document')} materialId={params.get('material')} onOpenBook={openBook} onOpenMaterial={(id) => navigate('list', 'material', id)} /></TabsContent>
       </Tabs>
 
     </div>
