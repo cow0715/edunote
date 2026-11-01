@@ -3,6 +3,7 @@ import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { ocrExamAnswers, ExamOcrQuestion } from '@/lib/anthropic'
 import { oxNotation } from '@/lib/ox-grading'
 import { EXAM_PHOTO_BUCKET } from '@/lib/photo-buckets'
+import { requireExamPhotoPath } from '@/lib/exam-photo'
 
 export const maxDuration = 60
 
@@ -31,12 +32,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .eq('class_id', weekRow.class_id).eq('student_id', studentId).maybeSingle()
   if (studentError) return err('학생 연결 정보를 확인하지 못했습니다. 다시 시도해주세요.', 503)
   if (!classStudent) return err('해당 수업 학생이 아닙니다.', 403)
-  const storagePath = `${weekId}/${studentId}`
+  let storagePath = `${weekId}/${studentId}/${crypto.randomUUID()}`
 
   // 판독할 이미지: 업로드 파일 또는 저장된 사진
   let imageData = fileData ?? null
   let imageMime = mimeType ?? null
   if (useStored) {
+    const { data: saved, error: savedError } = await supabase.from('week_score')
+      .select('exam_photo_path').eq('week_id', weekId).eq('student_id', studentId).maybeSingle()
+    if (savedError) return err('저장된 사진을 확인하지 못했습니다.', 503)
+    storagePath = saved?.exam_photo_path ?? `${weekId}/${studentId}`
+    try { storagePath = requireExamPhotoPath(weekId, studentId, storagePath) }
+    catch { return err('저장된 사진과 학생의 연결을 확인하지 못했습니다.', 409) }
     const { data: blob, error: downloadError } = await supabase.storage
       .from(EXAM_PHOTO_BUCKET)
       .download(storagePath)
@@ -51,7 +58,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     try {
       const { error: uploadError } = await supabase.storage
         .from(EXAM_PHOTO_BUCKET)
-        .upload(storagePath, Buffer.from(imageData, 'base64'), { contentType: imageMime, upsert: true })
+        .upload(storagePath, Buffer.from(imageData, 'base64'), { contentType: imageMime, upsert: false })
       if (uploadError) {
         console.error('[ocr-exam-photo] 사진 업로드 실패', uploadError)
         return err('답안지 사진 저장에 실패했습니다. 판독을 시작하지 않았습니다. 사진을 다시 업로드해주세요.', 503)
@@ -60,21 +67,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       console.error('[ocr-exam-photo] 사진 업로드 예외', e)
       return err('답안지 사진 저장에 실패했습니다. 판독을 시작하지 않았습니다. 사진을 다시 업로드해주세요.', 503)
     }
-    try {
-      const { data: linked, error: linkError } = await supabase
-        .from('week_score')
-        .upsert({ week_id: weekId, student_id: studentId, exam_photo_path: storagePath }, { onConflict: 'week_id,student_id' })
-        .select('exam_photo_path')
-        .single()
-      if (linkError || linked?.exam_photo_path !== storagePath) {
-        console.error('[ocr-exam-photo] 학생 사진 연결 실패', linkError)
-        return err('사진 파일은 저장됐지만 학생과 연결하지 못했습니다. 판독을 시작하지 않았습니다. 같은 학생으로 다시 업로드해주세요.', 503)
-      }
-    } catch (e) {
-      console.error('[ocr-exam-photo] 학생 사진 연결 예외', e)
-      return err('사진 파일은 저장됐지만 학생과 연결하지 못했습니다. 판독을 시작하지 않았습니다. 같은 학생으로 다시 업로드해주세요.', 503)
-    }
+
   }
+
+  // Verify nonempty object metadata, not just that upload returned no error.
+  try {
+    const { data: photo, error: photoError } = await supabase.storage.from(EXAM_PHOTO_BUCKET).info(storagePath)
+    if (photoError || !photo || !((photo.size ?? 0) > 0)) {
+      console.error('[ocr-exam-photo] photo_verify_failed', { weekId, studentId, deployment: process.env.VERCEL_DEPLOYMENT_ID })
+      return err('답안지 사진 파일의 저장을 확인하지 못했습니다. 판독을 시작하지 않았습니다. 사진을 다시 업로드해주세요.', 503)
+    }
+  } catch {
+    return err('답안지 사진 파일의 저장을 확인하지 못했습니다. 판독을 시작하지 않았습니다. 사진을 다시 업로드해주세요.', 503)
+  }
+
+  console.info('[ocr-exam-photo] photo_verified', { weekId, studentId, deployment: process.env.VERCEL_DEPLOYMENT_ID })
 
   const { data: questions } = await supabase
     .from('exam_question')

@@ -1,5 +1,7 @@
 'use client'
 
+import { useCaptureRuntime } from './capture-runtime'
+
 import { groupQuestionParents, questionLabel } from '@/lib/question-presentation'
 
 import { useEffect, useState } from 'react'
@@ -10,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { requireExamPhotoPath } from '@/lib/exam-photo'
 import { acceptedObjectiveAnswers, gradeObjective } from '@/lib/objective-grading'
 import { gradeOXAnswer, oxNotation } from '@/lib/ox-grading'
 import { ScoreToggleField } from './score-toggle-field'
@@ -188,12 +191,14 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
   updateAnswer: (studentId: string, questionId: string, value: number | null) => void
   updateAnswerText: (studentId: string, questionId: string, text: string) => void
 }) {
+  const { request } = useCaptureRuntime()
   const hasSubjective = questions.some((q) => q.question_style === 'subjective')
   const disabled = !row.present || !row.reading_present
   const [openImageIds, setOpenImageIds] = useState<Set<string>>(new Set())
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [photoOpen, setPhotoOpen] = useState(false)
   const [rereading, setRereading] = useState(false)
+  const [photoError, setPhotoError] = useState<string | null>(null)
   const [localPhotoPath, setLocalPhotoPath] = useState<string | null>(null)
   const visiblePhotoPath = localPhotoPath ?? examPhotoPath ?? null
 
@@ -207,25 +212,29 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
   useEffect(() => {
     if (!visiblePhotoPath) return
     // fetch 후(then 안) setState — 렌더 중 동기 호출이 아니라 규칙에 걸리지 않는다
-    fetch(`/api/vocab-photo-url?bucket=exam-photos&path=${encodeURIComponent(visiblePhotoPath)}`)
+    request(`/api/vocab-photo-url?bucket=exam-photos&path=${encodeURIComponent(visiblePhotoPath)}`)
       .then((r) => r.json())
       .then((d) => { if (d.url) setPhotoUrl(d.url) })
       .catch(() => {})
-  }, [visiblePhotoPath])
+  }, [visiblePhotoPath, request])
 
   // 저장된 사진으로 재판독 — 재촬영 없이 OCR 만 다시 돌려 답을 다시 채운다
   async function rereadFromStored() {
     setRereading(true)
+    setPhotoError(null)
     try {
-      const resp = await fetch(`/api/weeks/${weekId}/ocr-exam-photo`, {
+      const resp = await request(`/api/weeks/${weekId}/ocr-exam-photo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ studentId: row.student_id, useStored: true }),
       })
       const data = await resp.json()
-      if (data.ok) applyOcrResults(data.results)
-    } catch {
-      // 버튼 옆 상태 표시 없이 조용히 실패 — 재시도 가능
+      if (!resp.ok || !data.ok) throw new Error(data.error ?? '사진 재판독 실패')
+      const photoPath = requireExamPhotoPath(weekId, row.student_id, data.photoPath)
+      updateRow(row.student_id, 'exam_photo_path', photoPath)
+      applyOcrResults(data.results)
+    } catch (error) {
+      setPhotoError(error instanceof Error ? error.message : '사진 재판독 실패')
     } finally {
       setRereading(false)
     }
@@ -303,11 +312,13 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
             weekId={weekId}
             studentId={row.student_id}
             disabled={!row.present}
-            onResult={(results) => {
-              setLocalPhotoPath(`${weekId}/${row.student_id}`)
+            onResult={(results, photoPath) => {
+              setLocalPhotoPath(photoPath)
+              updateRow(row.student_id, 'exam_photo_path', photoPath)
               applyOcrResults(results)
             }}
           />
+          {photoError && <span role="alert" className="text-xs text-red-500">{photoError}</span>}
           {photoUrl && (
             <>
               <button

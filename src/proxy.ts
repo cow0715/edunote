@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function proxy(request: NextRequest) {
+  if (process.env.NODE_ENV === 'development' && request.nextUrl.pathname === '/dev/exam-student-confirm') return NextResponse.next({request})
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(

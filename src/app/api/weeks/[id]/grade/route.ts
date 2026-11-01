@@ -1,6 +1,11 @@
+export async function GET(request: Request, args: { params: Promise<{ id: string }> }) {
+  try { return await handleGET(request, args) } catch(error) { return saveErrorResponse(error) }
+}
+import { requireGradeToken, saveGradePlan, captureGradeVersions } from '@/lib/services/grade-save'
+import { assertGradePhotosAvailable } from '@/lib/exam-photo'
 import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
-import { captureWeekVersion, saveWeekPlan, readingTotals } from '@/lib/services/week-save'
+import { captureWeekVersion, readingTotals } from '@/lib/services/week-save'
 import { insertRows, updateRows, deleteRows, type Statement } from '@/lib/db/statements'
 import { saveErrorResponse, SaveError } from '@/lib/db/errors'
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
@@ -24,21 +29,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!teacherId) return err('강사 정보 없음', 404)
   if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
-  const { student_id, homework_done, memo } = await request.json()
+  const { student_id, homework_done, memo, grade_version } = await request.json()
   if (!student_id) return err('student_id 필요')
 
   try {
-    const version = await captureWeekVersion(user.id, weekId, [student_id])
-    await saveWeekPlan(user.id, weekId, version, insertRows('week_score', [
-      { week_id: weekId, student_id, homework_done: homework_done ?? null, memo: memo || null },
+    const version = requireGradeToken(grade_version)
+    const result = await saveGradePlan(user.id, weekId, version, insertRows('week_score', [
+      { week_id: weekId, student_id, ...(homework_done !== undefined ? { homework_done } : {}), ...(memo !== undefined ? { memo: memo || null } : {}) },
     ], ['week_id', 'student_id']), [student_id])
+    return ok(result)
   } catch (error) { return saveErrorResponse(error) }
 
   return ok({ ok: true })
 }
 
 // 채점 현황 조회
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleGET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
@@ -46,12 +52,14 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (!teacherId) return err('강사 정보 없음', 404)
   if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
-  const { data: week } = await supabase
+  const initialVersion = await captureWeekVersion(user.id, weekId)
+  const { data: week, error: weekError } = await supabase
     .from('week')
     .select('class_id, start_date')
     .eq('id', weekId)
     .single()
 
+  if (weekError) throw new SaveError('주차 조회 실패', 503)
   if (!week) return err('주차 없음', 404)
 
   // 해당 주차 수업일 기준으로 재원 중이었던 학생만 조회
@@ -62,7 +70,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     csQuery = csQuery.is('left_at', null)
   }
 
-  const [{ data: classStudents }, { data: weekScores }, { data: questions }, { data: vocabWords }, { data: activeVocabTest }] = await Promise.all([
+  const reads = await Promise.all([
     csQuery,
     supabase.from('week_score').select('*, student_answer(*), student_vocab_answer(*, vocab_word(*), vocab_word_variant(*))').eq('week_id', weekId),
     supabase.from('exam_question').select('*, exam_question_tag(concept_tag(*, concept_category(*)))').eq('week_id', weekId).eq('exam_type', 'reading').order('display_order', { nullsFirst: false }).order('question_number').order('sub_label', { nullsFirst: true }),
@@ -70,12 +78,16 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     supabase.from('vocab_test').select('id').eq('week_id', weekId).eq('is_active', true).order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ])
 
+  if (reads.some(result => result.error)) throw new SaveError('채점 자료 조회 실패', 503)
+  const [{data: classStudents}, {data: weekScores}, {data: questions}, {data: vocabWords}, {data: activeVocabTest}] = reads
+
   let vocabTestItemByWordId = new Map<string, { test_number: number; prompt_text: string | null; prompt_source: string | null; vocab_word_variant?: { word: string; meaning: string | null; relation_type: string } | null }>()
   if (activeVocabTest?.id) {
-    const { data: testItems } = await supabase
+    const { data: testItems, error: testItemsError } = await supabase
       .from('vocab_test_item')
       .select('vocab_word_id, test_number, prompt_text, prompt_source, vocab_word_variant(word, meaning, relation_type)')
       .eq('vocab_test_id', activeVocabTest.id)
+    if (testItemsError) throw new SaveError('시험 문항 조회 실패',503)
     vocabTestItemByWordId = new Map((testItems ?? []).map((item) => [
       item.vocab_word_id,
       { ...item, vocab_word_variant: one(item.vocab_word_variant) },
@@ -116,11 +128,12 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   let attendance: { student_id: string; status: string }[] = []
   if (week.start_date) {
-    const { data: att } = await supabase
+    const { data: att, error: attendanceError } = await supabase
       .from('attendance')
       .select('student_id, status')
       .eq('class_id', week.class_id)
       .eq('date', week.start_date)
+    if (attendanceError) throw new SaveError('출결 조회 실패',503)
     attendance = att ?? []
   }
 
@@ -130,7 +143,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     )
   )
 
-  return ok({ classStudents: sortedClassStudents, weekScores: displayWeekScores, questions, attendance, vocabWords })
+  const grade_versions = await captureGradeVersions(user.id,weekId,sortedClassStudents.map(cs=>cs.student_id),initialVersion)
+  return ok({ grade_versions, classStudents: sortedClassStudents, weekScores: displayWeekScores, questions, attendance, vocabWords })
 }
 
 // 일괄 저장 + 서술형 AI 배치 채점
@@ -151,6 +165,8 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
   if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
   type GradeRow = {
+    grade_version: unknown
+    exam_photo_path?: string | null
     student_id: string
     student_name: string
     present: boolean
@@ -187,7 +203,11 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
 
   if (!Array.isArray(rows) || rows.some(row => !row.student_id || !Array.isArray(row.answers))) throw new SaveError('채점 데이터가 올바르지 않습니다.')
   if (new Set(rows.map(row => row.student_id)).size !== rows.length) throw new SaveError('학생이 중복되었습니다.')
-  const version = await captureWeekVersion(user.id, weekId, rows.map(row => row.student_id))
+  if (!rows.length) throw new SaveError('학생 목록이 비어 있습니다.',422)
+  const version = Object.fromEntries(rows.map(row=>[row.student_id,requireGradeToken(row.grade_version)]))
+  const current = await captureGradeVersions(user.id,weekId,rows.map(row=>row.student_id))
+  if (current.some(v=>v.revision !== version[v.student_id])) throw new SaveError('답안이 변경됐습니다. 새로고침해주세요.',409)
+  await assertGradePhotosAvailable(supabase,weekId,rows)
   const statements: Statement[] = []
   const { data: existingScores, error: existingError } = await supabase.from('week_score').select('id,student_id').eq('week_id', weekId)
   if (existingError) throw new SaveError('채점 자료 조회 실패', 503)
@@ -197,6 +217,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     .from('exam_question')
     .select('id, question_number, sub_label, correct_answer, extra_correct_answers, all_correct, correct_answer_text, grading_criteria, question_style, question_text, question_stem, passage')
     .eq('week_id', weekId)
+    .eq('exam_type', 'reading')
 
   if (questionsError) throw new SaveError('문항 조회 실패', 503)
   const questionMap = new Map(allQuestions?.map((q) => [q.id, q]) ?? [])
@@ -210,11 +231,11 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
       statements.push(deleteRows('week_score', sql`week_id=${weekId}::uuid and student_id=${row.student_id}::uuid`))
       continue
     }
-    if (row.answers.some(answer => !questionMap.has(answer.exam_question_id))) throw new SaveError('다른 주차의 문항을 저장할 수 없습니다.', 403)
+    if (row.reading_present !== false && row.answers.some(answer => !questionMap.has(answer.exam_question_id))) throw new SaveError('다른 주차의 문항을 저장할 수 없습니다.', 403)
     const score = { id: scoreMap.get(row.student_id) ?? randomUUID() }
     statements.push(...insertRows('week_score', [{ id: score.id, week_id: weekId, student_id: row.student_id,
       vocab_correct: row.vocab_correct, reading_correct: row.reading_present === false ? null : row.reading_correct,
-      homework_done: row.homework_done, memo: row.memo || null }], ['week_id','student_id']))
+      homework_done: row.homework_done, memo: row.memo || null, ...(row.reading_present !== false && row.exam_photo_path ? {exam_photo_path:row.exam_photo_path}: {}) }], ['week_id','student_id']))
 
     // reading_present=false이면 answers 처리 스킵 + reading_correct=null 이미 upsert됨
     if (row.reading_present === false) continue
@@ -253,11 +274,12 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
             week_score_id: score.id,
             exam_question_id: a.exam_question_id,
             student_answer: isTextAnswer ? null : a.student_answer,
-            student_answer_text: isTextAnswer ? (a.student_answer_text ?? null) : null,
-            ox_selection: style === 'ox' ? (a.ox_selection ?? null) : null,
+            student_answer_text: style === 'ox' ? parseOXStudentInput(a.student_answer_text).correction : isTextAnswer ? (a.student_answer_text ?? null) : null,
+            ox_selection: style === 'ox' ? parseOXStudentInput(a.student_answer_text).oxSelection : null,
             is_correct: a.is_correct ?? false,
             needs_review: false,
             teacher_confirmed: true,
+            ai_feedback: a.ai_feedback ?? null,
           }
         }
 
@@ -326,7 +348,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
           week_score_id: score.id,
           exam_question_id: a.exam_question_id,
           student_answer: isTextAnswer ? null : a.student_answer,
-          student_answer_text: isTextAnswer ? (a.student_answer_text ?? null) : null,
+          student_answer_text: style === 'ox' ? parseOXStudentInput(a.student_answer_text).correction : isTextAnswer ? (a.student_answer_text ?? null) : null,
           ox_selection: null,
           is_correct,
           needs_review,
@@ -359,7 +381,6 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     }
   }
 
-  let aiFailure: string | undefined
   const aiStatements: Statement[] = []
   // 서술형/오류교정 AI 배치 채점 (skip_ai=true이면 건너뜀)
   if (!skipAI && subjectiveForGrading.length > 0) {
@@ -387,14 +408,14 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
       try {
         const gradingResults = await gradeSubjectiveAnswers(subjectiveQuestions, subjectiveForGrading)
         const expectedPairs = new Set(subjectiveForGrading.map(answer => `${answer.week_score_id}:${answer.exam_question_id}`))
+        if (gradingResults.length !== subjectiveForGrading.length || new Set(gradingResults.map(result => `${result.week_score_id}:${result.exam_question_id}`)).size !== subjectiveForGrading.length) throw new SaveError('일부 답안의 채점 결과가 누락/중복됐습니다.',422)
         for (const result of gradingResults) {
           if (!expectedPairs.has(`${result.week_score_id}:${result.exam_question_id}`)) throw new SaveError('AI 채점 응답이 올바르지 않습니다.', 422)
           aiStatements.push(updateRows('student_answer', { is_correct: result.is_correct, needs_review: result.needs_review, ai_feedback: result.ai_feedback },
             sql`week_score_id=${result.week_score_id}::uuid and exam_question_id=${result.exam_question_id}::uuid`, true))
         }
       } catch (e) {
-        aiStatements.length = 0
-        aiFailure = e instanceof Error ? e.message : 'AI 채점 실패'
+        throw new SaveError(e instanceof Error ? e.message : 'AI 채점 실패. 기존 답안은 유지됩니다.',503)
 
       }
     }
@@ -402,6 +423,5 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
 
   statements.push(...aiStatements, ...readingTotals(processedScoreIds))
   if (allQuestions?.length) statements.push(updateRows('week', { reading_total: allQuestions.length }, sql`id=${weekId}::uuid and reading_total=0`))
-  await saveWeekPlan(user.id, weekId, version, statements, rows.map(row => row.student_id))
-  return ok({ ok: true, ...(aiFailure ? { ai_grading_failed: true, ai_error: aiFailure } : {}) })
+  return ok(await saveGradePlan(user.id, weekId, version, statements, rows.map(row => row.student_id)))
 }

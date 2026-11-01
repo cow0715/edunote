@@ -1,7 +1,5 @@
 'use client'
 
-import { BatchGradePanel, type BatchPhotoView } from './batch-grade-panel'
-
 // 일괄 사진 채점 — 학생 수만큼 사진을 한 번에 넣고, 이름 자동 매칭을 확인한 뒤, 병렬로 채점한다.
 //
 // 흐름:  파일 드롭/선택 → (이름란 판독, 병렬) → 매칭 표에서 확인·수정 → 채점 시작 (병렬) → 진행/결과
@@ -13,8 +11,10 @@ import { BatchGradePanel, type BatchPhotoView } from './batch-grade-panel'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { runOrReport } from '@/lib/async-ui'
 import { formatNumberRanges } from '@/lib/utils'
-import { compressImageForUpload } from '@/lib/image-compress'
+import { useCaptureRuntime } from './capture-runtime'
 import type { VocabResult } from './vocab-photo-button'
+import { BatchGradePanel } from './batch-grade-panel'
+import { duplicateExamStudents, isExamStudentConfirmed } from '@/lib/exam-student-confirmation'
 
 type Student = { student_id: string; student_name: string; present: boolean; hasExisting: boolean }
 
@@ -29,6 +29,7 @@ type Item = {
   b64: string | null
   mimeType: string
   studentId: string | null
+  confirmedStudentId: string | null
   confidence: Confidence
   rawName: string | null
   status: 'idle' | 'reading' | 'ready' | 'grading' | 'done' | 'error'
@@ -60,6 +61,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
   /** 학생 한 명 채점 완료마다 호출 — 그리드의 점수 갱신용 */
   onGraded: (studentId: string, vocabCorrect: number, total: number, results: VocabResult[]) => void
 }) {
+  const { request, compress } = useCaptureRuntime()
   const [phase, setPhase] = useState<Phase>('pick')
   const [items, setItems] = useState<Item[]>([])
   const [captureBusy, setCaptureBusy] = useState(false)
@@ -97,10 +99,12 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
       b64: null,
       mimeType: file.type,
       studentId: null,
+      confirmedStudentId: null,
       confidence: 'none',
       rawName: null,
       status: 'idle',
     }))
+    items.forEach(item => URL.revokeObjectURL(item.previewUrl))
     setItems(fresh)
     setPhase('matching')
 
@@ -109,9 +113,9 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
       patch(it.id, { status: 'reading' })
       await runOrReport(async () => {
         // 압축본을 이름 판독·채점 양쪽에 재사용
-        const { base64: b64, mimeType } = await compressImageForUpload(it.file)
+        const { base64: b64, mimeType } = await compress(it.file)
         patch(it.id, { b64, mimeType })
-        const resp = await fetch(`/api/weeks/${weekId}/vocab-photo-name`, {
+        const resp = await request(`/api/weeks/${weekId}/vocab-photo-name`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileData: b64, mimeType }),
@@ -139,26 +143,19 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
   }
 
   // 같은 학생에 사진이 2장 이상 붙었는지
-  const duplicateStudentIds = useMemo(() => {
-    const count = new Map<string, number>()
-    for (const it of items) if (it.studentId) count.set(it.studentId, (count.get(it.studentId) ?? 0) + 1)
-    return new Set([...count.entries()].filter(([, n]) => n > 1).map(([id]) => id))
-  }, [items])
+  const duplicateStudentIds = useMemo(() => duplicateExamStudents(items), [items])
 
   const readyToGrade = items.filter((it) => it.studentId && it.b64)
-  const overwriteCount = readyToGrade.filter((it) => students.find((s) => s.student_id === it.studentId)?.hasExisting).length
+  const confirmedCount = items.filter((it) => isExamStudentConfirmed(it, duplicateStudentIds)).length
+  const allConfirmed = items.length > 0 && confirmedCount === items.length && readyToGrade.length === items.length
 
   async function startGrading() {
-    if (readyToGrade.length === 0 || duplicateStudentIds.size > 0) return
-    if (overwriteCount > 0) {
-      const ok = window.confirm(`${overwriteCount}명은 이미 채점된 데이터가 있습니다.\n교사 확정(잠금) 항목을 제외한 기존 결과가 덮어씌워집니다.\n계속하시겠습니까?`)
-      if (!ok) return
-    }
+    if (phase !== 'review' || !allConfirmed) return
     setPhase('grading')
     await runPool(readyToGrade, CONCURRENCY, async (it) => {
       patch(it.id, { status: 'grading', error: undefined })
       await runOrReport(async () => {
-        const resp = await fetch(`/api/weeks/${weekId}/grade-vocab-photo`, {
+        const resp = await request(`/api/weeks/${weekId}/grade-vocab-photo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ studentId: it.studentId, fileData: it.b64, mimeType: it.mimeType }),
@@ -176,13 +173,14 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
   }
 
   async function retryFailed() {
-    const failed = items.filter((it) => it.status === 'error' && it.studentId && it.b64)
+    if (!allConfirmed) return
+    const failed = items.filter((it) => it.status === 'error' && it.b64 && isExamStudentConfirmed(it, duplicateStudentIds))
     if (failed.length === 0) return
     setPhase('grading')
     await runPool(failed, CONCURRENCY, async (it) => {
       patch(it.id, { status: 'grading', error: undefined })
       await runOrReport(async () => {
-        const resp = await fetch(`/api/weeks/${weekId}/grade-vocab-photo`, {
+        const resp = await request(`/api/weeks/${weekId}/grade-vocab-photo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ studentId: it.studentId, fileData: it.b64, mimeType: it.mimeType }),
@@ -197,22 +195,32 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
     setPhase('done')
   }
 
+  const doneCount = items.filter((it) => it.status === 'done').length
+  const errorCount = items.filter((it) => it.status === 'error').length
   const isBusy = captureBusy || phase === 'matching' || phase === 'grading'
 
-  // Every intake path is now backed by the same local draft; closing keeps the photos.
+  /**
+   * 닫기 요청 처리 (X · 바깥 클릭 · 취소 · Esc 공통).
+   * - 채점 중이면 아예 안 닫힘 (요청은 이미 서버에서 돌고 있어 화면만 잃는다)
+   * - 사진을 넣어둔 상태(매칭 확인 중)나 실패 건이 남은 상태면 confirm — 닫으면 목록이 사라진다
+   * - 그 외(빈 상태, 전부 완료)는 바로 닫힘
+   */
   function requestClose() {
-    if (!isBusy) onOpenChange(false)
+    if (isBusy) return
+    const pendingCount = items.filter((it) => it.status !== 'done').length
+    if (items.length > 0 && pendingCount > 0) {
+      const msg = phase === 'done'
+        ? `채점하지 못한 답안지 ${errorCount}장이 있습니다. 완료된 ${doneCount}명의 결과는 유지됩니다.\n창을 닫으시겠습니까?`
+        : `창을 닫으면 답안지 ${items.length}장의 학생 확인이 초기화됩니다.\n닫으시겠습니까?`
+      if (!window.confirm(msg)) return
+    }
+    onOpenChange(false)
   }
 
-  return (
-    <BatchGradePanel
-      open={open} kind="vocab" draftKey={'vocab:' + weekId}
-      phase={phase === 'grading' ? 'processing' : phase}
-      items={items.map<BatchPhotoView>((item) => ({ ...item, status: item.status === 'idle' || item.status === 'reading' ? 'matching' : item.status === 'grading' ? 'processing' : item.status, message: item.error ?? (item.result ? `정답 ${item.result.vocab_correct}/${item.result.vocab_total}${item.result.missing.length ? ` · 읽지 못한 문항: ${formatNumberRanges(item.result.missing)}` : ''}` : undefined) }))}
-      students={students} busy={isBusy} readyCount={readyToGrade.length} duplicateIds={duplicateStudentIds}
-      onClose={requestClose} onBack={() => setPhase('pick')} onConfirm={addFiles} onCaptureBusy={setCaptureBusy}
-      onSelect={(id, studentId) => patch(id, { studentId, confidence: studentId ? 'high' : 'none' })}
-      onRemove={removeItem} onStart={startGrading} onRetry={retryFailed}
-    />
-  )
+  return <BatchGradePanel open={open} kind="vocab" draftKey={`vocab:${weekId}`} phase={phase === 'grading' ? 'processing' : phase}
+    items={items.map(item => ({...item, status: item.status === 'reading' || item.status === 'idle' ? 'matching' : item.status === 'grading' ? 'processing' : item.status, message: item.error ?? (item.result ? `${item.result.vocab_correct}/${item.result.vocab_total}${item.result.missing.length ? ` · 미인식 ${formatNumberRanges(item.result.missing)}` : ''}` : undefined)}))}
+    students={presentStudents} busy={isBusy || captureBusy} readyCount={readyToGrade.length} duplicateIds={duplicateStudentIds} canStart={allConfirmed}
+    onClose={requestClose} onBack={()=>setPhase('pick')} onConfirm={addFiles} onCaptureBusy={setCaptureBusy}
+    onSelect={(id,studentId)=>patch(id,{studentId,confirmedStudentId:null})} onRemove={removeItem} onStart={startGrading} onRetry={retryFailed}
+    onConfirmStudent={id=>{ const item=items.find(item=>item.id===id); if ((phase==='review'||phase==='done') && item?.studentId && !duplicateStudentIds.has(item.studentId)) patch(id,{confirmedStudentId:item.studentId}) }}/>
 }

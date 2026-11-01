@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MobileGradeCards } from '@/components/grade/mobile-grade-cards'
 import type { GradeRow } from '@/hooks/use-grade'
 afterEach(cleanup)
-const row:GradeRow={student_id:'s',student_name:'학생',present:true,reading_present:true,vocab_correct:0,reading_correct:null,homework_done:0,memo:'',answers:[]}
+const row:GradeRow={grade_version:{score_id:null,revision:'a'.repeat(64)},student_id:'s',student_name:'학생',present:true,reading_present:true,vocab_correct:0,reading_correct:null,homework_done:0,memo:'',answers:[]}
 function setup(overrides:Partial<GradeRow>={},saving=false){
  const onUpdate=vi.fn(),onScoreSave=vi.fn(),onOpen=vi.fn()
  render(<MobileGradeCards rows={[{...row,...overrides}]} vocabTotal={20} readingTotal={10} homeworkTotal={5} showExam saving={saving} onUpdate={onUpdate} onScoreSave={onScoreSave} onOpen={onOpen}/>);return {onUpdate,onScoreSave,onOpen}
