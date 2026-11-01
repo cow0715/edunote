@@ -4,7 +4,7 @@ import { cacheReviewDrafts, clearReviewDraftCache, restoreReviewDrafts } from '@
 import type { ExamQuestion } from '@/lib/types'
 import type { GradeRow } from '@/hooks/use-grade'
 const questions=[{id:'q',question_style:'subjective',correct_answer_text:'model'} as ExamQuestion]
-const rows:GradeRow[]=[{student_id:'s',student_name:'가상학생',present:true,reading_present:true,vocab_correct:null,reading_correct:null,homework_done:null,memo:'',answers:[{exam_question_id:'q',student_answer:null,student_answer_text:'answer',needs_review:true,teacher_confirmed:false}]}]
+const rows:GradeRow[]=[{grade_version:{score_id:null,revision:'a'.repeat(64)},student_id:'s',student_name:'가상학생',present:true,reading_present:true,vocab_correct:null,reading_correct:null,homework_done:null,memo:'',answers:[{exam_question_id:'q',student_answer:null,student_answer_text:'answer',needs_review:true,teacher_confirmed:false}]}]
 const drafts=new Map([['s_q',{student_id:'s',exam_question_id:'q',is_correct:true}]])
 afterEach(()=>{clearReviewDraftCache();vi.useRealTimers();vi.restoreAllMocks()})
 it('isolates weeks and restores only unchanged, unconfirmed answers',()=>{

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Camera, CheckCircle2, ChevronLeft, ChevronRight, Images, X } from 'lucide-react'
+import { Camera, ChevronLeft, ChevronRight, Images, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useGradeData, useSaveGrade, useSaveGradeDraft, useSaveWeekScore, GradeRow } from '@/hooks/use-grade'
@@ -16,6 +16,8 @@ import { SubjectiveReviewPanel } from './subjective-review-panel'
 import { VocabBatchGradeDialog } from './vocab-batch-grade-dialog'
 import { ExamBatchGradeDialog } from './exam-batch-grade-dialog'
 import type { ExamOcrResult } from './exam-photo-button'
+import { mergeGradeDrafts } from '@/lib/grade-draft-merge'
+import { createGradeSaveQueue } from '@/lib/atomic-grade'
 
 // 빈 배열 상수 — 매 렌더마다 새 참조 생성 방지 (useEffect 의존성 안정화)
 const EMPTY_VOCAB: VocabAnswerRow[] = []
@@ -31,13 +33,14 @@ interface Props {
 
 export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onSaved }: Props) {
   const { data, isLoading } = useGradeData(weekId)
-  const saveGrade = useSaveGrade(weekId)
-  const saveDraft = useSaveGradeDraft(weekId)
-  const saveWeekScore = useSaveWeekScore(weekId)
   const [rows, setRows] = useState<GradeRow[]>([])
-  const [savedAt, setSavedAt] = useState<Date | null>(null)
-  const [aiGradingFailed, setAiGradingFailed] = useState(false)
-  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [saveQueue] = useState(createGradeSaveQueue)
+  const syncVersions = useCallback(() => {
+    setRows((prev) => prev.map((row) => ({ ...row, grade_version: saveQueue.resolve(row.grade_version) })))
+  }, [saveQueue])
+  const saveGrade = useSaveGrade(weekId, saveQueue, syncVersions)
+  const saveDraft = useSaveGradeDraft(weekId, saveQueue, syncVersions)
+  const saveWeekScore = useSaveWeekScore(weekId, saveQueue, syncVersions)
   const [sheetView, setSheetView] = useState<{ type: 'vocab' | 'exam'; studentIndex: number } | null>(null)
   const [showReviewPanel, setShowReviewPanel] = useState(false)
   const [batchOpen, setBatchOpen] = useState(false)
@@ -45,8 +48,10 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
   const [localExamPhotoPaths, setLocalExamPhotoPaths] = useState<Map<string, string>>(new Map())
   const queryClient = useQueryClient()
 
-  useEffect(() => {
-    if (!data) return
+  const [syncedData, setSyncedData] = useState<unknown>(null)
+  const [syncedWeek, setSyncedWeek] = useState<string | null>(null)
+  const [baseline, setBaseline] = useState<GradeRow[]>([])
+  if (data && (syncedData !== data || syncedWeek !== weekId)) {
     const { classStudents, weekScores, questions } = data
 
     type SavedAnswer = {
@@ -69,6 +74,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       vocab_word: { number: number; english_word: string } | null
     }
     type ScoreRecord = {
+      grade_revision: number
       student_id: string
       id: string
       vocab_correct: number | null
@@ -89,8 +95,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
       ((data.attendance ?? []) as { student_id: string; status: string }[]).map((a) => [a.student_id, a.status])
     )
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setRows((prev) => {
+    const previous = syncedWeek === weekId ? rows : []
+    const incoming = ((prev: GradeRow[]): GradeRow[] => {
       const prevMap = new Map(prev.map((r) => [r.student_id, r]))
       return (classStudents ?? []).map((cs: { student_id: string; student: { name: string } }) => {
         const score = scoreMap.get(cs.student_id)
@@ -104,6 +110,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
         else if (prevRow !== undefined) present = prevRow.present
         else present = hasAnyScore ? !!score : true
         return {
+          grade_version: data.grade_versions?.find((version: {student_id: string}) => version.student_id === cs.student_id) ?? {score_id:null,revision:null},
+          stored_exam_photo_path: score?.exam_photo_path ?? null,
           student_id: cs.student_id,
           student_name: cs.student?.name ?? '',
           present,
@@ -134,8 +142,13 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           }),
         }
       })
-    })
-  }, [data])
+    })(previous)
+    const resolved = previous.map((row) => ({ ...row, grade_version: saveQueue.resolve(row.grade_version) }))
+    setRows(mergeGradeDrafts(resolved, incoming, syncedWeek === weekId ? baseline : []))
+    setBaseline(incoming)
+    setSyncedData(data)
+    setSyncedWeek(weekId)
+  }
 
   // 단어 답안 맵 (data 변경 시에만 재계산)
   const vocabAnswerMap = useMemo(() => {
@@ -207,7 +220,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
     setRows((prev) =>
       prev.map((r) => {
         if (r.student_id !== studentId) return r
-        return { ...r, answers: r.answers.map((a) => a.exam_question_id === questionId ? { ...a, student_answer: value } : a) }
+        return { ...r, answers: r.answers.map((a) => a.exam_question_id === questionId ? { ...a, student_answer: value, teacher_confirmed: false } : a) }
       })
     )
   }, [])
@@ -231,7 +244,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
   useEffect(() => { rowsRef.current = rows }, [rows])
 
   /** 일괄 판독 결과를 해당 학생 행에 채우고 임시저장. 반영된 문항 수를 돌려준다. */
-  const applyExamOcr = useCallback((studentId: string, results: ExamOcrResult[]) => {
+  const applyExamOcr = useCallback((studentId: string, results: ExamOcrResult[], photoPath: string) => {
     const questionByKey = new Map<string, ExamQuestion>(
       (data?.questions ?? []).map((q: ExamQuestion) => [`${q.question_number}__${q.sub_label ?? ''}`, q] as const),
     )
@@ -253,19 +266,19 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
           applied += 1
         }
       }
-      return { ...r, answers }
+      return { ...r, answers, exam_photo_path: photoPath }
     })
     rowsRef.current = merged
     setRows(merged)
     setLocalExamPhotoPaths((prev) => {
       const next = new Map(prev)
-      next.set(studentId, `${weekId}/${studentId}`)
+      next.set(studentId, photoPath)
       return next
     })
     const target = merged.find((r) => r.student_id === studentId)
     if (target) saveDraft.mutate([target])
     return applied
-  }, [data?.questions, saveDraft, weekId])
+  }, [data?.questions, saveDraft])
 
   const sheetRow = sheetView !== null ? rows[sheetView.studentIndex] ?? null : null
 
@@ -330,6 +343,9 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
 
   return (
     <div className="space-y-3">
+      {rows.some((row) => row.grade_conflict) && (
+        <p role="alert" className="text-sm text-[var(--share-red)]">다른 저장과 겹친 편집이 있습니다. 입력 내용은 유지됩니다. 변경 내용을 확인한 뒤 다시 불러와 주세요.</p>
+      )}
       {questions.length === 0 && (
         <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
           진단평가 채점 칸은 설정 → 해설지 탭에서 PDF를 올리면 자동으로 생성됩니다.
@@ -408,7 +424,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
         )}
 
       <MobileGradeCards rows={rows} vocabTotal={vocabTotal} readingTotal={effectiveReadingTotal} homeworkTotal={homeworkTotal} showExam={showExam} saving={saveGrade.isPending}
-        onUpdate={updateRow} onScoreSave={row => saveWeekScore.mutate({ student_id: row.student_id, homework_done: row.homework_done, memo: row.memo })}
+        onUpdate={updateRow} onScoreSave={row => saveWeekScore.mutate({ student_id: row.student_id, homework_done: row.homework_done, memo: row.memo, grade_version: row.grade_version })}
         onOpen={(type,studentIndex) => setSheetView({ type, studentIndex })} />
       {/* 테이블 */}
       <div className="hidden overflow-x-auto rounded-xl border bg-card md:block">
@@ -496,7 +512,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                             step={0.5}
                             value={row.homework_done}
                             onChange={(e) => updateRow(row.student_id, 'homework_done', Number(e.target.value))}
-                            onBlur={(e) => saveWeekScore.mutate({ student_id: row.student_id, homework_done: Number(e.target.value), memo: row.memo })}
+                            onBlur={(e) => saveWeekScore.mutate({ student_id: row.student_id, grade_version: row.grade_version, homework_done: Number(e.target.value), memo: row.memo })}
                             disabled={!row.present}
                             className="w-12 h-7 text-center text-xs border border-gray-200 rounded-md bg-white disabled:bg-gray-50 disabled:text-gray-300 outline-none focus:border-indigo-400"
                           />
@@ -529,7 +545,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                   <input
                     value={row.memo}
                     onChange={(e) => updateRow(row.student_id, 'memo', e.target.value)}
-                    onBlur={(e) => saveWeekScore.mutate({ student_id: row.student_id, homework_done: row.homework_done, memo: e.target.value })}
+                    onBlur={(e) => saveWeekScore.mutate({ student_id: row.student_id, grade_version: row.grade_version, homework_done: row.homework_done, memo: e.target.value })}
                     disabled={!row.present}
                     placeholder="메모"
                     className="w-full text-xs h-7 bg-transparent outline-none placeholder:text-gray-300 text-gray-700 disabled:cursor-not-allowed"
@@ -572,30 +588,10 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
               </button>
             )
           })()}
-          {aiGradingFailed && (
-            <span className="text-xs text-amber-600">AI 채점 실패 — 데이터는 저장됨</span>
-          )}
-          {savedAt && !aiGradingFailed && (
-            <span className="flex items-center gap-1 text-xs text-green-600">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              저장됨 ({savedAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })})
-            </span>
-          )}
           <Button
             onClick={() => {
-              setAiGradingFailed(false)
               saveGrade.mutate(rows, {
-                onSuccess: (result) => {
-                  if (result?.ai_grading_failed) {
-                    setAiGradingFailed(true)
-                    const now = new Date()
-                    setSavedAt(now)
-                    if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
-                    savedTimerRef.current = setTimeout(() => setSavedAt(null), 10000)
-                  } else {
-                    onSaved?.()
-                  }
-                },
+                onSuccess: () => onSaved?.(),
               })
             }}
             disabled={saveGrade.isPending}
@@ -677,6 +673,8 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
                   key={sheetRow.student_id}
                   row={sheetRow}
                   weekId={weekId}
+                  saveQueue={saveQueue}
+                  onVersionsSaved={syncVersions}
                   weekScoreId={weekScoreIdMap.get(sheetRow.student_id) ?? ''}
                   vocabAnswers={vocabAnswerMap.get(sheetRow.student_id) ?? EMPTY_VOCAB}
                   vocabPhotoPath={vocabPhotoPathMap.get(sheetRow.student_id) ?? null}
@@ -685,6 +683,7 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
               )}
               {sheetView.type === 'exam' && (
                 <ExamSheetContent
+                  key={sheetRow.student_id}
                   weekId={weekId}
                   row={sheetRow}
                   questions={activeQuestions}

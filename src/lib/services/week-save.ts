@@ -77,7 +77,7 @@ export function readingTotals(scoreIds: string[]): Statement[] {
   return [{ query: sql`update public.week_score s set reading_correct=(
     select case when count(*)=0 then null else count(*) filter(where a.is_correct)::integer end
     from public.student_answer a join public.exam_question q on q.id=a.exam_question_id
-    where a.week_score_id=s.id and not coalesce(q.is_void,false))
+    where a.week_score_id=s.id and q.week_id=s.week_id and q.exam_type='reading' and not coalesce(q.is_void,false))
     where s.id in (${sql.join(scoreIds.map(id => sql`${id}::uuid`), sql`, `)})` }]
 }
 
