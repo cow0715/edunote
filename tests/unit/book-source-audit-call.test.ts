@@ -6,6 +6,7 @@ vi.mock('@/lib/llm/client', () => ({ MODELS: { parse: 'test-model' }, callLlmTex
 import { auditAndRepairSource, SOURCE_AUDIT_PROMPT, SOURCE_REPAIR_PROMPT, SOURCE_AUDIT_REPAIR_PROMPT } from '@/lib/book-pdf/audit-source'
 import { sourceAuditFixture } from '../fixtures/book-source-audit'
 import { sourceDraftHash } from '@/lib/book-pdf/source-audit-state'
+import { PdfBatchPending } from '@/lib/pdf-import/batch-policy'
 const pass = { status: 'pass', checks: { content: true, mapping: true, formatting: true, inventory: true }, issues: [] }
 const compactPass = { ...pass, repair: null }
 const response = (v: unknown) => ({ text: JSON.stringify(v), stopReason: 'end_turn', usage: {} })
@@ -15,6 +16,33 @@ function proposed(f: ReturnType<typeof input>, before = 'Original', after = 'Cor
   return { ...f.audit, repair: { base_hash: sourceDraftHash(f.draft), edits: [{ target: f.target, mode: 'patch', patches: [{ before, after }], pages: [9] }], issues: [] } }
 }
 describe('image audit and bounded repair', () => {
+  it('reuses a legacy repair with notes only after an independent full-image pass', async () => {
+    const f = input(), notes = ['The source arrow was represented as ↓.']
+    mock.cached.mockResolvedValueOnce(response(f.audit))
+      .mockResolvedValueOnce(response({ edits: [{ target: f.target, mode: 'text', text: 'Correct sentence.', pages: [9] }], issues: notes }))
+      .mockResolvedValueOnce(response(pass))
+    const result = await auditAndRepairSource(f)
+    expect(result.status).toBe('audited'); expect(result.ledger[0].repair_notes).toEqual(notes)
+    const final = mock.cached.mock.calls[2][0][0].content.at(-1).text
+    expect(JSON.parse(final)).toMatchObject({ round: 2, candidate: [{ extraction: { passage: 'Correct sentence.' } }] })
+    expect(mock.call).not.toHaveBeenCalled()
+  })
+  it.each(['missing', 'unreadable'])('keeps a noted repair unapproved when its final image audit is %s', async (kind) => {
+    const f = input(), original = structuredClone(f.draft)
+    mock.cached.mockResolvedValueOnce(response(f.audit))
+      .mockResolvedValueOnce(response({ edits: [{ target: f.target, mode: 'text', text: 'Correct sentence.', pages: [9] }], issues: ['Some source detail is uncertain.'] }))
+    if (kind === 'missing') {
+      mock.call.mockRejectedValueOnce(new PdfBatchPending())
+      await expect(auditAndRepairSource(f)).rejects.toBeInstanceOf(PdfBatchPending)
+    } else {
+      mock.call.mockResolvedValueOnce(response({ ...compactPass, status: 'unreadable' }))
+      const result = await auditAndRepairSource(f)
+      expect(result.status).toBe('unresolved'); expect(result.errors).toContain('audit_not_actionable')
+      expect(result.ledger[0].repair_notes).toEqual(['Some source detail is uncertain.'])
+    }
+    expect(f.draft).toEqual(original)
+    expect(mock.call).toHaveBeenCalledOnce()
+  })
   it('compares original images in a fresh request without PDF native text as the sole visual source', async () => {
     mock.call.mockResolvedValue(response(compactPass))
     const r = await auditAndRepairSource(input())

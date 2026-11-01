@@ -105,7 +105,7 @@ export async function auditAndRepairSource(input: { pages: SourcePage[]; images:
     if (!repair.success) return finish('unresolved', ['invalid_selective_repair_schema'])
     try {
       const changed = applySelectiveSourceRepair({ pages: input.pages, mapping, draft, audit, repair: repair.data,
-        expectedHash: sourceDraftHash(draft), imageHashes: Object.fromEntries(input.images.map((i) => [i.page, i.sha256])) })
+        expectedHash: sourceDraftHash(draft), imageHashes: Object.fromEntries(input.images.map((i) => [i.page, i.sha256])), allowNotesForReaudit: true })
       mapping = changed.mapping; draft = changed.draft; ledger.push(...changed.ledger)
       repairs++
     } catch (error) { return finish('unresolved', [error instanceof Error ? error.message : 'repair_application_failed']) }

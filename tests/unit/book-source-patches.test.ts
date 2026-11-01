@@ -9,6 +9,18 @@ function fixture(before = 'Original', after = 'Correct') {
 }
 
 describe('anchored textbook source patches', () => {
+  it('retains repair notes only for a provisional candidate awaiting image re-audit', () => {
+    const f = fixture(); f.repair.issues = ['The source arrow was represented as ↓.']
+    expect(() => applySelectiveSourceRepair(f)).toThrow('not actionable')
+    const result = applySelectiveSourceRepair({ ...f, allowNotesForReaudit: true })
+    expect(result.draft[0].extraction.passage).toBe('Correct sentence.')
+    expect(result.ledger[0].repair_notes).toEqual(f.repair.issues)
+    expect(f.draft[0].extraction.passage).toBe('Original sentence.')
+  })
+  it('does not use provisional notes to excuse missing field repairs', () => {
+    const f = fixture(); f.repair.issues = ['One field could not be read.']; f.repair.edits = []
+    expect(() => applySelectiveSourceRepair({ ...f, allowNotesForReaudit: true })).toThrow('exactly the flagged')
+  })
   it('applies only the changed span, with unchanged native text and source-image provenance', () => {
     const f = fixture(), original = structuredClone(f), result = applySelectiveSourceRepair(f)
     expect(result.draft[0].extraction.passage).toBe('Correct sentence.')

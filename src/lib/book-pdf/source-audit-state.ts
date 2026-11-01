@@ -154,13 +154,15 @@ export function applySourceTextPatches(text: string, patches: z.infer<typeof sou
 /** Atomic, allow-listed field changes. Native source remains unchanged and each
  * OCR override records the before/after values and source-image provenance. */
 export function applySelectiveSourceRepair(input: { pages: SourcePage[]; mapping: SourceMap; draft: SourceDraft; audit: SourceAudit;
-  repair: SelectiveSourceRepair; expectedHash: string; imageHashes: Record<number, string> }) {
+  repair: SelectiveSourceRepair; expectedHash: string; imageHashes: Record<number, string>; allowNotesForReaudit?: boolean }) {
   if (sourceDraftHash(input.draft) !== input.expectedHash) throw Error('Stale source repair')
   if ((input.repair.base_hash !== undefined || input.repair.edits.some((e) => e.mode === 'patch'))
     && input.repair.base_hash !== input.expectedHash) throw Error('Stale source patch hash')
   const auditErrors = sourceAuditErrors(input.audit, input.draft, input.pages)
   if (auditErrors.length) throw Error(auditErrors.join(';'))
-  if (input.audit.status !== 'repair' || input.repair.issues.length) throw Error('Repair is not actionable')
+  // Notes never establish correctness. Only the full-image audit caller may
+  // provisionally apply a complete proposal with notes for independent recheck.
+  if (input.audit.status !== 'repair' || (input.repair.issues.length && !input.allowNotesForReaudit)) throw Error('Repair is not actionable')
   const allowed = new Map(input.audit.issues.filter((i) => i.target).map((i) => [sourceTargetKey(i.target!), i]))
   const keys = input.repair.edits.map((e) => sourceTargetKey(e.target))
   if (!keys.length || new Set(keys).size !== keys.length || keys.some((k) => !allowed.has(k)) || [...allowed.keys()].some((k) => !keys.includes(k))) throw Error('Repair must cover exactly the flagged fields')
@@ -201,6 +203,7 @@ export function applySelectiveSourceRepair(input: { pages: SourcePage[]; mapping
         ? applySourceTextPatches(String(before), edit.patches) : edit.text)
     }
     return { target: edit.target, mode: edit.mode, before, after: sourceTargetValue(draft, edit.target),
+      ...(input.repair.issues.length ? { repair_notes: [...input.repair.issues] } : {}),
       imageHashes: Object.fromEntries(sourceRepairPages(allowed.get(sourceTargetKey(edit.target))!, input.pages, input.mapping).map((p) => [p, input.imageHashes[p]])), sourceRefs: edit.mode === 'refs' ? edit.refs : null }
   })
   return { mapping, draft, ledger }
