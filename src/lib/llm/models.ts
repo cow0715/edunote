@@ -3,6 +3,7 @@ import type { LlmProvider, LlmUsage } from './types'
 /** Stable application references; actual provider IDs are maintained only here. */
 export const MODEL_IDS = Object.freeze({
   haiku: 'claude-haiku-4-5-20251001',
+  haiku55: 'claude-haiku-5-5',
   sonnet: 'claude-sonnet-5',
   opus: 'claude-opus-5',
   sonnet55: 'claude-sonnet-5-5',
@@ -34,6 +35,7 @@ export type LlmModel = {
     cacheWrite: number
     checkedAt: string | null
     source: string
+    longContext?: { aboveInputTokens: number; multiplier: number }
   } | null
 }
 
@@ -41,13 +43,16 @@ function model(id: string, label: string, temperature: boolean, rates?: { input:
   return Object.freeze({
     id, label, provider: 'anthropic',
     capabilities: Object.freeze({ image: true, pdf: true, prefixCache: true, prewarm: true, streaming: true, temperature, maxOutputTokens: 32768, contextWindowTokens: null }),
-    pricing: rates ? Object.freeze({ ...rates, cacheRead: rates.input * 0.1, cacheWrite: rates.input * 1.25, checkedAt: '2026-10-06', source: 'https://platform.claude.com/docs/en/about-claude/pricing' }) : null,
+    pricing: rates ? Object.freeze({ ...rates, cacheRead: rates.input * 0.1, cacheWrite: rates.input * 1.25,
+      ...(id === MODEL_IDS.haiku55 ? { longContext: { aboveInputTokens: 100_000, multiplier: 5 } } : {}),
+      checkedAt: id === MODEL_IDS.haiku55 ? '2026-11-01' : '2026-10-06', source: 'https://platform.claude.com/docs/en/about-claude/pricing' }) : null,
   })
 }
 
 /** Public metadata only: safe for comparison UI imports, with no SDK or keys. */
 const MODEL_CATALOG: readonly LlmModel[] = Object.freeze([
   model(MODEL_IDS.haiku, 'Haiku 4.5', true, { input: 1, output: 5 }),
+  model(MODEL_IDS.haiku55, 'Haiku 5.5', false, { input: 0.1, output: 0.5 }),
   model(MODEL_IDS.sonnet, 'Sonnet 5', false, { input: 2, output: 10 }),
   model(MODEL_IDS.opus, 'Opus 5', false, { input: 5, output: 25 }),
   model(MODEL_IDS.sonnet55, 'Sonnet 5.5', false),
@@ -66,5 +71,6 @@ export function estimateLlmCost(modelId: string, usage: LlmUsage): number | null
   const { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens } = usage
   if (inputTokens === null || outputTokens === null || cacheReadTokens === null || cacheWriteTokens === null) return null
   const rates = entry.pricing
-  return (inputTokens * rates.input + outputTokens * rates.output + cacheReadTokens * rates.cacheRead + cacheWriteTokens * rates.cacheWrite) / 1_000_000
+  const factor = rates.longContext && inputTokens + cacheReadTokens + cacheWriteTokens > rates.longContext.aboveInputTokens ? rates.longContext.multiplier : 1
+  return (inputTokens * rates.input + outputTokens * rates.output + cacheReadTokens * rates.cacheRead + cacheWriteTokens * rates.cacheWrite) / 1_000_000 * factor
 }

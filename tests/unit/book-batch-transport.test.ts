@@ -182,7 +182,7 @@ describe('durable textbook Batch API transport', () => {
     await expect(first.call(f.options, key)).rejects.toBeInstanceOf(BookBatchPending)
     await first.submit()
     expect(f.provider.create).toHaveBeenCalledTimes(1)
-    expect(f.provider.create.mock.calls[0]).toEqual([[expect.objectContaining({ custom_id: key, params: expect.objectContaining({ model: 'claude-sonnet-5-5' }) })]])
+    expect(f.provider.create.mock.calls[0]).toEqual([[expect.objectContaining({ custom_id: key, params: expect.objectContaining({ model: 'claude-haiku-5-5' }) })]])
     const resumed = f.broker()
     expect(await resumed.poll()).toBe(false)
     const value = await resumed.call(f.options, key)

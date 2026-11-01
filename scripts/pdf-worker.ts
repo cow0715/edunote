@@ -121,16 +121,17 @@ export async function main() {
       await suspend(() => batch!.submit())
       return
     }
+    const pilotReview = job!.kind === 'bank_book' && result.pilot_review_required === true
     const unresolved = job!.kind === 'bank_book' && result.verification_unresolved === true
     const examIssues = ['bank_questions', 'bank_explanation'].includes(job!.kind) ? examImportIssues(result) : []
     const incomplete = examIssues.length > 0 || result.exam_incomplete === true
-    const { data, error } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: unresolved || incomplete ? 'failed' : 'succeeded',
+    const { data, error } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: pilotReview || unresolved || incomplete ? 'failed' : 'succeeded',
       p_result: incomplete ? { ...result, exam_incomplete: true } : result,
-      p_error: incomplete ? `자동 복구 후에도 미완료 문항 ${examIssues.length}개가 남았습니다. 문항별 사유를 확인해주세요.`
+      p_error: pilotReview ? '대표 구간 검증 완료 · 전체 처리 승인과 별도 재개를 기다립니다.' : incomplete ? `자동 복구 후에도 미완료 문항 ${examIssues.length}개가 남았습니다. 문항별 사유를 확인해주세요.`
         : unresolved ? Array.isArray(result.inventory_errors) ? '원문 문항 경계를 확정하지 못해 등록을 보류했습니다.' : '자동 대조·복구 후 확정하지 못한 항목이 있어 등록을 보류했습니다.' : null })
     if (error || !data) throw new Error('완료 상태 저장 실패')
     // Quality recovery already exhausted its bounded budget; don't start another paid platform retry.
-    if (unresolved || incomplete) { console.log(`[pdf-worker] verification-unresolved ${id}`); return }
+    if (pilotReview || unresolved || incomplete) { console.log(`[pdf-worker] verification-unresolved ${id}`); return }
     console.log(`[pdf-worker] completed ${id}`)
   } catch (error) {
     controller.abort(error) // Stop any remaining parallel AI calls before releasing the lease.

@@ -9,8 +9,13 @@ vi.mock('@/lib/book-pdf/layout-source', () => ({ readLayoutSource: mocks.read })
 vi.mock('@/lib/book-pdf/map-source', () => ({ mapBookSource: mocks.map }))
 vi.mock('@/lib/book-pdf/render-source', () => ({ renderBookSourceImages: mocks.render }))
 vi.mock('@/lib/book-pdf/audit-source', () => ({ auditAndRepairSource: mocks.audit }))
-vi.mock('@/lib/llm/material-enrichment', async (original) => ({ ...await original<typeof import('@/lib/llm/material-enrichment')>(), enrichVerifiedMaterial: mocks.enrich }))
+vi.mock('@/lib/llm/material-enrichment', async (original) => ({ ...await original<typeof import('@/lib/llm/material-enrichment')>(),
+  enrichVerifiedMaterialDetailed: async (source: unknown) => ({ supplement: await mocks.enrich(source), model: 'claude-haiku-5-5' }) }))
 import { processNativeBookUnit } from '@/lib/book-pdf/native-pipeline'
+import { extraction } from '../fixtures/book-pdf'
+import * as knownSource from '@/lib/book-pdf/known-source-policy'
+import { KNOWN_SOURCE_REVISION } from '@/lib/book-pdf/known-source-policy'
+import { writeBookUnitStage } from '@/lib/book-pdf/unit-progress'
 let fixture = nativeFixture()
 const input = () => ({ unit: fixture.unit, pdfHash, bytes: pdfBytes })
 beforeEach(() => {
@@ -23,6 +28,46 @@ beforeEach(() => {
 })
 
 describe('native textbook worker pipeline', () => {
+  it('quarantines a known passed/complete cache, reuses its mapping and correction, then requires a new image audit', async () => {
+    const h = { manifest: fixture.unit, source: { extraction, verification: fixture.proof, validation: {errors:[],warnings:[],english_coverage:1,translation_coverage:1} } }
+    const scope = { pdfHash: h.source.verification.pdf_hash, sourceHash: bookSourceFingerprint(h.manifest) }, saved = new Map<string, unknown>()
+    const context = { signal: new AbortController().signal, concurrency: 1, execute: createCallLimiter(1), stage: async () => {},
+      read: async <T,>(key: string) => (saved.get(key) ?? null) as T | null,
+      write: async (key: string, value: unknown) => { saved.set(key, structuredClone(value)) } }
+    const mapping = structuredClone(fixture.mapping)
+    mapping.groups[0].questions[0].id = h.manifest.questions[0].key
+    await withPdfWorkerContext(context, async () => {
+      await writeBookUnitStage(scope,'complete',{ ...h.source, enrichment: fixture.enrichment })
+      await writeBookUnitStage(scope,'source',h.source)
+      await writeBookUnitStage(scope,'mapping',{nativeHash:bookFingerprint(fixture.pages),attempt:1,errors:[],mapping,model:'claude-sonnet-5-5'})
+    })
+    const before = [...saved.entries()].map(([key,value]) => [key,JSON.stringify(value)] as const)
+    const policySpy=vi.spyOn(knownSource,'knownSourcePolicy').mockReturnValue(knownSource.KNOWN_SOURCE_POLICIES[0])
+    const correctionSpy=vi.spyOn(knownSource,'correctKnownSource').mockReturnValue({extraction:{...extraction,translation:'주장하는데, 그 이유는 그들'},replayed:true})
+    mocks.audit.mockRejectedValue(new BookBatchPending())
+    try {await expect(withPdfWorkerContext(context,()=>processNativeBookUnit({unit:h.manifest,pdfHash:scope.pdfHash,bytes:pdfBytes}))).rejects.toBeInstanceOf(BookBatchPending)}
+    finally {policySpy.mockRestore();correctionSpy.mockRestore()}
+    expect(mocks.map).not.toHaveBeenCalled(); expect(mocks.enrich).not.toHaveBeenCalled()
+    expect(mocks.audit).toHaveBeenCalledOnce()
+    const call = mocks.audit.mock.calls[0][0]
+    expect(call.checkpoint.sourceRevision).toBe(KNOWN_SOURCE_REVISION)
+    expect(call.draft[0].extraction.translation).toContain('주장하는데, 그 이유는 그들')
+    for (const [key,value] of before) expect(JSON.stringify(saved.get(key))).toBe(value)
+  })
+  it('records mixed mapping/supplement/auditor models even after a saved-mapping wait', async () => {
+    const saved = new Map<string, unknown>()
+    const context = { signal: new AbortController().signal, concurrency: 1, execute: createCallLimiter(1), stage: async () => {},
+      read: async <T,>(k: string) => (saved.get(k) ?? null) as T | null,
+      write: async (k: string, v: unknown) => { saved.set(k, structuredClone(v)) } }
+    mocks.map.mockResolvedValue({ mapping: fixture.mapping, resolved: { errors: [] }, model: 'claude-haiku-5-5-20261007' })
+    mocks.audit.mockRejectedValueOnce(new BookBatchPending())
+    await expect(withPdfWorkerContext(context, () => processNativeBookUnit(input()))).rejects.toBeInstanceOf(BookBatchPending)
+    const result = await withPdfWorkerContext(context, () => processNativeBookUnit(input()))
+    expect(result.enrichment?.model).toBe('claude-haiku-5-5')
+    expect(result.verification.models).toEqual(expect.arrayContaining(['claude-sonnet-5-5','claude-haiku-5-5','claude-haiku-5-5-20261007']))
+    expect(bookProofMatches({ ...result, manifest: fixture.unit, version: 1, verified_version: 1 })).toBe(true)
+    expect(mocks.map).toHaveBeenCalledOnce()
+  })
   it('resumes a persisted mapping after an audit wait, then reuses complete material after a staging crash', async () => {
     const saved = new Map<string, unknown>()
     const context = { unitKey: fixture.unit.key, signal: new AbortController().signal, concurrency: 1, execute: createCallLimiter(1),

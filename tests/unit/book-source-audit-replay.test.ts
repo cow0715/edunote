@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
-import { auditAndRepairSource, SOURCE_AUDIT_PROMPT, SOURCE_REPAIR_PROMPT } from '@/lib/book-pdf/audit-source'
+import { auditAndRepairSource, SOURCE_AUDIT_PROMPT, SOURCE_REPAIR_PROMPT, LEGACY_COMPACT_SOURCE_AUDIT_REPAIR_PROMPT } from '@/lib/book-pdf/audit-source'
 import { buildFileBlock, createLlmExecution, llmCallKey } from '@/lib/llm/client'
 import type { CallLlmOptions, LlmDetailedResult } from '@/lib/llm/types'
 import { withPdfWorkerContext, type PdfWorkerContext } from '@/lib/pdf-import/context'
@@ -31,6 +31,16 @@ function fixture() {
 }
 
 describe('book audit restart with real request identities and no provider network', () => {
+  it('reuses an original combined Sonnet response with omitted repair:null after prompt/model catalog changes', async () => {
+    const s = fixture(), historic = { ...s.execution, configVersion: 'routing-v1:4aed6b2450f3' }
+    const request = { operation: 'source_audit', round: 1, source: sourceMapEvidence(s.f.pages), mapping: s.f.mapping, candidate: sourceAuditEvidence(s.f.draft), candidate_hash: sourceDraftHash(s.f.draft) }
+    const options = s.oldOptions(LEGACY_COMPACT_SOURCE_AUDIT_REPAIR_PROMPT, request, 6000)
+    const key = llmCallKey(options, historic)
+    const value = s.result(pass); value.execution.configVersion = historic.configVersion; value.execution.callKey = key
+    s.saved.set('batch-result:' + key, { result: value })
+    expect((await s.run()).status).toBe('audited')
+    expect(s.batchCall).not.toHaveBeenCalled()
+  })
   it('keeps the deployed pre-compact prompt bytes stable so existing paid request keys remain readable', () => {
     expect(createHash('sha256').update(SOURCE_AUDIT_PROMPT).digest('hex')).toBe('249ef5e2d069d85218ebc3127296ce359b512a6552dc29f540d512d533758ea2')
     expect(createHash('sha256').update(SOURCE_REPAIR_PROMPT).digest('hex')).toBe('1a28be9f269ebc2c0bf8ba632c16783b4bb301aec1d1c40ffe0443f8a56f8301')

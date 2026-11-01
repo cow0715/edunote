@@ -3,6 +3,10 @@ import { batchCostReservation, bookCostProtocol, BOOK_FILE_BUDGET_USD } from '@/
 import { estimateUsageRow } from '@/lib/costs/estimate'
 
 describe('textbook cost policy', () => {
+  it('reserves the higher Haiku tier if the input safety margin crosses 100k', () => {
+    expect(batchCostReservation('claude-haiku-5-5', 10000, 12000).reservedUsd).toBeCloseTo(0.003563)
+    expect(batchCostReservation('claude-haiku-5-5', 91_000, 12000).reservedUsd).toBeCloseTo(0.04009)
+  })
   it('defaults to the approved five-dollar file cap and reserves full output with input margin', () => {
     expect(BOOK_FILE_BUDGET_USD).toBe(5)
     expect(batchCostReservation('claude-sonnet-5-5', 10000, 12000)).toEqual({ inputLimit: 11256, maxOutputTokens: 12000, reservedUsd: 0.071256 })

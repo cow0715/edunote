@@ -78,6 +78,9 @@ describe('PDF job reservation', () => {
       lease_token: 'secret', payload: { secret: 'private' }, source_path: 'private.pdf', completed_calls: 2,
       stage: '추출', attempt: 1, result: null, error: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
     const result = publicPdfJob(job)
+    expect(publicPdfJob({...job,kind:'bank_book',status:'failed',result:{pilot_review_required:true}})).toMatchObject({can_retry:false,stage:'대표 구간 확인 대기'})
+    expect(publicPdfJob({...job,kind:'bank_book',status:'failed',result:{pilot_review_required:true,pilot_review_approved:true}}).can_retry).toBe(true)
+    expect(publicPdfJob({...job,kind:'bank_book',status:'failed',payload:{recoveryExcluded:true,registeredBankId:'existing'},error:'old failure'})).toMatchObject({can_retry:false,error:null,result:{recovery_excluded:true,registered_bank_id:'existing'}})
     expect(result.can_retry).toBe(true)
     expect(publicPdfJob({ ...job, kind: 'bank_book', status: 'failed', result: { verification_unresolved: true } }).can_retry).toBe(true)
     expect(publicPdfJob({ ...job, kind: 'bank_book', status: 'failed', result: { verification_unresolved: true, recovery_revision: NATIVE_RECOVERY_REVISION } }).can_retry).toBe(false)

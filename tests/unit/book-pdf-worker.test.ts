@@ -8,12 +8,13 @@ import { bookFingerprint, bookSourceFingerprint } from '@/lib/book-pdf/proof'
 import { NATIVE_RECOVERY_REVISION } from '@/lib/book-pdf/recovery-policy'
 import { BookBatchPending } from '@/lib/book-pdf/batch-policy'
 import { withPdfWorkerContext } from '@/lib/pdf-import/context'
-const mocks = vi.hoisted(() => ({ verify: vi.fn(), warm: vi.fn(), read: vi.fn(), slice: vi.fn(), inventory: vi.fn(), publish: vi.fn() }))
+const mocks = vi.hoisted(() => ({ verify: vi.fn(), warm: vi.fn(), read: vi.fn(), slice: vi.fn(), inventory: vi.fn(), publish: vi.fn(),prepare:vi.fn(),plan:vi.fn() }))
 vi.mock('@/lib/book-pdf/pdf', () => ({ readBookPages: mocks.read, bookPageSlice: mocks.slice }))
 vi.mock('@/lib/book-pdf/inventory', () => ({ inventoryBook: mocks.inventory }))
 vi.mock('@/lib/llm/ranged', () => ({ prewarmPdfCache: mocks.warm }))
 vi.mock('@/lib/book-pdf/native-pipeline', () => ({ processNativeBookUnit: mocks.verify }))
 vi.mock('@/lib/book-pdf/publish', () => ({ publishVerifiedBook: mocks.publish }))
+vi.mock('@/lib/book-pdf/profile-preflight',()=>({prepareBookProfiles:mocks.prepare,saveBookProfilePlan:mocks.plan}))
 import { importBookPdf } from '@/lib/book-pdf/worker'
 function database(status = 'processing', completed = false, leaseLost = false) {
   const doc = { ...document(), status }, rows: BookDraftUnit[] = completed ? [draft()] : []
@@ -49,6 +50,22 @@ beforeEach(() => {
   mocks.publish.mockResolvedValue('bank')
 })
 describe('automatic textbook worker', () => {
+  it('stops after the representative window and does not publish or recursively process the rest',async()=>{
+    const db=database(), rpc=db.client.rpc.bind(db.client), other={...manifest.units[0],key:'unit-2',order:2}
+    mocks.inventory.mockReturnValue({...manifest,units:[manifest.units[0],other]})
+    mocks.prepare.mockResolvedValue({sources:new Map(),plan:{}})
+    mocks.plan.mockResolvedValue({phase:'pilot',pilot_keys:[manifest.units[0].key]})
+    db.client.rpc=vi.fn(async(name,args)=>name==='book_pdf_profile_pause'?{data:{ready:true,review:{completed_units:1}},error:null}:rpc(name,args)) as unknown as typeof db.client.rpc
+    const result=await importBookPdf(db.client,{...job,payload:{bookProfile:'jugis-two-column-v1'}},pdfBytes)
+    expect(result).toMatchObject({pilot_review_required:true,pilot_review_approved:false,auto_published:false})
+    expect(mocks.verify).toHaveBeenCalledOnce();expect(mocks.verify.mock.calls[0][0].unit.key).toBe(manifest.units[0].key)
+    expect(mocks.publish).not.toHaveBeenCalled()
+  })
+  it('excludes an already registered volume before reading or mutating anything',async()=>{
+    const db=database()
+    await expect(importBookPdf(db.client,{...job,kind:'bank_book',payload:{recoveryExcluded:true}},pdfBytes)).rejects.toThrow('재처리 대상에서 제외')
+    expect(db.calls).toHaveLength(0);expect(mocks.read).not.toHaveBeenCalled();expect(mocks.verify).not.toHaveBeenCalled()
+  })
   it('defers native PDF preparation after the batch window fills',async()=>{
     const db=database()
     const result=await withPdfWorkerContext({signal:new AbortController().signal,concurrency:1,execute:fn=>fn(),

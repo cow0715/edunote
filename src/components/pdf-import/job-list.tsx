@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import type { PdfImportKind } from '@/lib/pdf-import/types'
 import { usePdfImportJobs, type ImportJob } from './use-jobs'
 import { examImportIssues, type ExamImportExclusion } from '@/lib/pdf-import/exam-completeness'
+import { PilotReview } from './pilot-review'
 
 const EMPTY_JOBS: ImportJob[] = []
 
@@ -49,6 +50,8 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedT
     <p className="text-sm font-medium">최근 등록·처리 내역</p>
     {filtered.map((job) => {
       const examJob = job.kind === 'bank_questions' || job.kind === 'bank_explanation'
+      const excluded = job.result?.recovery_excluded === true
+      const pilotWaiting = job.result?.pilot_review_required === true && job.result?.pilot_review_approved !== true
       const issues = examJob ? examImportIssues(job.result) : []
       const storageError = typeof job.result?.storage_check_error === 'string' ? job.result.storage_check_error : null
       const skipped = examJob ? null : job.result?.skipped_questions ?? job.result?.skipped_pages
@@ -56,7 +59,7 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedT
       return <div key={job.id} className="flex flex-wrap items-start justify-between gap-3 border-t py-3 text-sm">
         <div>
           <p className="font-medium break-words">{job.display_title || labels[job.kind]}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{issues.length ? '문항 처리 미완료' : storageError ? '저장 대조 확인 필요' : job.status === 'waiting_batch' ? '응답 대기' : job.status === 'queued' ? '접수 완료' : job.status === 'succeeded' ? job.result?.needs_review ? '검토 초안 생성 완료' : '등록 완료' : job.status === 'failed' ? '등록 보류·처리 실패' : '처리 중'} · {job.stage}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{excluded ? '등록 완료' : pilotWaiting ? '확인 대기' : issues.length ? '문항 처리 미완료' : storageError ? '저장 대조 확인 필요' : job.status === 'waiting_batch' ? '응답 대기' : job.status === 'queued' ? '접수 완료' : job.status === 'succeeded' ? job.result?.needs_review ? '검토 초안 생성 완료' : '등록 완료' : job.status === 'failed' ? '등록 보류·처리 실패' : '처리 중'} · {job.stage}</p>
           {job.progress && job.progress.total > 0 && <p className="text-sm text-muted-foreground">처리 완료 {job.progress.completed}/{job.progress.total}지문 · 전체 {job.progress.questions}문항</p>}
           {job.updated_at && <p className="mt-1 text-xs text-muted-foreground">마지막 처리 {new Date(job.updated_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>}
           {job.status === 'waiting_batch' && job.resume_after && <p className="text-xs text-muted-foreground">다음 상태 확인 {new Date(job.resume_after).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</p>}
@@ -76,11 +79,14 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedT
           {Array.isArray(skipped) && skipped.length > 0 && <p className="text-destructive">인식하지 못한 문항: {skipped.join(', ')}번</p>}
           {Number(job.result?.answers_deleted) > 0 && <p className="text-destructive">기존 학생 답안 {Number(job.result?.answers_deleted)}개가 삭제됐습니다. 해당 문항을 확인해주세요.</p>}
           {!!job.result?.subjective_grading_failed && <p className="text-destructive">서술형 재채점 결과를 확인해주세요.</p>}
+          {pilotWaiting && <PilotReview jobId={job.id} />}
+          {Array.isArray(job.result?.known_source_holds) && <ul className="mt-2 text-muted-foreground">{(job.result.known_source_holds as { label: string; reason: string }[]).map(hold => <li key={hold.label}>{hold.label}: {hold.reason}</li>)}</ul>}
         </div>
         <div className="flex flex-wrap gap-2">
         {job.kind === 'bank_book' && onOpenBook && <Button size="sm" variant="outline" className="min-h-11" onClick={() => onOpenBook(job.target_id)}>처리 상세</Button>}
+        {excluded && onOpenMaterial && typeof job.result?.registered_bank_id === 'string' && <Button size="sm" variant="outline" className="min-h-11" onClick={() => onOpenMaterial(job.result!.registered_bank_id as string)}>등록된 자료 보기</Button>}
         {(job.status === 'succeeded' || issues.length > 0) && job.kind !== 'bank_book' && onOpenMaterial && <Button size="sm" variant="outline" className="min-h-11" onClick={() => onOpenMaterial(String(job.result?.exam_id ?? job.target_id))}>{issues.length ? '저장된 자료 보기' : '자료 보기'}</Button>}
-        {job.can_retry && <Button size="sm" variant="outline" disabled={retrying !== null} onClick={() => void retry(job.id)}>{retrying === job.id ? '요청 중' : '재실행'}</Button>}
+        {job.can_retry && <Button size="sm" variant="outline" disabled={retrying !== null} onClick={() => void retry(job.id)}>{retrying === job.id ? '요청 중' : job.result?.pilot_review_approved === true ? '전체 처리 재개' : '재실행'}</Button>}
         </div>
       </div>
     })}

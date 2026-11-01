@@ -44,6 +44,7 @@ export async function prepareBookProfiles(bytes: Uint8Array, manifest: BookManif
   if (ambiguous.length > Math.max(3, Math.ceil(manifest.units.length * .25))) throw new PdfBatchStopped(`형식별 코드 연결을 확정하지 못한 지문이 ${ambiguous.length}/${manifest.units.length}개입니다. 범용 AI 전체 전환 없이 보류했습니다.`)
   const plan = { version: BOOK_PROFILE_VERSION, pdf_hash: pdfHash, question_count: manifest.question_count,
     unit_count: manifest.units.length, pilot_keys: bookPilotKeys(manifest.units, sources),
+    pilot_labels: Object.fromEntries(bookPilotKeys(manifest.units, sources).map(key => [key, manifest.units.find(u => u.key === key)!.questions.map(q => q.label)])),
     ambiguous_units: ambiguous.map(u => u.key), snapshot_hash: bookFingerprint(manifest.units.map(u => [u.key, sources.get(u.key)])) }
   return { sources, plan }
 }
@@ -51,6 +52,7 @@ export async function saveBookProfilePlan(db: SupabaseClient, job: PdfImportJob,
   const { data, error } = await db.rpc('book_pdf_profile_plan', { p_job: job.id, p_token: job.lease_token, p_plan: plan })
   if (error || !data) throw new PdfBatchStopped('묶음 교재 사전 검사 저장에 실패했습니다. 묶음 등록 SQL을 확인해주세요.')
   if (data.waiting) throw new PdfBundleDeferred()
+  if (data.phase === 'pilot_review') throw new PdfBatchStopped('대표 구간 확인 대기 중입니다. 범위 승인 후 별도로 전체 처리를 재개해주세요.')
   if (data.phase === 'held') throw new PdfBatchStopped(data.reason || '교재 준비 구간 검사에서 보류했습니다.')
   return data as { phase: 'pilot' | 'bulk'; pilot_keys: string[] }
 }

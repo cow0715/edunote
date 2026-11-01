@@ -15,8 +15,10 @@ import { BOOK_PROFILE_VERSION } from './profiles'
 import { prepareBookProfiles, saveBookProfilePlan } from './profile-preflight'
 import { classificationConflict, sourceClassificationConflict, getBook } from './catalog'
 import { BOOK_METADATA_REVISION, oldMetadataRevision } from './academic-year'
+import { bookRecoveryExcluded } from './pilot-review'
 
 export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, bytes: Uint8Array): Promise<Record<string, unknown>> {
+  if (bookRecoveryExcluded(job)) throw new PdfBatchStopped('이미 등록된 교재이므로 재처리 대상에서 제외했습니다.')
   const pdfHash = createHash('sha256').update(bytes).digest('hex')
   const profileMode = job.payload.bookProfile === BOOK_PROFILE_VERSION, context = getPdfWorkerContext()
   async function stage(unit: NativeBookResult | null, unitKey: string | null) {
@@ -40,7 +42,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
     // Resume a crash after staging but before publication without paid reparse.
     const { data, error } = await client.from('book_pdf_unit').select('*').eq('document_id', document.id)
     if (error) throw new Error(error.message)
-    if (document.manifest && !document.manifest.classification_error && !document.manifest.errors.length && data?.length === document.manifest.units.length && data.every((u) => bookProofMatches(u as BookDraftUnit))) {
+    if (!profileMode && document.manifest && !document.manifest.classification_error && !document.manifest.errors.length && data?.length === document.manifest.units.length && data.every((u) => bookProofMatches(u as BookDraftUnit))) {
       return { document_id: document.id, exam_id: await publishVerifiedBook(client, document), auto_published: true }
     }
     const recheckMetadata = !!document.manifest?.classification_error && oldMetadataRevision(document.manifest.metadata_revision)
@@ -80,7 +82,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   if (existing.error) throw new Error(existing.error.message)
   const previous = new Map((existing.data as BookDraftUnit[]).map((u) => [u.unit_key, u]))
   const prepared = profileMode ? await prepareBookProfiles(bytes, manifest, pdfHash) : null
-  const phase = prepared && !context?.cacheOnly ? await saveBookProfilePlan(client, job, prepared.plan) : null
+  const phase = prepared ? await saveBookProfilePlan(client, job, prepared.plan) : null
   const pending = manifest.units.filter((unit) => {
     if (phase?.phase === 'pilot' && !phase.pilot_keys.includes(unit.key)) return false
     const old = previous.get(unit.key)
@@ -115,10 +117,10 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   if (fatal) throw fatal.reason
   if (failures.length) return { document_id: job.target_id, batch_waiting: true }
   if (phase?.phase === 'pilot') {
-    const { data, error } = await client.rpc('book_pdf_profile_expand', { p_job: job.id, p_token: job.lease_token })
-    if (error || !data?.allowed) throw new PdfBatchStopped(data?.reason || '대표 구간의 원본 검증·예산 견적을 확정하지 못해 보류했습니다.')
-    // Phase is durable; recursion advances exactly once and reuses all source checkpoints.
-    return importBookPdf(client, job, bytes)
+    const { data, error } = await client.rpc('book_pdf_profile_pause', { p_job: job.id, p_token: job.lease_token })
+    if (error) throw new PdfBatchStopped('대표 구간 확인 대기를 저장하지 못했습니다. 검토 단계 SQL을 확인해주세요.')
+    if (!data?.ready) return { document_id: job.target_id, verification_unresolved: true, inventory_errors: [data?.reason || '대표 구간에 미완료 항목이 있습니다.'] }
+    return { document_id: job.target_id, pilot_review_required: true, pilot_review_approved: false, pilot_review: data.review, auto_published: false }
   }
   await reportPdfStage('검증 결과를 확정하고 문제은행에 등록하는 중')
   await stage(null, null)

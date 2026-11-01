@@ -52,6 +52,33 @@ export const compactSourceRepairSchema = selectiveSourceRepairSchema.superRefine
     }
   }
 })
+/** Missing null cannot hide edits: only absence on pass/unreadable is canonical.
+ * Explicit objects (even empty ones), unknown fields and inconsistent checks
+ * remain subject to the original fail-closed validation. Never mutate replies. */
+export function normalizeSourceAuditEnvelope(value: unknown) {
+  if (value && typeof value === 'object' && !Array.isArray(value)
+    && 'status' in value && ['pass', 'unreadable'].includes(String(value.status)) && !Object.hasOwn(value, 'repair')) {
+    return { ...value, repair: null }
+  }
+  return value
+}
+
+/** Models sometimes add decorative pages to refs edits. Accept only a valid
+ * in-window page list; actual referenced ranges still pass ownership, image,
+ * target and source-page checks in applySelectiveSourceRepair. */
+export function parseSourceRepairResponse(value: unknown, compact: boolean, pages: readonly number[]) {
+  let normalized = value
+  if (value && typeof value === 'object' && 'edits' in value && Array.isArray(value.edits)) {
+    normalized = { ...value, edits: value.edits.map((edit: unknown) => {
+      if (!edit || typeof edit !== 'object' || !('mode' in edit) || edit.mode !== 'refs' || !('pages' in edit)) return edit
+      const checked = z.array(z.number().int().positive()).min(1).max(4).safeParse(edit.pages)
+      if (!checked.success || new Set(checked.data).size !== checked.data.length || checked.data.some(p => !pages.includes(p))) return edit
+      const copy = { ...edit }; delete copy.pages
+      return copy
+    }) }
+  }
+  return (compact ? compactSourceRepairSchema : selectiveSourceRepairSchema).safeParse(normalized)
+}
 export type SelectiveSourceRepair = z.infer<typeof selectiveSourceRepairSchema>
 const types = new Set(['purpose', 'mood', 'claim', 'implication', 'topic', 'title', 'summary', 'blank_vocabulary', 'blank_phrase', 'grammar', 'vocabulary', 'reference', 'content_match', 'notice', 'order', 'insert', 'irrelevant', 'long_order', 'long_content_match', 'long_title', 'chart', 'other'])
 export const sourceDraftHash = (draft: SourceDraft) => createHash('sha256').update(JSON.stringify(draft)).digest('hex')

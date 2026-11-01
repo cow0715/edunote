@@ -28,6 +28,8 @@ export const bookBlindCheckSchema = z.object({
 }).strict()
 export type BookBlindCheck = z.infer<typeof bookBlindCheckSchema>
 export type BookVerification = {
+  source_revision?: string;
+  local_correction?: { revision: string; base_hash: string; replayed: boolean };
   source_regions?: import('./visual-regions').BookVisualRegion[]
   protocol: 1 | 2; status: 'pending' | 'passed' | 'unresolved'; attempts: number; models: string[]; issues: string[];
   source_hash: string; pdf_hash: string; extraction_hash: string | null; checks: BookBlindCheck['checks'] | null

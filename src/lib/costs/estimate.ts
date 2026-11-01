@@ -1,6 +1,6 @@
 import type { UsageGroup } from './model'
 
-export const PRICING_CHECKED_AT = '2026-10-22'
+export const PRICING_CHECKED_AT = '2026-11-01'
 export const CLAUDE_PRICING_URL = 'https://platform.claude.com/docs/en/about-claude/pricing'
 export const CLOVA_PRICING_URL = 'https://m.ncloud.com/charge/price/ko'
 
@@ -16,6 +16,7 @@ const rates: Record<string, readonly [number, number, number, number]> = {
   'claude-opus-4-6': [5, 25, 0.5, 6.25],
   'claude-opus-4-5': [5, 25, 0.5, 6.25],
   'claude-haiku-4-5': [1, 5, 0.1, 1.25],
+  'claude-haiku-5-5': [0.1, 0.5, 0.01, 0.125],
 }
 
 export function claudeTokenCost(model: string, tokens: { input: number; output: number; read: number; write: number; writeHour?: number }, options: { tier?: string | null; geo?: string | null; speed?: string | null; context?: string | null } = {}) {
@@ -26,9 +27,11 @@ export function claudeTokenCost(model: string, tokens: { input: number; output: 
   if (options.tier && !['standard', 'batch'].includes(options.tier)) return null
   if (options.geo && !['global', 'us', 'not_available'].includes(options.geo)) return null
   if (options.speed && !['standard', 'fast'].includes(options.speed)) return null
-  if (options.context === '200k-1M' && /(?:sonnet|opus)-4-5|haiku/.test(canonical)) return null
+  if (options.context === '200k-1M' && /(?:sonnet|opus)-4-5|haiku-4/.test(canonical)) return null
   if (options.speed === 'fast' && !['claude-opus-5', 'claude-opus-5-5'].includes(canonical)) return null
-  const factor = (options.tier === 'batch' ? 0.5 : 1) * (options.geo === 'us' ? 1.1 : 1) * (options.speed === 'fast' ? 2 : 1)
+  // Prompt length is per request and includes both cache-write buckets and hits.
+  const longHaiku = canonical === 'claude-haiku-5-5' && tokens.input + tokens.read + tokens.write + (tokens.writeHour ?? 0) > 100_000
+  const factor = (options.tier === 'batch' ? 0.5 : 1) * (options.geo === 'us' ? 1.1 : 1) * (options.speed === 'fast' ? 2 : 1) * (longHaiku ? 5 : 1)
   return (values[0] * price[0] + values[1] * price[1] + values[2] * price[2] + values[3] * price[3] + values[4] * price[0] * 2) / 1_000_000 * factor
 }
 
@@ -37,6 +40,16 @@ export type UsageEstimate = { row: UsageGroup; amount: number | null; currency: 
 /** Missing/unknown buckets are excluded, never silently priced as zero. No FX conversion. */
 export function estimateUsageRow(row: UsageGroup): UsageEstimate | null {
   if (row.provider === 'claude') {
+    if (row.model.replace(/-\d{8}$/, '') === 'claude-haiku-5-5' && row.estimated_usd !== undefined) {
+      const amount = typeof row.estimated_usd === 'number' && Number.isFinite(row.estimated_usd) && row.estimated_usd >= 0 ? row.estimated_usd : null
+      return { row, amount, currency: 'USD', reason: amount === null ? 'Haiku 요청별 비용 기록 확인 필요' : null }
+    }
+    // Aggregated short prompts must not accidentally enter the long-prompt tier.
+    // The file's authoritative Batch ledger prices each request independently.
+    if (row.model.replace(/-\d{8}$/, '') === 'claude-haiku-5-5' && row.calls > 1
+      && row.input_tokens + row.cache_read_tokens + row.cache_write_tokens > 100_000) {
+      return { row, amount: null, currency: 'USD', reason: 'Haiku 요청별 길이 구간 확인 필요 · 파일별 Batch 비용 기록에서 확인' }
+    }
     const amount = claudeTokenCost(row.model, { input: row.input_tokens, output: row.output_tokens, read: row.cache_read_tokens, write: row.cache_write_tokens }, { tier: row.service_tier ?? 'standard' })
     return { row, amount, currency: 'USD', reason: amount === null ? '모델 단가·토큰 기록 확인 필요' : null }
   }

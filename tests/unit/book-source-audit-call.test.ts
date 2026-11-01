@@ -8,6 +8,8 @@ import { sourceAuditFixture } from '../fixtures/book-source-audit'
 import { sourceDraftHash } from '@/lib/book-pdf/source-audit-state'
 import { PdfBatchPending } from '@/lib/pdf-import/batch-policy'
 import { withPdfWorkerContext } from '@/lib/pdf-import/context'
+import { writeBookUnitStage } from '@/lib/book-pdf/unit-progress'
+import { bookFingerprint } from '@/lib/book-pdf/proof'
 const pass = { status: 'pass', checks: { content: true, mapping: true, formatting: true, inventory: true }, issues: [] }
 const compactPass = { ...pass, repair: null }
 const response = (v: unknown) => ({ text: JSON.stringify(v), stopReason: 'end_turn', usage: {} })
@@ -17,6 +19,37 @@ function proposed(f: ReturnType<typeof input>, before = 'Original', after = 'Cor
   return { ...f.audit, repair: { base_hash: sourceDraftHash(f.draft), edits: [{ target: f.target, mode: 'patch', patches: [{ before, after }], pages: [9] }], issues: [] } }
 }
 describe('image audit and bounded repair', () => {
+  it('replays a previously held format-only verdict from the paid reply without a new API call', async () => {
+    const f = input(), scope = { pdfHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64) }, saved = new Map<string, unknown>()
+    const context = { signal: new AbortController().signal, concurrency: 1, execute: async <T,>(fn: () => Promise<T>) => fn(), stage: async () => {},
+      read: async <T,>(key: string) => (saved.get(key) ?? null) as T | null, write: async (key: string, value: unknown) => { saved.set(key, structuredClone(value)) } }
+    await withPdfWorkerContext(context, async () => {
+      await writeBookUnitStage(scope, 'audit', { binding: bookFingerprint({ pages: f.pages, images: f.images.map(i => [i.page,i.sha256]), mapping: f.mapping, draft: f.draft }),
+        mapping: f.mapping, draft: f.draft, audits: [pass], ledger: [], repairs: 0, pending: null, finished: 'unresolved', errors: ['invalid_combined_repair_contract'] })
+      mock.cached.mockResolvedValueOnce(null).mockResolvedValueOnce(response(pass))
+      const r = await auditAndRepairSource({ ...f, checkpoint: scope })
+      expect(r.status).toBe('audited'); expect(r.audits).toHaveLength(1); expect(r.ledger).toHaveLength(0)
+    })
+    expect(mock.call).not.toHaveBeenCalled()
+  })
+  it('locally accepts the redundant refs pages, but still requires a fresh full image pass after applying', async () => {
+    const f = input(), reply = { ...f.audit, repair: { base_hash: sourceDraftHash(f.draft), edits: [{ target: f.target, mode: 'refs', refs: [{ s: 1 }], pages: [9] }], issues: [] } }
+    mock.call.mockResolvedValueOnce(response(reply)).mockResolvedValueOnce(response(pass))
+    const r = await auditAndRepairSource(f)
+    expect(r.status).toBe('audited'); expect(r.audits).toHaveLength(2); expect(r.ledger).toHaveLength(1)
+    expect(mock.call).toHaveBeenCalledTimes(2)
+  })
+  it('keeps a lost format-error reply fenced across repeated restarts instead of buying it again', async () => {
+    const f = input(), scope = { pdfHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64) }, saved = new Map<string, unknown>()
+    const context = { signal: new AbortController().signal, concurrency: 1, execute: async <T,>(fn: () => Promise<T>) => fn(), stage: async () => {},
+      read: async <T,>(key: string) => (saved.get(key) ?? null) as T | null, write: async (key: string, value: unknown) => { saved.set(key, structuredClone(value)) } }
+    await withPdfWorkerContext(context, async () => {
+      await writeBookUnitStage(scope, 'audit', { binding: bookFingerprint({ pages: f.pages, images: f.images.map(i => [i.page,i.sha256]), mapping: f.mapping, draft: f.draft }),
+        mapping: f.mapping, draft: f.draft, audits: [pass], ledger: [], repairs: 0, pending: null, finished: 'unresolved', errors: ['invalid_combined_repair_contract'] })
+      for (let n = 0; n < 2; n++) await expect(auditAndRepairSource({ ...f, checkpoint: scope })).rejects.toThrow('유료 재요청을 차단')
+    })
+    expect(mock.call).not.toHaveBeenCalled()
+  })
   it('keeps the two-repair ceiling through repeated waits and permanently reuses the final hold', async () => {
     const f = input(), saved = new Map<string, unknown>(), checkpoint = { pdfHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64) }
     const context = { signal: new AbortController().signal, concurrency: 1, execute: async <T,>(fn: () => Promise<T>) => fn(), stage: async () => {},

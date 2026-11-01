@@ -2,7 +2,7 @@ import { bookFingerprint } from './proof'
 import { getPdfWorkerContext } from '../pdf-import/context'
 import { PdfBatchStopped } from '../pdf-import/batch-policy'
 
-export type BookUnitScope = { pdfHash: string; sourceHash: string }
+export type BookUnitScope = { pdfHash: string; sourceHash: string; sourceRevision?: string }
 export type BookUnitStage = 'mapping' | 'audit' | 'source' | 'enrichment' | 'complete' | 'progress'
 export function bookUnitStageKey(scope: BookUnitScope, stage: BookUnitStage) {
   return `book-unit-stage:v1:${bookFingerprint({ ...scope, stage })}`
