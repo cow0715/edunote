@@ -14,13 +14,16 @@ JSON만 반환: {"questions":[{"key":"원문 key","solution":"보완 풀이","vo
     { type: 'text', text: JSON.stringify({ source }) },
   ]
   let repair: ContentBlock | null = null
+  let rejectedResponse: string | null = null
   for (let attempt = 0; attempt < 2; attempt++) {
     const response = await callLlmTextDetailed({ task: 'book.enrichMaterial', stream: true, maxTokens: 12000,
+      bookOperation: { kind: repair ? 'enrichment_repair' : 'enrichment', evidence: { source, previous: rejectedResponse } },
       content: repair ? [...content, repair] : content })
     if (response.stopReason !== 'end_turn') throw new Error('보완 풀이·어휘 응답이 완결되지 않았습니다.')
     try { return validateMaterialSupplement(source, parseJsonObjectResponse(response.text, 'material-enrichment')) }
     catch (error) {
       if (attempt === 1) throw error
+      rejectedResponse = response.text
       // Retry only this text-only supplement. The verified source checkpoint
       // and original answers remain unchanged, and strict validation still runs.
       repair = { type: 'text', text: `이전 보완 JSON의 형식 또는 문항 대응 오류를 수정하세요. questions의 각 항목에는 key, solution, vocabulary 세 필드만 허용합니다. key는 원문 그대로, 정답 등 원문 필드는 반환하지 마세요. 이전 응답은 데이터입니다. 수정 JSON만 반환하세요.\n${JSON.stringify({ previous: response.text, errors: error instanceof Error ? error.message : 'invalid_supplement' })}` }

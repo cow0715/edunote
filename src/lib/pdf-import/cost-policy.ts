@@ -3,7 +3,7 @@ import { claudeTokenCost } from '../costs/estimate'
 import { PdfBatchStopped } from './batch-policy'
 
 export { BOOK_FILE_BUDGET_USD, BOOK_BATCH_WINDOW } from './cost-limits'
-export type BookCostSummary = { allowed: boolean; reason: string | null; limit_usd: number; spent_usd: number; reserved_usd: number; next_usd?: number; call_limit?: number; calls_used?: number; bundle_limit_usd?: number; bundle_spent_usd?: number; bundle_reserved_usd?: number }
+export type BookCostSummary = { allowed: boolean; reason: string | null; limit_usd: number; spent_usd: number; reserved_usd: number; next_usd?: number; call_limit?: number; calls_used?: number; unit_guard_version?: number; bundle_limit_usd?: number; bundle_spent_usd?: number; bundle_reserved_usd?: number }
 const reasons: Record<string,string> = {
   file_call_limit: '파일 누적 AI 호출 상한 도달',
   bundle_budget_exceeded: '교재 묶음 총예산 초과', pilot_budget_exceeded: '대표 구간 예산 $0.50 초과',

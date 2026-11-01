@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createServiceClient } from '../src/lib/supabase/service'
-import { createCallLimiter, withPdfWorkerContext, type PdfWorkerContext } from '../src/lib/pdf-import/context'
+import { createCallLimiter, getPdfWorkerContext, withPdfWorkerContext, type PdfWorkerContext } from '../src/lib/pdf-import/context'
 import { isUuid, type PdfImportJob } from '../src/lib/pdf-import/types'
 import { isPdfBatchJob, PdfBatchPending, PdfBundleDeferred, PdfBatchRequestFailed, PdfBatchStopped } from '../src/lib/pdf-import/batch-policy'
 import type { PdfBatchTransport } from '../src/lib/pdf-import/batch-transport'
@@ -76,6 +76,11 @@ export async function main() {
     const { error } = await client.rpc('book_pdf_cost_quality', { p_job: id, p_token: token, p_unit: unit, p_status: status })
     if (error) throw new PdfBatchStopped('교재 이상률 기록 실패로 새 접수를 중지했습니다. 비용 관리 SQL을 확인해주세요.')
   }
+  if (job.kind === 'bank_book') context.writeBookProgress = async (key, value) => {
+    const { error } = await client.rpc('book_pdf_save_unit_progress', { p_job: id, p_token: token,
+      p_unit: getPdfWorkerContext()?.unitKey, p_key: key, p_value: value })
+    if (error) throw new PdfBatchStopped('문항별 진행 상태를 저장하지 못해 새 요청을 중지했습니다. 진행 상태 SQL을 확인해주세요.')
+  }
   let batch: PdfBatchTransport | undefined
   const suspend = async (submit?: () => Promise<void>) => {
     // Arrange the future execution before releasing the lease. A crash after
@@ -99,6 +104,7 @@ export async function main() {
         context.cacheOnly ? cachedPdfBatchProvider() : anthropicPdfBatchProvider(controller.signal))
       if (await batch.poll()) { await suspend(); return }
       context.batchCall = batch.call
+      if (job.kind === 'bank_book') context.rememberBookCall = batch.rememberBookCall
     }
     const { runPdfImport } = await import('../src/lib/pdf-import/handlers')
     let result: Record<string, unknown>

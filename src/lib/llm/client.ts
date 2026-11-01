@@ -78,7 +78,7 @@ async function record(execution: LlmExecution, entry: LlmCallRecord) {
 }
 
 function callCheckpoint(options: CallLlmOptions, execution: LlmExecution) {
-  return { version: 2, ...options, execution: undefined, signal: undefined, batchRetryGroup: undefined,
+  return { version: 2, ...options, execution: undefined, signal: undefined, batchRetryGroup: undefined, bookOperation: undefined,
     configVersion: execution.configVersion, model: execution.taskBindings[options.task] }
 }
 
@@ -98,7 +98,7 @@ export async function callLlmTextDetailed(options: CallLlmOptions): Promise<LlmD
     return callLlmTextUncached(workerOptions)
   }
   const checkpoint = callCheckpoint(options, execution)
-  return checkpointCall(checkpoint, async () => {
+  const result = await checkpointCall(checkpoint, async () => {
     if (context.batchCall && isPdfBatchTask(options.task)) {
       const model = getModel(execution.taskBindings[options.task])
       if (!model) throw new LlmError('configuration', '배치 모델 설정이 올바르지 않습니다.')
@@ -119,6 +119,8 @@ export async function callLlmTextDetailed(options: CallLlmOptions): Promise<LlmD
       return Array.isArray(value) ? value.length > 0 : value !== null && typeof value === 'object'
     } catch { return false }
   })
+  if (options.task.startsWith('book.')) await context.rememberBookCall?.(workerOptions, checkpointKey(checkpoint), result)
+  return result
 }
 
 async function callLlmTextUncached(options: CallLlmOptions): Promise<LlmDetailedResult> {

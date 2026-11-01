@@ -23,6 +23,41 @@ beforeEach(() => {
 })
 
 describe('native textbook worker pipeline', () => {
+  it('resumes a persisted mapping after an audit wait, then reuses complete material after a staging crash', async () => {
+    const saved = new Map<string, unknown>()
+    const context = { unitKey: fixture.unit.key, signal: new AbortController().signal, concurrency: 1, execute: createCallLimiter(1),
+      read: async <T,>(key: string) => saved.get(key) as T ?? null,
+      write: async (key: string, value: unknown) => { saved.set(key, structuredClone(value)) }, stage: async () => {} }
+    mocks.audit.mockRejectedValueOnce(new BookBatchPending())
+    await expect(withPdfWorkerContext(context, () => processNativeBookUnit(input()))).rejects.toBeInstanceOf(BookBatchPending)
+    const result = await withPdfWorkerContext(context, () => processNativeBookUnit(input()))
+    expect(bookProofMatches({ ...result, manifest: fixture.unit, version: 1, verified_version: 1 })).toBe(true)
+    await withPdfWorkerContext(context, () => processNativeBookUnit(input()))
+    expect(mocks.map).toHaveBeenCalledOnce(); expect(mocks.audit).toHaveBeenCalledTimes(2); expect(mocks.enrich).toHaveBeenCalledOnce()
+  })
+  it('retains a mapping correction counter and its exact input across restarts', async () => {
+    const saved = new Map<string, unknown>()
+    const context = { signal: new AbortController().signal, concurrency: 1, execute: createCallLimiter(1),
+      read: async <T,>(key: string) => saved.get(key) as T ?? null,
+      write: async (key: string, value: unknown) => { saved.set(key, structuredClone(value)) }, stage: async () => {} }
+    mocks.map.mockResolvedValueOnce({ mapping: { wrong: 'unchanged rejected output' }, resolved: { errors: ['bad refs'] } })
+      .mockRejectedValueOnce(new BookBatchPending())
+      .mockResolvedValueOnce({ mapping: null, resolved: { errors: ['bad refs again'] } })
+    await expect(withPdfWorkerContext(context, () => processNativeBookUnit(input()))).rejects.toBeInstanceOf(BookBatchPending)
+    const waitingInput = mocks.map.mock.calls[1][0].repair
+    expect((await withPdfWorkerContext(context, () => processNativeBookUnit(input()))).verification.status).toBe('unresolved')
+    expect(mocks.map.mock.calls[2][0].repair).toEqual(waitingInput)
+    await withPdfWorkerContext(context, () => processNativeBookUnit(input()))
+    expect(mocks.map).toHaveBeenCalledTimes(3); expect(mocks.audit).not.toHaveBeenCalled()
+    const progress = [...saved.values()].find(v => (v as { stage?: string }).stage === 'progress') as { json: string }
+    expect(JSON.parse(progress.json)).toMatchObject({ stage: 'mapping', status: 'held', reasons: ['bad refs again'] })
+  })
+  it('never proceeds to a paid audit when saving the accepted mapping fails', async () => {
+    await expect(withPdfWorkerContext({ signal: new AbortController().signal, concurrency: 1, execute: createCallLimiter(1),
+      read: async () => null, write: async () => {}, writeBookProgress: async (_key, value) => { if ((value as { stage: string }).stage === 'mapping') throw Error('database unavailable') }, stage: async () => {} },
+    () => processNativeBookUnit(input()))).rejects.toThrow('database unavailable')
+    expect(mocks.audit).not.toHaveBeenCalled(); expect(mocks.enrich).not.toHaveBeenCalled()
+  })
   it('uses the native profile snapshot but still requires original-image audit and supplementation',async()=>{
     const result=await processNativeBookUnit({...input(),prepared:{pages:fixture.pages,mapping:fixture.mapping,reasons:[]}})
     expect(mocks.read).not.toHaveBeenCalled()
@@ -45,7 +80,7 @@ describe('native textbook worker pipeline', () => {
     const source = await processNativeBookUnit(input())
     vi.clearAllMocks()
     const result = await withPdfWorkerContext({ signal: new AbortController().signal, concurrency: 1, execute: (fn) => fn(),
-      read: async <T,>() => ({ ...source, verification: { ...source.verification, pdf_hash: 'b'.repeat(64) } }) as T, write: async () => {}, stage: async () => {} },
+      read: async <T,>(key: string) => (key.startsWith('book-unit-stage:') ? null : { ...source, verification: { ...source.verification, pdf_hash: 'b'.repeat(64) } }) as T, write: async () => {}, stage: async () => {} },
     () => processNativeBookUnit(input()))
     expect(result.verification.pdf_hash).toBe(pdfHash)
     expect(mocks.map).toHaveBeenCalledOnce(); expect(mocks.audit).toHaveBeenCalledOnce()

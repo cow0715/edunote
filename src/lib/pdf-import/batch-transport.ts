@@ -17,9 +17,11 @@ import { NATIVE_RECOVERY_REVISION } from '../book-pdf/recovery-policy'
 import { SOURCE_AUDIT_PROMPT, SOURCE_AUDIT_REPAIR_PROMPT, SOURCE_PATCH_REPAIR_PROMPT } from '../book-pdf/audit-source'
 import type { PdfImportJob } from './types'
 import { allowsPdfBatchTask } from './batch-policy'
+import { bookRequestIdentity } from '../book-pdf/request-identity'
+import { bookFingerprint } from '../book-pdf/proof'
 import { PDF_BATCH_MAX_BYTES, PDF_BATCH_REQUEST_ATTEMPTS, PdfBatchPending, PdfBundleDeferred, PdfBatchRequestFailed, PdfBatchStopped, retryableBatchResult } from './batch-policy'
 
-type RequestMeta = { key: string; retryGroup?: string; unitKey?: string; maxOutputTokens?: number; task: CallLlmOptions['task']; model: string; configVersion: string; promptHash: string; promptVersion: string; schemaVersion: string }
+type RequestMeta = { key: string; semanticKey?: string; retryGroup?: string; unitKey?: string; maxOutputTokens?: number; task: CallLlmOptions['task']; model: string; configVersion: string; promptHash: string; promptVersion: string; schemaVersion: string }
 type BatchRow = { id: string; provider_id: string | null; state: 'submitting' | 'submitted' | 'ended' | 'rejected'; requests: RequestMeta[]; created_at: string; outcomes?: Record<string, string> }
 type Delivery = { result: LlmDetailedResult } | { error: string; attempts?: number }
 type Pending = { meta: RequestMeta; request: BatchCreateParams.Request; bytes: number }
@@ -139,13 +141,56 @@ export class PdfBatchTransport {
       .flatMap((row) => row.requests).filter((meta) => meta.key === key || meta.key === group || meta.retryGroup === group).length
   }
 
+  private bookIntent(options: CallLlmOptions) {
+    if (this.job.kind !== 'bank_book') return null
+    const unit = getPdfWorkerContext()?.unitKey ?? this.context.unitKey
+    if (!/^unit-[0-9]+$/.test(unit ?? '')) throw new PdfBatchStopped('교재 요청의 문항 식별자가 없어 새 접수를 중지했습니다.')
+    return bookRequestIdentity(options, this.job.target_id ?? this.job.id, unit!)
+  }
+
+  /** Bind only an already paid exact response. Never use an alias as a proof of
+   * correctness: the domain parser and original-image audit still decide that. */
+  rememberBookCall = async (options: CallLlmOptions, key: string, result: LlmDetailedResult) => {
+    const semanticKey = this.bookIntent(options)
+    if (!semanticKey) return
+    const aliasKey = `book-semantic-result:v1:${semanticKey}`
+    if (await this.context.read(aliasKey) !== null) return
+    await this.context.write(aliasKey, { version: 1, semanticKey, key, hash: bookFingerprint(result) })
+  }
+
+  private async semanticDelivery(semanticKey: string): Promise<LlmDetailedResult | null> {
+    const alias = await this.context.read<{ version: number; semanticKey: string; key: string; hash: string }>(`book-semantic-result:v1:${semanticKey}`)
+    if (!alias) return null
+    const delivery = await this.context.read<Delivery>(`batch-result:${alias.key}`)
+    const result = delivery && 'result' in delivery ? delivery.result : await this.context.read<LlmDetailedResult>(alias.key)
+    if (alias.version !== 1 || alias.semanticKey !== semanticKey || !result || bookFingerprint(result) !== alias.hash) throw new PdfBatchStopped('이미 받은 교재 응답의 연결 기록을 복원하지 못했습니다. 재과금을 막기 위해 중지했습니다.')
+    return result
+  }
+
   call = async (options: CallLlmOptions, key: string): Promise<LlmDetailedResult> => {
     this.context.signal.throwIfAborted()
     if (!allowsPdfBatchTask(this.job.kind, options.task) || !options.execution || options.phase === 'prewarm') throw new PdfBatchStopped('이 PDF 작업에서 허용되지 않은 배치 요청입니다.')
     const saved = await this.context.read<Delivery>(`batch-result:${key}`)
     if (saved) {
       if ('error' in saved) throw new PdfBatchRequestFailed(saved.error, saved.attempts)
+      await this.rememberBookCall(options, key, saved.result)
       return saved.result
+    }
+    const semanticKey = this.bookIntent(options)
+    if (semanticKey) {
+      const reusable = await this.semanticDelivery(semanticKey)
+      if (reusable) return reusable
+      const sameIntent = this.rows.flatMap(row => row.requests.filter(m => m.semanticKey === semanticKey).map(meta => ({ row, meta })))
+      for (const { row, meta } of sameIntent) {
+        const delivery = await this.context.read<Delivery>(`batch-result:${meta.key}`)
+        if (delivery && 'result' in delivery) { await this.rememberBookCall(options, meta.key, delivery.result); return delivery.result }
+        if (row.state === 'submitting' || row.state === 'submitted') {
+          if (this.context.cacheOnly) throw new PdfBatchStopped('기존 교재 요청의 응답 수집이 필요합니다. 저장 응답 복구 중에는 접수하지 않습니다.')
+          throw new PdfBatchPending()
+        }
+        if (row.outcomes?.[meta.key] === 'succeeded' || meta.key !== key) throw new PdfBatchStopped('같은 문항·원문의 요청 이력이 있어 새 형식의 중복 요청을 차단했습니다. 기존 응답 확인이 필요합니다.')
+      }
+      if (!this.context.cacheOnly && [...this.pending.values()].some(p => p.meta.semanticKey === semanticKey && p.meta.key !== key)) throw new PdfBatchPending()
     }
     if (this.context.cacheOnly) throw new PdfBatchStopped('저장된 응답이 없는 구간입니다. 추가 비용 방지 모드에서는 새 요청을 접수하지 않습니다.')
     if (this.attempts(key, options.batchRetryGroup) >= PDF_BATCH_REQUEST_ATTEMPTS) throw new PdfBatchRequestFailed('배치 요청을 최초 포함 3회 접수했지만 완료하지 못했습니다.', PDF_BATCH_REQUEST_ATTEMPTS)
@@ -161,7 +206,7 @@ export class PdfBatchTransport {
       const unitKey = getPdfWorkerContext()?.unitKey ?? this.context.unitKey
       if (this.job.kind === 'bank_book' && !/^unit-[0-9]+$/.test(unitKey ?? '')) throw new PdfBatchStopped('교재 비용을 연결할 지문 식별자가 없어 접수를 중지했습니다.')
       if (this.job.kind === 'bank_book' && this.pending.size >= (this.job.payload?.bookProfile === BOOK_PROFILE_VERSION ? 4 : BOOK_BATCH_WINDOW)) throw new PdfBatchPending()
-      this.pending.set(key, { request, bytes, meta: { key, ...(this.job.kind === 'bank_book' ? { unitKey, maxOutputTokens: options.maxTokens } : {}), ...(options.batchRetryGroup ? { retryGroup: options.batchRetryGroup } : {}), task: options.task, model: model.id, configVersion: options.execution.configVersion,
+      this.pending.set(key, { request, bytes, meta: { key, ...(this.job.kind === 'bank_book' ? { unitKey, semanticKey: semanticKey!, maxOutputTokens: options.maxTokens } : {}), ...(options.batchRetryGroup ? { retryGroup: options.batchRetryGroup } : {}), task: options.task, model: model.id, configVersion: options.execution.configVersion,
         promptHash: createHash('sha256').update(typeof options.content === 'string' ? options.content : JSON.stringify(options.content)).digest('hex'),
         promptVersion: task.promptVersion, schemaVersion: task.schemaVersion } })
       this.pendingBytes += bytes + 1
@@ -191,6 +236,7 @@ export class PdfBatchTransport {
         if (!Number.isSafeInteger(info.call_limit) || info.call_limit! <= 0 || !Number.isSafeInteger(info.calls_used) || info.calls_used! < 0) {
           throw new PdfBatchStopped('파일 누적 호출 상한 SQL이 적용되지 않아 새 접수를 중지했습니다.')
         }
+        if (info.unit_guard_version !== 1) throw new PdfBatchStopped('문항별 중복 요청 차단 SQL이 적용되지 않아 새 접수를 중지했습니다.')
         if (info.calls_used! + entries.length > info.call_limit!) throw new PdfCostStopped({ ...info, allowed: false, reason: 'file_call_limit' })
         if (!this.provider.countTokens) throw new PdfBatchStopped('입력 토큰 계산 기능이 없어 접수를 중지했습니다.')
         for (const entry of entries) {

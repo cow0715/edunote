@@ -14,6 +14,9 @@ export type PdfWorkerContext = {
   execute: <T>(call: () => Promise<T>) => Promise<T>
   read: <T>(key: string) => Promise<T | null>
   write: (key: string, value: unknown) => Promise<void>
+  /** Lease-checked mutable textbook progress; ordinary paid checkpoints stay immutable. */
+  writeBookProgress?: (key: string, value: unknown) => Promise<void>
+  rememberBookCall?: (options: CallLlmOptions, key: string, result: LlmDetailedResult) => Promise<void>
   stage: (message: string) => Promise<void>
   batchCall?: (options: CallLlmOptions, key: string) => Promise<LlmDetailedResult>
 }

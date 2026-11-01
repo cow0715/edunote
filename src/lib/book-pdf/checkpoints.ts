@@ -19,7 +19,10 @@ export async function readCachedBookCall(versions: CallLlmOptions[]): Promise<Ll
         ?? (await context.read<{ result?: LlmDetailedResult }>(`batch-result:${key}`))?.result
       if (result?.execution?.task === options.task && result.execution.requestedModel === execution.taskBindings[options.task]
         && result.execution.configVersion === configVersion && (!result.execution.callKey || result.execution.callKey === key)
-        && typeof result.text === 'string') return result
+        && typeof result.text === 'string') {
+        await context.rememberBookCall?.(options, key, result)
+        return result
+      }
     }
   }
   return null

@@ -64,6 +64,8 @@ export type CallLlmOptions = TaskCallOptions & {
   signal?: AbortSignal
   /** Internal Batch budget shared by content repairs and transport retries. Never sent to the model. */
   batchRetryGroup?: string
+  /** Textbook-only evidence identity; internal metadata, never a provider field. */
+  bookOperation?: { kind: 'mapping' | 'mapping_repair' | 'audit' | 'repair' | 'enrichment' | 'enrichment_repair'; evidence: unknown }
 }
 
 export type LlmDetailedResult = {

@@ -7,6 +7,7 @@ import { auditAndRepairSource, SOURCE_AUDIT_PROMPT, SOURCE_REPAIR_PROMPT, SOURCE
 import { sourceAuditFixture } from '../fixtures/book-source-audit'
 import { sourceDraftHash } from '@/lib/book-pdf/source-audit-state'
 import { PdfBatchPending } from '@/lib/pdf-import/batch-policy'
+import { withPdfWorkerContext } from '@/lib/pdf-import/context'
 const pass = { status: 'pass', checks: { content: true, mapping: true, formatting: true, inventory: true }, issues: [] }
 const compactPass = { ...pass, repair: null }
 const response = (v: unknown) => ({ text: JSON.stringify(v), stopReason: 'end_turn', usage: {} })
@@ -16,6 +17,50 @@ function proposed(f: ReturnType<typeof input>, before = 'Original', after = 'Cor
   return { ...f.audit, repair: { base_hash: sourceDraftHash(f.draft), edits: [{ target: f.target, mode: 'patch', patches: [{ before, after }], pages: [9] }], issues: [] } }
 }
 describe('image audit and bounded repair', () => {
+  it('keeps the two-repair ceiling through repeated waits and permanently reuses the final hold', async () => {
+    const f = input(), saved = new Map<string, unknown>(), checkpoint = { pdfHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64) }
+    const context = { signal: new AbortController().signal, concurrency: 1, execute: async <T,>(fn: () => Promise<T>) => fn(), stage: async () => {},
+      read: async <T,>(key: string) => saved.get(key) as T ?? null, write: async (key: string, value: unknown) => { saved.set(key, structuredClone(value)) } }
+    const next = structuredClone(f); next.draft[0].extraction.passage = 'Still wrong sentence.'
+    const run = () => withPdfWorkerContext(context, () => auditAndRepairSource({ ...f, checkpoint }))
+    mock.call.mockResolvedValueOnce(response(proposed(f, 'Original', 'Still wrong'))).mockRejectedValueOnce(new PdfBatchPending())
+    await expect(run()).rejects.toBeInstanceOf(PdfBatchPending)
+    mock.call.mockResolvedValueOnce(response(proposed(next, 'Still wrong', 'Again wrong'))).mockRejectedValueOnce(new PdfBatchPending())
+    await expect(run()).rejects.toBeInstanceOf(PdfBatchPending)
+    mock.call.mockResolvedValueOnce(response(f.audit))
+    const result = await run()
+    expect(result.status).toBe('unresolved'); expect(result.errors).toContain('repair_budget_exhausted')
+    expect(result.audits).toHaveLength(3); expect(result.ledger).toHaveLength(2)
+    await run(); expect(mock.call).toHaveBeenCalledTimes(5)
+    await expect(withPdfWorkerContext(context, () => auditAndRepairSource({ ...f, checkpoint,
+      images: [{ ...f.images[0], sha256: 'changed-image' }] }))).rejects.toThrow('evidence changed')
+    expect(mock.call).toHaveBeenCalledTimes(5)
+  })
+  it('continues a saved corrected candidate without replaying its verdict or repair request', async () => {
+    const f = input(), saved = new Map<string, unknown>(), checkpoint = { pdfHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64) }
+    const context = { signal: new AbortController().signal, concurrency: 1, execute: async <T,>(fn: () => Promise<T>) => fn(), stage: async () => {},
+      read: async <T,>(key: string) => saved.get(key) as T ?? null,
+      write: async (key: string, value: unknown) => { saved.set(key, JSON.parse(JSON.stringify(value))) } }
+    mock.call.mockResolvedValueOnce(response(proposed(f))).mockRejectedValueOnce(new PdfBatchPending())
+    await expect(withPdfWorkerContext(context, () => auditAndRepairSource({ ...f, checkpoint }))).rejects.toBeInstanceOf(PdfBatchPending)
+    mock.call.mockResolvedValueOnce(response(compactPass))
+    const result = await withPdfWorkerContext(context, () => auditAndRepairSource({ ...f, checkpoint }))
+    expect(result.status).toBe('audited'); expect(result.audits).toHaveLength(2); expect(result.ledger).toHaveLength(1)
+    expect(JSON.parse(mock.call.mock.calls[2][0].content.at(-1).text).candidate[0].extraction.passage).toBe('Correct sentence.')
+    await withPdfWorkerContext(context, () => auditAndRepairSource({ ...f, checkpoint }))
+    expect(mock.call).toHaveBeenCalledTimes(3)
+  })
+  it('saves a legacy repair verdict before waiting for its separate correction response', async () => {
+    const f = input(), saved = new Map<string, unknown>(), checkpoint = { pdfHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64) }
+    const context = { signal: new AbortController().signal, concurrency: 1, execute: async <T,>(fn: () => Promise<T>) => fn(), stage: async () => {},
+      read: async <T,>(key: string) => saved.get(key) as T ?? null, write: async (key: string, value: unknown) => { saved.set(key, structuredClone(value)) } }
+    mock.cached.mockResolvedValueOnce(response(f.audit)); mock.call.mockRejectedValueOnce(new PdfBatchPending())
+    await expect(withPdfWorkerContext(context, () => auditAndRepairSource({ ...f, checkpoint }))).rejects.toBeInstanceOf(PdfBatchPending)
+    mock.call.mockResolvedValueOnce(response(proposed(f).repair)).mockResolvedValueOnce(response(compactPass))
+    expect((await withPdfWorkerContext(context, () => auditAndRepairSource({ ...f, checkpoint }))).status).toBe('audited')
+    const operations = mock.call.mock.calls.map(([o]) => JSON.parse(o.content.at(-1).text).operation)
+    expect(operations).toEqual(['source_repair', 'source_repair', 'source_audit'])
+  })
   it('reuses a legacy repair with notes only after an independent full-image pass', async () => {
     const f = input(), notes = ['The source arrow was represented as ↓.']
     mock.cached.mockResolvedValueOnce(response(f.audit))
