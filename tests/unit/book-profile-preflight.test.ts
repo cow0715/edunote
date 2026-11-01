@@ -9,6 +9,8 @@ import { PdfBundleDeferred } from '@/lib/pdf-import/batch-policy'
 import { nativeFixture } from '../fixtures/book-native'
 import type { BookManifest } from '@/lib/book-pdf/types'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import * as knownSource from '@/lib/book-pdf/known-source-policy'
+import { bookSourceFingerprint } from '@/lib/book-pdf/proof'
 beforeEach(()=>{vi.clearAllMocks();m.slice.mockResolvedValue('JVBERi0=');m.read.mockResolvedValue(nativeFixture().pages);m.map.mockReturnValue({mapping:nativeFixture().mapping,reasons:[]})})
 function fixture(){
  const unit=nativeFixture().unit
@@ -21,6 +23,14 @@ function fixture(){
  return {manifest,saved,context}
 }
 describe('free whole-file preflight and pinned source snapshots',()=>{
+ it('includes known cache regressions in the bounded pilot before requesting full-processing consent',()=>{
+   const f=fixture(),target=f.manifest.units[7],hash=bookSourceFingerprint(target)
+   const spy=vi.spyOn(knownSource,'knownSourcePolicy').mockImplementation((_pdf,source)=>source===hash?knownSource.KNOWN_SOURCE_POLICIES[0]:undefined)
+   try {
+     const keys=bookPilotKeys(f.manifest.units,new Map(),'a'.repeat(64))
+     expect(keys[0]).toBe(target.key);expect(keys).toHaveLength(6)
+   } finally {spy.mockRestore()}
+ })
  it('includes an ambiguous window before filling the six representative slots',()=>{
    const f=fixture(),units=f.manifest.units
    units[2].questions.push({...units[2].questions[0],key:'shared-second'})

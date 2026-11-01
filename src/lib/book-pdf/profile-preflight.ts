@@ -8,15 +8,19 @@ import type { SourceMap, SourcePage } from './source-map'
 import type { BookManifest, BookUnitManifest } from './types'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { PdfImportJob } from '../pdf-import/types'
+import { knownSourcePolicy } from './known-source-policy'
 
 export type ProfileSource = { pages: SourcePage[]; mapping: SourceMap | null; reasons: string[] }
 export function profileSourceKey(unit: BookUnitManifest, pdfHash: string) {
   return bookFingerprint({ profile: BOOK_PROFILE_VERSION, pdfHash, source: bookSourceFingerprint(unit) })
 }
 /** Structural representatives, rather than the first few easy pages. */
-export function bookPilotKeys(units: BookUnitManifest[], sources: Map<string, ProfileSource>) {
+export function bookPilotKeys(units: BookUnitManifest[], sources: Map<string, ProfileSource>, pdfHash?: string) {
   const keys = new Set<string>()
   const add = (u?: BookUnitManifest) => { if (u && keys.size < 6) keys.add(u.key) }
+  // Known regressions must be exercised before consent, even when their pages
+  // would otherwise fall outside the structural representative window.
+  if (pdfHash) for (const u of units) if (knownSourcePolicy(pdfHash, bookSourceFingerprint(u))) add(u)
   add(units[0]); add(units.at(-1)); add(units.find(u => u.questions.length > 1))
   add([...units].sort((a,b) => b.pages.length-a.pages.length)[0])
   add(units.find(u => !sources.get(u.key)?.mapping))
@@ -42,9 +46,10 @@ export async function prepareBookProfiles(bytes: Uint8Array, manifest: BookManif
   })))
   const ambiguous = manifest.units.filter(u => !sources.get(u.key)?.mapping)
   if (ambiguous.length > Math.max(3, Math.ceil(manifest.units.length * .25))) throw new PdfBatchStopped(`형식별 코드 연결을 확정하지 못한 지문이 ${ambiguous.length}/${manifest.units.length}개입니다. 범용 AI 전체 전환 없이 보류했습니다.`)
+  const pilotKeys = bookPilotKeys(manifest.units, sources, pdfHash)
   const plan = { version: BOOK_PROFILE_VERSION, pdf_hash: pdfHash, question_count: manifest.question_count,
-    unit_count: manifest.units.length, pilot_keys: bookPilotKeys(manifest.units, sources),
-    pilot_labels: Object.fromEntries(bookPilotKeys(manifest.units, sources).map(key => [key, manifest.units.find(u => u.key === key)!.questions.map(q => q.label)])),
+    unit_count: manifest.units.length, pilot_keys: pilotKeys,
+    pilot_labels: Object.fromEntries(pilotKeys.map(key => [key, manifest.units.find(u => u.key === key)!.questions.map(q => q.label)])),
     ambiguous_units: ambiguous.map(u => u.key), snapshot_hash: bookFingerprint(manifest.units.map(u => [u.key, sources.get(u.key)])) }
   return { sources, plan }
 }
