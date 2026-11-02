@@ -11,9 +11,10 @@ import { withPdfWorkerContext } from '@/lib/pdf-import/context'
 import { writeBookUnitStage } from '@/lib/book-pdf/unit-progress'
 import { bookFingerprint } from '@/lib/book-pdf/proof'
 import { SourceOutputIncompleteError } from '@/lib/book-pdf/source-output-policy'
-import { SOURCE_IMAGE_AUDIT_PROMPT, SOURCE_IMAGE_AUDIT_POLICY } from '@/lib/book-pdf/image-audit-input'
+import { LEGACY_IMAGE_AUDIT_POLICY, SOURCE_IMAGE_AUDIT_PROMPT, SOURCE_IMAGE_AUDIT_POLICY } from '@/lib/book-pdf/image-audit-input'
 const pass = { status: 'pass', checks: { content: true, mapping: true, formatting: true, inventory: true }, issues: [] }
 const compactPass = { ...pass, repair: null }
+const findingsPass = { reviewed: pass.checks, findings: [] }
 const response = (v: unknown) => ({ text: JSON.stringify(v), stopReason: 'end_turn', usage: {} })
 function input() { return { ...sourceAuditFixture(), images: [{ page: 9, data: 'original-image', sha256: 'original-image-hash' }] } }
 beforeEach(() => { mock.call.mockReset(); mock.cached.mockReset().mockResolvedValue(null) })
@@ -21,11 +22,30 @@ function proposed(f: ReturnType<typeof input>, before = 'Original', after = 'Cor
   return { ...f.audit, repair: { base_hash: sourceDraftHash(f.draft), edits: [{ target: f.target, mode: 'patch', patches: [{ before, after }], pages: [9] }], issues: [] } }
 }
 describe('image audit and bounded repair', () => {
+  it('reuses an exact v1 independent image pass without a paid request', async () => {
+    mock.cached.mockImplementation(async (options) => options.some((o: { bookOperation?: { evidence?: { imageInputPolicy?: string } } }) =>
+      o.bookOperation?.evidence?.imageInputPolicy === LEGACY_IMAGE_AUDIT_POLICY) ? response(pass) : null)
+    expect((await auditAndRepairSource({ ...input(), failureMode: 'hold' })).status).toBe('audited')
+    expect(mock.call).not.toHaveBeenCalled()
+  })
+  it('holds contradictory observations and reuses that hold on restart without buying another audit', async () => {
+    const f = input(), saved = new Map<string, unknown>(), checkpoint = { pdfHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64) }
+    const context = { signal: new AbortController().signal, concurrency: 1, execute: async <T,>(fn: () => Promise<T>) => fn(), stage: async () => {},
+      read: async <T,>(key: string) => (saved.get(key) ?? null) as T | null, write: async (key: string, value: unknown) => { saved.set(key, structuredClone(value)) } }
+    const raw = { reviewed: pass.checks, findings: f.audit.issues.map(i => ({ ...i, result: 'mismatch', original: 'same', candidate: 'same' })) }
+    mock.call.mockResolvedValueOnce(response(raw))
+    const run = () => withPdfWorkerContext(context, () => auditAndRepairSource({ ...f, checkpoint, failureMode: 'hold' }))
+    expect((await run()).status).toBe('unresolved')
+    // A malformed paid response can be replayed from its immutable checkpoint,
+    // but cannot cause an implicit new request when that checkpoint is missing.
+    await expect(run()).rejects.toThrow('유료 재요청을 차단')
+    expect(mock.call).toHaveBeenCalledOnce()
+  })
   it('independently audits original images without leaking corrupt native text into the verdict input', async () => {
     const f = input()
     f.pages[0].lines[0].text = 'CORRUPT_NATIVE_PUNCTUATION_SENTINEL'
     f.draft[0].extraction.translation = '(A) 원본 A 해석\n(D) 원본 D 해석\n(C) 원본 C 해석\n(B) 원본 B 해석'
-    mock.call.mockResolvedValueOnce(response(pass))
+    mock.call.mockResolvedValueOnce(response(findingsPass))
     const result = await auditAndRepairSource({ ...f, failureMode: 'hold' })
     expect(result.status).toBe('audited')
     const options = mock.call.mock.calls[0][0]
@@ -43,7 +63,7 @@ describe('image audit and bounded repair', () => {
   })
   it('keeps mismatches held with no generated repair in the independent image comparison', async () => {
     const f = input()
-    mock.call.mockResolvedValueOnce(response(f.audit))
+    mock.call.mockResolvedValueOnce(response({ reviewed: pass.checks, findings: f.audit.issues.map(i => ({ ...i, result: 'mismatch', original: 'Correct', candidate: 'Original' })) }))
     const result = await auditAndRepairSource({ ...f, failureMode: 'hold' })
     expect(result.status).toBe('unresolved')
     expect(result.groups).toEqual(f.draft)
@@ -62,7 +82,7 @@ describe('image audit and bounded repair', () => {
     expect(held.errors.some(e => e.includes(f.audit.issues[0].reason))).toBe(true)
     await withPdfWorkerContext(context, run)
     expect(mock.call).not.toHaveBeenCalled()
-    mock.call.mockResolvedValueOnce(response(pass))
+    mock.call.mockResolvedValueOnce(response(findingsPass))
     const complete = await withPdfWorkerContext({ ...context, bookResume: { id: '11111111-1111-4111-8111-111111111111', stage: 'audit' } }, run)
     expect(complete.status).toBe('audited'); expect(complete.groups[0].extraction.passage).toBe('Correct sentence.')
     expect(complete.ledger).toHaveLength(1); expect(mock.call).toHaveBeenCalledOnce()

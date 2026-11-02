@@ -11,7 +11,7 @@ const response = (value:unknown) => ({text:JSON.stringify(value),stopReason:'end
 let f=nativeFixture()
 beforeEach(() => {
   Object.values(mocks).forEach(mock => mock.mockReset());f=nativeFixture();mocks.read.mockResolvedValue(f.pages);mocks.render.mockResolvedValue(f.images)
-  mocks.call.mockResolvedValueOnce(response(f.mapping)).mockResolvedValueOnce(response({status:'pass',checks:{content:true,mapping:true,formatting:true,inventory:true},issues:[]}))
+  mocks.call.mockResolvedValueOnce(response(f.mapping)).mockResolvedValueOnce(response({reviewed:{content:true,mapping:true,formatting:true,inventory:true},findings:[]}))
 })
 describe('real mapping/audit/enrichment adapters connected inside the worker unit', () => {
   it('produces a valid publication proof through all three adapters without re-outputting original text in mapping', async () => {
@@ -39,8 +39,8 @@ describe('real mapping/audit/enrichment adapters connected inside the worker uni
     f.pages[0].lines[0].text += ' invisiblejunk'
     const target = {g:0,q:null,field:'passage',choice:null}
     mocks.call.mockResolvedValueOnce(response(f.mapping))
-      .mockResolvedValueOnce(response({status:'repair',checks:{content:false,mapping:true,formatting:true,inventory:true},
-        issues:[{target,kind:'native_text',pages:[9],reason:'Extra native letters absent from image.'}]}))
+      .mockResolvedValueOnce(response({reviewed:{content:true,mapping:true,formatting:true,inventory:true},
+        findings:[{target,kind:'native_text',pages:[9],result:'mismatch',original:'(없음)',candidate:'invisiblejunk',reason:'Extra native letters absent from image.'}]}))
     const result = await processNativeBookUnit({unit:f.unit,pdfHash,bytes:pdfBytes})
     expect(result.verification.status).toBe('unresolved')
     expect(result.verification.failure?.stage).toBe('audit')
