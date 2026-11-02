@@ -15,6 +15,27 @@ const students = [
   { student_id: 'a', student_name: '학생 가', present: true, hasExisting: false },
   { student_id: 'b', student_name: '학생 나', present: true, hasExisting: false },
 ]
+
+it('continues only confirmed successful photos into grading, keeps the result for retry on save failure', async () => {
+  let index = 0
+  // The response path must belong to the selected student.
+  request.mockImplementation(async (url: string, init: RequestInit) => ({ ok: true, json: async () => url.endsWith('vocab-photo-name')
+    ? { studentId: students[index++].student_id, confidence: 'high' }
+    : { ok: true, photoPath: `week/${JSON.parse(init.body as string).studentId}/photo`, results: [] } }))
+  const onContinue = vi.fn().mockRejectedValueOnce(new Error('저장 실패')).mockResolvedValue(undefined)
+  const close = vi.fn()
+  render(<ExamBatchGradeDialog open onOpenChange={close} weekId="week" students={students} questionCount={1} onApplied={() => 1} onContinue={onContinue} />)
+  fireEvent.click(screen.getByRole('button', { name: '촬영한 두 장 확인 완료' }))
+  await confirmAllExamStudents()
+  fireEvent.click(screen.getByRole('button', { name: '2명 답안 인식' }))
+  fireEvent.click(await screen.findByRole('button', { name: '채점하고 저장' }))
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', '저장 실패')
+  expect(close).not.toHaveBeenCalled()
+  expect(onContinue).toHaveBeenCalledWith(['a', 'b'])
+  fireEvent.click(screen.getByRole('button', { name: '채점하고 저장' }))
+  await waitFor(() => expect(close).toHaveBeenCalledWith(false))
+  expect(request.mock.calls.filter(([url]) => url.endsWith('ocr-exam-photo'))).toHaveLength(2)
+})
 let request: ReturnType<typeof vi.fn>
 beforeEach(() => {
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:photo') })
@@ -131,7 +152,7 @@ describe('촬영 확인 → 기존 일괄 처리 연결', () => {
     fireEvent.click(read)
     await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(2))
     expect(onApplied.mock.calls.map(([id]) => id).sort()).toEqual(['a', 'b'])
-    expect(screen.getByText(/입력된 답안을 성적표에서 확인하세요/)).toBeTruthy()
+    expect(screen.getByText(/답안 확인이 끝났습니다/)).toBeTruthy()
   })
 
   it.each(['exam', 'vocab'])('%s: 같은 학생에게 두 장이 매칭되면 처리를 차단한다', async (kind) => {

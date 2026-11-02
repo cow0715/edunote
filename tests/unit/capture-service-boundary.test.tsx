@@ -111,7 +111,7 @@ it.each(['reading-batch', 'vocab-batch', 'reading-single', 'vocab-single', 'read
   render(<QueryClientProvider client={client}><GradeGrid weekId={week} readingTotal={2} vocabTotal={3} homeworkTotal={0} /></QueryClientProvider>)
   await waitFor(() => expect(within(screen.getByRole('table')).getByRole('button', { name: '학생 가 시험 답안 열기' })).toBeTruthy())
   if (batch) {
-    fireEvent.click(screen.getByRole('button', { name: reading ? '시험 답안 올리기' : '단어 시험지 채점' }))
+    fireEvent.click(screen.getByRole('button', { name: reading ? '독해 사진 채점' : '단어 사진 채점' }))
     const dialog = screen.getByRole('dialog')
     const picker = dialog.querySelector<HTMLInputElement>('input[aria-label="파일 추가"]')!
     fireEvent.change(picker, { target: { files: [new File(['a'], 'a.jpg', { type: 'image/jpeg' }), new File(['b'], 'b.jpg', { type: 'image/jpeg' })] } })
@@ -123,9 +123,11 @@ it.each(['reading-batch', 'vocab-batch', 'reading-single', 'vocab-single', 'read
     fireEvent.click(first)
     fireEvent.click(screen.getByLabelText('사진 2: 학생 나 학생 확인'))
     fireEvent.click(screen.getByText(reading ? '2명 답안 인식' : '2명 채점 시작', { selector: 'button' }))
-    const close = await screen.findByText('닫기', { selector: 'button' })
+    const close = await screen.findByText(reading ? '채점하고 저장' : '성적표 보기', { selector: 'button' })
     if (reading) await waitFor(() => expect(requests.filter((entry) => entry.body.skip_ai === true)).toHaveLength(2))
+    await waitFor(() => expect((close as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(close)
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(vi.mocked(captureDraft).mock.calls.some(([key]) => key === `${reading ? 'exam' : 'vocab'}:${week}`)).toBe(true)
   } else {
     const studentRow = within(screen.getByRole('table')).getByRole('button', {name:'학생 가 시험 답안 열기'}).closest('tr')!
@@ -133,19 +135,19 @@ it.each(['reading-batch', 'vocab-batch', 'reading-single', 'vocab-single', 'read
     const dialog = screen.getByRole('dialog')
     const description = document.getElementById(dialog.getAttribute('aria-describedby') ?? '')
     expect(description?.textContent).toBe(reading
-      ? '독해 답안을 확인하고 사진으로 판독할 수 있습니다.'
-      : '단어 답안을 확인하고 사진으로 채점할 수 있습니다.')
-    fireEvent.change(dialog.querySelector('input[type="file"]')!, { target: { files: [new File(['a'], 'a.jpg', { type: 'image/jpeg' })] } })
-    await screen.findByText('원본 사진', { selector: 'button' })
-    expect(screen.queryByText('학생 확인', { selector: 'button' })).toBeNull()
-    fireEvent.keyDown(document, { key: 'Escape' })
+      ? '독해 답안과 원본 사진을 확인합니다.'
+      : '단어 답안과 원본 사진을 확인합니다.')
+    expect(dialog.querySelector('input[type="file"]')).toBeNull()
+    expect(requests.some(entry => /ocr-exam-photo|grade-vocab-photo/.test(entry.url))).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '답안 닫기' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    if (reading) await waitFor(() => expect(requests.some((entry) => entry.body.skip_ai === true)).toBe(true))
+    return
+
   }
   if (reading) {
     await waitFor(() => expect(scores[0].reading_correct).toBe(2))
     if (ai) {
-      fireEvent.click(screen.getByRole('button',{name:'AI 채점'}))
+      fireEvent.click(screen.getByRole('button',{name:'서술형 채점'}))
       await waitFor(() => expect(notice.success).toHaveBeenCalledWith('채점이 저장되었습니다'))
       expect(requests.some((entry) => entry.body.skip_ai === false)).toBe(true)
     }

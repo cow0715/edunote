@@ -13,13 +13,11 @@ import { Textarea } from '@/components/ui/textarea'
 import { GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { requireExamPhotoPath } from '@/lib/exam-photo'
 import { acceptedObjectiveAnswers, gradeObjective } from '@/lib/objective-grading'
 import { gradeOXAnswer, oxNotation } from '@/lib/ox-grading'
 import { ScoreToggleField } from './score-toggle-field'
 import { AnswerKey, CorrectChip, OXInput } from './question-inputs'
 import { SourceImagePreview } from './source-image-preview'
-import { ExamPhotoButton, ExamOcrResult } from './exam-photo-button'
 
 /**
  * 진단평가 채점지 — 인쇄 답안지(answer-sheet/print)와 같은 표.
@@ -108,7 +106,7 @@ function TextAnswerCell({ q, answer, disabled, onChangeText }: {
         disabled={disabled}
         placeholder={placeholder}
         rows={1}
-        className="min-h-8 text-sm resize-none py-1"
+        className="min-h-11 text-base sm:text-sm resize-none py-1"
       />
       <div className="flex flex-wrap items-center gap-2">
         {/* 빈칸은 오답. 답을 쓴 뒤 AI 판정 대기 중(undefined)일 때만 칩을 숨긴다 */}
@@ -175,7 +173,7 @@ const STYLE_SHORT: Record<ExamQuestion['question_style'], string | null> = {
   find_error: '교정',
 }
 
-export function ExamSheetContent({ weekId, row, questions, readingTotal, examPhotoPath, updateRow, updateAnswer, updateAnswerText }: {
+export function ExamSheetContent({ row, questions, readingTotal, examPhotoPath, updateRow, updateAnswer, updateAnswerText }: {
   weekId: string
   row: GradeRow
   questions: ExamQuestion[]
@@ -187,21 +185,16 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
   updateAnswerText: (studentId: string, questionId: string, text: string) => void
 }) {
   const { request } = useCaptureRuntime()
-  const hasSubjective = questions.some((q) => q.question_style === 'subjective' || q.question_style === 'find_error')
   const disabled = !row.reading_present
   const [openImageIds, setOpenImageIds] = useState<Set<string>>(new Set())
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [photoOpen, setPhotoOpen] = useState(false)
-  const [rereading, setRereading] = useState(false)
-  const [photoError, setPhotoError] = useState<string | null>(null)
-  const [localPhotoPath, setLocalPhotoPath] = useState<string | null>(null)
-  const visiblePhotoPath = localPhotoPath ?? examPhotoPath ?? null
+  const visiblePhotoPath = examPhotoPath ?? null
 
   // 사진 경로가 바뀌면 이전 서명 URL 을 즉시 지운다 — 렌더 중 조정 (다른 학생 사진이 잠깐 남는 것 방지)
   const [syncedPhotoPath, setSyncedPhotoPath] = useState<string | null | undefined>(examPhotoPath)
   if (syncedPhotoPath !== examPhotoPath) {
     setSyncedPhotoPath(examPhotoPath)
-    setLocalPhotoPath(null)
     setPhotoUrl(null)
   }
   useEffect(() => {
@@ -212,42 +205,6 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
       .then((d) => { if (d.url) setPhotoUrl(d.url) })
       .catch(() => {})
   }, [visiblePhotoPath, request])
-
-  // 저장된 사진으로 재판독 — 재촬영 없이 OCR 만 다시 돌려 답을 다시 채운다
-  async function rereadFromStored() {
-    setRereading(true)
-    setPhotoError(null)
-    try {
-      const resp = await request(`/api/weeks/${weekId}/ocr-exam-photo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId: row.student_id, useStored: true }),
-      })
-      const data = await resp.json()
-      if (!resp.ok || !data.ok) throw new Error(data.error ?? '사진 재판독 실패')
-      const photoPath = requireExamPhotoPath(weekId, row.student_id, data.photoPath)
-      updateRow(row.student_id, 'exam_photo_path', photoPath)
-      applyOcrResults(data.results)
-    } catch (error) {
-      setPhotoError(error instanceof Error ? error.message : '사진 재판독 실패')
-    } finally {
-      setRereading(false)
-    }
-  }
-
-  function applyOcrResults(results: ExamOcrResult[]) {
-    for (const r of results) {
-      const q = questions.find(
-        (q) => q.question_number === r.question_number && (q.sub_label ?? null) === (r.sub_label ?? null)
-      )
-      if (!q) continue
-      if (r.student_answer !== undefined) {
-        updateAnswer(row.student_id, q.id, r.student_answer)
-      } else if (r.student_answer_text !== undefined) {
-        updateAnswerText(row.student_id, q.id, r.student_answer_text)
-      }
-    }
-  }
 
   function toggleImage(id: string) {
     setOpenImageIds((prev) => {
@@ -299,43 +256,7 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
 
   return (
     <div>
-      {/* OCR 촬영 버튼 */}
-      {questions.length > 0 && (
-        <div className="flex items-center gap-1 px-4 py-2 border-b bg-gray-50/30">
-          <span className="text-xs text-gray-400 mr-1">답안 OCR</span>
-          <ExamPhotoButton
-            weekId={weekId}
-            studentId={row.student_id}
-            disabled={false}
-            onResult={(results, photoPath) => {
-              setLocalPhotoPath(photoPath)
-              updateRow(row.student_id, 'exam_photo_path', photoPath)
-              applyOcrResults(results)
-            }}
-          />
-          {photoError && <span role="alert" className="text-xs text-red-500">{photoError}</span>}
-          {photoUrl && (
-            <>
-              <button
-                type="button"
-                onClick={() => setPhotoOpen(true)}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 transition-colors shrink-0"
-              >
-                <ImageIcon className="h-3 w-3" />
-                원본 사진
-              </button>
-              <button
-                type="button"
-                disabled={rereading}
-                onClick={rereadFromStored}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 transition-colors shrink-0 disabled:text-gray-300"
-              >
-                {rereading ? '재판독 중...' : '저장 사진 재판독'}
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      {photoUrl && <button type="button" onClick={() => setPhotoOpen(true)} className="m-4 flex min-h-11 items-center gap-2 rounded-xl border px-4 text-sm"><ImageIcon className="size-4" />원본 사진 보기</button>}
 
       {/* 답안지 사진 전체보기 오버레이 */}
       <AnswerPhotoDialog open={photoOpen} onOpenChange={setPhotoOpen} url={photoUrl} title="답안지 원본 사진" />
@@ -350,7 +271,7 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
           />
           <span className="text-xs text-gray-500">
             시험 {row.reading_present ? '응시' : '미응시'}
-          </span><span className="text-[11px] text-muted-foreground">수업 출결과 별도</span>
+          </span><span className="text-[11px] text-muted-foreground"></span>
         </div>
       )}
 
@@ -462,11 +383,7 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
         </div>
       )}
 
-      {hasSubjective && row.reading_present && (
-        <p className="px-4 py-2 text-xs text-muted-foreground border-t bg-muted">
-          서술형은 ‘AI 채점’을 눌러 채점할 수 있습니다
-        </p>
-      )}
+
     </div>
   )
 }

@@ -22,6 +22,10 @@ export type BatchPhotoView = {
 }
 
 type Props = {
+  onContinue?: () => Promise<void>
+  continueDisabled?: boolean
+  continuing?: boolean
+  continueError?: string | null
   open: boolean
   kind: 'exam' | 'vocab'
   draftKey: string
@@ -45,7 +49,7 @@ type Props = {
 
 export function BatchGradePanel(props: Props) {
   const { open, kind, draftKey, phase, items, students, busy, readyCount, duplicateIds,
-    onClose, onBack, onConfirm, onCaptureBusy, onSelect, onRemove, onStart, onRetry, canStart, onConfirmStudent } = props
+    onClose, onBack, onConfirm, onCaptureBusy, onSelect, onRemove, onStart, onRetry, canStart, onConfirmStudent, onContinue, continueDisabled, continuing, continueError } = props
   const [captureView, setCaptureView] = useState<CaptureView>('add')
   const done = items.filter((item) => item.status === 'done').length
   const failed = items.filter((item) => item.status === 'error').length
@@ -56,12 +60,12 @@ export function BatchGradePanel(props: Props) {
   const processing = phase === 'matching' || phase === 'processing'
   const completed = phase === 'matching' ? items.filter((item) => item.status !== 'matching').length : done + failed
   const step = phase === 'pick' ? 0 : phase === 'done' ? 2 : 1
-  const title = phase === 'pick' ? captureView === 'camera' ? '답안 촬영' : captureView === 'review' ? '사진 확인' : '답안 추가'
+  const title = phase === 'pick' ? captureView === 'camera' ? '답안 촬영' : captureView === 'review' ? '사진 확인' : kind === 'exam' ? '독해 사진 채점' : '단어 사진 채점'
     : phase === 'matching' ? '학생 이름을 읽고 있어요' : phase === 'review' ? '학생 확인'
       : phase === 'processing' ? kind === 'exam' ? '답안을 읽고 있어요' : '채점하고 있어요' : '처리 결과'
   const description = phase === 'pick' ? '학생당 한 장 · 이름과 답안 전체가 나오게 준비해주세요.'
     : phase === 'review' ? '사진과 학생이 맞는지 확인해주세요.'
-      : phase === 'done' ? kind === 'exam' ? '입력된 답안을 성적표에서 확인하세요.' : '완료된 채점 결과는 저장되었습니다.'
+      : phase === 'done' ? kind === 'exam' ? '답안 확인이 끝났습니다. 채점하고 저장하세요.' : '채점 결과가 저장되었습니다.'
         : '창을 닫지 말고 잠시 기다려주세요.'
 
   return (
@@ -71,7 +75,6 @@ export function BatchGradePanel(props: Props) {
           <div className="flex items-center gap-2">
             {phase === 'review' && <Button type="button" variant="ghost" size="icon" aria-label="사진 확인으로 돌아가기" disabled={busy} onClick={onBack}><ArrowLeft className="size-5" /></Button>}
             <div className="min-w-0 flex-1">
-              <p className="mb-1 text-[11px] font-medium text-[var(--share-muted)]">{kind === 'exam' ? '시험 답안 올리기' : '단어 시험지 채점'}</p>
               <DialogTitle className="text-xl font-bold tracking-tight">{title}</DialogTitle>
             </div>
             <Button type="button" variant="ghost" size="icon" aria-label="닫기" disabled={busy} onClick={onClose}><X className="size-5" /></Button>
@@ -94,7 +97,7 @@ export function BatchGradePanel(props: Props) {
                 <progress aria-label="처리 진행률" value={completed} max={Math.max(items.length, 1)} className="h-1.5 w-full accent-[var(--share-blue)]" />
               </div>}
               {phase === 'review' && <div className="flex items-center justify-between text-sm"><span className="font-semibold">답안 {items.length}장</span><span className={needsCheck ? 'text-[var(--share-red)]' : 'text-[var(--share-muted)]'}>{needsCheck ? `확인 필요 ${needsCheck}장` : '모든 답안지의 학생을 확인했습니다'}</span></div>}
-              {phase === 'done' && <div role="status" className="rounded-[20px] bg-[var(--share-card)] p-5"><p className="text-xl font-bold">완료 {done}명{failed > 0 ? ` · 실패 ${failed}건` : ''}</p><p className="mt-2 text-xs leading-relaxed text-[var(--share-muted)]">{failed > 0 ? '실패한 답안만 다시 시도할 수 있습니다.' : '보관한 답안은 기기에 남아 있습니다.'}</p></div>}
+              {phase === 'done' && <div role="status" className="rounded-[20px] bg-[var(--share-card)] p-5"><p className="text-xl font-bold">{kind === 'exam' ? '답안 인식' : '채점 완료'} {done}명{failed > 0 ? ` · 실패 ${failed}건` : ''}</p>{failed > 0 && <p className="mt-2 text-sm">실패한 답안만 다시 시도하세요.</p>}</div>}
               <ul className="space-y-3" aria-label="학생별 답안">
                 {ordered.map((item) => {
                   const index = items.findIndex((original) => original.id === item.id)
@@ -117,13 +120,16 @@ export function BatchGradePanel(props: Props) {
         {phase !== 'pick' && <footer className="border-t border-[var(--share-line)] px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))] sm:px-6">
           <div className="mx-auto max-w-[520px] space-y-3">
             {phase === 'review' && <>
-              <p className="text-xs text-[var(--share-muted)]">{duplicateIds.size > 0 ? `중복 학생 ${duplicateIds.size}명을 먼저 확인해주세요.` : unmatched > 0 ? `미선택 ${unmatched}장의 학생을 먼저 선택해주세요.` : '사진은 이 기기에 보관됩니다.'}</p>
+              {(duplicateIds.size > 0 || unmatched > 0) && <p className="text-xs text-[var(--share-muted)]">{duplicateIds.size > 0 ? `중복 학생 ${duplicateIds.size}명을 확인하세요.` : `미선택 ${unmatched}장의 학생을 선택하세요.`}</p>}
               <Button type="button" variant="action" disabled={busy || !canStart || readyCount === 0 || duplicateIds.size > 0} onClick={onStart} className="h-12 w-full rounded-xl">{readyCount}명 {kind === 'exam' ? '답안 인식' : '채점 시작'}</Button>
             </>}
             {processing && <p className="py-2 text-center text-sm text-[var(--share-muted)]">완료 {completed} / 전체 {items.length}장</p>}
+            {continueError && <p role="alert" className="text-sm text-destructive">{continueError}</p>}
             {phase === 'done' && <div className="flex gap-2">
               {failed > 0 && <Button type="button" variant="action" disabled={busy || !canStart} onClick={onRetry} className="h-12 flex-1 rounded-xl">실패 {failed}건 재시도</Button>}
-              <Button type="button" variant="outline" onClick={onClose} className="h-12 flex-1 rounded-xl shadow-none">닫기</Button>
+              {kind === 'exam' && onContinue && done > 0 && failed === 0
+                ? <Button type="button" variant="action" disabled={busy || continueDisabled} onClick={onContinue} className="h-12 flex-1 rounded-xl">{continuing ? '채점·저장 중…' : continueDisabled ? '답안 저장 중…' : '채점하고 저장'}</Button>
+                : <Button type="button" variant="outline" disabled={busy} onClick={onClose} className="h-12 flex-1 rounded-xl shadow-none">{kind === 'vocab' && !failed ? '성적표 보기' : '닫기'}</Button>}
             </div>}
           </div>
         </footer>}
