@@ -45,6 +45,23 @@ function success(stop = 'end_turn'): MessageBatchIndividualResponse {
 const responseStream = (responses: MessageBatchIndividualResponse[]) => (async function* () { for (const r of responses) yield r })()
 
 describe('durable textbook Batch API transport', () => {
+  it.each(['expired', 'overloaded_error', 'timeout_error'])('holds textbook %s after one submission across repeated restarts', async type => {
+    const f = fixture(), first = f.broker()
+    await first.poll(); await expect(first.call(f.options, key)).rejects.toBeInstanceOf(BookBatchPending); await first.submit()
+    f.provider.results.mockImplementation(async () => responseStream([type === 'expired'
+      ? { custom_id: key, result: { type: 'expired' } }
+      : { custom_id: key, result: { type: 'errored', error: { type: 'error', error: { type, message: 'private' } } } } as MessageBatchIndividualResponse]))
+    for (let i = 0; i < 3; i++) { const broker = f.broker(); await broker.poll(); await expect(broker.call(f.options, key)).rejects.toMatchObject({ attempts: 1 }) }
+    expect(f.provider.create).toHaveBeenCalledOnce()
+  })
+  it('holds textbook HTTP 429 without automatically buying a replacement request', async () => {
+    const f = fixture(), broker = f.broker()
+    await broker.poll(); await expect(broker.call(f.options, key)).rejects.toBeInstanceOf(BookBatchPending)
+    f.provider.create.mockRejectedValueOnce(new Anthropic.APIError(429, {}, 'limited', new Headers()))
+    await broker.submit(); const next = f.broker(); await next.poll()
+    await expect(next.call(f.options, key)).rejects.toBeInstanceOf(BookBatchRequestFailed)
+    expect(f.provider.create).toHaveBeenCalledOnce()
+  })
   it('keeps a legacy truncation archived and submits the controlled audit at most once across restarts', async () => {
     const f = fixture(), nextKey = 'b'.repeat(64)
     const old: CallLlmOptions = { ...f.options, task: 'book.auditSource', maxTokens: 6000,
@@ -230,7 +247,7 @@ describe('durable textbook Batch API transport', () => {
     expect(f.provider.create).toHaveBeenCalledTimes(1)
   })
   it('retries an expired individual request at most three submissions across restarts', async () => {
-    const f = fixture()
+    const f = fixture('bank_questions'); f.options.task = 'examBank.parseQuestions'
     f.provider.results.mockImplementation(async () => responseStream([{ custom_id: key, result: { type: 'expired' } }]))
     let current = f.broker(); await current.poll()
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -248,12 +265,12 @@ describe('durable textbook Batch API transport', () => {
     await expect(resumed.call(f.options, key)).rejects.toBeInstanceOf(BookBatchRequestFailed)
     expect(f.provider.create).toHaveBeenCalledTimes(1)
   })
-  it.each([['api_error',true],['invalid_request_error',false]] as const)('classifies %s without storing provider text in failure reasons', async (type,retryable) => {
+  it.each(['api_error','invalid_request_error'] as const)('holds %s without storing provider text in failure reasons', async (type) => {
     const f=fixture(), first=f.broker()
     await first.poll(); await expect(first.call(f.options,key)).rejects.toBeInstanceOf(BookBatchPending); await first.submit()
     f.provider.results.mockImplementation(async()=>responseStream([{custom_id:key,result:{type:'errored',error:{type:'error',error:{type,message:'private source MUST NOT LEAK'}}}} as MessageBatchIndividualResponse]))
     const resumed=f.broker();await resumed.poll()
-    await expect(resumed.call(f.options,key)).rejects.toBeInstanceOf(retryable?BookBatchPending:BookBatchRequestFailed)
+    await expect(resumed.call(f.options,key)).rejects.toBeInstanceOf(BookBatchRequestFailed)
     expect(JSON.stringify([...f.saved.values()])).not.toContain('MUST NOT LEAK')
   })
   it('holds an uncertain create response and never replays the non-idempotent POST', async () => {
@@ -265,7 +282,7 @@ describe('durable textbook Batch API transport', () => {
     expect(f.provider.create).toHaveBeenCalledTimes(1)
   })
   it('records a definitely rejected rate-limited submission so it can be retried within the same limit', async () => {
-    const f = fixture(), first = f.broker()
+    const f = fixture('bank_questions'); f.options.task = 'examBank.parseQuestions'; const first = f.broker()
     await first.poll(); await expect(first.call(f.options, key)).rejects.toBeInstanceOf(BookBatchPending)
     f.provider.create.mockRejectedValueOnce(new Anthropic.APIError(429, {}, 'limited', new Headers()))
     await first.submit()

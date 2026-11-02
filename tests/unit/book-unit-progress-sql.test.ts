@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { PGlite } from '@electric-sql/pglite'
 import { readFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
+import { withPdfWorkerContext } from '@/lib/pdf-import/context'
+import { readBookUnitStage, writeBookUnitStage } from '@/lib/book-pdf/unit-progress'
 
 const migration = '20261101102036_book_unit_progress_and_request_guard.sql'
 describe('leased textbook progress and atomic evidence guard', () => {
@@ -79,5 +81,17 @@ describe('leased textbook progress and atomic evidence guard', () => {
     expect((await db.query<{ info: { unit_guard_version: number } }>('select book_pdf_cost_summary($1,$2) info', [f.job, f.token])).rows[0].info.unit_guard_version).toBe(1)
     await db.exec('set role authenticated')
     try { await expect(prepare(f)).rejects.toThrow('permission denied') } finally { await db.exec('reset role') }
+  })
+  it('stores a durable held result in the deployed progress contract without changing its stage whitelist', async () => {
+    const f = await fixture(), scope = { pdfHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64) }
+    const held = { questions: ['1강 1번'], stage: 'audit', status: 'held', reasons: ['원문 불일치'], heldResult: { verification: { status: 'unresolved', failure: { stage: 'audit', attempt_id: null } } } }
+    await withPdfWorkerContext({ unitKey: 'unit-1', signal: new AbortController().signal, concurrency: 1, execute: fn => fn(), stage: async () => {},
+      write: async () => { throw Error('paid checkpoints must stay immutable') },
+      read: async <T>(key: string) => (await db.query<{ value: T }>('select value from pdf_import_checkpoint where job_id=$1 and call_key=$2', [f.job, key])).rows[0]?.value ?? null,
+      writeBookProgress: async (key, value) => { await db.query('select book_pdf_save_unit_progress($1,$2,$3,$4,$5)', [f.job, f.token, 'unit-1', key, JSON.stringify(value)]) },
+    }, async () => {
+      await writeBookUnitStage(scope, 'progress', held)
+      expect(await readBookUnitStage(scope, 'progress')).toEqual(held)
+    })
   })
 })

@@ -64,8 +64,8 @@ export async function callAnthropic(options: CallLlmOptions, model: LlmModel): P
   const params = buildAnthropicRequest(options, model)
   try {
     // Keep SDK retry defaults and collect the same final message for buffered streaming.
-    const requestOptions = getPdfWorkerContext()
-      ? { signal: options.signal, timeout: 180_000, maxRetries: 2 }
+    const requestOptions = getPdfWorkerContext() || options.task.startsWith('book.')
+      ? { signal: options.signal, timeout: 180_000, maxRetries: options.task.startsWith('book.') ? 0 : 2 }
       : options.signal ? { signal: options.signal } : undefined
     const res = options.stream
       ? await client.messages.stream(params, requestOptions).finalMessage()

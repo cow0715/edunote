@@ -20,6 +20,25 @@ function proposed(f: ReturnType<typeof input>, before = 'Original', after = 'Cor
   return { ...f.audit, repair: { base_hash: sourceDraftHash(f.draft), edits: [{ target: f.target, mode: 'patch', patches: [{ before, after }], pages: [9] }], issues: [] } }
 }
 describe('image audit and bounded repair', () => {
+  it('holds the first mismatch, retains its paid patch, and requires a manual action plus fresh image pass', async () => {
+    const f = input(), saved = new Map<string, unknown>(), checkpoint = { pdfHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64) }
+    const context = { signal: new AbortController().signal, concurrency: 1, execute: async <T,>(fn: () => Promise<T>) => fn(), stage: async () => {},
+      read: async <T,>(key: string) => (saved.get(key) ?? null) as T | null, write: async (key: string, value: unknown) => { saved.set(key, structuredClone(value)) } }
+    const run = () => auditAndRepairSource({ ...f, checkpoint, failureMode: 'hold' as const })
+    mock.cached.mockResolvedValueOnce(null).mockResolvedValueOnce(response(proposed(f)))
+    const held = await withPdfWorkerContext(context, run)
+    expect(held.status).toBe('unresolved'); expect(held.groups).toEqual(f.draft); expect(held.ledger).toHaveLength(0)
+    expect(held.errors.some(e => e.includes(f.audit.issues[0].reason))).toBe(true)
+    await withPdfWorkerContext(context, run)
+    expect(mock.call).not.toHaveBeenCalled()
+    mock.call.mockResolvedValueOnce(response(pass))
+    const complete = await withPdfWorkerContext({ ...context, bookResume: { id: '11111111-1111-4111-8111-111111111111', stage: 'audit' } }, run)
+    expect(complete.status).toBe('audited'); expect(complete.groups[0].extraction.passage).toBe('Correct sentence.')
+    expect(complete.ledger).toHaveLength(1); expect(mock.call).toHaveBeenCalledOnce()
+    expect(mock.call.mock.calls[0][0].content.some((c: { type: string }) => c.type === 'image')).toBe(true)
+    expect(mock.call.mock.calls[0][0].content.at(-2).text).toBe(SOURCE_AUDIT_PROMPT)
+    expect(JSON.parse(mock.call.mock.calls[0][0].content.at(-1).text).candidate[0].extraction.passage).toBe('Correct sentence.')
+  })
   it('requires an independent completed image comparison after a correction when output is truncated', async () => {
     const f = input(), saved = new Map<string, unknown>(), checkpoint = { pdfHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64) }
     const context = { signal: new AbortController().signal, concurrency: 1, execute: async <T,>(fn: () => Promise<T>) => fn(), stage: async () => {},

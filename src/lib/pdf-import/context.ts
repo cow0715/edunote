@@ -7,6 +7,8 @@ export type PdfWorkerContext = {
   /** Recovery may consume stored responses but must never create paid work. */
   cacheOnly?: boolean
   unitKey?: string
+  /** Owner-authorized, failed-stage-only attempt; never inferred from a restart. */
+  bookResume?: { id: string; stage: import('../book-pdf/failure-policy').BookFailureStage }
   quality?: (unit: string, status: 'mapped' | 'repair' | 'failed' | 'passed') => Promise<void>
   canPrepareUnit?: (unit: string) => boolean
   signal: AbortSignal
@@ -27,9 +29,9 @@ export function withPdfWorkerContext<T>(context: PdfWorkerContext, work: () => P
 }
 
 export function getPdfWorkerContext() { return storage.getStore() }
-export function withPdfUnit<T>(unitKey: string, work: () => Promise<T>) {
+export function withPdfUnit<T>(unitKey: string, work: () => Promise<T>, bookResume?: PdfWorkerContext['bookResume']) {
   const context = storage.getStore()
-  return context ? storage.run({ ...context, unitKey }, work) : work()
+  return context ? storage.run({ ...context, unitKey, ...(bookResume ? { bookResume } : {}) }, work) : work()
 }
 
 export function createCallLimiter(concurrency: number): PdfWorkerContext['execute'] {

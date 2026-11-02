@@ -13,6 +13,17 @@ beforeEach(()=>{
 })
 afterEach(()=>vi.unstubAllEnvs())
 describe('batch continuation recovery API',()=>{
+  it('redispatches an already queued manual attempt without creating another retry identity', async () => {
+    mocks.job!.status='queued';mocks.job!.error='dispatch uncertain'
+    mocks.job!.result={manual_resume_only:true,verification_unresolved:true,recovery_revision:6}
+    const attempt={id:'11111111-1111-4111-8111-111111111111',units:[{unit_key:'unit-1',stage:'enrichment',source_hash:'a'.repeat(64)}]}
+    mocks.job!.payload.bookFailureResume=attempt
+    const rpc=vi.fn().mockResolvedValue({data:true,error:null});mocks.service.mockReturnValue({rpc})
+    expect((await POST(new Request('https://example.com'),params)).status).toBe(202)
+    expect(rpc).toHaveBeenCalledExactlyOnceWith('pdf_import_retry',{p_id:id})
+    expect(mocks.job!.payload.bookFailureResume).toBe(attempt)
+    expect(mocks.dispatch).toHaveBeenCalledExactlyOnceWith(id,'bank_book')
+  })
   it.each(['excluded','pilot'] as const)('does not dispatch a %s book through ordinary retry',async(mode)=>{
     mocks.job!.status='failed'
     if(mode==='excluded')mocks.job!.payload.recoveryExcluded=true

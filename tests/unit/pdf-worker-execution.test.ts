@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PdfImportJob } from '@/lib/pdf-import/types'
 import { checkpointCall, checkpointKey, getPdfWorkerContext, reportPdfStage } from '@/lib/pdf-import/context'
 import { BookBatchPending, BookBatchRequestFailed, BookBatchStopped } from '@/lib/book-pdf/batch-policy'
+import { draft } from '../fixtures/book-pdf'
+import { BOOK_FAILURE_POLICY } from '@/lib/book-pdf/failure-policy'
 
-const mocks = vi.hoisted(() => ({ rpc: vi.fn(), run: vi.fn(), single: vi.fn(), read: vi.fn() }))
+const mocks = vi.hoisted(() => ({ rpc: vi.fn(), run: vi.fn(), single: vi.fn(), read: vi.fn(), units: [] as unknown[] }))
 const batchMock = vi.hoisted(() => ({ poll: vi.fn(), submit: vi.fn(), call: vi.fn(), wake: vi.fn() }))
 vi.mock('@/lib/pdf-import/batch-transport', () => ({
   PdfBatchTransport: class { poll = batchMock.poll; submit = batchMock.submit; call = batchMock.call },
@@ -14,7 +16,8 @@ vi.mock('@/lib/pdf-import/batch-wake', () => ({ scheduleBookBatchWake: batchMock
 vi.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({
   rpc: mocks.rpc,
   from: () => {
-    const query = { select: () => query, eq: () => query, single: mocks.single, maybeSingle: mocks.read }
+    const query = { select: () => query, eq: () => query, single: mocks.single, maybeSingle: mocks.read,
+      then: (resolve: (r: unknown) => unknown) => Promise.resolve({ data: mocks.units, error: null }).then(resolve) }
     return query
   },
 }) }))
@@ -26,6 +29,7 @@ const job: PdfImportJob = { id, teacher_id: 'teacher', kind: 'bank_questions', t
   completed_calls: 0, attempt: 1, lease_token: null, lease_expires_at: null, result: null, error: null, created_at: '', updated_at: '' }
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.units = []
   vi.stubEnv('PDF_IMPORT_JOB_ID', id)
   vi.stubEnv('CLOUD_RUN_TASK_ATTEMPT', '0')
   mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pdf_import_claim' ? [job] : true, error: null }))
@@ -110,9 +114,20 @@ describe('single-job worker execution', () => {
   })
   it('never sends a paid batch when the automatic continuation cannot be scheduled', async () => {
     batchJob(); mocks.run.mockResolvedValue({ batch_waiting: true }); batchMock.wake.mockRejectedValueOnce(Error('queue IAM missing'))
-    await expect(main()).rejects.toThrow('queue IAM missing')
+    await expect(main()).resolves.toBeUndefined()
     expect(batchMock.submit).not.toHaveBeenCalled()
-    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'queued' }))
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'failed', p_error: 'queue IAM missing' }))
+  })
+  it('retains numbered book failures when a later global batch stop prevents further processing', async () => {
+    batchJob()
+    const unit = draft()
+    mocks.units = [{ ...unit, verification: { ...unit.verification, status: 'unresolved', issues: ['원문 문장 누락'],
+      failure: { policy: BOOK_FAILURE_POLICY, stage: 'audit', attempt_id: null } } }]
+    mocks.run.mockRejectedValueOnce(new BookBatchStopped('file cost guard'))
+    await main()
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'failed', p_error: 'file cost guard',
+      p_result: expect.objectContaining({ batch_stopped: true, book_failures: [expect.objectContaining({ stage: 'audit', reasons: ['원문 문장 누락'], labels: unit.manifest.questions.map(q => q.label) })] }) }))
+    expect(batchMock.submit).not.toHaveBeenCalled()
   })
   it('checks a pending provider batch without downloading or reparsing the PDF', async () => {
     batchJob(); batchMock.poll.mockResolvedValue(true)

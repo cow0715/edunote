@@ -5,9 +5,20 @@ vi.mock('@/lib/llm/client', async (original) => ({ ...await original<typeof impo
 import { enrichVerifiedMaterial, enrichVerifiedMaterialDetailed, EXPLANATION_WRITING_RULES, validateMaterialSupplement } from '@/lib/llm/material-enrichment'
 import { createLlmExecution, llmCallKey, type LlmDetailedResult } from '@/lib/llm/client'
 import { withPdfWorkerContext } from '@/lib/pdf-import/context'
-beforeEach(() => vi.clearAllMocks())
+import * as checkpoints from '@/lib/book-pdf/checkpoints'
+beforeEach(() => { mock.call.mockReset() })
 const supplement = { questions: [{ key: '1:exercise:1', solution: '정답의 근거 설명', vocabulary: 'intact 온전한' }] }
 describe('shared supplementary explanation and vocabulary', () => {
+  it('reuses an already paid successful historical repair instead of generating another supplement', async () => {
+    const bad = { text: JSON.stringify({ questions: [{ ...supplement.questions[0], answer: 5 }] }), stopReason: 'end_turn' } as LlmDetailedResult
+    const good = { text: JSON.stringify(supplement), stopReason: 'end_turn' } as LlmDetailedResult
+    const cached = vi.spyOn(checkpoints, 'readCachedBookCall').mockResolvedValueOnce(bad).mockResolvedValueOnce(good)
+    try {
+      expect(await enrichVerifiedMaterial(extraction)).toEqual(supplement)
+      expect(mock.call).not.toHaveBeenCalled()
+      expect(cached.mock.calls[1][0][0].bookOperation?.kind).toBe('enrichment_repair')
+    } finally { cached.mockRestore() }
+  })
   it('reuses exact historical Sonnet supplements and records the real model after switching defaults', async () => {
     mock.call.mockResolvedValue({ text: JSON.stringify(supplement), stopReason: 'end_turn' })
     await enrichVerifiedMaterial(extraction)
@@ -46,19 +57,16 @@ describe('shared supplementary explanation and vocabulary', () => {
     mock.call.mockResolvedValue({ text: JSON.stringify(supplement), stopReason:'max_tokens' })
     await expect(enrichVerifiedMaterial(extraction)).rejects.toThrow('완결')
   })
-  it('repairs a malformed supplement once without repeating source extraction', async () => {
+  it('holds a malformed supplement without requesting a repair', async () => {
     const bad = { questions: [{ ...supplement.questions[0], ' vocabulary': '' }] }
     mock.call.mockResolvedValueOnce({ text: JSON.stringify(bad), stopReason: 'end_turn' })
-      .mockResolvedValueOnce({ text: JSON.stringify(supplement), stopReason: 'end_turn' })
-    expect(await enrichVerifiedMaterial(extraction)).toEqual(supplement)
-    expect(mock.call).toHaveBeenCalledTimes(2)
-    expect(mock.call.mock.calls[1][0].content.at(-1).text).toContain('previous')
-    expect(mock.call.mock.calls[1][0].content.every((c: {type: string}) => c.type === 'text')).toBe(true)
+    await expect(enrichVerifiedMaterial(extraction)).rejects.toThrow()
+    expect(mock.call).toHaveBeenCalledOnce()
   })
   it('holds after one failed supplement repair and propagates network errors directly', async () => {
     mock.call.mockResolvedValue({ text: JSON.stringify({questions:[{...supplement.questions[0],answer:5}]}), stopReason:'end_turn' })
     await expect(enrichVerifiedMaterial(extraction)).rejects.toThrow()
-    expect(mock.call).toHaveBeenCalledTimes(2)
+    expect(mock.call).toHaveBeenCalledOnce()
     mock.call.mockReset().mockRejectedValue(Error('network'))
     await expect(enrichVerifiedMaterial(extraction)).rejects.toThrow('network')
     expect(mock.call).toHaveBeenCalledTimes(1)
