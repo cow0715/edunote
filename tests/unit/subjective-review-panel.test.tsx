@@ -122,7 +122,9 @@ describe('SubjectiveReviewPanel — 판정 버튼 분리', () => {
     ])
     fireEvent.click(screen.getByRole('button', { name: '전체' }))
 
-    const rowNames = () => screen.getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell')[0].textContent)
+    // 모바일 상태 문구가 이름 옆에 표시되어도 학생 순서 자체를 검증한다.
+    const rowNames = () => screen.getAllByRole('row').slice(1).map((r) =>
+      ['검토학생', '오답학생'].find(name => within(r).queryByText(name, { exact: true })))
     expect(rowNames()).toEqual(['검토학생', '오답학생'])
 
     const reviewRow = screen.getAllByRole('row').find((r) => r.textContent?.includes('검토학생'))!
@@ -130,6 +132,8 @@ describe('SubjectiveReviewPanel — 판정 버튼 분리', () => {
 
     expect(rowNames()).toEqual(['검토학생', '오답학생'])
     expect(screen.getByRole('button', { name: '검토 완료 저장 (1건)' })).toBeTruthy()
+    expect(within(reviewRow).getByRole('button', { name: '정답' }).getAttribute('aria-pressed')).toBe('true')
+    expect(within(reviewRow).getByText('변경됨 · 미저장')).toBeTruthy()
   })
 
   it('검토 대기가 없으면 전체 보기가 기본이다', () => {

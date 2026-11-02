@@ -231,24 +231,24 @@ export function SubjectiveReviewPanel({
         if (studentRows.length === 0) return null
 
         return (
-          <div key={q.id} className="rounded-lg border overflow-hidden">
+          <div key={q.id} className="min-w-0 rounded-xl border border-border">
             {/* 문항 헤더 */}
-            <div className="bg-gray-50 px-4 py-3 border-b space-y-1">
+            <div className="rounded-t-xl bg-muted px-4 py-4 border-b space-y-2">
               <div className="flex items-center gap-2">
                 <span className="font-medium text-sm">{qLabel}</span>
                 <StyleBadge style={q.question_style} />
               </div>
-              <p className="text-xs text-gray-600">
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
                 모범답안: <span className="font-medium">{q.correct_answer_text}</span>
               </p>
               {q.grading_criteria && (
-                <p className="text-xs text-gray-400 line-clamp-2">기준: {q.grading_criteria}</p>
+                <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">채점 기준: {q.grading_criteria}</p>
               )}
             </div>
 
             {/* 학생 답안 테이블 */}
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50/50 text-xs text-gray-400 border-b">
+            <table className="block w-full text-sm sm:table">
+              <thead className="hidden bg-muted text-xs text-muted-foreground border-b sm:table-header-group">
                 <tr>
                   <th className="px-4 py-2 text-left w-20">학생</th>
                   <th className="px-4 py-2 text-left">학생 답안</th>
@@ -256,25 +256,25 @@ export function SubjectiveReviewPanel({
                   <th className="px-4 py-2 text-center w-24">결과</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="block divide-y divide-border sm:table-row-group">
                 {studentRows.map((sr) => (
                   <tr
                     key={sr.student_id}
                     className={cn(
-                      'hover:bg-[var(--control-bg)]',
-                      sr.needs_review && 'bg-muted'
+                      'grid min-w-0 gap-3 p-4 sm:table-row sm:p-0 sm:hover:bg-[var(--control-bg)]'
                     )}
                   >
-                    <td className="px-4 py-2.5 font-medium text-gray-700 whitespace-nowrap">
+                    <td className="block min-w-0 font-semibold text-foreground sm:table-cell sm:px-4 sm:py-2.5">
                       {sr.student_name}
+                      <span className="ml-2 text-xs font-normal text-muted-foreground sm:hidden">{sr.isOverridden ? '변경됨 · 미저장' : sr.needs_review ? '검토 필요' : sr.teacher_confirmed ? '검토 완료' : 'AI 채점'}</span>
                     </td>
-                    <td className="px-4 py-2.5 text-gray-600">
+                    <td className="block min-w-0 whitespace-pre-wrap break-words text-base leading-7 text-foreground sm:table-cell sm:px-4 sm:py-2.5 sm:text-sm">
                       {sr.student_answer_text || (
                         <span className="text-gray-300 text-xs">미입력</span>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 text-xs text-gray-400">{sr.ai_feedback}</td>
-                    <td className="px-4 py-2.5 text-center">
+                    <td className="block min-w-0 text-sm leading-relaxed text-muted-foreground sm:table-cell sm:px-4 sm:py-2.5 sm:text-xs">{sr.ai_feedback && <><span className="font-medium sm:hidden">AI 판단 · </span>{sr.ai_feedback}</>}</td>
+                    <td className="block sm:table-cell sm:px-4 sm:py-2.5 sm:text-center">
                       {!sr.answered ? (
                         <span className="text-gray-300 text-xs">—</span>
                       ) : (() => {
@@ -284,41 +284,44 @@ export function SubjectiveReviewPanel({
                         return (
                           <div
                             className={cn(
-                              'inline-flex overflow-hidden rounded-full text-xs font-semibold transition-shadow',
-                              pending ? 'bg-muted ring-1 ring-inset ring-border' : 'bg-gray-100/80'
+                              'grid grid-cols-2 gap-2 text-sm font-semibold sm:inline-flex sm:gap-0 sm:overflow-hidden sm:rounded-full sm:text-xs'
                             )}
                           >
                             <button
                               type="button"
                               aria-label="정답"
+                              aria-pressed={correctOn}
                               title={sr.isOverridden && sr.is_correct ? '확정 해제' : '정답으로 확정'}
                               onClick={() => setVerdict(sr.student_id, q.id, true)}
                               className={cn(
-                                'flex h-7 w-9 items-center justify-center transition-colors active:scale-95',
+                                'flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border transition-colors active:scale-95 sm:h-7 sm:min-h-0 sm:w-9 sm:rounded-none sm:border-0',
                                 correctOn
                                   ? sr.isOverridden
-                                    ? 'bg-green-500 text-white'
-                                    : 'bg-green-50 text-green-700'
-                                  : 'text-gray-300 hover:text-green-600'
+                                    ? 'border-green-600 bg-green-50 text-green-700'
+                                    : 'border-border bg-muted text-foreground'
+                                  : 'border-border bg-background text-muted-foreground'
                               )}
                             >
                               <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                              <span className="sm:hidden">정답</span>
                             </button>
                             <button
                               type="button"
                               aria-label="오답"
+                              aria-pressed={wrongOn}
                               title={sr.isOverridden && !sr.is_correct ? '확정 해제' : '오답으로 확정'}
                               onClick={() => setVerdict(sr.student_id, q.id, false)}
                               className={cn(
-                                'flex h-7 w-9 items-center justify-center transition-colors active:scale-95',
+                                'flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border transition-colors active:scale-95 sm:h-7 sm:min-h-0 sm:w-9 sm:rounded-none sm:border-0',
                                 wrongOn
                                   ? sr.isOverridden
-                                    ? 'bg-rose-500 text-white'
-                                    : 'bg-[var(--share-red-bg)] text-[var(--share-red)]'
-                                  : 'text-gray-300 hover:text-[var(--share-red)]'
+                                    ? 'border-destructive bg-[var(--share-red-bg)] text-destructive'
+                                    : 'border-border bg-muted text-foreground'
+                                  : 'border-border bg-background text-muted-foreground'
                               )}
                             >
                               <X className="h-3.5 w-3.5" strokeWidth={3} />
+                              <span className="sm:hidden">오답</span>
                             </button>
                           </div>
                         )
@@ -332,12 +335,13 @@ export function SubjectiveReviewPanel({
         )
       })}
 
-      {!focusMode && <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-background py-3 md:pr-28">
+      {!focusMode && <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-background py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pr-28">
         <p className="text-sm text-muted-foreground">{pendingCount ? `미저장 판정 ${pendingCount}건 · 저장 전까지 성적에 반영되지 않습니다.` : '판정을 지정한 뒤 저장해 주세요.'}</p>
         {pendingCount > 0 && <Button type="button" variant="ghost" onClick={() => { if (window.confirm('저장하지 않은 판정을 모두 취소할까요?')) setOverrides(new Map()) }}>변경 모두 취소</Button>}
         <Button
           onClick={() => confirm.mutate()}
           disabled={confirm.isPending || pendingCount === 0}
+          className="min-h-12 w-full sm:w-auto"
           variant={pendingCount > 0 ? 'action' : 'outline'}
         >
           {confirm.isPending
