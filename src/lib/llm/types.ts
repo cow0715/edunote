@@ -57,6 +57,8 @@ export type CallLlmOptions = TaskCallOptions & {
   maxTokens: number
   content: string | ContentBlock[]
   temperature?: number
+  /** Opt-in Sonnet 5.5 source-audit control. Omitted for all other tasks. */
+  reasoning?: { type: 'between_tools'; effort: 'high' }
   stream?: boolean
   /** Zero-based content-block index ending the reusable prefix. */
   cacheBoundary?: number
@@ -64,6 +66,8 @@ export type CallLlmOptions = TaskCallOptions & {
   signal?: AbortSignal
   /** Internal Batch budget shared by content repairs and transport retries. Never sent to the model. */
   batchRetryGroup?: string
+  /** Textbook-only evidence identity; internal metadata, never a provider field. */
+  bookOperation?: { kind: 'mapping' | 'mapping_repair' | 'audit' | 'repair' | 'enrichment' | 'enrichment_repair'; evidence: unknown }
 }
 
 export type LlmDetailedResult = {

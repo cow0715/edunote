@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { estimateUsage, estimateUsageRow, estimateMoney } from '@/lib/costs/estimate'
+import { claudeTokenCost, estimateUsage, estimateUsageRow, estimateMoney } from '@/lib/costs/estimate'
 import type { UsageGroup } from '@/lib/costs/model'
 
 const usage = (changes: Partial<UsageGroup> = {}): UsageGroup => ({ provider: 'claude', feature: 'week.parseAnswers', model: 'claude-sonnet-5', calls: 1, units: 1, input_tokens: 1_000_000, output_tokens: 1_000_000, cache_read_tokens: 1_000_000, cache_write_tokens: 1_000_000, ...changes })
 describe('recorded usage cost estimates', () => {
+  it('prices Haiku per-request tiers and prefers exact event sums over aggregate prompt lengths', () => {
+    expect(claudeTokenCost('claude-haiku-5-5', { input: 100_000, output: 1000, read: 0, write: 0 }, { tier: 'batch' })).toBeCloseTo(0.00525)
+    expect(claudeTokenCost('claude-haiku-5-5-20261007', { input: 100_001, output: 1000, read: 0, write: 0 }, { tier: 'batch' })).toBeCloseTo(0.02625025)
+    const aggregate = usage({ model: 'claude-haiku-5-5', calls: 20 })
+    expect(estimateUsageRow(aggregate)?.amount).toBeNull()
+    expect(estimateUsageRow({ ...aggregate, estimated_usd: 0.123 })?.amount).toBe(0.123)
+    expect(estimateUsageRow({ ...aggregate, estimated_usd: -1 })?.amount).toBeNull()
+  })
   it('prices four disjoint token buckets without charging cached input twice', () => {
     expect(estimateUsageRow(usage())?.amount).toBeCloseTo(14.7)
     expect(estimateUsageRow(usage({ model: 'claude-sonnet-5-5' }))?.amount).toBeCloseTo(14.6)

@@ -1,0 +1,19 @@
+# Release application source; keep local PDFs, credentials and previews private.
+.git/
+node_modules/
+.next/
+build/
+tmp/
+.env*
+.gcp-keys/
+*service-account*.json
+*-gcp-key.json
+design-data/
+.codex/
+.claude/
+.agents/
+.aws/
+*.tsbuildinfo
+docs/qa/
+scripts/preview-*.mjs
+tests/

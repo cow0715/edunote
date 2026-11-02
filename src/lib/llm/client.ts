@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { jsonrepair } from 'jsonrepair'
 import { checkpointCall, checkpointKey, getPdfWorkerContext } from '../pdf-import/context'
-import { isPdfBatchTask } from '../pdf-import/batch-policy'
+import { isPdfBatchTask, PdfBatchStopped } from '../pdf-import/batch-policy'
 import { LlmError } from './errors'
 import { recordUsage } from '../costs/record'
-import { getModel, getModelCatalog } from './models'
+import { getModel, getModelCatalog, MODEL_IDS } from './models'
 import { callAnthropic, isAnthropicConfigured } from './providers/anthropic'
 import { getDefaultTaskBindings, getTask, getTaskCatalog, isLlmTask, LLM_CONFIG_VERSION, TASK_IDS, type LlmTask } from './tasks'
 import type { CallLlmOptions, FileBlock, ImageMimeType, LlmCallMetadata, LlmCallRecord, LlmDetailedResult, LlmExecution } from './types'
@@ -77,9 +77,22 @@ async function record(execution: LlmExecution, entry: LlmCallRecord) {
   console.log('[llm]', JSON.stringify(entry))
 }
 
+function nonBookCheckpointVersion(execution: LlmExecution) {
+  // October's checkpoint fingerprint covered every task/model, even unrelated
+  // ones. Project only this textbook migration back to that immutable catalog
+  // so exam/weekly caches and in-flight retry identities stay byte-for-byte
+  // stable. Their own bindings, prompts and other model changes still count.
+  const taskBindings = Object.fromEntries(Object.entries(execution.taskBindings).map(([task, model]) => [task, task.startsWith('book.') ? MODEL_IDS.sonnet55 : model]))
+  const tasks = getTaskCatalog().map(task => task.id.startsWith('book.') ? { ...task, model: MODEL_IDS.sonnet55,
+    ...(task.id === 'book.auditSource' ? { promptVersion: 'book-audit-v1' } : {}) } : task)
+  const models = getModelCatalog().filter(model => model.id !== MODEL_IDS.haiku55)
+  const fingerprint = createHash('sha256').update(JSON.stringify({ taskBindings, tasks, models })).digest('hex').slice(0, 12)
+  return `${LLM_CONFIG_VERSION}:${fingerprint}`
+}
+
 function callCheckpoint(options: CallLlmOptions, execution: LlmExecution) {
-  return { version: 2, ...options, execution: undefined, signal: undefined, batchRetryGroup: undefined,
-    configVersion: execution.configVersion, model: execution.taskBindings[options.task] }
+  return { version: 2, ...options, execution: undefined, signal: undefined, batchRetryGroup: undefined, bookOperation: undefined,
+    configVersion: options.task.startsWith('book.') ? execution.configVersion : nonBookCheckpointVersion(execution), model: execution.taskBindings[options.task] }
 }
 
 /** The initial request remains compatible with checkpoints created before repair support. */
@@ -93,9 +106,12 @@ export async function callLlmTextDetailed(options: CallLlmOptions): Promise<LlmD
   const execution = options.execution ?? createLlmExecution()
   const workerOptions = { ...options, execution, signal: options.signal ? AbortSignal.any([options.signal, context.signal]) : context.signal }
   // Execution IDs and AbortSignals are transient. Routing and prompts determine reuse.
-  if (options.phase === 'prewarm') return callLlmTextUncached(workerOptions)
+  if (options.phase === 'prewarm') {
+    if (context.cacheOnly) throw new PdfBatchStopped('저장 응답 복구 중에는 유료 예열을 허용하지 않습니다.')
+    return callLlmTextUncached(workerOptions)
+  }
   const checkpoint = callCheckpoint(options, execution)
-  return checkpointCall(checkpoint, async () => {
+  const result = await checkpointCall(checkpoint, async () => {
     if (context.batchCall && isPdfBatchTask(options.task)) {
       const model = getModel(execution.taskBindings[options.task])
       if (!model) throw new LlmError('configuration', '배치 모델 설정이 올바르지 않습니다.')
@@ -107,6 +123,7 @@ export async function callLlmTextDetailed(options: CallLlmOptions): Promise<LlmD
       }
       return result
     }
+    if (context.cacheOnly) throw new PdfBatchStopped('저장된 응답이 없어 중지했습니다. 추가 비용 방지 모드입니다.')
     return callLlmTextUncached(workerOptions)
   }, (result) => {
     if (result.finishReason !== 'complete') return false
@@ -115,6 +132,8 @@ export async function callLlmTextDetailed(options: CallLlmOptions): Promise<LlmD
       return Array.isArray(value) ? value.length > 0 : value !== null && typeof value === 'object'
     } catch { return false }
   })
+  if (options.task.startsWith('book.')) await context.rememberBookCall?.(workerOptions, checkpointKey(checkpoint), result)
+  return result
 }
 
 async function callLlmTextUncached(options: CallLlmOptions): Promise<LlmDetailedResult> {

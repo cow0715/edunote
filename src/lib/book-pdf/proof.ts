@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { bookExtractionSchema, type BookDraftUnit, type BookUnitManifest, type BookVerification } from './types'
 import { validateMaterialSupplement } from '../llm/material-enrichment-contract'
+import { knownSourcePolicy, KNOWN_SOURCE_REVISION } from './known-source-policy'
 
 function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`
@@ -10,6 +11,11 @@ function stable(value: unknown): string {
 export function bookFingerprint(value: unknown) { return createHash('sha256').update(stable(value)).digest('hex') }
 export function bookSourceFingerprint(unit: BookUnitManifest) { return bookFingerprint(unit) }
 export function bookSourceProofMatches(proof: BookVerification, extraction: unknown, manifest: BookUnitManifest) {
+  const policy = knownSourcePolicy(proof.pdf_hash, bookSourceFingerprint(manifest))
+  return (!policy || proof.source_revision === KNOWN_SOURCE_REVISION) && bookSourceArchiveMatches(proof, extraction, manifest)
+}
+/** Integrity of an archived response, not authorization to publish it. */
+export function bookSourceArchiveMatches(proof: BookVerification, extraction: unknown, manifest: BookUnitManifest) {
   const parsed = bookExtractionSchema.safeParse(extraction), audit = proof.audit, hash = /^[a-f0-9]{64}$/
   return parsed.success && proof.protocol === 2 && proof.pipeline === 'native-image-v1' && proof.status === 'passed'
     && proof.source_hash === bookSourceFingerprint(manifest) && proof.extraction_hash === bookFingerprint(parsed.data)
@@ -26,6 +32,7 @@ export function bookSourceProofMatches(proof: BookVerification, extraction: unkn
 
 export function bookProofMatches(unit: Pick<BookDraftUnit, 'extraction' | 'manifest' | 'verification' | 'version' | 'verified_version' | 'enrichment'>) {
   const proof: BookVerification | undefined = unit.verification
+  if (proof && knownSourcePolicy(proof.pdf_hash, bookSourceFingerprint(unit.manifest)) && proof.source_revision !== KNOWN_SOURCE_REVISION) return false
   const parsed = bookExtractionSchema.safeParse(unit.extraction)
   if (proof?.protocol === 2) {
     if (!parsed.success || unit.verified_version !== unit.version || !bookSourceProofMatches(proof, parsed.data, unit.manifest)) return false

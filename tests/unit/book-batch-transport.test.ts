@@ -8,13 +8,18 @@ import { createLlmExecution } from '@/lib/llm/client'
 import type { CallLlmOptions } from '@/lib/llm/types'
 import type { PdfImportJob } from '@/lib/pdf-import/types'
 import type { PdfWorkerContext } from '@/lib/pdf-import/context'
+import { BOOK_PROFILE_VERSION } from '@/lib/book-pdf/profiles'
+import { PdfBundleDeferred } from '@/lib/pdf-import/batch-policy'
+import { SOURCE_OUTPUT_POLICY } from '@/lib/book-pdf/source-output-policy'
 
 const key = 'a'.repeat(64)
 function fixture(kind: PdfImportJob['kind'] = 'bank_book') {
   const rows: { id: string; state: string; provider_id: string | null; requests: { key: string }[]; created_at: string }[] = []
   const saved = new Map<string, unknown>()
   const db = { from: () => ({ select: () => ({ eq: () => ({ order: async () => ({ data: structuredClone(rows), error: null }) }) }) }),
-    rpc: vi.fn(async (name, args) => {
+    rpc: vi.fn(async (name, args): Promise<{ data?: unknown; error: null }> => {
+      if (name === 'book_pdf_cost_summary' || name === 'book_pdf_cost_reserve') return { data: { allowed: true, reason: null, limit_usd: 5, spent_usd: 0, reserved_usd: 0, call_limit: 1000, calls_used: 0, unit_guard_version: 1 }, error: null }
+      if (name === 'pdf_batch_record_usage') return { error: null }
       if (name === 'book_pdf_batch_prepare') {
         const row = { id: `row-${rows.length}`, state: 'submitting', provider_id: null, requests: args.p_requests, created_at: new Date().toISOString() }
         rows.push(row); return { data: [structuredClone(row)], error: null }
@@ -22,16 +27,16 @@ function fixture(kind: PdfImportJob['kind'] = 'bank_book') {
       Object.assign(rows.find((r) => r.id === args.p_batch)!, { state: args.p_state, provider_id: args.p_provider })
       return { error: null }
     }) }
-  const provider = { create: vi.fn(async (requests: BatchCreateParams.Request[]) => ({ id: `msgbatch_${rows.length}`, request_counts: { processing: requests.length } } as MessageBatch)),
+  const provider = { countTokens: vi.fn(async () => 100), create: vi.fn(async (requests: BatchCreateParams.Request[]) => ({ id: `msgbatch_${rows.length}`, request_counts: { processing: requests.length } } as MessageBatch)),
     retrieve: vi.fn(async () => ({ processing_status: 'ended' } as MessageBatch)),
     results: vi.fn(async () => (async function* () { yield success() })()) }
-  const context: PdfWorkerContext = { signal: new AbortController().signal, concurrency: 2, execute: (call) => call(),
+  const context: PdfWorkerContext = { unitKey: 'unit-1', signal: new AbortController().signal, concurrency: 2, execute: (call) => call(),
     stage: async () => {}, read: async <T>(k: string) => saved.get(k) as T ?? null,
     write: async (k, v) => { if (!saved.has(k)) saved.set(k, v) } }
-  const job = { id: 'job', kind, lease_token: 'lease' } as PdfImportJob
+  const job = { id: 'job', kind, lease_token: 'lease', payload: {} } as PdfImportJob
   const broker = () => new BookBatchTransport(db as unknown as SupabaseClient, job, context, provider as BookBatchProvider)
   const options: CallLlmOptions = { task: 'book.mapSource', maxTokens: 12000, content: 'test source', execution: createLlmExecution() }
-  return { rows, saved, db, provider, context, broker, options }
+  return { rows, saved, db, provider, context, broker, options, job }
 }
 function success(stop = 'end_turn'): MessageBatchIndividualResponse {
   return { custom_id: key, result: { type: 'succeeded', message: { content: [{ type: 'text', text: '{"groups":[]}' }],
@@ -40,6 +45,145 @@ function success(stop = 'end_turn'): MessageBatchIndividualResponse {
 const responseStream = (responses: MessageBatchIndividualResponse[]) => (async function* () { for (const r of responses) yield r })()
 
 describe('durable textbook Batch API transport', () => {
+  it('keeps a legacy truncation archived and submits the controlled audit at most once across restarts', async () => {
+    const f = fixture(), nextKey = 'b'.repeat(64)
+    const old: CallLlmOptions = { ...f.options, task: 'book.auditSource', maxTokens: 6000,
+      bookOperation: { kind: 'audit', evidence: { images: [[9, 'image-hash']], request: { candidate: 'unchanged' } } } }
+    const controlled: CallLlmOptions = { ...old, reasoning: { type: 'between_tools', effort: 'high' },
+      bookOperation: { kind: 'audit', evidence: { ...old.bookOperation!.evidence as object, outputPolicy: SOURCE_OUTPUT_POLICY } } }
+    const oldDelivery = { result: { text: '', stopReason: 'max_tokens', finishReason: 'length' } }
+    f.saved.set(`batch-result:${key}`, oldDelivery)
+    let broker = f.broker(); await broker.poll()
+    await broker.rememberBookCall(old, key, oldDelivery.result as never)
+    await expect(broker.call(controlled, nextKey)).rejects.toBeInstanceOf(BookBatchPending)
+    await broker.submit()
+    expect(f.provider.create.mock.calls[0][0][0].params).toMatchObject({
+      thinking: { type: 'between_tools' }, output_config: { effort: 'high' }, max_tokens: 6000,
+    })
+    f.provider.results.mockImplementation(async () => responseStream([{ ...success('max_tokens'), custom_id: nextKey }]))
+    broker = f.broker(); await broker.poll()
+    expect((await broker.call(controlled, nextKey)).stopReason).toBe('max_tokens')
+    broker = f.broker(); await broker.poll()
+    expect((await broker.call(controlled, nextKey)).stopReason).toBe('max_tokens')
+    // A changed prompt also resolves to that same failed delivery, never a new purchase.
+    expect((await broker.call({ ...controlled, content: 'changed instructions' }, 'c'.repeat(64))).stopReason).toBe('max_tokens')
+    f.context.cacheOnly = true
+    await expect(f.broker().call({ ...controlled, bookOperation: { kind: 'audit', evidence: { differentImage: true } } }, 'd'.repeat(64)))
+      .rejects.toBeInstanceOf(BookBatchStopped)
+    expect(f.saved.get(`batch-result:${key}`)).toBe(oldDelivery)
+    expect(f.provider.create).toHaveBeenCalledOnce()
+    expect(f.provider.countTokens).toHaveBeenCalledOnce()
+  })
+  it('deduplicates equivalent evidence with changed prompts/keys before and after a worker restart', async () => {
+    const f = fixture(), operation = { kind: 'mapping' as const, evidence: { pdf: 'same-pdf', lines: [1, 2], targets: ['q1'] } }
+    const firstOptions = { ...f.options, bookOperation: operation }, changed = { ...firstOptions, content: 'changed instructions' }
+    let broker = f.broker(); await broker.poll()
+    await expect(broker.call(firstOptions, key)).rejects.toBeInstanceOf(BookBatchPending)
+    await expect(broker.call(changed, 'b'.repeat(64))).rejects.toBeInstanceOf(BookBatchPending)
+    await broker.submit()
+    expect(f.provider.create.mock.calls[0][0]).toHaveLength(1)
+    expect(f.rows[0].requests[0]).toHaveProperty('semanticKey')
+    expect(JSON.stringify(f.provider.create.mock.calls)).not.toContain('bookOperation')
+    broker = f.broker(); await broker.poll()
+    expect((await broker.call(changed, 'b'.repeat(64))).text).toBe('{"groups":[]}')
+    f.context.cacheOnly = true
+    expect((await f.broker().call({ ...changed, content: 'third prompt' }, 'c'.repeat(64))).text).toBe('{"groups":[]}')
+    expect(f.provider.create).toHaveBeenCalledOnce()
+  })
+  it('binds exact legacy responses and holds a missing paid response instead of rebilling', async () => {
+    const f = fixture(), broker = f.broker(), result = { text: 'paid legacy response' } as never
+    f.saved.set(`batch-result:${key}`, { result })
+    const options = { ...f.options, bookOperation: { kind: 'audit' as const, evidence: { candidate: 'same', image: 'same' } } }
+    await broker.rememberBookCall(options, key, result)
+    expect(await broker.call({ ...options, content: 'new prompt' }, 'b'.repeat(64))).toEqual(result)
+    f.saved.delete(`batch-result:${key}`)
+    await expect(broker.call(options, 'c'.repeat(64))).rejects.toThrow('재과금을 막기 위해')
+    expect(f.provider.create).not.toHaveBeenCalled()
+  })
+  it('requires the server-side evidence guard before token counting', async () => {
+    const f = fixture(), broker = f.broker(); await broker.poll()
+    await expect(broker.call(f.options, key)).rejects.toBeInstanceOf(BookBatchPending)
+    f.db.rpc.mockImplementationOnce(async () => ({ data: { allowed: true, call_limit: 1000, calls_used: 0 }, error: null }))
+    await expect(broker.submit()).rejects.toThrow('중복 요청 차단 SQL')
+    expect(f.provider.countTokens).not.toHaveBeenCalled(); expect(f.provider.create).not.toHaveBeenCalled()
+  })
+  it('limits format-profile collection to four requests while leaving the legacy window intact',async()=>{
+    const f=fixture();f.job.payload.bookProfile=BOOK_PROFILE_VERSION
+    const broker=f.broker();await broker.poll()
+    for(let n=0;n<6;n++)await expect(broker.call({...f.options,content:`unit ${n}`},n.toString(16).padStart(64,'b'))).rejects.toBeInstanceOf(BookBatchPending)
+    expect(f.context.canPrepareUnit?.('unit-2')).toBe(false)
+    await broker.submit()
+    expect(f.provider.create.mock.calls[0][0]).toHaveLength(4)
+  })
+  it('defers a bundle capacity barrier without counting tokens or contacting the provider',async()=>{
+    const f=fixture(),broker=f.broker();await broker.poll()
+    await expect(broker.call(f.options,key)).rejects.toBeInstanceOf(BookBatchPending)
+    f.db.rpc.mockImplementationOnce(async()=>({data:{allowed:false,reason:'bundle_preparing'},error:null}))
+    await expect(broker.submit()).rejects.toBeInstanceOf(PdfBundleDeferred)
+    expect(f.provider.countTokens).not.toHaveBeenCalled();expect(f.provider.create).not.toHaveBeenCalled()
+  })
+  it('blocks a file call ceiling before token counting or provider submission', async () => {
+    const f=fixture(), broker=f.broker(); await broker.poll()
+    await expect(broker.call(f.options,key)).rejects.toBeInstanceOf(BookBatchPending)
+    f.db.rpc.mockImplementationOnce(async()=>({data:{allowed:true,reason:null,limit_usd:5,spent_usd:0,reserved_usd:0,call_limit:1,calls_used:1,unit_guard_version:1},error:null}))
+    await expect(broker.submit()).rejects.toThrow('누적 AI 호출 상한')
+    expect(f.provider.countTokens).not.toHaveBeenCalled(); expect(f.provider.create).not.toHaveBeenCalled()
+  })
+  it('fails closed when the server does not expose a durable call ceiling', async () => {
+    const f=fixture(), broker=f.broker(); await broker.poll()
+    await expect(broker.call(f.options,key)).rejects.toBeInstanceOf(BookBatchPending)
+    f.db.rpc.mockImplementationOnce(async()=>({data:{allowed:true,reason:null,limit_usd:5,spent_usd:0,reserved_usd:0},error:null}))
+    await expect(broker.submit()).rejects.toThrow('누적 호출 상한 SQL')
+    expect(f.provider.countTokens).not.toHaveBeenCalled(); expect(f.provider.create).not.toHaveBeenCalled()
+  })
+  it('does not submit if a concurrent claim consumes the last server call slot', async () => {
+    const f=fixture(), broker=f.broker(); await broker.poll()
+    await expect(broker.call(f.options,key)).rejects.toBeInstanceOf(BookBatchPending)
+    const original=f.db.rpc.getMockImplementation()!
+    f.db.rpc.mockImplementation(async(name,args)=> name === 'book_pdf_batch_prepare'
+      ? { data: null, error: { message: 'file cumulative call limit exceeded' } } as never : original(name,args))
+    await expect(broker.submit()).rejects.toBeInstanceOf(BookBatchStopped)
+    expect(f.provider.create).not.toHaveBeenCalled()
+  })
+  it('blocks an over-budget file before counting or sending any new request', async () => {
+    const f=fixture(),broker=f.broker();await broker.poll()
+    await expect(broker.call(f.options,key)).rejects.toBeInstanceOf(BookBatchPending)
+    f.db.rpc.mockImplementationOnce(async()=>({data:{allowed:false,reason:'file_budget_exceeded',limit_usd:5,spent_usd:9,reserved_usd:0},error:null}))
+    await expect(broker.submit()).rejects.toThrow('파일 총예산')
+    expect(f.provider.countTokens).not.toHaveBeenCalled();expect(f.provider.create).not.toHaveBeenCalled()
+  })
+  it('reserves the entire request before generation and stops if another reservation spent the available budget',async()=>{
+    const f=fixture(),broker=f.broker();await broker.poll()
+    await expect(broker.call(f.options,key)).rejects.toBeInstanceOf(BookBatchPending)
+    const original=f.db.rpc.getMockImplementation()!
+    f.db.rpc.mockImplementation(async(name,args)=>name==='book_pdf_cost_reserve'
+      ?{data:{allowed:false,reason:'file_budget_exceeded',limit_usd:5,spent_usd:4.99,reserved_usd:0},error:null}:original(name,args))
+    await expect(broker.submit()).rejects.toThrow('파일 총예산')
+    expect(f.provider.countTokens).toHaveBeenCalledOnce();expect(f.provider.create).not.toHaveBeenCalled()
+    expect(f.rows[0].state).toBe('rejected')
+  })
+  it('limits the first textbook batch to ten requests',async()=>{
+    const f=fixture(),broker=f.broker();await broker.poll()
+    for(let n=0;n<12;n++)await expect(broker.call({...f.options,content:`unit ${n}`},n.toString(16).padStart(64,'b'))).rejects.toBeInstanceOf(BookBatchPending)
+    expect(f.context.canPrepareUnit?.('unit-2')).toBe(false)
+    expect(f.context.canPrepareUnit?.('unit-1')).toBe(true)
+    await broker.submit()
+    expect(f.provider.create.mock.calls[0][0]).toHaveLength(10)
+    expect(f.provider.countTokens).toHaveBeenCalledTimes(10)
+  })
+  it('reads existing deliveries in cache-only mode but never submits missing or previously collected requests', async () => {
+    const f = fixture(), broker = f.broker()
+    await broker.poll()
+    await expect(broker.call(f.options, key)).rejects.toBeInstanceOf(BookBatchPending)
+    f.context.cacheOnly = true
+    await expect(broker.submit()).rejects.toBeInstanceOf(BookBatchStopped)
+    await expect(broker.call(f.options, 'b'.repeat(64))).rejects.toBeInstanceOf(BookBatchStopped)
+    const delivered = { text: 'already paid response' }
+    f.saved.set(`batch-result:${key}`, { result: delivered })
+    expect(await broker.call(f.options, key)).toEqual(delivered)
+    expect(f.provider.create).not.toHaveBeenCalled()
+    expect(f.db.rpc).not.toHaveBeenCalled()
+  })
   it('shares a durable three-submission budget between content repairs and transient retries, including older requests', async () => {
     const f = fixture('bank_questions'), repairKey = 'b'.repeat(64), thirdKey = 'c'.repeat(64)
     f.options.task = 'examBank.parseQuestions'
@@ -68,7 +212,7 @@ describe('durable textbook Batch API transport', () => {
     await expect(first.call(f.options, key)).rejects.toBeInstanceOf(BookBatchPending)
     await first.submit()
     expect(f.provider.create).toHaveBeenCalledTimes(1)
-    expect(f.provider.create.mock.calls[0]).toEqual([[expect.objectContaining({ custom_id: key, params: expect.objectContaining({ model: 'claude-sonnet-5-5' }) })]])
+    expect(f.provider.create.mock.calls[0]).toEqual([[expect.objectContaining({ custom_id: key, params: expect.objectContaining({ model: 'claude-haiku-5-5' }) })]])
     const resumed = f.broker()
     expect(await resumed.poll()).toBe(false)
     const value = await resumed.call(f.options, key)

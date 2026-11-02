@@ -32,10 +32,10 @@ function BankContents() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">문제은행</h1>
-          <Button className="min-h-11" onClick={() => navigate('import')}>
+          {tab !== 'import' && <Button className="min-h-11" onClick={() => navigate('import')}>
             <Upload className="mr-2 h-4 w-4" />
             자료 등록
-          </Button>
+          </Button>}
       </div>
       {active > 0 && tab !== 'import' && <button onClick={() => navigate('import')} className="w-full rounded-xl bg-muted p-3 text-left text-sm">자료 {active}건 처리 중 · 등록·처리에서 확인</button>}
       <Tabs value={tab} onValueChange={(value) => navigate(value as BankTab)}>
@@ -57,7 +57,7 @@ function BankContents() {
         <TabsContent value="vocab" className="mt-4">
           <VocabCollections />
         </TabsContent>
-        <TabsContent value="import" className="mt-4"><RegistrationPanel documentId={params.get('document')} onOpenBook={openBook} onOpenMaterial={(id) => navigate('list', 'material', id)} /></TabsContent>
+        <TabsContent value="import" className="mt-4"><RegistrationPanel documentId={params.get('document')} materialId={params.get('material')} onOpenBook={openBook} onOpenMaterial={(id) => navigate('list', 'material', id)} /></TabsContent>
       </Tabs>
 
     </div>

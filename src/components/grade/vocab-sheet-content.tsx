@@ -1,19 +1,26 @@
 'use client'
 
+import { AnswerPhotoDialog } from './answer-photo-dialog'
+import { useCaptureRuntime } from './capture-runtime'
+
 import { useEffect, useState } from 'react'
-import { Camera, X, Lock } from 'lucide-react'
-import { useQueryClient } from '@tanstack/react-query'
+import { Camera, Lock } from 'lucide-react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { runOrReport, runWithLoading } from '@/lib/async-ui'
+import { runWithLoading } from '@/lib/async-ui'
 import { GradeRow } from '@/hooks/use-grade'
 import { cn } from '@/lib/utils'
 import { VocabPhotoButton } from './vocab-photo-button'
 import { ExampleSentenceInline, EXAMPLE_LABEL, isExampleSourceValue } from './vocab-example-inline'
 import { gradeChoiceAnswer } from '@/lib/vocab-blank-grading'
 
+import { createGradeSaveQueue, type GradeSaveQueue, type GradeSaveResult, type GradeVersion } from '@/lib/atomic-grade'
+
 export type VocabAnswerRow = { id: string; number: number; source_number?: number; english_word: string; test_word?: string | null; test_source?: string | null; test_prompt?: string | null; test_answer?: string | null; student_answer: string | null; is_correct: boolean; teacher_locked: boolean }
 
-export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, vocabPhotoPath, updateRow }: {
+export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, vocabPhotoPath, updateRow, saveQueue, onVersionsSaved }: {
+  saveQueue?: GradeSaveQueue
+  onVersionsSaved?: () => void
   row: GradeRow
   weekId: string
   weekScoreId: string
@@ -21,10 +28,19 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
   vocabPhotoPath: string | null
   updateRow: (studentId: string, key: keyof GradeRow, value: unknown) => void
 }) {
+  const { request } = useCaptureRuntime()
+  const [localQueue] = useState(createGradeSaveQueue)
+  const queue = saveQueue ?? localQueue
   const queryClient = useQueryClient()
+  const { mutateAsync: queueWrite } = useMutation({
+    scope: { id: `week-score:${weekId}` },
+    mutationFn: (write: () => Promise<GradeSaveResult>) => write(),
+  })
   const [editableVocab, setEditableVocab] = useState<VocabAnswerRow[]>(vocabAnswers)
   const [regrading, setRegrading] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(new Set())
+  const [editVersion, setEditVersion] = useState<GradeVersion | null>(null)
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [photoOpen, setPhotoOpen] = useState(false)
 
@@ -32,8 +48,8 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
   const [syncedVocabAnswers, setSyncedVocabAnswers] = useState(vocabAnswers)
   if (syncedVocabAnswers !== vocabAnswers) {
     setSyncedVocabAnswers(vocabAnswers)
-    setEditableVocab(vocabAnswers)
-    setDirtyIds(new Set())
+    setEditableVocab(vocabAnswers.map((answer) => dirtyIds.has(answer.id)
+      ? editableVocab.find((local) => local.id === answer.id) ?? answer : answer))
   }
 
   // 사진 경로가 바뀌면 이전 서명 URL 을 즉시 지운다 — 렌더 중 조정 (다른 학생 사진이 잠깐 남는 것 방지)
@@ -45,52 +61,50 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
   useEffect(() => {
     if (!vocabPhotoPath) return
     // fetch 후(then 안) setState — 렌더 중 동기 호출이 아니라 규칙에 걸리지 않는다
-    fetch(`/api/vocab-photo-url?path=${encodeURIComponent(vocabPhotoPath)}`)
+    request(`/api/vocab-photo-url?path=${encodeURIComponent(vocabPhotoPath)}`)
       .then((r) => r.json())
       .then((d) => { if (d.url) setPhotoUrl(d.url) })
       .catch(() => {})
-  }, [vocabPhotoPath])
+  }, [vocabPhotoPath, request])
 
-  // 개별 답안 저장 (is_correct 수동 토글 또는 텍스트 blur)
-  async function saveVocabAnswer(id: string, student_answer: string, is_correct: boolean, teacher_locked?: boolean) {
-    await runOrReport(async () => {
-      const res = await fetch('/api/vocab-answer', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, week_score_id: weekScoreId || undefined, student_answer, is_correct, teacher_locked }),
+  async function persist(method: string, body: Record<string, unknown>) {
+    return queueWrite(() => queue.run([{ ...row, grade_version: editVersion ?? row.grade_version }], async ([submitted]) => {
+      const response = await request('/api/vocab-answer', {
+        method, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, grade_version: submitted.grade_version }),
       })
-      if (!res.ok) throw new Error('저장 실패')
-    }, () => toast.error('답안 저장에 실패했습니다'))
+      const result = await response.json()
+      if (!response.ok || !result.ok) throw new Error(result.error ?? '답안을 저장하지 못했습니다.')
+      return result as GradeSaveResult
+    })).then((result) => { onVersionsSaved?.(); return result })
   }
 
-  // 텍스트 수정 후 blur → student_answer 즉시 저장 (is_correct 변경 없음, teacher_locked 해제)
+  async function saveVocabAnswer(id: string, student_answer: string, is_correct: boolean, teacher_locked?: boolean) {
+    setSaving(true)
+    try {
+      await persist('PATCH', { id, student_answer, is_correct, teacher_locked })
+      return true
+    } catch {
+      toast.error('답안을 저장하지 못했습니다. 편집 내용은 유지됩니다.')
+      return false
+    } finally { setSaving(false) }
+  }
+
   async function saveTextOnly(a: VocabAnswerRow, value: string) {
     if (!dirtyIds.has(a.id)) return
     await saveVocabAnswer(a.id, value, a.is_correct, false)
-    // vocab_correct 반영 위해 refetch (is_correct 변경 없으므로 생략 가능하나 일관성 유지)
   }
 
   async function regrade() {
     await runWithLoading(setRegrading, async () => {
-      const itemsToRegrade = editableVocab.filter((a) => dirtyIds.has(a.id) && !a.teacher_locked)
-      if (itemsToRegrade.length === 0) { setDirtyIds(new Set()); return }
-
-      const resp = await fetch('/api/vocab-answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          weekScoreId: weekScoreId || undefined,
-          items: itemsToRegrade.map((a) => ({ id: a.id, number: a.number, english_word: a.test_word ?? a.english_word, student_answer: a.student_answer })),
-        }),
-      })
-      const data = await resp.json()
-      if (data.ok) {
-        await queryClient.refetchQueries({ queryKey: ['grade', weekId] })
-        setDirtyIds(new Set())
-      } else {
-        toast.error('재채점에 실패했습니다')
-      }
-    }, () => toast.error('재채점 중 오류가 발생했습니다'))
+      const items = editableVocab.filter((a) => dirtyIds.has(a.id) && !a.teacher_locked)
+      if (!items.length) return
+      await persist('POST', { weekScoreId, items: items.map((a) => ({ id: a.id, number: a.number,
+        english_word: a.test_word ?? a.english_word, student_answer: a.student_answer })) })
+      setDirtyIds((prev) => new Set([...prev].filter((id) => !items.some((a) => a.id === id))))
+      setEditVersion(null)
+      await queryClient.refetchQueries({ queryKey: ['grade', weekId] })
+    }, () => toast.error('재채점하지 못했습니다. 편집 내용은 유지됩니다.'))
   }
 
   return (
@@ -100,7 +114,7 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
         <VocabPhotoButton
           weekId={weekId}
           studentId={row.student_id}
-          disabled={!row.present}
+          disabled={false}
           hasExistingData={vocabAnswers.length > 0}
           onResult={(correct, _total, _results) => {
             updateRow(row.student_id, 'vocab_correct', correct)
@@ -120,22 +134,7 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
       </div>
 
       {/* 사진 전체보기 오버레이 */}
-      {photoOpen && photoUrl && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
-          onClick={() => setPhotoOpen(false)}
-        >
-          <div className="relative max-h-[90vh] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
-            <img src={photoUrl} alt="단어 시험지" className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain" />
-            <button
-              onClick={() => setPhotoOpen(false)}
-              className="absolute -top-3 -right-3 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow text-gray-600 hover:bg-gray-100"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      )}
+      <AnswerPhotoDialog open={photoOpen} onOpenChange={setPhotoOpen} url={photoUrl} title="단어 시험지 원본 사진" />
 
       {/* 정오표 */}
       {editableVocab.length > 0 ? (
@@ -153,8 +152,8 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
                 <button
                   type="button"
                   onClick={regrade}
-                  disabled={regrading}
-                  className="text-[11px] px-2 py-0.5 rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 disabled:opacity-50 font-medium"
+                  disabled={regrading || saving}
+                  className="text-[11px] px-2 py-0.5 rounded bg-[var(--share-blue-bg)] text-[var(--share-blue)] hover:bg-[var(--share-blue-bg)] disabled:opacity-50 font-medium"
                 >
                   {regrading ? '채점 중…' : `재채점 (${regradeCount}개)`}
                 </button>
@@ -173,13 +172,15 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
               <>
                 <input
                   className={cn(
-                    'min-w-0 border-b border-gray-200 bg-transparent text-xs outline-none focus:border-indigo-400 px-0.5',
+                    'min-w-0 border-b border-gray-200 bg-transparent text-xs outline-none focus:border-[var(--share-blue)] px-0.5',
                     // 정오에 맞춰 학생 답 텍스트 색 — ✓✗ 아이콘만으로는 훑기 느림
                     a.is_correct ? 'text-emerald-700' : 'text-rose-500',
                     inputClass,
                   )}
+                  disabled={regrading}
                   value={a.student_answer ?? ''}
                   onChange={(e) => {
+                    if (!dirtyIds.size) setEditVersion(queue.resolve(row.grade_version))
                     const val = e.target.value
                     setEditableVocab((prev) => prev.map((x) => x.id === a.id ? { ...x, student_answer: val, teacher_locked: false } : x))
                     setDirtyIds((prev) => new Set(prev).add(a.id))
@@ -194,15 +195,21 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
                 )}
                 <button
                   type="button"
+                  disabled={regrading || saving}
                   title={a.teacher_locked ? '교사 확정 (클릭해서 해제)' : '클릭해서 정오 전환 (교사 확정)'}
-                  onClick={() => {
+                  onClick={async () => {
+                    if (!dirtyIds.size) setEditVersion(queue.resolve(row.grade_version))
                     const next = !a.is_correct
                     const locked = !a.teacher_locked
                     const updated = editableVocab.map((x) => x.id === a.id ? { ...x, is_correct: next, teacher_locked: locked } : x)
                     setEditableVocab(updated)
-                    setDirtyIds((prev) => { const s = new Set(prev); s.delete(a.id); return s })
-                    saveVocabAnswer(a.id, a.student_answer ?? '', next, locked)
-                    updateRow(row.student_id, 'vocab_correct', updated.filter((x) => x.is_correct).length)
+                    setDirtyIds((prev) => new Set(prev).add(a.id))
+                    if (await saveVocabAnswer(a.id, a.student_answer ?? '', next, locked)) {
+                      setDirtyIds((prev) => { const ids = new Set(prev); ids.delete(a.id); return ids })
+                      if (!dirtyIds.size || (dirtyIds.size === 1 && dirtyIds.has(a.id))) setEditVersion(null)
+                      await queue.idle()
+                      await queryClient.refetchQueries({ queryKey: ['grade', weekId] })
+                    }
                   }}
                   className={cn('shrink-0 w-5 text-center font-bold', a.is_correct ? 'text-green-500' : 'text-red-400')}
                 >
@@ -211,7 +218,7 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
               </>
             )
 
-            const rowBg = (a: VocabAnswerRow) => a.teacher_locked ? 'bg-blue-50' : dirtyIds.has(a.id) ? 'bg-amber-50' : ''
+            const rowBg = (a: VocabAnswerRow) => a.teacher_locked ? 'bg-blue-50' : dirtyIds.has(a.id) ? 'bg-muted' : ''
 
             return (
               <div className="space-y-3">

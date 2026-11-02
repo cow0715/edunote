@@ -111,7 +111,7 @@ function SourceImageBadge({ q }: { q: ExamQuestion }) {
   if (!q.needs_source_image) return null
   const reason = q.source_image_reason ? ` · ${q.source_image_reason}` : ''
   return (
-    <span className="inline-flex h-5 items-center rounded bg-amber-50 px-1.5 text-[10px] font-medium text-amber-700">
+    <span className="inline-flex h-5 items-center rounded bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
       원본필요{reason}
     </span>
   )
@@ -162,7 +162,7 @@ export const GroupedQuestionRow = memo(function GroupedQuestionRow({
                 </span>
               )}
               {q.correct_answer ? (
-                <span className="text-xs text-indigo-400 font-medium shrink-0">
+                <span className="text-xs text-[var(--share-blue)] font-medium shrink-0">
                   {[q.correct_answer, ...(q.extra_correct_answers ?? [])].filter((n) => n > 0).join(',')}번
                 </span>
               ) : null}
@@ -189,7 +189,7 @@ export function AnswerKey({ q }: { q: ExamQuestion }) {
   }
   if (!text) return null
   return (
-    <span className="text-xs text-indigo-400 font-medium">
+    <span className="text-xs text-[var(--share-blue)] font-medium">
       정답: {text}
     </span>
   )
@@ -201,7 +201,7 @@ export function CorrectChip({ isCorrect, needsReview, feedback }: { isCorrect: b
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
       {needsReview ? (
-        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 shrink-0">⚠️ 검토 필요</span>
+        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">⚠️ 검토 필요</span>
       ) : (
         <span className={cn(
           'text-xs font-medium px-2 py-0.5 rounded-full shrink-0',

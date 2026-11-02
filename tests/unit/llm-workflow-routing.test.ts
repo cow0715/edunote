@@ -70,6 +70,7 @@ describe('subjective grading routing', () => {
     expect(result).toHaveLength(30)
     expect(result[0]).toMatchObject({ is_correct: true, needs_review: false })
     expect(result.filter((row) => row.needs_review)).toHaveLength(29)
+    expect(result.filter((row) => row.grading_failure === 'response_missing')).toHaveLength(29)
   })
 
   it('splits 31 answers by main question and preserves partial failure with one shared execution', async () => {
@@ -83,5 +84,6 @@ describe('subjective grading routing', () => {
     expect(result.filter((row) => row.is_correct)).toHaveLength(1)
     expect(result.filter((row) => row.needs_review)).toHaveLength(30)
     expect(result.filter((row) => row.ai_feedback.includes('실패'))).toHaveLength(15)
+    expect(result.filter((row) => row.grading_failure === 'batch_failed')).toHaveLength(15)
   })
 })

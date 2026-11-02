@@ -66,3 +66,15 @@ it('does not expose SQL/parameters through wrapped driver errors', async () => {
   expect(JSON.stringify(spy.mock.calls)).not.toContain('SECRET')
   spy.mockRestore()
 })
+
+it('reports connection/setup/approval/commit timings without changing transaction behavior', async () => {
+ const stages: string[]=[]
+ await withTeacherTransaction('user',async()=> 'done',(stage,duration)=>{stages.push(stage);expect(duration).toBeGreaterThanOrEqual(0)})
+ expect(stages).toEqual(['db_connect','db_begin','db_session','db_teacher','db_work','db_commit'])
+ expect(mocks.query.mock.calls.map(call=>call[0]).filter(q=>q==='BEGIN'||q==='COMMIT')).toEqual(['BEGIN','COMMIT'])
+})
+it('an observer failure cannot leak a connection or turn a committed save into a failure', async () => {
+ expect(await withTeacherTransaction('user',async()=> 'saved',()=>{throw new Error('observer failed')})).toBe('saved')
+ expect(mocks.release).toHaveBeenCalledWith(false)
+ expect(mocks.query.mock.calls.at(-1)?.[0]).toBe('COMMIT')
+})

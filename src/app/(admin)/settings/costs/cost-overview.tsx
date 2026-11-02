@@ -15,6 +15,7 @@ const panel = 'rounded-[20px] bg-[var(--share-card)] p-5 sm:p-6'
 const muted = 'text-[var(--share-muted)]'
 const count = (n: number) => n.toLocaleString('ko-KR')
 const featureNames: Record<string, string> = {
+  'book.mapSource': '교재 원문 연결', 'book.auditSource': '교재 원본 대조·복구', 'book.enrichMaterial': '교재 풀이·어휘 보완',
   'week.parseAnswers': '답안지 파싱', 'week.parseQuestions': '시험지 파싱', 'week.grade': '답안 채점',
   'vocab.ocr': '단어시험 판독', 'vocab.grade': '단어시험 채점', 'sms.generate': '문자 내용 생성',
 }
@@ -39,8 +40,8 @@ export function CostOverview({ usage, snapshots, report = null, tail = [], loadi
         <dl className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">{[['입력 토큰', tokens.input], ['출력 토큰', tokens.output], ['캐시 읽기', tokens.read], ['캐시 쓰기', tokens.write]].map(([label, value]) => <div key={label} className="rounded-xl bg-[var(--share-box)] px-3 py-3"><dt className={`text-[11px] ${muted}`}>{label}</dt><dd className="mt-1 text-[15px] font-bold tabular-nums">{count(Number(value))}</dd></div>)}</dl>
         <h3 className="mt-6 text-xs font-semibold">기능별 예상 비용 · 월 전체 아님</h3>
         {claude.excludedCalls > 0 && <p className="mt-2 text-xs text-[var(--share-red)]">단가·토큰 확인이 필요한 {count(claude.excludedCalls)}회는 계산 제외</p>}
-        <div className="mt-3 space-y-4">{breakdown.slice(0, 6).map(item => <div key={`${item.row.feature}:${item.row.model}`}>
-          <div className="flex items-start justify-between gap-3 text-sm"><div className="min-w-0"><p className="break-words font-medium">{featureNames[item.row.feature] ?? item.row.feature}</p><p className={`mt-0.5 text-[11px] ${muted}`}>{item.row.model} · {count(item.row.calls)}회</p></div><span className="shrink-0 font-semibold tabular-nums">{estimateMoney(item.amount!, 'USD')}</span></div>
+        <div className="mt-3 space-y-4">{breakdown.slice(0, 6).map(item => <div key={`${item.row.feature}:${item.row.model}:${item.row.service_tier ?? 'standard'}`}>
+          <div className="flex items-start justify-between gap-3 text-sm"><div className="min-w-0"><p className="break-words font-medium">{featureNames[item.row.feature] ?? item.row.feature}</p><p className={`mt-0.5 text-[11px] ${muted}`}>{item.row.model}{item.row.service_tier === 'batch' ? ' · Batch' : ''} · {count(item.row.calls)}회</p></div><span className="shrink-0 font-semibold tabular-nums">{estimateMoney(item.amount!, 'USD')}</span></div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--share-box)]"><div className="h-full rounded-full bg-[var(--share-blue)]" style={{ width: `${claude.amount ? item.amount! / claude.amount * 100 : 0}%` }} /></div>
         </div>)}</div>
         {!breakdown.length && <p className={`mt-5 text-sm ${muted}`}>{failed ? '사용량을 불러오지 못했습니다.' : '계산할 토큰 기록이 아직 없습니다.'}</p>}

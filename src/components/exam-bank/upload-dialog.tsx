@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Upload, FileText, File} from 'lucide-react'
+import { Upload, FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { MONTHS, safeJson } from './constants'
 import { examPdfUploadPath, resolvePdfImport } from '@/lib/pdf-import/client'
@@ -175,25 +175,32 @@ export function UploadDialog({ open, onOpenChange, inline = false, onAccepted }:
     }, (e) => toast.error(errorMessage(e, 'PDF 파싱 실패')))
   }
 
+  const fileClass = inline ? 'w-full [&>button:first-of-type]:min-h-14 [&>button:first-of-type]:w-full [&>button:first-of-type]:justify-start' : undefined
+  const files = <div className="space-y-2"><div className="grid gap-4 sm:grid-cols-2">
+    <div className="min-w-0 space-y-2"><p className="text-sm font-medium">문제지 <span className="text-xs font-normal text-muted-foreground">필수</span></p><FileUpload compact={inline} className={fileClass} label="시험지 파일 선택" description="PDF 또는 이미지" accept=".pdf,image/*" inputRef={fileRef} disabled={uploading} fileName={fileName} onChange={(e) => setFileName(e.target.files?.[0]?.name ?? '')} onClear={() => setFileName('')} /></div>
+    <div className="min-w-0 space-y-2"><p className="text-sm font-medium">해설지 <span className="text-xs font-normal text-muted-foreground">선택</span></p><FileUpload compact={inline} className={fileClass} label="해설 PDF 선택" description="별도 PDF · 나중에 추가 가능" accept=".pdf" inputRef={explanationRef} disabled={uploading} fileName={explanationName} onChange={(e) => setExplanationName(e.target.files?.[0]?.name ?? '')} onClear={() => setExplanationName('')} /></div>
+  </div><p className="text-xs text-muted-foreground">문제지 PDF·이미지 / 해설지 PDF · 해설지는 나중에 추가할 수 있습니다.</p></div>
   const content = (
-        <fieldset disabled={uploading} className="space-y-3">
+        <fieldset disabled={uploading} className="space-y-5">
+          {inline && files}
+          <div className={`grid gap-4 ${inline ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
           {/* 년 */}
-          <div className="flex items-center gap-3">
-            <Label className="w-16 shrink-0 text-right text-sm text-muted-foreground">년</Label>
+          <div className="space-y-2">
+            <Label className="text-sm">시행년</Label>
             <Input
               aria-label="시행년"
               type="number"
               value={form.exam_year}
               onChange={(e) => setForm({ ...form, exam_year: Number(e.target.value) })}
-              className="min-h-11 flex-1"
+              className="min-h-11 w-full text-base sm:text-sm"
             />
           </div>
 
           {/* 월 */}
-          <div className="flex items-center gap-3">
-            <Label className="w-16 shrink-0 text-right text-sm text-muted-foreground">월</Label>
+          <div className="space-y-2">
+            <Label className="text-sm">시행월</Label>
             <Select disabled={uploading} value={String(form.exam_month)} onValueChange={(v) => setForm({ ...form, exam_month: Number(v) })}>
-              <SelectTrigger aria-label="월" className="min-h-11 flex-1"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="월" className="min-h-11 w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {MONTHS.map((m) => <SelectItem key={m} value={String(m)}>{m}월</SelectItem>)}
               </SelectContent>
@@ -201,10 +208,10 @@ export function UploadDialog({ open, onOpenChange, inline = false, onAccepted }:
           </div>
 
           {/* 학년 */}
-          <div className="flex items-center gap-3">
-            <Label className="w-16 shrink-0 text-right text-sm text-muted-foreground">학년</Label>
+          <div className="space-y-2">
+            <Label className="text-sm">학년</Label>
             <Select disabled={uploading} value={String(form.grade)} onValueChange={(v) => setForm({ ...form, grade: Number(v) })}>
-              <SelectTrigger aria-label="학년" className="min-h-11 flex-1"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="학년" className="min-h-11 w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {[1, 2, 3].map((g) => <SelectItem key={g} value={String(g)}>고{g}</SelectItem>)}
               </SelectContent>
@@ -212,8 +219,8 @@ export function UploadDialog({ open, onOpenChange, inline = false, onAccepted }:
           </div>
 
           {/* 구분 */}
-          <div className="flex items-center gap-3">
-            <Label className="w-16 shrink-0 text-right text-sm text-muted-foreground">구분</Label>
+          <div className="space-y-2">
+            <Label className="text-sm">시험 구분</Label>
             <Select
               disabled={uploading}
               value={form.source}
@@ -224,7 +231,7 @@ export function UploadDialog({ open, onOpenChange, inline = false, onAccepted }:
                 grade: v === '수능' ? 3 : form.grade,
               })}
             >
-              <SelectTrigger aria-label="구분" className="min-h-11 flex-1"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="구분" className="min-h-11 w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="수능">수능</SelectItem>
                 <SelectItem value="모의고사">모의고사</SelectItem>
@@ -233,41 +240,25 @@ export function UploadDialog({ open, onOpenChange, inline = false, onAccepted }:
           </div>
 
           {/* 시험지 유형 */}
-          <div className="flex items-center gap-3">
-            <Label className="w-16 shrink-0 text-right text-sm text-muted-foreground">유형</Label>
+          <div className="space-y-2">
+            <Label className="text-sm">문제지 유형</Label>
             <Select disabled={uploading} value={form.form_type} onValueChange={(v) => setForm({ ...form, form_type: v })}>
-              <SelectTrigger aria-label="유형" className="min-h-11 flex-1"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="유형" className="min-h-11 w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="홀수형">홀수형</SelectItem>
                 <SelectItem value="짝수형">짝수형</SelectItem>
               </SelectContent>
             </Select>
           </div>
-
-          {/* 제목 미리보기 */}
-          <div className="flex items-center gap-3">
-            <Label className="w-16 shrink-0 text-right text-sm text-muted-foreground">제목</Label>
-            <div className="flex-1 rounded-md bg-muted px-3 py-2 text-sm text-foreground">{autoTitle}</div>
           </div>
 
-          {/* PDF */}
-          <div className="flex items-center gap-3">
-            <Label className="w-16 shrink-0 text-right text-sm text-muted-foreground">파일</Label>
-            <FileUpload className="min-h-11 flex-1" label="시험지 파일 선택" description="PDF 또는 이미지" accept=".pdf,image/*" inputRef={fileRef} disabled={uploading} fileName={fileName} onChange={(e) => setFileName(e.target.files?.[0]?.name ?? '')} />
-          </div>
-
-          {/* 해설 PDF — 선택. 지금 없으면 나중에 시험 카드의 해설 버튼으로 붙일 수 있다 */}
-          <div className="flex items-center gap-3">
-            <Label className="w-16 shrink-0 text-right text-sm text-muted-foreground">해설</Label>
-            <FileUpload className="min-h-11 flex-1" label="해설 PDF 선택" description="PDF · 선택 사항" accept=".pdf" inputRef={explanationRef} disabled={uploading} fileName={explanationName} onChange={(e) => setExplanationName(e.target.files?.[0]?.name ?? '')} />
-          </div>
-          <p className="pl-[76px] text-xs text-muted-foreground">
-            해설을 같이 올리면 문항 추출 후 이어서 해설·AI 풀이·어휘까지 처리합니다. 나중에 붙여도 됩니다.
-          </p>
+          <p className="text-xs text-muted-foreground">학년도가 아닌 실제 시행 연도를 선택하세요.</p>
+          {!inline && files}
 
           {uploading && <UploadProgress elapsed={elapsed} explaining={explaining} message={workerMessage} />}
 
-          <Button variant="action" className="min-h-11 w-full" onClick={handleUpload} disabled={uploading}>
+          {!fileName && <p className="text-sm text-muted-foreground">문제지를 선택하면 등록을 시작할 수 있습니다.</p>}
+          <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm font-medium">{autoTitle}</p><Button variant="action" className="min-h-11 shrink-0 sm:px-6" onClick={handleUpload} disabled={uploading || !fileName}>
             {uploading ? (
               <>
                 <FileText className="mr-2 h-4 w-4 animate-spin" />
@@ -279,10 +270,11 @@ export function UploadDialog({ open, onOpenChange, inline = false, onAccepted }:
                 기출 등록 시작
               </>
             )}
-          </Button>
+          </Button></div>
+          <p className="text-xs text-muted-foreground">접수 후 화면을 닫아도 처리됩니다. 해설지를 같이 올리면 풀이·어휘 보완까지 이어집니다.</p>
         </fieldset>
   )
-  if (inline) return <section aria-label="기출 PDF 등록" className="space-y-4 rounded-xl border bg-card p-4 sm:p-5"><h2 className="font-semibold">기출 PDF 등록</h2>{content}</section>
+  if (inline) return <section aria-label="기출 PDF 등록" className="space-y-5">{content}</section>
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>기출문제 등록</DialogTitle></DialogHeader>{content}</DialogContent></Dialog>
 }
 

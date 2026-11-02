@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { createServiceClient } from '../src/lib/supabase/service'
-import { createCallLimiter, withPdfWorkerContext, type PdfWorkerContext } from '../src/lib/pdf-import/context'
+import { createCallLimiter, getPdfWorkerContext, withPdfWorkerContext, type PdfWorkerContext } from '../src/lib/pdf-import/context'
 import { isUuid, type PdfImportJob } from '../src/lib/pdf-import/types'
-import { isPdfBatchJob, PdfBatchPending, PdfBatchRequestFailed, PdfBatchStopped } from '../src/lib/pdf-import/batch-policy'
+import { isPdfBatchJob, PdfBatchPending, PdfBundleDeferred, PdfBatchRequestFailed, PdfBatchStopped } from '../src/lib/pdf-import/batch-policy'
 import type { PdfBatchTransport } from '../src/lib/pdf-import/batch-transport'
 import { examImportIssues } from '../src/lib/pdf-import/exam-completeness'
 import { savedExamProgress } from '../src/lib/pdf-import/exam-progress'
+import { PdfCostStopped } from '../src/lib/pdf-import/cost-policy'
 
 export async function main() {
   if (process.argv.includes('--help')) {
@@ -14,7 +15,7 @@ export async function main() {
   }
   const id = process.env.PDF_IMPORT_JOB_ID
   if (!isUuid(id)) throw new Error('PDF_IMPORT_JOB_ID에 작업 UUID를 지정해주세요.')
-  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY가 필요합니다.')
+  if (!process.env.ANTHROPIC_API_KEY && process.env.PDF_IMPORT_CACHE_ONLY !== 'true') throw new Error('ANTHROPIC_API_KEY가 필요합니다.')
   const client = createServiceClient()
   const token = randomUUID()
   const controller = new AbortController()
@@ -36,6 +37,15 @@ export async function main() {
     await new Promise((resolve) => setTimeout(resolve, 5_000))
   }
   if (!job) throw new Error('다른 워커가 작업 중입니다.')
+  if (job.kind === 'bank_book' && !job.payload.bookProfile) {
+    // Registration can link a stopped legacy job without touching it. Only a
+    // later explicitly resumed/claimed worker adopts the bundle adapter. Old
+    // paid checkpoints and the existing protocol/budget latch remain intact.
+    try {
+      const linked = await client.rpc('book_pdf_bundle_job', { p_job: id, p_token: token })
+      if (!linked.error && linked.data?.bookProfile === 'jugis-two-column-v1') job = { ...job, payload: { ...job.payload, ...linked.data } }
+    } catch { /* A legacy single-file deployment need not have bundle SQL yet. */ }
+  }
   process.once('SIGTERM', terminate)
   process.once('SIGINT', terminate)
   let beating = false
@@ -50,6 +60,7 @@ export async function main() {
     void heartbeat().catch((error) => controller.abort(error)).finally(() => { beating = false })
   }, 30_000)
   const context: PdfWorkerContext = {
+    cacheOnly: process.env.PDF_IMPORT_CACHE_ONLY === 'true',
     signal: controller.signal, concurrency, execute: createCallLimiter(concurrency), stage: heartbeat,
     read: async <T>(key: string) => {
       const { data, error } = await client.from('pdf_import_checkpoint').select('value').eq('job_id', id).eq('call_key', key).maybeSingle()
@@ -61,6 +72,15 @@ export async function main() {
       if (error) throw new Error(error.message)
     },
   }
+  if (job.kind === 'bank_book') context.quality = async (unit, status) => {
+    const { error } = await client.rpc('book_pdf_cost_quality', { p_job: id, p_token: token, p_unit: unit, p_status: status })
+    if (error) throw new PdfBatchStopped('교재 이상률 기록 실패로 새 접수를 중지했습니다. 비용 관리 SQL을 확인해주세요.')
+  }
+  if (job.kind === 'bank_book') context.writeBookProgress = async (key, value) => {
+    const { error } = await client.rpc('book_pdf_save_unit_progress', { p_job: id, p_token: token,
+      p_unit: getPdfWorkerContext()?.unitKey, p_key: key, p_value: value })
+    if (error) throw new PdfBatchStopped('문항별 진행 상태를 저장하지 못해 새 요청을 중지했습니다. 진행 상태 SQL을 확인해주세요.')
+  }
   let batch: PdfBatchTransport | undefined
   const suspend = async (submit?: () => Promise<void>) => {
     // Arrange the future execution before releasing the lease. A crash after
@@ -69,23 +89,29 @@ export async function main() {
     const resumeAt = await scheduleBookBatchWake(id!, token, controller.signal)
     // Do not incur AI costs until continuation is actually arranged. This also
     // validates queue/IAM configuration before the first paid batch submission.
-    await submit?.()
+    try { await submit?.() } catch (error) { if (!(error instanceof PdfBundleDeferred)) throw error }
     const { data, error } = await client.rpc('pdf_import_suspend_batch', { p_id: id, p_token: token, p_resume_at: resumeAt })
     if (error || !data) throw new Error('배치 대기 상태 저장 실패')
     console.log(`[pdf-worker] batch-waiting ${id}`)
   }
   try {
+    if (job.kind === 'bank_book' && !isPdfBatchJob(job) && !context.cacheOnly) {
+      throw new PdfBatchStopped('교재는 비용 보호가 적용된 Batch 모드에서만 새 요청을 보낼 수 있습니다. 기존 응답 복구는 가능합니다.')
+    }
     if (isPdfBatchJob(job)) {
-      const { PdfBatchTransport, anthropicPdfBatchProvider } = await import('../src/lib/pdf-import/batch-transport')
-      batch = new PdfBatchTransport(client, { ...job, lease_token: token }, context, anthropicPdfBatchProvider(controller.signal))
+      const { PdfBatchTransport, anthropicPdfBatchProvider, cachedPdfBatchProvider } = await import('../src/lib/pdf-import/batch-transport')
+      batch = new PdfBatchTransport(client, { ...job, lease_token: token }, context,
+        context.cacheOnly ? cachedPdfBatchProvider() : anthropicPdfBatchProvider(controller.signal))
       if (await batch.poll()) { await suspend(); return }
       context.batchCall = batch.call
+      if (job.kind === 'bank_book') context.rememberBookCall = batch.rememberBookCall
     }
     const { runPdfImport } = await import('../src/lib/pdf-import/handlers')
     let result: Record<string, unknown>
     try {
       result = await withPdfWorkerContext(context, () => runPdfImport(client, job!))
     } catch (error) {
+      if (error instanceof PdfBundleDeferred) { await suspend(); return }
       if (!(error instanceof PdfBatchPending) || !batch) throw error
       await suspend(() => batch!.submit())
       return
@@ -95,16 +121,17 @@ export async function main() {
       await suspend(() => batch!.submit())
       return
     }
+    const pilotReview = job!.kind === 'bank_book' && result.pilot_review_required === true
     const unresolved = job!.kind === 'bank_book' && result.verification_unresolved === true
     const examIssues = ['bank_questions', 'bank_explanation'].includes(job!.kind) ? examImportIssues(result) : []
     const incomplete = examIssues.length > 0 || result.exam_incomplete === true
-    const { data, error } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: unresolved || incomplete ? 'failed' : 'succeeded',
+    const { data, error } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: pilotReview || unresolved || incomplete ? 'failed' : 'succeeded',
       p_result: incomplete ? { ...result, exam_incomplete: true } : result,
-      p_error: incomplete ? `자동 복구 후에도 미완료 문항 ${examIssues.length}개가 남았습니다. 문항별 사유를 확인해주세요.`
+      p_error: pilotReview ? '대표 구간 검증 완료 · 전체 처리 승인과 별도 재개를 기다립니다.' : incomplete ? `자동 복구 후에도 미완료 문항 ${examIssues.length}개가 남았습니다. 문항별 사유를 확인해주세요.`
         : unresolved ? Array.isArray(result.inventory_errors) ? '원문 문항 경계를 확정하지 못해 등록을 보류했습니다.' : '자동 대조·복구 후 확정하지 못한 항목이 있어 등록을 보류했습니다.' : null })
     if (error || !data) throw new Error('완료 상태 저장 실패')
     // Quality recovery already exhausted its bounded budget; don't start another paid platform retry.
-    if (unresolved || incomplete) { console.log(`[pdf-worker] verification-unresolved ${id}`); return }
+    if (pilotReview || unresolved || incomplete) { console.log(`[pdf-worker] verification-unresolved ${id}`); return }
     console.log(`[pdf-worker] completed ${id}`)
   } catch (error) {
     controller.abort(error) // Stop any remaining parallel AI calls before releasing the lease.
@@ -114,7 +141,7 @@ export async function main() {
     try { progress = await savedExamProgress(context, job!) } catch { /* Preserve the original error if the checkpoint DB is unavailable. */ }
     if (error instanceof PdfBatchStopped || error instanceof PdfBatchRequestFailed) {
       const { data, error: finishError } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token,
-        p_status: 'failed', p_result: { ...progress, ...(error instanceof PdfBatchRequestFailed ? { batch_exhausted: true } : { batch_stopped: true }) }, p_error: message.slice(0,500) })
+        p_status: 'failed', p_result: { ...progress, ...(error instanceof PdfCostStopped ? { cost_control: error.summary } : {}), ...(error instanceof PdfBatchRequestFailed ? { batch_exhausted: true } : { batch_stopped: true }) }, p_error: message.slice(0,500) })
       if (finishError || !data) throw new Error('배치 중단 상태 저장 실패')
       console.log(`[pdf-worker] batch-stopped ${id}`)
       return

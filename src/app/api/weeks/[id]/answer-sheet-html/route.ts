@@ -1,4 +1,4 @@
-import { answerSheetSlots, OPTIONAL_SLOT_GUIDANCE } from '@/lib/answer-sheet-slots'
+import { answerSheetSlots } from '@/lib/answer-sheet-slots'
 import { groupQuestionParents, questionLabel } from '@/lib/question-presentation'
 import { getAuth, getTeacherId, assertWeekOwner, err } from '@/lib/api'
 import { buildWeekDisplayMap, type ClassPeriod } from '@/lib/class-periods'
@@ -129,11 +129,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td><td ${answerAttr} colspan="${answerColSpan}">&nbsp;</td></tr>`)
     } else if (style === 'find_error') {
       // 정답 기호를 노출하지 않고, 원문 지시와 보기 수에 맞춰 답란을 제공한다.
-      const { count: slotCount, optional } = answerSheetSlots(group)
+      const { count: slotCount } = answerSheetSlots(group)
       const slotLines = Array.from({ length: slotCount })
         .map(() => '번호·기호 [&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;] &nbsp; 고친 표현: ____________________________________________')
         .join('<br/><br/>')
-      rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:11px;font-weight:600;">${optional ? `${OPTIONAL_SLOT_GUIDANCE}<br/>` : ''}${slotLines}</span></td></tr>`)
+      rows.push(`<tr ${tr}><td ${qnumAttr}>${questionLabel(first, false)}</td><td ${answerAttr} colspan="${answerColSpan}"><span style="font-size:11px;font-weight:600;">${slotLines}</span></td></tr>`)
     } else if (style === 'subjective' && hasSub) {
       const cells = group.map((q) =>
         `<td ${subHdrAttr}>(${q.sub_label})</td><td ${subCellAttr}>&nbsp;</td>`

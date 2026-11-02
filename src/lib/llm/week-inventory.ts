@@ -1,3 +1,4 @@
+import { weekAnswerContractIssues, canRepairCorrectionInventory, NEW_CORRECTION_EXTRACTION_RULES } from '../week-answer-contract'
 import { buildFileBlock, callLlmTextDetailed, createLlmExecution, type TaskCallOptions, parseJsonArrayResponse, parseJsonObjectResponse } from './client'
 import type { RangedCallStats, RangedFile } from './ranged'
 import type { ParsedAnswer } from './week'
@@ -47,14 +48,14 @@ JSON 객체만 출력: {"counts":{"general":1,"written":1},"questions":[{"sectio
 
 /** Inventory and extraction use the same cached PDF prefix, but distinct identities.
  * Failed coverage is terminal: the caller must never replace existing questions with a partial parse. */
-export async function parseWeekInventory(files: RangedFile[], prompt: string, options: TaskCallOptions = {}): Promise<{
+export async function parseWeekInventory(files: RangedFile[], prompt: string, options: TaskCallOptions & { validateAnswerContract?: boolean } = {}): Promise<{
   items: ParsedAnswer[]; calls: RangedCallStats[]; targets: WeekQuestionTarget[]
 }> {
   if (!files.length) throw new Error('첨부 파일이 없습니다.')
   const execution = options.execution ?? createLlmExecution()
   const native = await nativeEvidence(files)
   const prefix = [...files.map((f) => buildFileBlock(f.fileData, f.mimeType)),
-    { type: 'text' as const, text: prompt + '\n첨부 파일 순서/역할: ' + files.map((f, i) => `${i + 1}: ${f.role ?? (files.length === 1 ? 'combined' : i === 0 ? 'questions' : 'answers')}`).join(', ') + '\n문항 구조는 문제지에서, 정답·해설은 정답/해설지에서 읽으세요. 파일별 페이지는 각각 1부터 셉니다.\n아래 원문 텍스트가 있는 페이지의 answer_evidence.quote는 해당 구간 안에서 정답 행만 짧게 그대로 복사하세요. 시각적 배열을 재구성하거나 해설을 덧붙이지 마세요.\n' + native.pages }]
+    { type: 'text' as const, text: prompt + (options.validateAnswerContract ? '\n' + NEW_CORRECTION_EXTRACTION_RULES : '') + '\n첨부 파일 순서/역할: ' + files.map((f, i) => `${i + 1}: ${f.role ?? (files.length === 1 ? 'combined' : i === 0 ? 'questions' : 'answers')}`).join(', ') + '\n문항 구조는 문제지에서, 정답·해설은 정답/해설지에서 읽으세요. 파일별 페이지는 각각 1부터 셉니다.\n아래 원문 텍스트가 있는 페이지의 answer_evidence.quote는 해당 구간 안에서 정답 행만 짧게 그대로 복사하세요. 시각적 배열을 재구성하거나 해설을 덧붙이지 마세요.\n' + native.pages }]
   const calls: RangedCallStats[] = []
   async function call(instruction: string, maxTokens: number) {
     const started = Date.now()
@@ -90,25 +91,28 @@ export async function parseWeekInventory(files: RangedFile[], prompt: string, op
 모든 객체에 source_section=${JSON.stringify(target.section)}, source_question_number=${target.number}, question_number=${target.question_number}를 출력하세요.
 sub_label은 ${JSON.stringify(target.sub_labels)}의 각 값마다 정확히 한 객체씩 출력하세요. 추가/누락/중복은 금지입니다.
 단, 오류교정(find_error)의 잘못된 기호가 정답/해설에 명시되어 있으면 해당 기호와 실제 답안 유형을 유지하세요. 목록에 맞추려고 subjective로 바꾸지 마세요. 정답 근거가 없으면 정답 필드는 비우고 answer_status=missing으로 표시하세요.
+${options.validateAnswerContract ? '신규 교정 문항 예외: 실제 원문 정답이 독립 교정 답 여러 개를 명시하면 상단 sub_label 목록과 달라도 각 답을 별도 객체로 추출하세요. 기호가 있으면 실제 기호, 없으면 작성 칸 순서 a,b,…를 사용하세요. 목록에 맞추려고 답을 한 객체에 묶거나 유형을 바꾸지 마세요. 이 예외는 선택 교정 답에만 적용하며 다른 문항의 목록은 유지하세요.' : ''}
 원래 발문 번호는 원문 그대로 두세요. 내부 question_number를 발문에 붙이지 마세요.
 ${target.passage_group ? `공통 지문 그룹 ${JSON.stringify(target.passage_group)}입니다. shared_passage에 공통 지문 전체를 정확히 추출하세요. 같은 부모의 소문항 중 첫 객체에만 채워도 됩니다. 그 문항의 발문·보기·선지는 공통 지문에 섞지 말고 기존 문항 필드에 보존하세요.` : '독립 문항이므로 shared_passage는 null입니다.'}
 ${issues.length ? `이전 응답 검증 실패: ${issues.join(', ')}. 문항 전체를 다시 출력하세요.` : ''}
 기존 추출 규칙에 따른 JSON 배열만 출력하세요.`
       try {
-        const received = parseJsonArrayResponse<unknown>(await call(instruction, 8192), 'week-inventory-target').map(sanitizeWeekExtraction)
+        const received = parseJsonArrayResponse<unknown>(await call(instruction, 8192), 'week-inventory-target').map(value => sanitizeWeekExtraction(value, options.validateAnswerContract))
         // The server owns these constants. Missing echoed metadata is not missing content;
         // conflicting metadata and wrong question numbers still fail exact coverage.
         const answers = received.map(a => a.question_number === target.question_number ? { ...a,
           source_section: a.source_section ?? target.section, source_question_number: a.source_question_number ?? target.number } : a)
-        // A single find-error answer can carry a sparse symbol such as (b). Never
-        // coerce the correct extraction into a different style to obey [null].
-        if (target.sub_labels.length === 1 && target.sub_labels[0] === null && answers.length > 0 &&
-          answers.every(a => a.question_number === target.question_number && a.source_section === target.section &&
-            a.source_question_number === target.number && a.question_style === 'find_error' &&
-            /^[a-z]$/.test(a.sub_label ?? '') && a.answer_status === 'found' && !!a.answer_evidence?.quote)) {
-          target.sub_labels = answers.map(a => a.sub_label)
-        }
-        issues = weekTargetIssues(target, answers)
+        // Repair only grounded correction leaves from this exact parent. Other
+        // question types still have to satisfy the independently discovered inventory.
+        const sameParent = answers.length > 0 && answers.every(a =>
+          a.question_number === target.question_number && a.source_section === target.section &&
+          a.source_question_number === target.number && /^[a-z]$/.test(a.sub_label ?? '') &&
+          a.answer_status === 'found' && !!a.answer_evidence?.quote)
+        const repairNewCorrection = options.validateAnswerContract && canRepairCorrectionInventory(answers)
+        const repairLegacySymbol = !options.validateAnswerContract && target.sub_labels.length === 1 &&
+          target.sub_labels[0] === null && answers.every(a => a.question_style === 'find_error')
+        if (sameParent && (repairNewCorrection || repairLegacySymbol)) target.sub_labels = answers.map(a => a.sub_label)
+        issues = [...weekTargetIssues(target, answers), ...(options.validateAnswerContract ? weekAnswerContractIssues(answers) : [])]
         if (!issues.length) {
           return answers.map((answer) => ({ ...answer, inventory_sub_labels: target.sub_labels,
             display_order: target.display_order, passage_group: target.passage_group,

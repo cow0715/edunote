@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 
 const teacher='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222',id='33333333-3333-4333-8333-333333333333',bank='44444444-4444-4444-8444-444444444444'
 const migration=readFileSync('supabase/migrations/20261022141950_book_registration_catalog.sql','utf8')
+const profiles=readFileSync('supabase/migrations/20261029071858_book_reading_suwan_profiles.sql','utf8')
 describe('book catalog metadata migration',()=>{
   let db:PGlite
   beforeAll(async()=>{
@@ -28,6 +29,9 @@ describe('book catalog metadata migration',()=>{
       insert into vocab_collection_item select id,'[{"source":"교재","source_title":"수능특강 영어(상) · 좌본문·우해석","year":2027}]','preserve-word' from vocab_collection;
       insert into book_pdf_document(teacher_id,title) values('${teacher}','이름을 모르는 교재');`)
     await db.exec(migration);await db.exec(migration)
+    const before=await db.query('select to_jsonb(d) row from book_pdf_document d order by id')
+    await db.exec(profiles);await db.exec(profiles)
+    expect((await db.query('select to_jsonb(d) row from book_pdf_document d order by id')).rows).toEqual(before.rows)
   },120000)
   afterAll(async()=>{await db?.close()})
   it('classifies the known published book and synchronizes labels without reparsing or changing questions/proofs/jobs',async()=>{
@@ -47,7 +51,17 @@ describe('book catalog metadata migration',()=>{
     expect(a.reused).toBe(false);expect(b).toMatchObject({id:a.id,reused:true})
     const c=(await db.query<{r:{id:string}}>('select book_pdf_reserve($1,$2,$3,$4,$5) r',[other,...args.slice(1)])).rows[0].r
     expect(c.id).not.toBe(id)
-    await expect(db.query('select book_pdf_reserve($1,$2,$3,$4,$5)',[teacher,'c'.repeat(64),'suwan_english',2027,'full'])).rejects.toThrow('invalid book registration')
+    await expect(db.query('select book_pdf_reserve($1,$2,$3,$4,$5)',[teacher,'c'.repeat(64),'suwan_english',2027,'upper'])).rejects.toThrow('invalid book registration')
+  })
+  it('reserves all four verified profiles, reuses each file, and edits their classification',async()=>{
+    for(const [index,[code,volume]] of [['suteuk_reading','upper'],['suteuk_reading','lower'],['suwan_english','type'],['suwan_english','practical']].entries()){
+      const args=[teacher,String(index+1).repeat(64),code,2027,volume]
+      const first=(await db.query<{r:{id:string;reused:boolean;volume:string}}>('select book_pdf_reserve($1,$2,$3,$4,$5) r',args)).rows[0].r
+      expect(first).toMatchObject({reused:false,volume})
+      expect((await db.query<{r:unknown}>('select book_pdf_reserve($1,$2,$3,$4,$5) r',args)).rows[0].r).toMatchObject({id:first.id,reused:true})
+      expect((await db.query('select book_pdf_classify($1,$2,1,$3,2027,$4) ok',[first.id,teacher,code,volume])).rows[0]).toEqual({ok:true})
+    }
+    await expect(db.query('select book_pdf_reserve($1,$2,$3,$4,$5)',[teacher,'d'.repeat(64),'suteuk_reading',2027,'type'])).rejects.toThrow('invalid book registration')
   })
   it('edits published classification only, fences stale revisions/ownership and rejects wrong academic years',async()=>{
     const args=[id,teacher,1,'suteuk_english',2027,'lower']

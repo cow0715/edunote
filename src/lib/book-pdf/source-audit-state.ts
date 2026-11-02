@@ -14,11 +14,71 @@ export const sourceAuditSchema = z.object({
     pages: z.array(z.number().int().positive()).min(1).max(4), reason: z.string().min(1).max(1000) }).strict()).max(30),
 }).strict()
 export type SourceAudit = z.infer<typeof sourceAuditSchema>
+
+/** Some stored responses repeat the target address beside target. Remove only
+ * exact duplicates; conflicting addresses and all other unknown fields fail. */
+export function parseSourceAuditResponse(value: unknown) {
+  if (!value || typeof value !== 'object' || !('issues' in value) || !Array.isArray(value.issues)) return sourceAuditSchema.safeParse(value)
+  const issues = value.issues.map((issue: unknown) => {
+    if (!issue || typeof issue !== 'object' || !('target' in issue)) return issue
+    const parsed = sourceAuditTargetSchema.safeParse(issue.target)
+    if (!parsed.success) return issue
+    const copy = { ...issue } as Record<string, unknown>
+    for (const field of ['g', 'q', 'field', 'choice'] as const) {
+      if (field in copy && copy[field] === parsed.data[field]) delete copy[field]
+    }
+    return copy
+  })
+  return sourceAuditSchema.safeParse({ ...value, issues })
+}
 const editRef = sourceMapSchema.shape.groups.element.shape.passage
+const sourcePatchSchema = z.object({ before: z.string().max(4096), after: z.string().max(4096) }).strict()
 export const selectiveSourceRepairSchema = z.object({ edits: z.array(z.discriminatedUnion('mode', [
   z.object({ target: sourceAuditTargetSchema, mode: z.literal('refs'), refs: editRef }).strict(),
   z.object({ target: sourceAuditTargetSchema, mode: z.literal('text'), text: z.string().max(80_000), pages: z.array(z.number().int().positive()).min(1).max(4) }).strict(),
-])).max(30), issues: z.array(z.string().min(1).max(1000)).max(30) }).strict()
+  z.object({ target: sourceAuditTargetSchema, mode: z.literal('patch'), patches: z.array(sourcePatchSchema).min(1).max(30),
+    pages: z.array(z.number().int().positive()).min(1).max(4) }).strict(),
+])).max(30), issues: z.array(z.string().min(1).max(1000)).max(30), base_hash: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict()
+/** Whole-field text is accepted only when replaying old responses. New requests
+ * use exact anchored patches, except the short answer/type scalar values. */
+export const compactSourceRepairSchema = selectiveSourceRepairSchema.superRefine((repair, ctx) => {
+  if (!repair.base_hash) ctx.addIssue({ code: 'custom', message: 'Missing candidate hash' })
+  for (const edit of repair.edits) {
+    if (edit.mode === 'text' && (!['answer', 'type'].includes(edit.target.field) || edit.text.length > 64)) {
+      ctx.addIssue({ code: 'custom', message: 'Whole-field text is not permitted in compact repairs' })
+    }
+    if (edit.mode === 'patch' && ['answer', 'type'].includes(edit.target.field)) {
+      ctx.addIssue({ code: 'custom', message: 'Scalar metadata requires an explicit printed value' })
+    }
+  }
+})
+/** Missing null cannot hide edits: only absence on pass/unreadable is canonical.
+ * Explicit objects (even empty ones), unknown fields and inconsistent checks
+ * remain subject to the original fail-closed validation. Never mutate replies. */
+export function normalizeSourceAuditEnvelope(value: unknown) {
+  if (value && typeof value === 'object' && !Array.isArray(value)
+    && 'status' in value && ['pass', 'unreadable'].includes(String(value.status)) && !Object.hasOwn(value, 'repair')) {
+    return { ...value, repair: null }
+  }
+  return value
+}
+
+/** Models sometimes add decorative pages to refs edits. Accept only a valid
+ * in-window page list; actual referenced ranges still pass ownership, image,
+ * target and source-page checks in applySelectiveSourceRepair. */
+export function parseSourceRepairResponse(value: unknown, compact: boolean, pages: readonly number[]) {
+  let normalized = value
+  if (value && typeof value === 'object' && 'edits' in value && Array.isArray(value.edits)) {
+    normalized = { ...value, edits: value.edits.map((edit: unknown) => {
+      if (!edit || typeof edit !== 'object' || !('mode' in edit) || edit.mode !== 'refs' || !('pages' in edit)) return edit
+      const checked = z.array(z.number().int().positive()).min(1).max(4).safeParse(edit.pages)
+      if (!checked.success || new Set(checked.data).size !== checked.data.length || checked.data.some(p => !pages.includes(p))) return edit
+      const copy = { ...edit }; delete copy.pages
+      return copy
+    }) }
+  }
+  return (compact ? compactSourceRepairSchema : selectiveSourceRepairSchema).safeParse(normalized)
+}
 export type SelectiveSourceRepair = z.infer<typeof selectiveSourceRepairSchema>
 const types = new Set(['purpose', 'mood', 'claim', 'implication', 'topic', 'title', 'summary', 'blank_vocabulary', 'blank_phrase', 'grammar', 'vocabulary', 'reference', 'content_match', 'notice', 'order', 'insert', 'irrelevant', 'long_order', 'long_content_match', 'long_title', 'chart', 'other'])
 export const sourceDraftHash = (draft: SourceDraft) => createHash('sha256').update(JSON.stringify(draft)).digest('hex')
@@ -98,14 +158,38 @@ function setText(draft: SourceDraft, t: SourceAuditTarget, text: string) {
   } else q[t.field] = text
 }
 
+/** Locate every edit in the SAME unmodified field. Never fuzzy-match, normalize
+ * whitespace or apply a patch to text produced by another patch. */
+export function applySourceTextPatches(text: string, patches: z.infer<typeof sourcePatchSchema>[]) {
+  const spans = patches.map(({ before, after }) => {
+    if (before === after) throw Error('Source patch makes no change')
+    if (!before && (text || patches.length !== 1)) throw Error('Empty patch anchor is only valid for an empty field')
+    const start = text.indexOf(before), end = start + before.length
+    if (start < 0 || (before && text.indexOf(before, start + 1) !== -1)) throw Error('Source patch anchor must match exactly once')
+    const splitsSurrogate = (offset: number) => offset > 0 && offset < text.length
+      && /[\uD800-\uDBFF]/.test(text[offset - 1]) && /[\uDC00-\uDFFF]/.test(text[offset])
+    if (splitsSurrogate(start) || splitsSurrogate(end)) throw Error('Source patch splits a Unicode character')
+    return { start, end, after }
+  }).sort((a, b) => a.start - b.start)
+  for (let i = 1; i < spans.length; i++) if (spans[i].start < spans[i - 1].end) throw Error('Overlapping source patches')
+  let result = text
+  for (const span of spans.toReversed()) result = result.slice(0, span.start) + span.after + result.slice(span.end)
+  if (result.length > 80_000) throw Error('Repaired source field is too large')
+  return result
+}
+
 /** Atomic, allow-listed field changes. Native source remains unchanged and each
  * OCR override records the before/after values and source-image provenance. */
 export function applySelectiveSourceRepair(input: { pages: SourcePage[]; mapping: SourceMap; draft: SourceDraft; audit: SourceAudit;
-  repair: SelectiveSourceRepair; expectedHash: string; imageHashes: Record<number, string> }) {
+  repair: SelectiveSourceRepair; expectedHash: string; imageHashes: Record<number, string>; allowNotesForReaudit?: boolean }) {
   if (sourceDraftHash(input.draft) !== input.expectedHash) throw Error('Stale source repair')
+  if ((input.repair.base_hash !== undefined || input.repair.edits.some((e) => e.mode === 'patch'))
+    && input.repair.base_hash !== input.expectedHash) throw Error('Stale source patch hash')
   const auditErrors = sourceAuditErrors(input.audit, input.draft, input.pages)
   if (auditErrors.length) throw Error(auditErrors.join(';'))
-  if (input.audit.status !== 'repair' || input.repair.issues.length) throw Error('Repair is not actionable')
+  // Notes never establish correctness. Only the full-image audit caller may
+  // provisionally apply a complete proposal with notes for independent recheck.
+  if (input.audit.status !== 'repair' || (input.repair.issues.length && !input.allowNotesForReaudit)) throw Error('Repair is not actionable')
   const allowed = new Map(input.audit.issues.filter((i) => i.target).map((i) => [sourceTargetKey(i.target!), i]))
   const keys = input.repair.edits.map((e) => sourceTargetKey(e.target))
   if (!keys.length || new Set(keys).size !== keys.length || keys.some((k) => !allowed.has(k)) || [...allowed.keys()].some((k) => !keys.includes(k))) throw Error('Repair must cover exactly the flagged fields')
@@ -142,9 +226,11 @@ export function applySelectiveSourceRepair(input: { pages: SourcePage[]; mapping
       const issue = allowed.get(sourceTargetKey(edit.target))!
       const permitted = sourceRepairPages(issue, input.pages, input.mapping)
       if (edit.pages.some((p) => !permitted.includes(p) || !input.imageHashes[p])) throw Error('Repair image is outside the audited source')
-      setText(draft, edit.target, edit.text)
+      setText(draft, edit.target, edit.mode === 'patch'
+        ? applySourceTextPatches(String(before), edit.patches) : edit.text)
     }
     return { target: edit.target, mode: edit.mode, before, after: sourceTargetValue(draft, edit.target),
+      ...(input.repair.issues.length ? { repair_notes: [...input.repair.issues] } : {}),
       imageHashes: Object.fromEntries(sourceRepairPages(allowed.get(sourceTargetKey(edit.target))!, input.pages, input.mapping).map((p) => [p, input.imageHashes[p]])), sourceRefs: edit.mode === 'refs' ? edit.refs : null }
   })
   return { mapping, draft, ledger }

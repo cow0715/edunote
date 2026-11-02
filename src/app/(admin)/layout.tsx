@@ -45,7 +45,7 @@ export default async function AdminLayout({
   }
 
   return (
-    <div className="flex h-screen flex-col bg-gray-50 print:block print:h-auto print:bg-white md:flex-row">
+    <div className="flex h-screen flex-col bg-background print:block print:h-auto print:bg-white md:flex-row">
       <div className="print:hidden">
         <Sidebar />
         <MobileNav />

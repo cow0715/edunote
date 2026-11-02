@@ -7,6 +7,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import type { BookDocument, BookDraftUnit, BookManifest, BookQuestionRef, BookValidation, BookVerification } from '@/lib/book-pdf/types'
 import { BookClassificationDialog } from './book-classification'
 import { MarkdownText } from './markdown'
+import { BookProcessingSummary } from './book-processing-summary'
+import { usePdfImportJobs } from '@/components/pdf-import/use-jobs'
 
 type Summary = { unit_key: string; version: number; verified_version: number | null; verification: BookVerification; validation: BookValidation; pages: number[]; questions: BookQuestionRef[]; has_extraction: boolean }
 type Overview = { document: Omit<BookDocument, 'manifest'> & { manifest: (Omit<BookManifest, 'units'> & { unit_count: number; classification_error?: string }) | null }; units: Summary[] }
@@ -20,11 +22,14 @@ const statusText = { processing: '추출·자동 검증 중', review: '자동 �
 export function BookResult({ id }: { id: string }) {
   const [editing, setEditing] = useState(false)
   const [unit, setUnit] = useState<string | null>(null)
+  const jobs = usePdfImportJobs()
   const overview = useQuery<Overview>({ queryKey: ['book-pdf', id], queryFn: () => api(`/api/book-pdf/${id}`), refetchInterval: (q) => q.state.data?.document.status === 'processing' ? 5_000 : false })
   const detail = useQuery<BookDraftUnit>({ queryKey: ['book-pdf-unit', id, unit], queryFn: () => api(`/api/book-pdf/${id}/units/${encodeURIComponent(unit!)}`), enabled: !!unit, staleTime: 0 })
   if (overview.error) return <p role="alert" className="text-destructive">{overview.error.message}</p>
   if (!overview.data) return <p>처리 결과를 불러오는 중…</p>
   const { document: doc, units } = overview.data, manifest = doc.manifest
+  const job = jobs.data?.find((j) => j.kind === 'bank_book' && j.target_id === id)
+  const displayStatus = doc.status === 'processing' && job?.status === 'failed' ? 'review' : doc.status
   const passed = units.filter((u) => u.verification?.status === 'passed' && u.verified_version === u.version && !u.validation.errors.length).length
   const unresolved = units.filter((u) => u.verification?.status === 'unresolved')
   function row(u: Summary) { return <button key={u.unit_key} onClick={() => setUnit(u.unit_key)} className="flex w-full flex-wrap justify-between gap-2 p-3 text-left hover:bg-[var(--control-bg)]">
@@ -34,16 +39,17 @@ export function BookResult({ id }: { id: string }) {
   return <section className="space-y-4 rounded-xl border bg-card p-4" aria-label="교재 자동 검증 결과">
     <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">{doc.title}</h2><Button variant="outline" className="min-h-11" disabled={doc.status === 'processing'} onClick={() => setEditing(true)}>분류 수정</Button></div>
     <BookClassificationDialog document={editing ? doc : null} onClose={() => setEditing(false)} />
+    <BookProcessingSummary key={id} documentId={id} bankId={doc.exam_bank_id} total={manifest?.question_count ?? null} status={displayStatus} pending={units.flatMap((u) => u.questions.map((q) => ({ key: q.key, label: q.label, page: u.pages[0] ?? 1, reason: [...(u.verification?.issues ?? []), ...u.validation.errors].join(' · ') || '원본 대조를 포함한 처리가 아직 완료되지 않았습니다.' })))} />
+    {job?.status === 'failed' && <p className="text-sm text-destructive">자동 처리는 중지된 상태입니다. 이미 저장된 문제는 사용할 수 있습니다.</p>}
     {manifest?.classification_error && <p role="alert" className="text-sm text-destructive">{manifest.classification_error}</p>}
-    <p className="text-sm text-muted-foreground">{statusText[doc.status]}{manifest && ` · ${manifest.question_count}문항 · ${passed}/${manifest.unit_count}묶음 자동 검증 통과`}</p>
-    <p className="text-sm text-muted-foreground">문항별 확인이나 재요청 없이 원문·정답·문항 연결·서식을 대조하고 오류를 복구합니다. 검증된 원문으로 풀이·어휘를 보완하며, 확정하지 못한 자료는 등록하지 않습니다.</p>
+    <p className="text-xs text-muted-foreground">자동 처리 기록: {statusText[displayStatus]}{manifest && ` · ${manifest.question_count}문항 · ${passed}/${manifest.unit_count}묶음 자동 검증 통과`} · 현재 저장된 문항 수는 위 결과를 기준으로 확인하세요.</p>
     {manifest && <div className="space-y-1 text-sm">
-      <p>인쇄 학년도: {doc.academic_year ?? '미상'} · 파일명 연도: {manifest.filename_year ?? '미상'}</p>
+      <p>등록 학년도: {doc.academic_year ?? '미상'} · PDF 학년도 표기: {manifest.printed_years.length ? manifest.printed_years.join(', ') : '미확인'} · 파일명 연도: {manifest.filename_year ?? '미상'}</p>
       {manifest.errors.map((e) => <p key={e} role="alert" className="text-destructive">{e}</p>)}
       {manifest.warnings.map((w) => <p key={w} className="text-muted-foreground">{w}</p>)}
     </div>}
-    {doc.status === 'review' && <p className="text-sm text-destructive">{manifest?.errors.length ? '원문 문항 경계를 확정할 수 없어 등록을 보류했습니다.' : '자동 복구 후에도 확정되지 않은 묶음이 있어 등록을 보류했습니다. 미통과 사유를 남겼습니다.'}</p>}
-    {unresolved.length > 0 && <div className="space-y-2"><h3 className="text-sm font-medium">자동 복구 미해결 {unresolved.length}묶음</h3><div className="divide-y rounded-lg border">{unresolved.map(row)}</div></div>}
+    {doc.status === 'review' && <p className="text-sm text-destructive">{manifest?.classification_error ? '교재 분류 검사에서 등록을 보류했습니다. 위 사유를 확인해주세요.' : manifest?.errors.length ? '원문 문항 경계를 확정할 수 없어 등록을 보류했습니다.' : '자동 복구 후에도 확정되지 않은 묶음이 있어 등록을 보류했습니다. 미통과 사유를 남겼습니다.'}</p>}
+    {unresolved.length > 0 && <details className="rounded-lg border"><summary className="min-h-11 cursor-pointer p-3 text-sm">자동 처리 당시 보류 기록 {unresolved.length}묶음</summary><p className="px-3 text-xs text-muted-foreground">이후 복구해 저장한 문항이 포함될 수 있습니다. 현재 사용할 수 있는 수량은 상단을 확인하세요.</p><div className="divide-y">{unresolved.map(row)}</div></details>}
     <details className="rounded-lg border"><summary className="cursor-pointer p-3 text-sm">전체 처리 내역 {units.length}묶음</summary><div className="divide-y border-t">{units.map(row)}</div></details>
     <Dialog open={!!unit} onOpenChange={(open) => { if (!open) setUnit(null) }}><DialogContent className="flex max-h-[95dvh] flex-col overflow-hidden shadow-none sm:max-w-[96vw]">
       <DialogHeader><DialogTitle>원본 및 자동 처리 결과</DialogTitle><DialogDescription>자동 대조 결과와 미통과 사유입니다. 사람이 확인해야 등록되는 절차는 없습니다.</DialogDescription></DialogHeader>

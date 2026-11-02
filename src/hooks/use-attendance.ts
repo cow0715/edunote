@@ -30,6 +30,7 @@ export function useSaveAttendance(classId: string) {
     },
     onSuccess: (_, { date }) => {
       qc.invalidateQueries({ queryKey: ['attendance', classId, date] })
+      qc.invalidateQueries({ queryKey: ['grade'] })
     },
   })
 }

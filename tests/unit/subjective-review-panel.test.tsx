@@ -2,8 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { SubjectiveReviewPanel } from '@/components/grade/subjective-review-panel'
 import { clearReviewDraftCache } from '@/lib/review-draft-cache'
+import { SubjectiveReviewPanel } from '@/components/grade/subjective-review-panel'
 import type { ExamQuestion } from '@/lib/types'
 import type { GradeRow } from '@/hooks/use-grade'
 
@@ -33,6 +33,7 @@ function makeRow(studentId: string, name: string, answer: {
   text: string; is_correct?: boolean; needs_review?: boolean
 }): GradeRow {
   return {
+    grade_version: { score_id: null, revision: null },
     student_id: studentId, student_name: name, present: true,
     vocab_correct: null, reading_present: true, reading_correct: null,
     homework_done: null, memo: '',
@@ -295,4 +296,11 @@ it('still allows an explicit correction of a previously confirmed answer',async(
  fireEvent.click(screen.getByRole('button',{name:'검토 완료 저장 (1건)'}))
  await waitFor(()=>expect(fetchMock).toHaveBeenCalledOnce())
  expect(JSON.parse(fetchMock.mock.calls[0][1].body)[0].is_correct).toBe(false)
+})
+
+it('excludes void and all-correct questions from manual review', () => {
+ const qc = new QueryClient()
+ render(<QueryClientProvider client={qc}><SubjectiveReviewPanel weekId="void" questions={[{...makeQuestion(), is_void: true}, {...makeQuestion(), id: 'all', all_correct: true}]} rows={[makeRow('s1', '학생', {text:'답안', needs_review:true})]} /></QueryClientProvider>)
+ expect(screen.getByText('서술형 문항이 없습니다.')).toBeTruthy()
+ expect(screen.queryByRole('button', {name:'정답'})).toBeNull()
 })

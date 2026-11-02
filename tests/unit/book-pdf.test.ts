@@ -54,6 +54,15 @@ const extraction: BookExtraction = { passage: 'An original passage with every se
   questions: [{ key: ref.key, question_type: 'topic', stem: '주제로 적절한 것은?', choices: ['One', 'Two', 'Three', 'Four', 'Five'], answer: 2, intent: '출제 소재', solution: '원문 해설' }] }
 
 describe('independent source validation and publication gates', () => {
+  it('checks source solution text even when its heading is absent or spaced', () => {
+    const source = { ...unit, right_text: '[정답 ]②\n인쇄된 원문 풀이입니다.\n[어휘 ]original 원래의' }
+    const value = { ...extraction, questions: [{ ...extraction.questions[0], solution:'인쇄된 원문 풀이입니다.' }] }
+    expect(validateBookUnit(source, value, true).errors.filter(e=>e.includes('원문 해설'))).toEqual([])
+    const wrong = { ...value, questions: [{ ...value.questions[0], solution:'다른 문제 풀이' }] }
+    expect(validateBookUnit(source, wrong, true).errors.join(' ')).toContain('원문 해설')
+    const translationOnly = { ...source, right_text:'[정답 ]②\n[해석 ]원문 해석입니다.' }
+    expect(validateBookUnit(translationOnly, value, true).errors.some(e=>e.includes('원문 해설'))).toBe(false)
+  })
   it('recognizes all five explicit letter choices without manufacturing missing options', () => {
     const marked = { ...unit, left_text: `${header(1, 1, true)}\n발문\n① (a)\n② (b)\n③ (c)\n④ (d)\n⑤ (e)` }
     expect(nativeBookLetterChoices(marked, ref.key)).toEqual(['① (a)', '② (b)', '③ (c)', '④ (d)', '⑤ (e)'])

@@ -53,28 +53,28 @@
   --radius: 0.75rem;
 
   /* ── 배경 / 텍스트 ── */
-  --background:         oklch(0.985 0.003 250);   /* 아주 옅은 slate */
-  --foreground:         oklch(0.14  0.015 250);   /* slate-900 느낌 */
+  --background:         var(--share-canvas);   /* share 캔버스 */
+  --foreground:         var(--share-ink);   /* share 제목 */
 
   /* ── 카드 ── */
-  --card:               oklch(1 0 0);
-  --card-foreground:    oklch(0.14 0.015 250);
+  --card:               var(--share-card);
+  --card-foreground:    var(--share-ink);
 
   /* ── 팝오버 ── */
   --popover:            oklch(1 0 0);
-  --popover-foreground: oklch(0.14 0.015 250);
+  --popover-foreground: var(--share-ink);
 
   /* ── Primary — shared blue ── */
   --primary:            #1B64DA;
   --primary-foreground: oklch(1 0 0);
 
   /* ── Secondary ── */
-  --secondary:          oklch(0.96 0.008 250);
-  --secondary-foreground: oklch(0.25 0.015 250);
+  --secondary:          var(--share-box);
+  --secondary-foreground: var(--share-body);
 
   /* ── Muted ── */
-  --muted:              oklch(0.96 0.008 250);
-  --muted-foreground:   oklch(0.50 0.02  250);    /* slate-500 느낌 */
+  --muted:              var(--share-box);
+  --muted-foreground:   var(--share-muted);    /* share 보조 글자 */
 
   /* ── Accent ── */
   --accent:             #F2F4F6;
@@ -84,8 +84,8 @@
   --destructive:        oklch(0.577 0.245 27.325);
 
   /* ── Border / Input / Ring ── */
-  --border:             oklch(0.905 0.008 250);
-  --input:              oklch(0.905 0.008 250);
+  --border:             var(--share-line-strong);
+  --input:              var(--share-line-strong);
   --ring:               #3182F6;
 
   /* ── Charts ── */
@@ -97,12 +97,12 @@
 
   /* ── Sidebar ── */
   --sidebar:                    oklch(1 0 0);
-  --sidebar-foreground:         oklch(0.14 0.015 250);
+  --sidebar-foreground:         var(--share-ink);
   --sidebar-primary:            #1B64DA;
   --sidebar-primary-foreground: oklch(1 0 0);
   --sidebar-accent:             #F2F4F6;
   --sidebar-accent-foreground:  #333D4B;
-  --sidebar-border:             oklch(0.905 0.008 250);
+  --sidebar-border:             var(--share-line-strong);
   --sidebar-ring:               #3182F6;
 }
 
@@ -116,6 +116,7 @@
     font-family: 'Pretendard Variable', 'Pretendard', var(--font-geist), -apple-system,
       BlinkMacSystemFont, system-ui, sans-serif;
     font-feature-settings: 'kern' 1;
+    font-variant-numeric: tabular-nums;
     word-break: keep-all;
     -webkit-font-smoothing: antialiased;
   }

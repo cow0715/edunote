@@ -5,6 +5,11 @@ import { fetchClaudeReport } from '@/lib/costs/claude-report-fetch'
 import { costReportFixture, reportCostBuckets, reportUsage, reportUsageBuckets } from '../fixtures/cost-report'
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 describe('organization history and nonoverlapping cost reconciliation', () => {
+  it('does not infer Haiku per-request prompt tiers from a large organization aggregate', () => {
+    const report=buildClaudeReport('2026-10',[{...reportUsageBuckets[0],results:[{...reportUsage(200000),model:'claude-haiku-5-5'}]}],[],new Date('2026-10-03T00:00:00Z'))
+    expect(report.unpriced).toBe(1)
+    expect(reconcileClaude(report).partial).toBe(true)
+  })
   it('anchors reported history in cents and adds only usage after the cost report boundary', () => {
     const report = costReportFixture()
     expect(report.reported).toBe(1)

@@ -35,7 +35,7 @@ describe('worker integration with task routing', () => {
   it('retains initial request keys when adding internal recovery metadata and never sends it to Anthropic', async () => {
     const execution = createLlmExecution()
     const options = { task: 'examBank.parseQuestions', maxTokens: 8192, content: 'source' } as const
-    const oldKey = checkpointKey({ version: 2, ...options, execution: undefined, signal: undefined, configVersion: execution.configVersion, model: execution.taskBindings[options.task] })
+    const oldKey = checkpointKey({ version: 2, ...options, execution: undefined, signal: undefined, configVersion: 'routing-v1:4aed6b2450f3', model: execution.taskBindings[options.task] })
     expect(llmCallKey(options, execution)).toBe(oldKey)
     expect(llmCallKey({ ...options, batchRetryGroup: oldKey }, execution)).toBe(oldKey)
     await callLlmTextDetailed({ ...options, execution, batchRetryGroup: oldKey })
@@ -76,7 +76,7 @@ describe('worker integration with task routing', () => {
     await withPdfWorkerContext(context, () => callLlmTextDetailed(options))
     await withPdfWorkerContext(context, () => callLlmTextDetailed(options))
     expect(sdk.create).toHaveBeenCalledTimes(1)
-    expect(sdk.create.mock.calls[0][0].model).toBe(models.MODEL_IDS.sonnet55)
+    expect(sdk.create.mock.calls[0][0].model).toBe(models.MODEL_IDS.haiku55)
     expect(sdk.create.mock.calls[0][1]).toEqual(expect.objectContaining({ timeout: 180_000, maxRetries: 2, signal: context.signal }))
     await withPdfWorkerContext(context, () => callLlmTextDetailed({ ...options,
       execution: createLlmExecution({ 'book.mapSource': models.MODEL_IDS.opus55 }) }))
@@ -111,6 +111,23 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 
 describe('task routing and isolation', () => {
+  it('changes only textbook mapping/supplements and preserves deployed exam/weekly cache keys', () => {
+    const execution = createLlmExecution()
+    expect(execution.taskBindings['book.mapSource']).toBe(models.MODEL_IDS.haiku55)
+    expect(execution.taskBindings['book.enrichMaterial']).toBe(models.MODEL_IDS.haiku55)
+    expect(execution.taskBindings['book.auditSource']).toBe(models.MODEL_IDS.sonnet55)
+    for (const task of ['week.parseAnswers','examBank.parseQuestions','examBank.extractExplanations'] as const) {
+      expect(execution.taskBindings[task]).toBe(models.MODEL_IDS.sonnet)
+      const options = { task, maxTokens: 1000, content: 'unchanged source' }
+      expect(llmCallKey(options, execution)).toBe(checkpointKey({ version: 2, ...options, configVersion: 'routing-v1:4aed6b2450f3', model: models.MODEL_IDS.sonnet }))
+    }
+  })
+  it('prices Haiku prompt tiers using the sum of uncached and cached input', () => {
+    const short = { inputTokens: 60_000, outputTokens: 1000, cacheReadTokens: 30_000, cacheWriteTokens: 10_000 }
+    expect(models.estimateLlmCost(models.MODEL_IDS.haiku55, short)).toBeCloseTo(0.00805)
+    expect(models.estimateLlmCost(models.MODEL_IDS.haiku55, { ...short, cacheReadTokens: 30_001 })).toBeCloseTo(0.04025005)
+    expect(models.getModel(models.MODEL_IDS.haiku55)?.capabilities.temperature).toBe(false)
+  })
   it('imports and checks pure helpers without creating a client or requiring a key', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', '')
     expect(isTaskConfigured('vocab.gradeMeaning')).toBe(false)
@@ -145,6 +162,27 @@ describe('task routing and isolation', () => {
 })
 
 describe('Anthropic request preservation', () => {
+  it('sends high-effort no-upfront thinking only for an explicitly controlled Sonnet 5.5 book image audit', async () => {
+    await callLlmTextDetailed({ task: 'book.auditSource', maxTokens: 6000, content: 'original image comparison',
+      reasoning: { type: 'between_tools', effort: 'high' } })
+    expect(sdk.create.mock.calls[0][0]).toMatchObject({ model: models.MODEL_IDS.sonnet55, max_tokens: 6000,
+      thinking: { type: 'between_tools' }, output_config: { effort: 'high' } })
+    for (const task of ['book.mapSource', 'book.enrichMaterial', 'examBank.parseQuestions', 'week.parseAnswers'] as const) {
+      await callLlmTextDetailed({ task, maxTokens: 6000, content: 'unchanged task' })
+      expect(sdk.create.mock.lastCall![0]).not.toHaveProperty('thinking')
+      expect(sdk.create.mock.lastCall![0]).not.toHaveProperty('output_config')
+    }
+  })
+  it('separates controlled request identities without changing old identities and rejects unsupported reasoning routes before network', async () => {
+    const execution = createLlmExecution(), old = { task: 'book.auditSource', maxTokens: 6000, content: 'same original evidence' } as const
+    const controlled = { ...old, reasoning: { type: 'between_tools', effort: 'high' } } as const
+    expect(llmCallKey(old, execution)).not.toBe(llmCallKey(controlled, execution))
+    await expect(callLlmTextDetailed({ ...controlled, task: 'week.parseAnswers' })).rejects.toMatchObject({ kind: 'unsupported' })
+    await expect(callLlmTextDetailed({ ...controlled, execution: createLlmExecution({ 'book.auditSource': models.MODEL_IDS.haiku55 }) }))
+      .rejects.toMatchObject({ kind: 'unsupported' })
+    expect(sdk.create).not.toHaveBeenCalled()
+    expect(sdk.stream).not.toHaveBeenCalled()
+  })
   it('preserves file order, cached prefix, output limit and omission of unsupported temperature', async () => {
     await callLlmText({
       task: 'week.parseAnswers', maxTokens: 8192, temperature: 0, cacheBoundary: 1,

@@ -33,11 +33,19 @@ function missingEmphasis(fields: string[], hints: BookUnderline[], expression: R
 }
 function rightBody(text: string) {
   // A standalone number immediately before the next answer is a question label.
-  return text.replace(/\n[ \t]*\d{1,3}\.?[ \t]*(?=\n[ \t]*\[정답\])/g, '')
+  return text.replace(/\n[ \t]*\d{1,3}\.?[ \t]*(?=\n[ \t]*\[\s*정답\s*\])/g, '')
 }
 function rightSections(text: string, labels: string[]) {
-  return [...rightBody(text).matchAll(/\[(정답|소재|해석|해설|풀이|어휘)\]([\s\S]*?)(?=\[(?:정답|소재|해석|해설|풀이|어휘)\]|$)/g)]
+  return [...rightBody(text).matchAll(/\[\s*(정답|소재|해석|해설|풀이|어휘)\s*\]([\s\S]*?)(?=\[\s*(?:정답|소재|해석|해설|풀이|어휘)\s*\]|$)/g)]
     .filter((m) => labels.includes(m[1])).map((m) => m[2].trim()).join('\n')
+}
+
+/** Some answer blocks omit only the solution heading. Never consume a labelled
+ * translation as a solution; the image audit still checks semantic alignment. */
+function printedSolution(block: string) {
+  const labelled = rightSections(block, ['해설', '풀이'])
+  if (labelled) return labelled
+  return block.replace(/^\s*[①②③④⑤1-5]\s*/, '').split(/\[\s*(?:소재|해석|어휘|정답)\s*\]/)[0].trim()
 }
 
 export function validateBookUnit(unit: BookUnitManifest, input: unknown, strict = false): BookValidation {
@@ -45,7 +53,7 @@ export function validateBookUnit(unit: BookUnitManifest, input: unknown, strict 
   if (!parsed.success) return { errors: ['추출 결과의 필수 항목 또는 형식이 올바르지 않습니다.'], warnings: [], english_coverage: 0, translation_coverage: 0 }
   const value = parsed.data
   const errors: string[] = [], warnings: string[] = []
-  const answerBlocks = rightBody(unit.right_text).split(/\[정답\]/).slice(1)
+  const answerBlocks = rightBody(unit.right_text).split(/\[\s*정답\s*\]/).slice(1)
   const commonTopic = rightSections(unit.right_text, ['소재'])
   const keys = value.questions.map((q) => q.key)
   if (keys.length !== unit.questions.length || new Set(keys).size !== keys.length || unit.questions.some((q) => !keys.includes(q.key))) errors.push('원문 문항 목록과 추출 문항 목록이 일치하지 않습니다.')
@@ -65,7 +73,7 @@ export function validateBookUnit(unit: BookUnitManifest, input: unknown, strict 
       if (extractedStem.split('\n').some((line) => /[가-힣]/.test(line) && compact(line).length >= 3 && !local.includes(compact(line)))) errors.push(`${ref.label}: 발문이 해당 문항의 원문 범위와 다릅니다.`)
       if (answerBlocks.length === unit.questions.length) {
         const block = answerBlocks[unit.questions.indexOf(ref)]
-        const solution = rightSections(block, ['해설', '풀이'])
+        const solution = printedSolution(block)
         const topic = rightSections(block, ['소재']) || commonTopic
         if (solution && textCoverage(solution, q.solution) < 1) errors.push(`${ref.label}: 해당 문항의 원문 해설이 누락됐거나 다른 문항과 연결됐습니다.`)
         if (topic && textCoverage(topic, q.intent) < 1) errors.push(`${ref.label}: 원문 소재가 해당 문항에 연결되지 않았습니다.`)
@@ -80,7 +88,7 @@ export function validateBookUnit(unit: BookUnitManifest, input: unknown, strict 
   }
   if (!unit.visual_required && !value.passage.trim()) errors.push('지문이 없습니다.')
   if (!unit.translation.trim()) warnings.push('원문 해석 구역을 자동 식별하지 못했습니다. 원본에서 확인해주세요.')
-  const source = unit.left_text.replace(/\[수능특강[^\]]*\]/g, '')
+  const source = unit.left_text.replace(/\[\s*(?:수능특강|수능완성)[^\]]*\]/g, '')
   const output = [value.passage, ...value.questions.flatMap((q) => [q.stem, ...q.choices])].join('\n')
   const ec = recall(english(source), english(output))
   const tc = textCoverage(unit.translation, value.translation)

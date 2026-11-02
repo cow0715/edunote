@@ -13,7 +13,7 @@ export type RecordValues = Record<string, unknown>
 export type Statement = { query: SQL; required?: boolean }
 const tableName = (table: Table) => sql`${sql.identifier('public')}.${sql.identifier(table)}`
 
-export function insertRows(table: Table, rows: RecordValues[], conflict: string[] = []): Statement[] {
+export function insertRows(table: Table, rows: RecordValues[], conflict: string[] = [], skipUnchanged = false): Statement[] {
   // Group by columns so an omitted field keeps its DB default / previous value.
   const groups = new Map<string, RecordValues[]>()
   for (const row of rows) {
@@ -30,7 +30,7 @@ export function insertRows(table: Table, rows: RecordValues[], conflict: string[
       const values = sql.join(columns.map(k => sql`r.${sql.identifier(k)}`), sql`, `)
       const updates = columns.filter(k => k !== 'id' && !conflict.includes(k))
       const onConflict = conflict.length ? sql`on conflict (${sql.join(conflict.map(k => sql.identifier(k)), sql`, `)}) ${updates.length
-        ? sql`do update set ${sql.join(updates.map(k => sql`${sql.identifier(k)} = excluded.${sql.identifier(k)}`), sql`, `)}`
+        ? sql`do update set ${sql.join(updates.map(k => sql`${sql.identifier(k)} = excluded.${sql.identifier(k)}`), sql`, `)}${skipUnchanged ? sql` where (${sql.join(updates.map(k=>sql`${sql.identifier(table)}.${sql.identifier(k)}`),sql`, `)}) is distinct from (${sql.join(updates.map(k=>sql`excluded.${sql.identifier(k)}`),sql`, `)})` : sql``}`
         : sql`do nothing`}` : sql``
       result.push({ query: sql`insert into ${tableName(table)} (${sql.join(columns.map(k => sql.identifier(k)), sql`, `)})
         select ${values} from jsonb_populate_recordset(null::${tableName(table)}, ${JSON.stringify(batch)}::jsonb) r ${onConflict}` })

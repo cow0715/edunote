@@ -70,3 +70,14 @@ describe('enrichment model calls stay outside transactions',()=>{
     }finally{log.mockRestore()}
   })
 })
+
+
+it('bounds automatic example generation to forty missing words per request and reports remaining work',async()=>{
+ state.words=Array.from({length:85},(_,i)=>({...state.words[0],id:`word-${i}`,english_word:`term-${i}`}))
+ mocks.examples.mockImplementation(async(batch:{id:string}[])=>batch.map(w=>({id:w.id,sentence:'A sentence.',translation:'예문',distractor:null})))
+ mocks.saveExamples.mockImplementation(async(_context:unknown,_week:string,_expected:unknown,results:unknown[])=>results.length)
+ const response=await regenerate(new Request('https://example.test?batch=1'),{params:Promise.resolve({id:'week'})})
+ expect(await response.json()).toMatchObject({saved:40,remaining:45,incomplete:false})
+ expect(mocks.examples).toHaveBeenCalledOnce()
+ expect(mocks.examples.mock.calls[0][0]).toHaveLength(40)
+})

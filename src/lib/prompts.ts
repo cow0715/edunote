@@ -1,4 +1,4 @@
-import { answerSheetSlots, OPTIONAL_SLOT_GUIDANCE, type SlotQuestion } from './answer-sheet-slots'
+import { answerSheetSlots, type SlotQuestion } from './answer-sheet-slots'
 import { questionLabel, sortQuestionsByPdf, type QuestionPresentation } from './question-presentation'
 
 // AI 프롬프트 모음 — 여기서 직접 수정하세요
@@ -600,7 +600,7 @@ function buildExamQuestionList(questions: ExamOcrQuestion[]): string {
     if (group[0].question_style === 'find_error') {
       const slots = answerSheetSlots(group)
       lines.push(`오류교정 문맥: ${group[0].question_stem ?? ''}\n${group[0].question_text ?? ''}\n${group[0].passage ?? ''}`)
-      lines.push(`인쇄 답란 ${slots.count}칸. ${slots.optional ? OPTIONAL_SLOT_GUIDANCE : '지시된 개수만 작성.'} 답란 위치는 정답 기호가 아니다.`)
+      lines.push(`인쇄 답란 ${slots.count}칸. ${slots.optional ? '모두 선택형으로 보기 수만큼 답란이 있다. 사용하지 않은 빈 슬롯은 답안이 아니다.' : '지시된 개수만 작성.'} 답란 위치는 정답 기호가 아니다.`)
     }
     if (group.length === 1 && !group[0].sub_label) {
       lines.push(group[0].source_question_number

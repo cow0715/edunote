@@ -49,7 +49,7 @@ export function SubjectiveReviewPanel({
   const [overrides, setOverrides] = useState<Map<string, Override>>(new Map())
 
   const subjectiveQuestions = questions.filter(
-    (q) => q.question_style === 'subjective' || q.question_style === 'find_error'
+    (q) => !q.is_void && !q.all_correct && (q.question_style === 'subjective' || q.question_style === 'find_error')
   )
 
   const subjectiveIds = new Set(subjectiveQuestions.map((q) => q.id))
@@ -147,6 +147,8 @@ export function SubjectiveReviewPanel({
     return <p className="text-sm text-gray-400 text-center py-6">서술형 문항이 없습니다.</p>
   }
 
+  if (!rows.some(row => row.reading_present && row.answers.some(answer => subjectiveQuestions.some(question => question.id === answer.exam_question_id) && answer.student_answer_text?.trim()))) return <div className="rounded-[20px] bg-card px-5 py-8 text-center" role="status"><p className="text-sm font-semibold text-foreground">검토할 답안이 없습니다</p><p className="mt-2 text-xs text-muted-foreground">학생 답안을 입력하고 채점한 뒤 서술형 판정을 확인해 주세요.</p></div>
+
   const pendingCount = overrides.size
 
   return (
@@ -167,7 +169,7 @@ export function SubjectiveReviewPanel({
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-gray-800">서술형 검토</span>
           {needsReviewTotal > 0 && (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-bold text-muted-foreground">
               검토 대기 {needsReviewTotal}건
             </span>
           )}
@@ -197,7 +199,7 @@ export function SubjectiveReviewPanel({
         onDecide={(studentId, questionId, correct) => setVerdict(studentId, questionId, correct, false)}
         onSave={() => confirm.mutate()} onClose={() => setFocusMode(false)} /> : subjectiveQuestions.map((q) => {
         const studentRows = rows
-          .filter((r) => r.present && r.reading_present)
+          .filter((r) => r.reading_present)
           .map((r) => {
             const answer = r.answers.find((a) => a.exam_question_id === q.id)
             const key = getKey(r.student_id, q.id)
@@ -260,7 +262,7 @@ export function SubjectiveReviewPanel({
                     key={sr.student_id}
                     className={cn(
                       'hover:bg-[var(--control-bg)]',
-                      sr.needs_review && 'bg-amber-50/40'
+                      sr.needs_review && 'bg-muted'
                     )}
                   >
                     <td className="px-4 py-2.5 font-medium text-gray-700 whitespace-nowrap">
@@ -283,7 +285,7 @@ export function SubjectiveReviewPanel({
                           <div
                             className={cn(
                               'inline-flex overflow-hidden rounded-full text-xs font-semibold transition-shadow',
-                              pending ? 'bg-amber-50 ring-1 ring-inset ring-amber-300' : 'bg-gray-100/80'
+                              pending ? 'bg-muted ring-1 ring-inset ring-border' : 'bg-gray-100/80'
                             )}
                           >
                             <button
@@ -295,9 +297,9 @@ export function SubjectiveReviewPanel({
                                 'flex h-7 w-9 items-center justify-center transition-colors active:scale-95',
                                 correctOn
                                   ? sr.isOverridden
-                                    ? 'bg-emerald-500 text-white'
-                                    : 'bg-emerald-100 text-emerald-600'
-                                  : 'text-gray-300 hover:text-emerald-500'
+                                    ? 'bg-green-500 text-white'
+                                    : 'bg-green-50 text-green-700'
+                                  : 'text-gray-300 hover:text-green-600'
                               )}
                             >
                               <Check className="h-3.5 w-3.5" strokeWidth={3} />
@@ -312,8 +314,8 @@ export function SubjectiveReviewPanel({
                                 wrongOn
                                   ? sr.isOverridden
                                     ? 'bg-rose-500 text-white'
-                                    : 'bg-rose-100 text-rose-500'
-                                  : 'text-gray-300 hover:text-rose-500'
+                                    : 'bg-[var(--share-red-bg)] text-[var(--share-red)]'
+                                  : 'text-gray-300 hover:text-[var(--share-red)]'
                               )}
                             >
                               <X className="h-3.5 w-3.5" strokeWidth={3} />
@@ -330,13 +332,13 @@ export function SubjectiveReviewPanel({
         )
       })}
 
-      {!focusMode && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+      {!focusMode && <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-background py-3 md:pr-28">
         <p className="text-sm text-muted-foreground">{pendingCount ? `미저장 판정 ${pendingCount}건 · 저장 전까지 성적에 반영되지 않습니다.` : '판정을 지정한 뒤 저장해 주세요.'}</p>
         {pendingCount > 0 && <Button type="button" variant="ghost" onClick={() => { if (window.confirm('저장하지 않은 판정을 모두 취소할까요?')) setOverrides(new Map()) }}>변경 모두 취소</Button>}
         <Button
           onClick={() => confirm.mutate()}
           disabled={confirm.isPending || pendingCount === 0}
-          variant={pendingCount > 0 ? 'default' : 'outline'}
+          variant={pendingCount > 0 ? 'action' : 'outline'}
         >
           {confirm.isPending
             ? '저장 중...'

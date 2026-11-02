@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { captureWeekVersion, saveWeekPlan, vocabTotals } from '@/lib/services/week-save'
+import { requireGradeToken, saveGradePlan, activeVocabTotals } from '@/lib/services/grade-save'
 import { updateRows, type Statement } from '@/lib/db/statements'
 import { saveErrorResponse, SaveError } from '@/lib/db/errors'
 import { getAuth, getTeacherId, assertWeekOwner, err, ok, SupabaseServerClient } from '@/lib/api'
@@ -14,7 +14,7 @@ export const maxDuration = 120
 type AnswerOwnerRow = {
   id: string
   week_score_id: string
-  week_score: { week_id: string } | { week_id: string }[] | null
+  week_score: { week_id: string; student_id: string } | { week_id: string; student_id: string }[] | null
 }
 
 function one<T>(value: T | T[] | null | undefined): T | null {
@@ -27,7 +27,7 @@ async function getOwnedAnswerRows(supabase: SupabaseServerClient, authId: string
 
   const { data, error } = await supabase
     .from('student_vocab_answer')
-    .select('id, week_score_id, week_score(week_id)')
+    .select('id, week_score_id, week_score(week_id,student_id)')
     .in('id', answerIds)
 
   if (error) return { error: err(error.message, 500) }
@@ -50,7 +50,7 @@ async function handlePATCH(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
 
-  const { id, week_score_id, student_answer, is_correct, teacher_locked } = await request.json()
+  const { id, week_score_id, student_answer, is_correct, teacher_locked, grade_version } = await request.json()
   if (!id) return err('id 필요')
   const owned = await getOwnedAnswerRows(supabase, user.id, [id])
   if ('error' in owned) return owned.error
@@ -59,13 +59,13 @@ async function handlePATCH(request: Request) {
   const weekId = one(owned.rows[0].week_score)?.week_id
   if (!weekId || !actualWeekScoreId) throw new SaveError('답안 주차를 찾을 수 없습니다.',404)
   if (week_score_id && week_score_id !== actualWeekScoreId) throw new SaveError('성적과 답안이 일치하지 않습니다.',403)
-  const version = await captureWeekVersion(user.id,weekId)
+  const version = requireGradeToken(grade_version)
   const statements: Statement[] = [updateRows('student_vocab_answer', {
     student_answer:student_answer??null,is_correct,...(teacher_locked!==undefined?{teacher_locked}:{}),
-  },sql`id=${id}::uuid and week_score_id=${actualWeekScoreId}::uuid`,true),...vocabTotals([actualWeekScoreId])]
-  await saveWeekPlan(user.id,weekId,version,statements)
+  },sql`id=${id}::uuid and week_score_id=${actualWeekScoreId}::uuid`,true),...activeVocabTotals([actualWeekScoreId])]
+  const saved = await saveGradePlan(user.id,weekId,version,statements,[one(owned.rows[0].week_score)!.student_id])
 
-  return ok({ ok: true })
+  return ok(saved)
 }
 
 // 수정된 답안 재채점 — items: { id, number, english_word, student_answer }[]
@@ -76,7 +76,8 @@ async function handlePOST(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
 
-  const { weekScoreId, items } = await request.json() as {
+  const { weekScoreId, items, grade_version } = await request.json() as {
+    grade_version: unknown
     weekScoreId: string
     items: { id: string; number: number; english_word: string; student_answer: string | null }[]
   }
@@ -89,17 +90,18 @@ async function handlePOST(request: Request) {
   if (weekScoreId && weekScoreId!==actualWeekScoreId) throw new SaveError('성적과 답안이 일치하지 않습니다.',403)
   const weekId=one(owned.rows[0].week_score)?.week_id
   if (!weekId) throw new SaveError('답안 주차를 찾을 수 없습니다.',404)
-  const version=await captureWeekVersion(user.id,weekId)
+  const version=requireGradeToken(grade_version)
   // correct_answer 조회 (student_vocab_answer → vocab_word)
   // 예문빈칸(test_source='example')은 정답이 문장 속 영어 표면형이라 활성 시험지의 prompt_text 로 역산한다.
   const { data: answerDetails, error: detailError } = await supabase
     .from('student_vocab_answer')
-    .select('id, test_source, test_number, vocab_word_id, vocab_word(correct_answer, english_word, example_sentence), vocab_word_variant(meaning)')
+    .select('id, teacher_locked, test_source, test_number, vocab_word_id, vocab_word(correct_answer, english_word, example_sentence), vocab_word_variant(meaning)')
     .in('id', items.map((i) => i.id))
 
   if (detailError) throw new SaveError('답안 조회 실패',503)
   const detailRows = (answerDetails ?? []) as unknown as Array<{
     id: string
+    teacher_locked: boolean
     test_source: string | null
     test_number: number | null
     vocab_word_id: string
@@ -107,16 +109,19 @@ async function handlePOST(request: Request) {
     vocab_word_variant: { meaning: string | null } | null
   }>
 
+  if (detailRows.length !== items.length || new Set(items.map(i=>i.id)).size !== items.length || detailRows.some(a=>a.teacher_locked)) throw new SaveError('확정됐거나 누락/중복된 답안입니다. 새로고침해주세요.',409)
+  if (new Set(items.map(i=>i.number)).size!==items.length) throw new SaveError('문항 번호가 중복됐습니다.',422)
   const blankRows = detailRows.filter((a) => CODE_GRADED_SOURCES.includes(a.test_source ?? ''))
   const blankPromptByWordId = new Map<string, string | null>()
   if (blankRows.length > 0 && (actualWeekScoreId || weekScoreId)) {
-    const { data: scoreRow } = await supabase
+    const { data: scoreRow, error: scoreError } = await supabase
       .from('week_score')
       .select('week_id')
       .eq('id', actualWeekScoreId ?? weekScoreId)
       .maybeSingle()
+    if (scoreError || !scoreRow) throw new SaveError('점수 조회 실패',503)
     if (scoreRow?.week_id) {
-      const { data: activeTest } = await supabase
+      const { data: activeTest, error: testError } = await supabase
         .from('vocab_test')
         .select('id')
         .eq('week_id', scoreRow.week_id)
@@ -124,13 +129,15 @@ async function handlePOST(request: Request) {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
+      if (testError) throw new SaveError('시험지 조회 실패',503)
       if (activeTest) {
-        const { data: testItems } = await supabase
+        const { data: testItems, error: itemsError } = await supabase
           .from('vocab_test_item')
           .select('vocab_word_id, prompt_text')
           .eq('vocab_test_id', activeTest.id)
           .in('prompt_source', CODE_GRADED_SOURCES)
           .in('vocab_word_id', blankRows.map((a) => a.vocab_word_id))
+        if (itemsError) throw new SaveError('시험 문항 조회 실패',503)
         for (const ti of testItems ?? []) blankPromptByWordId.set(ti.vocab_word_id, ti.prompt_text)
       }
     }
@@ -162,7 +169,8 @@ async function handlePOST(request: Request) {
     correct_answer: correctAnswerById.get(i.id) ?? null,
   }))
 
-  const { data: promptRow } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
+  const { data: promptRow, error: promptError } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
+  if (promptError) throw new SaveError('채점 규칙 조회 실패',503)
   const customRules = promptRow?.content ?? undefined
 
   // 예문빈칸은 코드 비교, 나머지는 LLM 뜻 채점
@@ -181,14 +189,15 @@ async function handlePOST(request: Request) {
   ]
 
   const statements: Statement[] = []
+  if (graded.length!==items.length || graded.some(g=>!g || !Number.isSafeInteger(g.number) || g.number<1 || typeof g.is_correct!=='boolean' || (g.student_answer!=null && typeof g.student_answer!=='string')) || new Set(graded.map(g=>g.number)).size!==items.length) throw new SaveError('일부 채점 결과가 잘못됐거나 누락/중복됐습니다.',422)
   for (const g of graded) {
     const orig = items.find(item=>item.number===g.number)
     if (!orig) throw new SaveError('채점 응답이 요청 문항과 일치하지 않습니다.',422)
     statements.push(updateRows('student_vocab_answer',{student_answer:g.student_answer??null,is_correct:g.is_correct,teacher_locked:false},
       sql`id=${orig.id}::uuid and week_score_id=${actualWeekScoreId}::uuid`,true))
   }
-  statements.push(...vocabTotals([actualWeekScoreId]))
-  await saveWeekPlan(user.id,weekId,version,statements)
+  statements.push(...activeVocabTotals([actualWeekScoreId]))
+  const saved = await saveGradePlan(user.id,weekId,version,statements,[one(owned.rows[0].week_score)!.student_id])
 
-  return ok({ ok: true, results: graded })
+  return ok({ ...saved, results: graded })
 }

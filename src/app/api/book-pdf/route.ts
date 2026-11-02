@@ -26,6 +26,7 @@ export async function POST(request: Request) {
   if (!book.supported) return err(`${book.label}는 PDF 형식 확인 전입니다. 아직 등록할 수 없습니다.`, 422)
   const hint = bookFileHints(p.fileName)
   if (hint.code && hint.code !== p.bookCode) return err('선택한 교재와 파일명의 교재가 다릅니다. 파일을 확인해주세요.', 422)
+  if (hint.volume && hint.volume !== p.volume) return err('선택한 분권과 파일명의 상·하 또는 유형편·실전편이 다릅니다. 파일을 확인해주세요.', 422)
   if (!workerEnabled() || process.env.BOOK_PDF_IMPORT_ENABLED !== 'true') return err('교재 PDF 워커 설정이 완료되지 않았습니다.', 503)
   if (!p.storagePath.startsWith(`${auth.user!.id}/`) || p.storagePath.includes('..')) return err('업로드 파일 경로가 올바르지 않습니다.', 403)
   const client = createServiceClient()
@@ -52,6 +53,20 @@ export async function POST(request: Request) {
   try {
     const prior = await previousJob()
     if (doc.reused && (doc.status !== 'processing' || doc.exam_bank_id || prior)) return await reuse(prior)
+    if (p.bookCode === 'suteuk_reading' || p.bookCode === 'suwan_english') {
+      // Single-file entry uses the same profile/pilot/cost gates as a four-file
+      // bundle. A deterministic request identity survives a registration crash.
+      const h = createHash('sha256').update(JSON.stringify([auth.teacherId, p])).digest('hex')
+      const requestKey = `${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-8${h.slice(17,20)}-${h.slice(20,32)}`
+      const { POST: registerBundle } = await import('./bundles/route')
+      const response = await registerBundle(new Request(new URL('/api/book-pdf/bundles', request.url), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestKey, files: [p] }),
+      }))
+      const body = await response.json()
+      if (!response.ok) return err(body.error || '교재 묶음 접수 실패', response.status)
+      const linked = await previousJob()
+      return ok({ ...body, document_id: doc.id, job_id: linked?.id, status: linked?.status }, { status: response.status })
+    }
     const job = await registerPdfImport({ kind: 'bank_book', teacherId: auth.teacherId!, authId: auth.user!.id, targetId: doc.id,
       storagePath: p.storagePath, payload: { fileName: p.fileName, title: doc.title, mimeType: 'application/pdf', bookProcessing: 'batch-v1', bookCode: doc.book_code } })
     return ok({ ...job, document_id: job.target_id }, { status: 202 })

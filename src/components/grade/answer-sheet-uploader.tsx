@@ -7,6 +7,7 @@ import { FileUpload } from '@/components/ui/file-upload'
 import { Button } from '@/components/ui/button'
 import { resolvePdfImport } from '@/lib/pdf-import/client'
 import { PdfImportJobList } from '@/components/pdf-import/job-list'
+import { useSettingsEditState } from './settings-edit-state'
 import { AnswerReviewPanel } from './answer-review-panel'
 import type { AnswerDraft, ReviewAction } from '@/lib/week-answer-review'
 
@@ -32,6 +33,7 @@ function AnswerSheetUploaderContent({ weekId, savedFilePath }: Props) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
+  useSettingsEditState('upload', !!question || !!explanation, !!stage || saving)
   const qc = useQueryClient()
   const drafts = useQuery<AnswerDraft[]>({ queryKey: ['answer-review', weekId], queryFn: async () => {
     const response = await fetch(`/api/weeks/${weekId}/answer-review`, { cache: 'no-store' })
@@ -57,6 +59,7 @@ function AnswerSheetUploaderContent({ weekId, savedFilePath }: Props) {
       if (!response.ok) throw new Error(data.error || '초안 생성 실패')
       data = await resolvePdfImport(data, job => setStage(job.stage))
       setSelected(String(data.draft_id))
+      setQuestion(null); setExplanation(null)
       await qc.invalidateQueries({ queryKey: ['answer-review', weekId] })
       toast.success('검토 초안을 만들었습니다. 아직 정답과 채점 결과는 변경되지 않았습니다.')
     } catch (e) { setError(e instanceof Error ? e.message : '초안 생성 실패') }
@@ -76,9 +79,9 @@ function AnswerSheetUploaderContent({ weekId, savedFilePath }: Props) {
   }
   return <div className="space-y-4">
     <div className="space-y-2">
-      <h2 className="text-xl font-semibold">시험 자료와 정답 등록</h2>
-      <ol aria-label="등록 순서" className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground"><li>1. 자료 올리기</li><li>2. 정답 확인하기</li><li>3. 검토 완료</li></ol>
-      <p className="text-sm text-muted-foreground">기존 정답·학생 답안·점수는 유지됩니다. 새 자료는 검토 후 확정해 주세요.</p>
+      <h2 className="text-base font-bold">시험 자료와 정답 등록</h2>
+      <ol aria-label="등록 순서" className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground"><li>1. 자료 올리기</li><li>2. 정답 확인하기</li><li>3. 정답 확정</li></ol>
+      <p className="text-sm text-muted-foreground">PDF에서 문항과 정답을 가져옵니다. 정답을 확인하고 확정하면 채점에 사용할 수 있습니다.</p>
     </div>
     <PdfImportJobList weekId={weekId} />
     <details open={!draft} className="rounded-[20px] border bg-card p-4">
@@ -88,11 +91,13 @@ function AnswerSheetUploaderContent({ weekId, savedFilePath }: Props) {
       <div className="grid gap-3 md:grid-cols-2"><FileUpload label="문제지 또는 통합 PDF" description="문제와 해설이 합쳐져 있으면 이 파일만 선택하세요." accept="application/pdf" fileName={question?.name} disabled={!!stage} onClear={() => setQuestion(null)} onChange={event => pick(event.target.files?.[0], setQuestion)} />
       <FileUpload label="정답·해설지 PDF (선택)" description="별도 해설지가 있으면 함께 선택하세요." accept="application/pdf" fileName={explanation?.name} disabled={!!stage} onClear={() => setExplanation(null)} onChange={event => pick(event.target.files?.[0], setExplanation)} /></div>
       {stage && <p role="status" className="rounded-xl bg-muted p-3 text-sm">{stage} 접수된 작업은 처리 내역에서 확인할 수 있습니다.</p>}
+      <div className="flex flex-wrap items-center justify-between gap-3">
       {savedFilePath && <a className="inline-block text-sm text-primary underline" href={`/api/answer-sheet-url?path=${encodeURIComponent(savedFilePath)}`} onClick={async event => {
         event.preventDefault()
         try { const r = await fetch(`/api/answer-sheet-url?path=${encodeURIComponent(savedFilePath)}`); const data = await r.json(); if (!r.ok) throw new Error('원본 링크를 열지 못했습니다.'); window.open(data.url, '_blank', 'noopener,noreferrer') } catch (e) { setError(e instanceof Error ? e.message : '원본 확인 실패') }
       }}>이전에 보관한 PDF 보기</a>}
-      <Button disabled={!question || !!stage || drafts.isError} onClick={() => void start()}>{stage ? '초안 준비 중…' : '자료 분석하고 정답 확인하기'}</Button>
+      <Button variant="action" disabled={!question || !!stage || drafts.isError} onClick={() => void start()}>{stage ? '초안 준비 중…' : 'PDF 분석 시작'}</Button>
+      </div>
     </section></details>
     {(error || drafts.error) && <div role="alert" className="rounded-xl border border-destructive p-4 text-sm text-destructive">{error || drafts.error?.message}</div>}
     {drafts.isError && <Button variant="outline" onClick={() => void drafts.refetch()}>다시 불러오기</Button>}

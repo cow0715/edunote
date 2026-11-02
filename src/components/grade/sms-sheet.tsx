@@ -136,6 +136,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   const [scheduleDate, setScheduleDate] = useState(() => getNearestSchedule().date)
   const [scheduleTime, setScheduleTime] = useState(() => getNearestSchedule().time)
   const [templateMessage, setTemplateMessage] = useState('')
+  const [appliedTemplate, setAppliedTemplate] = useState('')
   const [smsMeta, setSmsMeta] = useState<SmsMeta | null>(null)
   const [promptOpen, setPromptOpen] = useState(false)
   const [promptText, setPromptText] = useState(SMS_RULES)
@@ -144,7 +145,13 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   const activePrompt = savedPrompt ?? SMS_RULES
   const isPromptModified = promptText !== activePrompt
   const sentCount = Object.values(sendStatus).filter((s) => s === 'success').length
-  const hasSendableMessage = messages.some((m) => m.message.trim() && sendStatus[m.student_id] !== 'success')
+  const templateStale = templateMessage.trim() !== appliedTemplate.trim()
+  const sendableMessages = messages.filter(message => message.message.trim() && sendStatus[message.student_id] !== 'success' &&
+    [...(selectedRecipients[message.student_id] ?? [])].some(key => !!(key === 'mother' ? message.mother_phone : key === 'father' ? message.father_phone : message.phone)))
+  const targetCount = sendableMessages.reduce((count, message) => count + [...(selectedRecipients[message.student_id] ?? [])].filter(key => !!(key === 'mother' ? message.mother_phone : key === 'father' ? message.father_phone : message.phone)).length, 0)
+  const hasSendableMessage = sendableMessages.length > 0
+  const sending = sendingAll || Object.values(sendStatus).some(status => status === 'sending')
+
 
   // 서버 프롬프트가 도착/갱신되면 편집창을 맞춘다 — 렌더 중 조정
   // 초기값은 sentinel(null): 쿼리 캐시가 따뜻한 채 재마운트하면 useState(savedPrompt) 는 동기화를 건너뛴다
@@ -168,6 +175,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
       if (!res.ok) throw new Error((await res.json()).error)
       const data = await res.json()
       setMessages(data.messages)
+      setAppliedTemplate('')
       setSmsMeta({ class_name: data.class_name, week_label: data.week_label, start_date: data.start_date })
       const defaults: Record<string, Set<RecipientKey>> = {}
       for (const m of data.messages) {
@@ -181,6 +189,15 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
       setSendStatus({})
       setSendError({})
     }, (e) => toast.error(errorMessage(e, 'SMS 생성에 실패했습니다')))
+  }
+
+  function applyTemplate() {
+    const text = templateMessage.trim()
+    if (!text || sending) return
+    setMessages(previous => previous.map(message => sendStatus[message.student_id] === 'success' ? message : {
+      ...message, message: buildMessageFromTemplate(text, message.student_name, message.student_data, smsMeta),
+    }))
+    setAppliedTemplate(text)
   }
 
   async function generateWithAi() {
@@ -204,6 +221,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
       const data = await res.json()
       const refinedText = data.text || text
       setTemplateMessage(refinedText)
+      setAppliedTemplate(refinedText)
       setMessages((prev) => prev.map((m) => (
         sendStatus[m.student_id] === 'success'
           ? m
@@ -301,6 +319,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
       toast.error('예약 시간은 현재 시간 이후로 설정해주세요')
       return
     }
+    if (templateStale) { toast.error('공통 문구를 학생별 문자에 적용해 주세요'); return }
     const keys = selectedRecipients[m.student_id] ?? new Set()
     if (!m.message.trim()) {
       toast.error(`${m.student_name}: 문자 내용을 입력해주세요`)
@@ -351,10 +370,11 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
       return
     }
 
-    const pending = messages.filter((m) => (sendStatus[m.student_id] ?? 'idle') !== 'success')
+    if (templateStale) { toast.error('공통 문구를 학생별 문자에 적용해 주세요'); return }
+    const pending = sendableMessages
     if (pending.length === 0) return
 
-    const totalTargets = pending.reduce((sum, m) => sum + (selectedRecipients[m.student_id]?.size ?? 0), 0)
+    const totalTargets = targetCount
     const confirmed = window.confirm(
       `${pending.length}명 ${totalTargets}건에게 ${scheduleEnabled ? '예약 발송' : '전체 발송'}하시겠습니까?`
     )
@@ -368,7 +388,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
   }
 
   return (
-    <Sheet open={open} onOpenChange={handleOpen}>
+    <Sheet open={open} onOpenChange={value => { if (!value && (sending || aiGenerating)) return; void handleOpen(value) }}>
       <SheetTrigger asChild>
         {children ?? (
           <Button variant="outline">
@@ -383,14 +403,8 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
           <div className="flex items-center justify-between">
             <SheetTitle>{weekLabel ?? `${weekNumber}주차`} 문자 발송</SheetTitle>
             <div className="flex items-center gap-2">
-              {messages.length > 0 && (
-                <Button size="sm" onClick={sendAll} disabled={!hasSendableMessage || loading || sendingAll || (scheduleEnabled && isSchedulePast)} className="h-8 text-xs">
-                  {sendingAll ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
-                  전체 발송
-                </Button>
-              )}
               <SheetClose asChild>
-                <button className="rounded p-1.5 hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600">
+                <button disabled={sending || aiGenerating} aria-label="문자 발송 닫기" className="rounded p-1.5 hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600">
                   <X className="h-4 w-4" />
                   <span className="sr-only">Close</span>
                 </button>
@@ -399,29 +413,33 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
           </div>
         </SheetHeader>
 
+        <fieldset disabled={sending} className="m-0 min-h-0 min-w-0 flex-1 overflow-y-auto border-0 p-0">
         {messages.length > 0 && !loading && (
-          <div className="shrink-0 border-b bg-white px-5 py-4">
-            <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="border-b bg-white px-5 py-4">
+            <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-gray-900">공통 문자 템플릿</p>
                 <p className="mt-0.5 text-xs text-gray-400">강사 메시지를 먼저 두고, 아래에 학생별 학습 데이터를 붙입니다.</p>
               </div>
-              <div className="flex items-center gap-1.5">
-                <Button size="sm" onClick={generateWithAi} disabled={loading || sendingAll || aiGenerating || !templateMessage.trim()} className="h-8 text-xs">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Button variant="outline" size="sm" onClick={applyTemplate} disabled={sending || !templateMessage.trim()} className="h-8 text-xs">학생별 문자에 적용</Button>
+                <Button variant="ghost" size="sm" onClick={generateWithAi} disabled={loading || sendingAll || aiGenerating || !templateMessage.trim()} className="h-8 text-xs">
                   {aiGenerating ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
-                  AI로 다듬기
+                  AI로 다듬어 적용
                 </Button>
               </div>
             </div>
             <Textarea
+              aria-label="공통 문자 문구"
               value={templateMessage}
               onChange={(e) => setTemplateMessage(e.target.value)}
               placeholder="예) 오늘 수업에서는 지난주보다 문장 해석 흐름을 더 안정적으로 잡는 연습을 했습니다. 아래 개인 결과를 확인하고 부족한 부분만 복습해주세요."
               rows={4}
               className="resize-none text-sm"
             />
-            <div className="mt-1.5 flex items-center justify-between text-xs text-gray-400">
-              <span>AI로 다듬기를 누르면 학생별 이름·날짜·개인 링크까지 넣어 문자를 완성합니다.</span>
+            {templateStale && <p role="status" className="mt-2 text-xs text-[var(--share-red)]">공통 문구가 바뀌었습니다. 학생별 문자에 적용한 뒤 발송해 주세요.</p>}
+            <div className="mt-1.5 flex items-center justify-between gap-3 text-xs text-gray-400">
+              <span>적용하면 미발송 학생의 이름·날짜·개인 링크를 넣어 문자를 만듭니다.</span>
               <span className={templateMessage.length > 90 ? 'text-amber-500' : ''}>{templateMessage.length}자</span>
             </div>
 
@@ -431,7 +449,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
                 onClick={() => setPromptOpen((v) => !v)}
                 className="flex w-full items-center justify-between px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-[var(--control-bg)]"
               >
-                <span className="flex items-center gap-1.5">
+                <span className="flex flex-wrap items-center gap-1.5">
                   문자 프롬프트 수정
                   {isPromptModified && (
                     <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">미저장</span>
@@ -441,7 +459,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
               </button>
 
               {promptOpen && (
-                <div className="max-h-[44vh] overflow-y-auto overscroll-contain border-t border-gray-200">
+                <div className="border-t border-gray-200">
                   <div className="border-b border-gray-100 px-3 py-2">
                     <p className="text-[11px] text-gray-400">AI로 다듬기부터 적용됩니다. 저장 후 바로 생성해도 최신 프롬프트를 사용합니다.</p>
                   </div>
@@ -544,7 +562,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
         )}
 
         {/* ── 메시지 목록 ── */}
-        <div className="flex-1 overflow-y-auto">
+        <div>
           {loading ? (
             <div className="flex flex-col items-center justify-center gap-3 py-20 text-gray-400">
               <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -602,6 +620,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
                     </div>
 
                     <Textarea
+                      aria-label={`${m.student_name} 발송 내용`}
                       value={m.message}
                       onChange={(e) => updateMessage(m.student_id, e.target.value)}
                       rows={5}
@@ -613,7 +632,7 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
                       <span className={`text-xs ${m.message.length > 90 ? 'text-amber-500' : 'text-gray-400'}`}>
                         {m.message.length}자{m.message.length > 90 && ' (장문 LMS)'}
                       </span>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         {error && <span className="text-xs text-red-400">{error}</span>}
                         <Button size="sm" variant="outline" onClick={() => copyMessage(m.student_id, m.message)} className="h-7 text-xs" disabled={status === 'success'}>
                           {copiedId === m.student_id ? <><Check className="mr-1 h-3 w-3 text-green-600" />복사됨</> : <><Copy className="mr-1 h-3 w-3" />복사</>}
@@ -621,7 +640,8 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
                         <Button
                           size="sm"
                           onClick={() => sendOne(m)}
-                          disabled={!m.message.trim() || keys.size === 0 || status === 'sending' || status === 'success' || (scheduleEnabled && (!scheduleDate || !scheduleTime || isSchedulePast))}
+                          variant="action"
+                          disabled={templateStale || !m.message.trim() || keys.size === 0 || status === 'sending' || status === 'success' || (scheduleEnabled && (!scheduleDate || !scheduleTime || isSchedulePast))}
                           className={`h-7 text-xs ${status === 'success' ? 'bg-green-500 hover:bg-green-500 text-white' : ''}`}
                         >
                           {status === 'sending' && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
@@ -637,6 +657,13 @@ export function SmsSheet({ weekId, weekNumber, weekLabel, children }: Props) {
             </div>
           )}
         </div>
+        </fieldset>
+        {messages.length > 0 && <footer aria-label="최종 발송" className="shrink-0 space-y-2 border-t border-border bg-background px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="flex items-center justify-between gap-3">
+            <div><p className="text-sm font-semibold">학생 {sendableMessages.length}명 · 수신자 {targetCount}건</p><p className="mt-1 text-xs text-muted-foreground">{scheduleEnabled ? `예약 ${scheduleDate} ${scheduleTime}` : '즉시 발송'}{sentCount > 0 ? ` · 발송 완료 ${sentCount}명 제외` : ''}</p></div>
+            <Button variant="action" onClick={sendAll} disabled={templateStale || !hasSendableMessage || loading || sending || aiGenerating || (scheduleEnabled && (!scheduleDate || !scheduleTime || isSchedulePast))}>{sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}{sending ? '발송 중…' : scheduleEnabled ? '예약 발송' : '전체 발송'}</Button>
+          </div>
+        </footer>}
       </SheetContent>
     </Sheet>
   )

@@ -83,7 +83,7 @@ describe('share 디자인의 전체 화면용 기록 정합성', () => {
       const vocabWrong = data.vocabAnswers.filter((answer) => answer.week_score_id === score.id)
       expect(week.start_date! >= period.startDate && week.start_date! <= period.endDate).toBe(true)
       expect(reading).toHaveLength(week.reading_total)
-      expect(reading.filter((answer) => answer.is_correct)).toHaveLength(score.reading_correct)
+      expect(reading.filter((answer) => answer.is_correct)).toHaveLength(score.reading_correct!)
       expect(vocabWrong).toHaveLength(week.vocab_total - score.vocab_correct!)
       expect(vocabWrong.every((answer) => !answer.is_correct)).toBe(true)
       expect(data.vocabWords.filter((word) => word.week_id === week.id)).toHaveLength(week.vocab_total)

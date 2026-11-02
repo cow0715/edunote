@@ -43,7 +43,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method && init.method !== 'GET') throw new Error('Writes forbidden in copy tests')
     if (url === '/api/exam-bank') return Response.json([])
-    if (url.startsWith('/api/exam-bank/questions?')) return Response.json({ data: url.includes('all=1') ? rows : rows.slice(0, 2), total: 3, page: 0, hasMore: false })
+    if (url.startsWith('/api/exam-bank/questions?')) return Response.json({ data: url.includes('all=1') || url.includes('limit=200') ? rows : rows.slice(0, 2), total: 3, page: 0, hasMore: false })
     throw new Error(`Unexpected request: ${url}`)
   }))
   window.history.replaceState(null, '', '/exam-bank')

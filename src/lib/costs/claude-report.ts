@@ -53,7 +53,12 @@ export function buildClaudeReport(month: string, usage: z.infer<typeof usagePage
       const summary = model(row.model)
       summary.input += row.uncached_input_tokens; summary.output += row.output_tokens; summary.read += row.cache_read_input_tokens
       summary.write += row.cache_creation.ephemeral_5m_input_tokens; summary.writeHour += row.cache_creation.ephemeral_1h_input_tokens
-      const amount = claudeTokenCost(row.model, { input: row.uncached_input_tokens, output: row.output_tokens, read: row.cache_read_input_tokens, write: row.cache_creation.ephemeral_5m_input_tokens, writeHour: row.cache_creation.ephemeral_1h_input_tokens }, { tier: row.service_tier, geo: row.inference_geo, speed: row.speed, context: row.context_window })
+      // Organization buckets aggregate requests. Their combined prompt length
+      // cannot select Haiku's per-request tier; the actual cost report remains
+      // authoritative and app events are priced individually in SQL.
+      const ambiguousHaiku = row.model.replace(/-\d{8}$/, '') === 'claude-haiku-5-5'
+        && row.uncached_input_tokens + row.cache_read_input_tokens + row.cache_creation.ephemeral_5m_input_tokens + row.cache_creation.ephemeral_1h_input_tokens > 100_000
+      const amount = ambiguousHaiku ? null : claudeTokenCost(row.model, { input: row.uncached_input_tokens, output: row.output_tokens, read: row.cache_read_input_tokens, write: row.cache_creation.ephemeral_5m_input_tokens, writeHour: row.cache_creation.ephemeral_1h_input_tokens }, { tier: row.service_tier, geo: row.inference_geo, speed: row.speed, context: row.context_window })
       // Some tiers (for example Priority) may also be absent from cost reports.
       // Flag unknown pricing even in earlier buckets rather than claiming a full total.
       if (amount === null) { unpriced++; daily.partial = true; continue }

@@ -3,13 +3,13 @@ import { saveExampleBatch, type ExampleInput } from '@/lib/services/vocab-enrich
 import { SaveError, saveErrorResponse, databaseErrorCode } from '@/lib/db/errors'
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { generateVocabExamples } from '@/lib/anthropic'
-import { chunkVocabExampleBatches } from '@/lib/vocab-examples'
+import { chunkVocabExampleBatches, VOCAB_EXAMPLE_BATCH_SIZE } from '@/lib/vocab-examples'
 import { createLlmExecution } from '@/lib/llm/client'
 
 // 배치 병렬 호출이라 보통 1분 안에 끝나지만, LLM 지연·재시도를 감안해 다른 LLM 라우트와 같은 상한을 둔다
 export const maxDuration = 300
 
-export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
@@ -31,7 +31,9 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   if (!missing?.length) return ok({ generated: 0 })
 
   // 배치마다 생성 → 즉시 저장. 한 배치가 실패해도 나머지는 남고, 다시 누르면 빈 단어만 이어서 채운다.
-  const batches = chunkVocabExampleBatches(missing as ExampleInput[])
+  const bounded = new URL(request.url).searchParams.get('batch') === '1'
+  const pending = bounded ? missing.slice(0, VOCAB_EXAMPLE_BATCH_SIZE) : missing
+  const batches = chunkVocabExampleBatches(pending as ExampleInput[])
   const execution = createLlmExecution()
   const results = await Promise.allSettled(
     batches.map(async (batch) => {
@@ -59,5 +61,5 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     if (failure?.status === 'rejected' && (failure.reason instanceof SaveError || databaseErrorCode(failure.reason))) return saveErrorResponse(failure.reason)
     return err('예문 생성에 실패했습니다. 다시 시도해주세요.', 502)
   }
-  return ok({ generated, saved, missing: missing.length, failedBatches })
+  return ok({ generated, saved, missing: missing.length, remaining: missing.length - saved, incomplete: saved < pending.length, failedBatches })
 }

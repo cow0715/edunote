@@ -1,6 +1,7 @@
+import { saveGradePlan } from '@/lib/services/grade-save'
 import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
-import { captureWeekVersion, saveWeekPlan } from '@/lib/services/week-save'
+import { captureWeekVersion } from '@/lib/services/week-save'
 import { insertRows, updateRows, type Statement } from '@/lib/db/statements'
 import { saveErrorResponse, SaveError } from '@/lib/db/errors'
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
@@ -159,8 +160,17 @@ async function handlePost(request: Request, { params }: { params: Promise<{ id: 
     gradingWords.map((w) => [w.number, w.correct_answer ?? null])
   )
 
+  if (activeTest && (!gradingWords.length || gradingWords.length !== testItems.length)) throw new SaveError('시험 문항이 누락됐습니다.',422)
+  const storagePath = `${weekId}/${studentId}/${randomUUID()}`
+  const bucket = supabase.storage.from('vocab-photos')
+  const uploaded = await bucket.upload(storagePath, Buffer.from(fileData,'base64'), {contentType:mimeType, upsert:false})
+  if (uploaded.error) throw new SaveError('사진 저장에 실패해 채점을 시작하지 않았습니다.',503)
+  const photo = await bucket.info(storagePath)
+  if (photo.error || !photo.data || !((photo.data.size ?? 0)>0)) throw new SaveError('사진 파일 저장을 확인하지 못했습니다.',503)
+
   // ── 2. AI 채점 (correct_answer를 채점 기준으로 전달) ────────────────────
-  const { data: promptRow } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
+  const { data: promptRow, error: promptError } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
+  if (promptError) throw new SaveError('채점 규칙 조회 실패',503)
   const customRules = promptRow?.content ?? undefined
 
   // 시험지에 인쇄된 전체 문항 목록 — 사진 일부가 안 보여도 OCR 목록이 중간에 끊기지 않게 앵커로 준다.
@@ -183,6 +193,7 @@ async function handlePost(request: Request, { params }: { params: Promise<{ id: 
     return err('단어 채점 실패. 사진을 확인해주세요.', 422)
   }
 
+  if (!Array.isArray(results) || results.some(r => !r || !Number.isSafeInteger(r.number) || r.number < 1 || typeof r.is_correct !== 'boolean' || (r.student_answer != null && typeof r.student_answer !== 'string') || (r.english_word != null && typeof r.english_word !== 'string') || (!gradingWords.length && !r.english_word?.trim())) || new Set(results.map(r=>r.number)).size !== results.length) throw new SaveError('채점 결과의 형식이 올바르지 않거나 중복/누락됐습니다.',422)
   if (!results.length) {
     return err('단어를 찾을 수 없습니다', 422)
   }
@@ -195,14 +206,6 @@ async function handlePost(request: Request, { params }: { params: Promise<{ id: 
   if (gradingWords.length > 0) {
     vocabWordMap = new Map(gradingWords.map((w) => [w.number, w.id]))
 
-    // 활성 시험지가 없을 때만 OCR에서 기존에 없는 번호를 새 단어로 보강
-    const existingNumbers = new Set(gradingWords.map((w) => w.number))
-    const newWordRows = results.filter((r) => !existingNumbers.has(r.number))
-    if (!activeTest && newWordRows.length > 0) {
-      const inserted = newWordRows.map(r => ({ id: randomUUID(), week_id: weekId, number: r.number, english_word: r.english_word }))
-      statements.push(...insertRows('vocab_word', inserted))
-      for (const w of inserted ?? []) vocabWordMap.set(w.number, w.id)
-    }
   } else {
     const vocabWords = results.map(r => ({ id: randomUUID(), week_id: weekId, number: r.number, english_word: r.english_word }))
     statements.push(...insertRows('vocab_word', vocabWords))
@@ -254,6 +257,8 @@ async function handlePost(request: Request, { params }: { params: Promise<{ id: 
       let vocabWordId = vocabWordMap.get(r.number)
       if (!vocabWordId && r.english_word) {
         // 번호가 틀렸어도 단어명이 정확하면 올바른 vocab_word에 연결
+        const matches = gradingWords.filter(w=>[w.english_word,w.test_word].some(word=>word?.toLowerCase()===r.english_word.toLowerCase()))
+        if (matches.length !== 1) throw new SaveError('문항 연결이 불명확합니다.',422)
         vocabWordId = vocabWordByEnglish.get(r.english_word.toLowerCase())
         if (vocabWordId) {
           console.warn(`[grade-vocab-photo] 번호 불일치 fallback: OCR number=${r.number} word="${r.english_word}" → english_word 매칭으로 연결`)
@@ -267,7 +272,7 @@ async function handlePost(request: Request, { params }: { params: Promise<{ id: 
         week_score_id: score.id,
         vocab_word_id: vocabWordId,
         vocab_word_variant_id: gradingWord?.vocab_word_variant_id ?? null,
-        test_number: r.number,
+        test_number: gradingWord?.number ?? r.number,
         test_word: gradingWord?.test_word ?? r.english_word,
         test_source: gradingWord?.test_source ?? (activeTest ? 'word' : null),
         student_answer: locked ? locked.student_answer : (r.student_answer || null),
@@ -275,6 +280,8 @@ async function handlePost(request: Request, { params }: { params: Promise<{ id: 
       }
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
+
+  if (answerInserts.length !== results.length || new Set(answerInserts.map(a=>a.vocab_word_id)).size !== answerInserts.length || (gradingWords.length>0 && (answerInserts.length!==gradingWords.length || gradingWords.some(w=>!answerInserts.some(a=>a.vocab_word_id===w.id))))) throw new SaveError('전체 문항의 채점 결과를 확인하지 못해 저장하지 않았습니다.',422)
 
   statements.push(...insertRows('student_vocab_answer', answerInserts, ['week_score_id','vocab_word_id']))
 
@@ -287,22 +294,8 @@ async function handlePost(request: Request, { params }: { params: Promise<{ id: 
   const vocabTotal = gradingWords.length > 0 ? gradingWords.length : results.length
   statements.push(updateRows('week', { vocab_total: vocabTotal }, sql`id=${weekId}::uuid`, true))
 
-  // Upload a new immutable object outside the transaction; only publish its
-  // path together with answers/totals. A stale result never replaces live media.
-  const storagePath = `${weekId}/${studentId}/${randomUUID()}`
-  const bucket = supabase.storage.from('vocab-photos')
-  let uploaded = false
-  try {
-    const { error } = await bucket.upload(storagePath, Buffer.from(fileData, 'base64'), { contentType: mimeType })
-    uploaded = !error
-  } catch { /* Photo upload is optional; grading can still be saved. */ }
-  if (uploaded) statements.push(updateRows('week_score', { vocab_photo_path: storagePath }, sql`id=${score.id}::uuid`, true))
-  try {
-    await saveWeekPlan(user.id, weekId, version, statements, [studentId])
-  } catch (error) {
-    if (uploaded) await bucket.remove([storagePath]).catch(() => undefined)
-    throw error
-  }
+  statements.push(updateRows('week_score', {vocab_photo_path:storagePath}, sql`id=${score.id}::uuid`,true))
+  const saved = await saveGradePlan(user.id, weekId, version, statements, [studentId])
 
   // 결손 보고 — 시험지 문항 중 저장까지 못 간 번호. 예전엔 50문항 중 35개만 와도
   // 조용히 성공 처리돼 학부모 화면에 그대로 나갔다 (운영 사고). UI 가 경고를 띄운다.
@@ -315,5 +308,5 @@ async function handlePost(request: Request, { params }: { params: Promise<{ id: 
     console.warn(`[grade-vocab-photo] 결손 ${missingNumbers.length}문항: ${missingNumbers.join(',')}`)
   }
 
-  return ok({ ok: true, vocab_correct: vocabCorrect, vocab_total: answerInserts.length, missing_numbers: missingNumbers, results })
+  return ok({ ...saved, vocab_correct: vocabCorrect, vocab_total: answerInserts.length, missing_numbers: missingNumbers, results })
 }

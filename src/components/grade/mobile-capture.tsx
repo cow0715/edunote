@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Camera, FileText, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { FileUpload } from '@/components/ui/file-upload'
-import { captureDraft, type CapturePhoto } from '@/lib/capture-draft'
-import { compressImageForUpload } from '@/lib/image-compress'
+import { type CapturePhoto } from '@/lib/capture-draft'
+import { useCaptureRuntime } from './capture-runtime'
 
 export type CaptureView = 'add' | 'camera' | 'review'
 
@@ -18,6 +18,7 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
   onBusyChange?: (busy: boolean) => void
   onViewChange?: (view: CaptureView) => void
 }) {
+  const {draft: captureDraft, compress: compressImageForUpload, pickFiles, getMedia, captureFile} = useCaptureRuntime()
   const [photos, setPhotos] = useState<Photo[]>([])
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -25,6 +26,7 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
   const [cameraUnavailable, setCameraUnavailable] = useState(false)
   const [camera, setCamera] = useState(false)
   const [review, setReview] = useState(false)
+  if (!active && camera) { setCamera(false); setReview(photos.length > 0) }
   const [selected, setSelected] = useState<string | null>(null)
   const video = useRef<HTMLVideoElement>(null)
   const stream = useRef<MediaStream | null>(null)
@@ -69,7 +71,7 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
       releaseCamera()
       current.current.forEach((photo) => URL.revokeObjectURL(photo.url))
     }
-  }, [draftKey, releaseCamera, onViewChange])
+  }, [draftKey, releaseCamera, onViewChange, captureDraft])
 
   useEffect(() => {
     if (!active) {
@@ -91,8 +93,8 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
     setError('')
     const request = ++generation.current
     try {
-      if (!navigator.mediaDevices?.getUserMedia) throw new Error('unavailable')
-      const media = await navigator.mediaDevices.getUserMedia({
+      if (!getMedia && !navigator.mediaDevices?.getUserMedia) throw new Error('unavailable')
+      const media = await (getMedia ?? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices))({
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1920 } }, audio: false,
       })
       if (generation.current !== request) {
@@ -156,22 +158,28 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
 
   async function shoot() {
     const element = video.current
-    if (!element?.videoWidth || locked.current) return
+    if ((!captureFile && !element?.videoWidth) || locked.current) return
     await operate(async () => {
+      let file: File
+      if (captureFile) file = await captureFile()
+      else {
       const canvas = document.createElement('canvas')
       // Keep the capture at camera resolution; the existing upload compressor is applied once below.
-      canvas.width = element.videoWidth
-      canvas.height = element.videoHeight
+      canvas.width = element!.videoWidth
+      canvas.height = element!.videoHeight
       const context = canvas.getContext('2d')
       if (!context) throw new Error('canvas')
-      context.drawImage(element, 0, 0)
+      context.drawImage(element!, 0, 0)
       const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error('capture')), 'image/jpeg', 0.95))
-      const file = new File([blob], `답안지-${Date.now()}.jpg`, { type: 'image/jpeg' })
+      file = new File([blob], `답안지-${Date.now()}.jpg`, { type: 'image/jpeg' })
+      }
       const compressed = await compressImageForUpload(file)
       const bytes = Uint8Array.from(atob(compressed.base64), (c) => c.charCodeAt(0))
       await save([...current.current, { id: crypto.randomUUID(), blob: new Blob([bytes], { type: compressed.mimeType }), name: file.name, lastModified: file.lastModified }])
     })
   }
+
+  async function submit() { stopCamera(); setSelected(null); await operate(async()=>{await onConfirm(current.current.map(photo=>new File([photo.blob],photo.name,{type:photo.blob.type,lastModified:photo.lastModified})))}) }
 
   const enlarged = photos.find((photo) => photo.id === selected)
 
@@ -182,8 +190,8 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
           {!camera && <>
             {!photos.length && <p className="text-center text-sm leading-relaxed text-[var(--share-muted)]">종이 답안을 촬영하거나<br />이미지·PDF 파일을 추가해주세요.</p>}
             <div className={photos.length ? 'flex gap-2' : 'grid grid-cols-2 gap-3'}>
-              <Button type="button" variant="outline" disabled={!loaded || busy} onClick={startCamera} className={photos.length ? 'h-11 flex-1 rounded-xl shadow-none' : 'h-28 flex-col rounded-xl bg-[var(--share-card)] shadow-none'}><Camera className="size-6" />{photos.length ? '더 촬영' : '촬영하기'}</Button>
-              <FileUpload compact className={photos.length ? 'flex-1 [&>button]:h-11 [&>button]:w-full' : '[&>button]:h-28 [&>button]:w-full [&>button]:flex-col'} label="파일 추가" description="이미지 또는 PDF · 여러 파일 선택 가능" accept="image/*,application/pdf" multiple inputRef={fileInput} disabled={!loaded || busy} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files) }} />
+              <Button type="button" variant="outline" disabled={!loaded || busy} onClick={startCamera} className={photos.length ? 'h-11 flex-1 rounded-xl shadow-none' : 'h-28 flex-col rounded-xl bg-[var(--share-card)] shadow-none sm:order-2'}><Camera className="size-6" />{photos.length ? '더 촬영' : '촬영하기'}</Button>
+              <FileUpload compact className={photos.length ? 'flex-1 [&>button]:h-11 [&>button]:w-full' : 'sm:order-1 [&>button]:h-28 [&>button]:w-full [&>button]:flex-col'} beforeSelect={() => { if (!pickFiles) return true; void pickFiles(true).then(addFiles); return false }} label="파일 추가" description="이미지 또는 PDF · 여러 파일 선택 가능" accept="image/*,application/pdf" multiple inputRef={fileInput} disabled={!loaded || busy} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files) }} />
             </div>
           </>}
 
@@ -243,8 +251,8 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
           <p role="status" className="text-center text-xs text-[var(--share-muted)]">{!loaded ? '보관한 사진 불러오는 중…' : busy ? '처리 중…' : photos.length ? `${photos.length}장 기기에 보관됨 · 닫거나 새로고침해도 유지됩니다.` : '추가한 답안은 이 기기에 자동으로 보관됩니다.'}</p>
           {camera ? <div className="flex items-center justify-center gap-5">
             <Button type="button" variant="outline" aria-label="답안지 촬영" className="size-16 rounded-full border-4 border-[var(--share-line-strong)] bg-[var(--share-box)] p-0 shadow-none" disabled={busy} onClick={shoot}><Camera className="size-6" /></Button>
-            <Button type="button" variant="outline" disabled={busy} className="h-12 rounded-xl shadow-none" onClick={() => { stopCamera(); setSelected(null) }}>{photos.length ? `완료 · ${photos.length}장 확인` : '촬영 나가기'}</Button>
-          </div> : review && photos.length > 0 ? <Button type="button" variant="action" disabled={busy} className="h-12 w-full rounded-xl" onClick={() => operate(async () => { await onConfirm(current.current.map((photo) => new File([photo.blob], photo.name, { type: photo.blob.type, lastModified: photo.lastModified }))) })}>{photos.length}장 학생 확인하기</Button> : null}
+            <Button type="button" variant="outline" disabled={busy} className="h-12 rounded-xl shadow-none" onClick={() => { if (photos.length) void submit(); else stopCamera() }}>{photos.length ? `촬영 완료 · 학생 확인` : '촬영 나가기'}</Button>
+          </div> : review && photos.length > 0 ? <Button type="button" variant="action" disabled={busy} className="h-12 w-full rounded-xl" onClick={submit}>{photos.length}장 학생 확인</Button> : null}
         </div>
       </footer>
     </section>

@@ -1,7 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { createGradeSaveQueue, type GradeSaveQueue, type GradeSaveResult, type GradeVersion } from '@/lib/atomic-grade'
+
+const queues = new WeakMap<object, Map<string, GradeSaveQueue>>()
+function useGradeQueue(weekId: string, shared?: GradeSaveQueue) {
+  const client = useQueryClient()
+  let byWeek = queues.get(client)
+  if (!byWeek) { byWeek = new Map(); queues.set(client, byWeek) }
+  let queue = byWeek.get(weekId)
+  if (!queue) { queue = createGradeSaveQueue(); byWeek.set(weekId, queue) }
+  return shared ?? queue
+}
 
 export type GradeRow = {
+  grade_conflict?: boolean
+  grade_version: GradeVersion
   student_id: string
   student_name: string
   present: boolean
@@ -10,6 +23,10 @@ export type GradeRow = {
   reading_correct: number | null
   homework_done: number | null
   memo: string
+  /** Receipt for OCR applied during this editing session, not a historical photo link. */
+  exam_photo_path?: string | null
+  /** Historical link for reconciliation only; never used as a new OCR receipt. */
+  stored_exam_photo_path?: string | null
   answers: { exam_question_id: string; student_answer: number | null; student_answer_text?: string; ox_selection?: string | null; is_correct?: boolean; needs_review?: boolean; teacher_confirmed?: boolean; ai_feedback?: string }[]
 }
 
@@ -25,61 +42,49 @@ export function useGradeData(weekId: string) {
   })
 }
 
-export function useSaveWeekScore(weekId: string) {
+async function saveRequest(weekId: string, method: string, body: unknown): Promise<GradeSaveResult> {
+  const res = await fetch(`/api/weeks/${weekId}/grade`, {
+    method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error ?? '채점 저장 실패')
+  return data
+}
+
+export function useSaveWeekScore(weekId: string, sharedQueue?: GradeSaveQueue, onSaved?: () => void) {
+  const queue = useGradeQueue(weekId, sharedQueue)
   return useMutation({
-    // All grade writes in this week share one queue, including blur, draft and full saves.
     scope: { id: `week-score:${weekId}` },
-    mutationFn: async ({ student_id, homework_done, memo }: { student_id: string; homework_done?: number | null; memo?: string }) => {
-      const res = await fetch(`/api/weeks/${weekId}/grade`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ student_id, homework_done, memo }),
-      })
-      if (!res.ok) throw new Error('저장 실패')
-    },
-    onError: () => toast.error('과제/메모 저장 실패'),
+    mutationFn: (row: Pick<GradeRow, 'student_id' | 'grade_version'> & Partial<Pick<GradeRow, 'homework_done' | 'memo'>>) =>
+      queue.run([row], ([submitted]) => saveRequest(weekId, 'PATCH', submitted)),
+    onSuccess: onSaved,
+    onError: (e: Error) => toast.error(e.message),
   })
 }
 
 // 모달 닫기 / 학생 이동 시 조용히 저장 (AI 채점 없음)
-export function useSaveGradeDraft(weekId: string) {
+export function useSaveGradeDraft(weekId: string, sharedQueue?: GradeSaveQueue, onSaved?: () => void) {
+  const queue = useGradeQueue(weekId, sharedQueue)
   return useMutation({
     scope: { id: `week-score:${weekId}` },
-    mutationFn: async (rows: GradeRow[]) => {
-      await fetch(`/api/weeks/${weekId}/grade`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows, skip_ai: true }),
-      })
-    },
+    mutationFn: (rows: GradeRow[]) => queue.run(rows, (submitted) => saveRequest(weekId, 'POST', { rows: submitted, skip_ai: true, draft_only: true })),
+    onSuccess: onSaved,
+    onError: (e: Error) => toast.error(e.message),
   })
 }
 
-export function useSaveGrade(weekId: string) {
+export function useSaveGrade(weekId: string, sharedQueue?: GradeSaveQueue | boolean, onSaved?: () => void, skipAI = false) {
   const qc = useQueryClient()
+  const queue = useGradeQueue(weekId, typeof sharedQueue === 'boolean' ? undefined : sharedQueue)
+  const withoutAI = typeof sharedQueue === 'boolean' ? sharedQueue : skipAI
   return useMutation({
     scope: { id: `week-score:${weekId}` },
-    mutationFn: async (rows: GradeRow[]) => {
-      const res = await fetch(`/api/weeks/${weekId}/grade`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows, skip_ai: false }),
-      })
-      if (!res.ok) {
-        const text = await res.text()
-        let msg = '채점 저장 실패'
-        try { msg = JSON.parse(text).error ?? msg } catch { /* HTML 응답 등 */ }
-        throw new Error(msg)
-      }
-      return res.json()
-    },
-    onSuccess: (data) => {
-      qc.refetchQueries({ queryKey: ['grade', weekId] })
-      if (data?.ai_grading_failed) {
-        toast.warning(`채점 저장 완료 (서술형 AI 채점 실패: ${data.ai_error ?? '알 수 없는 오류'})`)
-      } else {
-        toast.success('채점이 저장되었습니다')
-      }
+    mutationFn: (rows: GradeRow[]) => queue.run(rows, (submitted) => saveRequest(weekId, 'POST', { rows: submitted, skip_ai: withoutAI })),
+    onSuccess: async () => {
+      onSaved?.()
+      await queue.idle()
+      await qc.refetchQueries({ queryKey: ['grade', weekId] })
+      toast.success('채점이 저장되었습니다')
     },
     onError: (e: Error) => toast.error(e.message),
   })

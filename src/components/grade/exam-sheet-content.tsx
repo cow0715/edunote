@@ -1,5 +1,8 @@
 'use client'
 
+import { AnswerPhotoDialog } from './answer-photo-dialog'
+import { useCaptureRuntime } from './capture-runtime'
+
 import { groupQuestionParents, questionLabel } from '@/lib/question-presentation'
 
 import { useEffect, useState } from 'react'
@@ -10,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { requireExamPhotoPath } from '@/lib/exam-photo'
 import { acceptedObjectiveAnswers, gradeObjective } from '@/lib/objective-grading'
 import { gradeOXAnswer, oxNotation } from '@/lib/ox-grading'
 import { ScoreToggleField } from './score-toggle-field'
@@ -43,7 +47,7 @@ function ObjectiveMarks({ q, answer, disabled, onChange }: {
   const result = q.is_void ? undefined : hasKey ? (gradeObjective(q, value) ?? false) : undefined
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1" role="group" aria-label={`${questionLabel(q)} 학생 답안`}>
       <div className="flex gap-1">
         {CHOICES.map((n) => {
           const selected = value === n
@@ -53,6 +57,7 @@ function ObjectiveMarks({ q, answer, disabled, onChange }: {
               key={n}
               type="button"
               disabled={disabled}
+              aria-pressed={selected}
               onClick={() => onChange(selected ? null : n)}
               className={cn(
                 'flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors',
@@ -79,20 +84,13 @@ function ObjectiveMarks({ q, answer, disabled, onChange }: {
   )
 }
 
-/** 서술형/오류교정 — 타이핑은 로컬, 부모 sync 는 blur (QuestionRow 와 같은 패턴) */
+/** Sync each edit to the guarded grade draft, including Escape before blur. */
 function TextAnswerCell({ q, answer, disabled, onChangeText }: {
   q: ExamQuestion
   answer: AnswerLike
   disabled: boolean
   onChangeText: (t: string) => void
 }) {
-  const externalText = answer?.student_answer_text ?? ''
-  const [localText, setLocalText] = useState(externalText)
-  const [syncedExternal, setSyncedExternal] = useState(externalText)
-  if (syncedExternal !== externalText) {
-    setSyncedExternal(externalText)
-    setLocalText(externalText)
-  }
   const isFindError = q.question_style === 'find_error'
   const correction = q.correct_answer_text?.split(':')[1]?.trim() ?? ''
   const isSymbolCorr = !!q.correct_answer_text && /^[a-z]:.+$/i.test(q.correct_answer_text.trim())
@@ -104,9 +102,9 @@ function TextAnswerCell({ q, answer, disabled, onChangeText }: {
   return (
     <div className="flex w-full min-w-0 flex-col gap-1">
       <Textarea
-        value={localText}
-        onChange={(e) => setLocalText(e.target.value)}
-        onBlur={() => onChangeText(localText)}
+        aria-label={`${questionLabel(q)} 학생 답안`}
+        value={answer?.student_answer_text ?? ''}
+        onChange={(e) => onChangeText(e.target.value)}
         disabled={disabled}
         placeholder={placeholder}
         rows={1}
@@ -188,12 +186,14 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
   updateAnswer: (studentId: string, questionId: string, value: number | null) => void
   updateAnswerText: (studentId: string, questionId: string, text: string) => void
 }) {
-  const hasSubjective = questions.some((q) => q.question_style === 'subjective')
-  const disabled = !row.present || !row.reading_present
+  const { request } = useCaptureRuntime()
+  const hasSubjective = questions.some((q) => q.question_style === 'subjective' || q.question_style === 'find_error')
+  const disabled = !row.reading_present
   const [openImageIds, setOpenImageIds] = useState<Set<string>>(new Set())
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [photoOpen, setPhotoOpen] = useState(false)
   const [rereading, setRereading] = useState(false)
+  const [photoError, setPhotoError] = useState<string | null>(null)
   const [localPhotoPath, setLocalPhotoPath] = useState<string | null>(null)
   const visiblePhotoPath = localPhotoPath ?? examPhotoPath ?? null
 
@@ -207,25 +207,29 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
   useEffect(() => {
     if (!visiblePhotoPath) return
     // fetch 후(then 안) setState — 렌더 중 동기 호출이 아니라 규칙에 걸리지 않는다
-    fetch(`/api/vocab-photo-url?bucket=exam-photos&path=${encodeURIComponent(visiblePhotoPath)}`)
+    request(`/api/vocab-photo-url?bucket=exam-photos&path=${encodeURIComponent(visiblePhotoPath)}`)
       .then((r) => r.json())
       .then((d) => { if (d.url) setPhotoUrl(d.url) })
       .catch(() => {})
-  }, [visiblePhotoPath])
+  }, [visiblePhotoPath, request])
 
   // 저장된 사진으로 재판독 — 재촬영 없이 OCR 만 다시 돌려 답을 다시 채운다
   async function rereadFromStored() {
     setRereading(true)
+    setPhotoError(null)
     try {
-      const resp = await fetch(`/api/weeks/${weekId}/ocr-exam-photo`, {
+      const resp = await request(`/api/weeks/${weekId}/ocr-exam-photo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ studentId: row.student_id, useStored: true }),
       })
       const data = await resp.json()
-      if (data.ok) applyOcrResults(data.results)
-    } catch {
-      // 버튼 옆 상태 표시 없이 조용히 실패 — 재시도 가능
+      if (!resp.ok || !data.ok) throw new Error(data.error ?? '사진 재판독 실패')
+      const photoPath = requireExamPhotoPath(weekId, row.student_id, data.photoPath)
+      updateRow(row.student_id, 'exam_photo_path', photoPath)
+      applyOcrResults(data.results)
+    } catch (error) {
+      setPhotoError(error instanceof Error ? error.message : '사진 재판독 실패')
     } finally {
       setRereading(false)
     }
@@ -302,12 +306,14 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
           <ExamPhotoButton
             weekId={weekId}
             studentId={row.student_id}
-            disabled={!row.present}
-            onResult={(results) => {
-              setLocalPhotoPath(`${weekId}/${row.student_id}`)
+            disabled={false}
+            onResult={(results, photoPath) => {
+              setLocalPhotoPath(photoPath)
+              updateRow(row.student_id, 'exam_photo_path', photoPath)
               applyOcrResults(results)
             }}
           />
+          {photoError && <span role="alert" className="text-xs text-red-500">{photoError}</span>}
           {photoUrl && (
             <>
               <button
@@ -320,7 +326,7 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
               </button>
               <button
                 type="button"
-                disabled={rereading || !row.present}
+                disabled={rereading}
                 onClick={rereadFromStored}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 transition-colors shrink-0 disabled:text-gray-300"
               >
@@ -332,35 +338,19 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
       )}
 
       {/* 답안지 사진 전체보기 오버레이 */}
-      {photoOpen && photoUrl && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
-          onClick={() => setPhotoOpen(false)}
-        >
-          <div className="relative max-h-[90vh] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={photoUrl} alt="답안지 사진" className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain" />
-            <button
-              onClick={() => setPhotoOpen(false)}
-              className="absolute -top-3 -right-3 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow text-gray-600 hover:bg-gray-100"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
+      <AnswerPhotoDialog open={photoOpen} onOpenChange={setPhotoOpen} url={photoUrl} title="답안지 원본 사진" />
 
       {/* 미응시 토글 */}
       {(questions.length > 0 || readingTotal > 0) && (
         <div className="flex items-center gap-2 px-4 py-3 border-b bg-gray-50/50">
           <Switch
             checked={row.reading_present}
-            disabled={!row.present}
+            aria-label={`${row.student_name} 시험 응시`}
             onCheckedChange={(checked) => updateRow(row.student_id, 'reading_present', checked)}
           />
           <span className="text-xs text-gray-500">
-            {row.reading_present ? '응시' : '미응시'}
-          </span>
+            시험 {row.reading_present ? '응시' : '미응시'}
+          </span><span className="text-[11px] text-muted-foreground">수업 출결과 별도</span>
         </div>
       )}
 
@@ -372,7 +362,7 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
             total={readingTotal}
             value={row.reading_correct}
             nullLabel="미입력"
-            disabled={!row.present}
+            disabled={false}
             onChange={(v) => updateRow(row.student_id, 'reading_correct', v)}
           />
         </div>
@@ -449,7 +439,7 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
                               title={first.source_image_path ? '원본 페이지 보기' : '원본 이미지 필요 (저장된 이미지 없음)'}
                               className={cn(
                                 'shrink-0 rounded p-0.5 transition-colors',
-                                imageOpen ? 'bg-slate-200 text-slate-600' : first.source_image_path ? 'text-gray-300 hover:text-gray-500' : 'text-amber-400 hover:text-amber-500',
+                                imageOpen ? 'bg-slate-200 text-slate-600' : first.source_image_path ? 'text-gray-300 hover:text-gray-500' : 'text-muted-foreground hover:text-muted-foreground',
                               )}
                             >
                               <ImageIcon className="h-3.5 w-3.5" />
@@ -473,8 +463,8 @@ export function ExamSheetContent({ weekId, row, questions, readingTotal, examPho
       )}
 
       {hasSubjective && row.reading_present && (
-        <p className="px-4 py-2 text-xs text-amber-600 border-t bg-amber-50/50">
-          서술형은 채점 저장 버튼을 눌러야 AI 채점됩니다
+        <p className="px-4 py-2 text-xs text-muted-foreground border-t bg-muted">
+          서술형은 ‘AI 채점’을 눌러 채점할 수 있습니다
         </p>
       )}
     </div>

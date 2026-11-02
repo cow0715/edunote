@@ -2,6 +2,14 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function proxy(request: NextRequest) {
+  // This POST route verifies getUser itself and refreshes cookies in its Route
+  // Handler, then checks approved-teacher ownership inside the write transaction.
+  // Do not verify the same session twice or trust forwarded identity headers.
+  if (request.method === 'POST' && /^\/api\/weeks\/[0-9a-f-]{36}\/grade\/?$/i.test(request.nextUrl.pathname)) {
+    return NextResponse.next({ request })
+  }
+
+  if (process.env.NODE_ENV === 'development' && request.nextUrl.pathname === '/dev/exam-student-confirm') return NextResponse.next({request})
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(

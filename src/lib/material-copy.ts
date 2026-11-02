@@ -1,3 +1,4 @@
+import { joinBankNumberedContent } from './bank-numbered-text'
 import { materialInlineHtml, materialInlinePlain, parseMaterialInline, type MaterialInline } from './material-inline'
 
 type CopyMode = 'prose' | 'list'
@@ -11,7 +12,7 @@ const heading = /^(?:\([A-Za-z]\)|\[[A-Za-z]\]|[①-⑳]|출제의도|해석|풀
  * Without PDF coordinates, a bare Hangul boundary or a printed hyphen cannot prove
  * whether a word was split. Keep those breaks instead of guessing a new word. */
 export function normalizeCopyParagraphs(text: string, mode: CopyMode = 'prose'): string {
-  const source = text.replace(/\r\n?/g, '\n')
+  const source = joinBankNumberedContent(text)
   const raw = source.split('\n')
   const plain = materialInlinePlain(parseMaterialInline(source)).split('\n')
   const indents = raw.filter((line) => line.trim()).map((line) => line.match(/^[ \t\u3000]*/u)![0].length)

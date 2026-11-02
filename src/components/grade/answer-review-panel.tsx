@@ -1,5 +1,6 @@
 'use client'
 
+import { useSettingsEditState } from './settings-edit-state'
 import { useState } from 'react'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -27,6 +28,7 @@ export function AnswerReviewPanel({ draft, weekId, onConfirm, saving }: {
   const [filter, setFilter] = useState<'needs' | 'all'>('needs')
   const [sourceView, setSourceView] = useState({ index: 0, page: 1 })
   const confirmed = draft.status === 'confirmed'
+  useSettingsEditState('answer-review', !confirmed && (Object.keys(edits).length > 0 || acknowledged), saving)
   const rows = (confirmed ? draft.reviewed_answers ?? draft.answers : draft.answers).map(q => ({ ...q, correct_answer: q.correct_answer ?? 0 }))
   const sourcesUrl = (index: number, page?: number) => `/api/weeks/${weekId}/answer-review?draft=${draft.id}&source=${index}${page ? `&page=${page}` : ''}`
   const existing = new Map(draft.base_questions.map(q => [answerKey(q), q]))

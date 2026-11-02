@@ -11,7 +11,7 @@ const response = (value:unknown) => ({text:JSON.stringify(value),stopReason:'end
 let f=nativeFixture()
 beforeEach(() => {
   vi.clearAllMocks();f=nativeFixture();mocks.read.mockResolvedValue(f.pages);mocks.render.mockResolvedValue(f.images)
-  mocks.call.mockResolvedValueOnce(response(f.mapping)).mockResolvedValueOnce(response({status:'pass',checks:{content:true,mapping:true,formatting:true,inventory:true},issues:[]}))
+  mocks.call.mockResolvedValueOnce(response(f.mapping)).mockResolvedValueOnce(response({status:'pass',checks:{content:true,mapping:true,formatting:true,inventory:true},issues:[],repair:null}))
 })
 describe('real mapping/audit/enrichment adapters connected inside the worker unit', () => {
   it('produces a valid publication proof through all three adapters without re-outputting original text in mapping', async () => {
@@ -39,16 +39,18 @@ describe('real mapping/audit/enrichment adapters connected inside the worker uni
     f.pages[0].lines[0].text += ' invisiblejunk'
     const target = {g:0,q:null,field:'passage',choice:null}
     mocks.call.mockResolvedValueOnce(response(f.mapping))
-      .mockResolvedValueOnce(response({status:'repair',checks:{content:false,mapping:true,formatting:true,inventory:true},issues:[{target,kind:'native_text',pages:[9],reason:'Extra native letters absent from image.'}]}))
-      .mockResolvedValueOnce(response({edits:[{target,mode:'text',text:expectedPassage,pages:[9]}],issues:[]}))
-      .mockResolvedValueOnce(response({status:'pass',checks:{content:true,mapping:true,formatting:true,inventory:true},issues:[]}))
+      .mockImplementationOnce(async (options) => response({status:'repair',checks:{content:false,mapping:true,formatting:true,inventory:true},
+        issues:[{target,kind:'native_text',pages:[9],reason:'Extra native letters absent from image.'}],
+        repair:{base_hash:JSON.parse(options.content.at(-1).text).candidate_hash,
+          edits:[{target,mode:'patch',patches:[{before:' invisiblejunk',after:''}],pages:[9]}],issues:[]}}))
+      .mockResolvedValueOnce(response({status:'pass',checks:{content:true,mapping:true,formatting:true,inventory:true},issues:[],repair:null}))
       .mockResolvedValueOnce(response({questions:f.enrichment.questions}))
     const result = await processNativeBookUnit({unit:f.unit,pdfHash,bytes:pdfBytes})
     expect(result.verification.status).toBe('passed')
     expect(result.extraction?.passage).not.toContain('invisiblejunk')
     expect(result.extraction?.passage).toBe(expectedPassage)
     expect(result.verification.audit?.rounds).toBe(2)
-    expect(mocks.call).toHaveBeenCalledTimes(5)
+    expect(mocks.call).toHaveBeenCalledTimes(4)
     const auditRequest=JSON.parse(mocks.call.mock.calls[1][0].content.at(-1).text)
     expect(auditRequest.mapping.issues).toEqual(f.mapping.issues)
   })

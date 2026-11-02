@@ -8,7 +8,7 @@ export function atomizeSourceLines(lines: SourceLine[], firstId = 1): SourceLine
   let id = firstId
   return lines.flatMap((line) => {
     const cuts = new Set([0, line.text.length])
-    for (const match of line.text.matchAll(/\[(?:정답|소재|해석|해설|풀이|어휘|Answer|Translation|Explanation|Vocabulary)\]|[①②③④⑤❶❷❸❹❺]|^\s*[o□▪▫◦○●](?=\s)/g)) {
+    for (const match of line.text.matchAll(/\[\s*(?:정답|소재|해석|해설|풀이|어휘|Answer|Translation|Explanation|Vocabulary)\s*\]|[①②③④⑤❶❷❸❹❺]|^\s*[o□▪▫◦○●](?=\s)/g)) {
       cuts.add(match.index); cuts.add(match.index + match[0].length)
     }
     const offsets = [...cuts].sort((a, b) => a - b)

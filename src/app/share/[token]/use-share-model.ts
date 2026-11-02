@@ -73,8 +73,16 @@ export function useShareModel(data: ShareData | undefined) {
   const periodOptions = data?.periodOptions ?? EMPTY_LIST
   const weeks = data?.weeks ?? EMPTY_LIST
   const weekScores = data?.weekScores ?? EMPTY_LIST
-  const studentAnswers = data?.studentAnswers ?? EMPTY_LIST
-  const vocabAnswers = data?.vocabAnswers ?? EMPTY_LIST
+  // Retained teacher answers are not evidence of participation. Filter only this
+  // presentation model; the API payload and stored originals remain untouched.
+  const studentAnswers = useMemo(() => {
+    const attempted = new Set(weekScores.filter(score => score.reading_correct !== null).map(score => score.id))
+    return (data?.studentAnswers ?? EMPTY_LIST).filter(answer => attempted.has(answer.week_score_id))
+  }, [data?.studentAnswers, weekScores])
+  const vocabAnswers = useMemo(() => {
+    const attempted = new Set(weekScores.filter(score => score.vocab_correct !== null).map(score => score.id))
+    return (data?.vocabAnswers ?? EMPTY_LIST).filter(answer => attempted.has(answer.week_score_id))
+  }, [data?.vocabAnswers, weekScores])
   const vocabWords = data?.vocabWords ?? EMPTY_LIST
   const attendance = data?.attendance ?? EMPTY_LIST
   const clinicAttendance = data?.clinicAttendance ?? EMPTY_LIST
@@ -105,7 +113,7 @@ export function useShareModel(data: ShareData | undefined) {
 
     const hasReadingData = (weekId: string, scoreId: string) => {
       const s = scoreByWeek.get(weekId)!
-      return (answersByScore.get(scoreId)?.some((a) => a.exam_question?.exam_type === 'reading') ?? false) || s.reading_correct > 0
+      return (answersByScore.get(scoreId)?.some((a) => a.exam_question?.exam_type === 'reading') ?? false) || s.reading_correct !== null
     }
     const weekRate = (score: WeekScore, week: Week, field: ScoreField): number | null => {
       if (field === 'reading') return week.reading_total > 0 && score.reading_correct !== null && hasReadingData(week.id, score.id) ? Math.round(score.reading_correct / week.reading_total * 100) : null

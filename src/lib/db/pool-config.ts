@@ -15,7 +15,9 @@ export function poolConfig(connectionString?: string, ca?: string): PoolConfig {
     connectionString: url.toString(),
     ssl: { rejectUnauthorized: true, ...(ca ? { ca: ca.replace(/\\n/g, '\n') } : {}) },
     max: 5,
-    idleTimeoutMillis: 5_000,
+    // Keep the bounded pool warm across human answer-entry pauses. Vercel still
+    // releases idle connections on suspension through attachDatabasePool.
+    idleTimeoutMillis: 60_000,
     connectionTimeoutMillis: 5_000,
     application_name: 'edunote-server',
   }

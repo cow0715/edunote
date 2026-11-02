@@ -3,7 +3,7 @@
 import { FileUpload } from '@/components/ui/file-upload'
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Dice5, Loader2, Lock, Printer, RotateCcw, Save, Search, SlidersHorizontal, Sparkles, Upload, X } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Dice5, Loader2, Lock, Printer, RotateCcw, Save, Search, SlidersHorizontal, Upload, X } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -24,6 +24,7 @@ import {
   rebalanceSourceRatio,
   ratioFromPrompts,
 } from '@/lib/vocab-test-ratio'
+import { useSettingsEditState } from './settings-edit-state'
 import { VocabSourceRatioPanel } from '@/components/grade/vocab-source-ratio-panel'
 import { useUploadStore, VocabEntry } from '@/store/upload-store'
 import { normalizePromptCandidate, resolveChoiceDistractor } from '@/lib/vocab-choice-distractor'
@@ -528,8 +529,18 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const [uploadMode, setUploadMode] = useState<'xlsx' | 'legacy_ai'>('xlsx')
   const [elapsed, setElapsed] = useState(0)
   const [regenLoading, setRegenLoading] = useState(false)
+  const [exampleError, setExampleError] = useState('')
+  const [exampleProgress, setExampleProgress] = useState<{ completed: number; total: number } | null>(null)
+  const exampleRun = useRef(false)
+  const exampleMounted = useRef(true)
+  useEffect(() => {
+    exampleMounted.current = true
+    return () => { exampleMounted.current = false }
+  }, [])
   const [meaningLoading, setMeaningLoading] = useState(false)
+  const [meaningError, setMeaningError] = useState('')
   const [editWords, setEditWords] = useState<VocabEntry[]>([])
+  const [savedTestSelection, setSavedTestSelection] = useState<string | null>(null)
   const [activeTest, setActiveTest] = useState<VocabTest | null>(null)
   // 채점된 답안 수. 0보다 크면 시험지 변경(저장·랜덤)을 잠근다 — 정답 역산이 어긋나는 걸 원천 차단
   const [gradedCount, setGradedCount] = useState(0)
@@ -541,6 +552,10 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const [randomPickCount, setRandomPickCount] = useState(50)
   const [sourceRatio, setSourceRatio] = useState<VocabSourceRatio>(DEFAULT_SOURCE_RATIO)
   const [testSaving, setTestSaving] = useState(false)
+  const [testSaveError, setTestSaveError] = useState('')
+  const [wordSaving, setWordSaving] = useState(false)
+  const [wordSaveError, setWordSaveError] = useState('')
+  const [wordLoadError, setWordLoadError] = useState('')
   const [promptText, setPromptText] = useState(VOCAB_GRADING_RULES)
   const [promptOpen, setPromptOpen] = useState(false)
   // 단어 직접 수정은 평소에 쓸 일이 거의 없는데 목록이 길어 스크롤만 만든다.
@@ -566,7 +581,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const [syncedPrompt, setSyncedPrompt] = useState<string | null | undefined>(null)
   if (syncedPrompt !== savedPrompt) {
     setSyncedPrompt(savedPrompt)
-    if (savedPrompt) setPromptText(savedPrompt)
+    if (promptText === (syncedPrompt ?? VOCAB_GRADING_RULES)) setPromptText(savedPrompt ?? VOCAB_GRADING_RULES)
   }
 
   // 로딩 상태로 들어갈 때 경과 시간을 0 으로 — 렌더 중 조정. 타이머만 effect 에서 돌린다
@@ -583,7 +598,8 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
 
   const loadSavedWords = useCallback(async () => {
     const res = await fetch(`/api/weeks/${weekId}/vocab-words`)
-    if (!res.ok) return
+    if (!res.ok) throw new Error('단어장을 불러오지 못했습니다. 다시 시도해 주세요.')
+    setWordLoadError('')
     const data = await res.json() as VocabEntry[]
     if (data?.length > 0) {
       setEditWords(data)
@@ -607,6 +623,9 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       ]
     }))
     setSelectedPrompts(restoredPrompts)
+    const restoredIds = sortedItems.map(item => item.vocab_word_id)
+    const orderedIds = (data.gradedCount ?? 0) > 0 ? restoredIds : sortIdsBySection(restoredIds, restoredPrompts)
+    setSavedTestSelection(JSON.stringify(orderedIds.map(id => [id, restoredPrompts[id]])))
     // 비율 패널을 실제 문항 구성에서 역산해 맞춘다 (없으면 기본값 유지)
     const ratioFromItems = ratioFromPrompts(Object.values(restoredPrompts))
     if (ratioFromItems) setSourceRatio(ratioFromItems)
@@ -624,14 +643,12 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   useEffect(() => {
     if (savedWords.length > 0 || status.type !== 'idle') return
     // 서버 fetch 후(await 뒤) setState — 동기 호출이 아니라 캐스케이드 렌더가 아니지만 린트는 구분하지 못한다
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadSavedWords().catch(() => {})
+    loadSavedWords().catch(() => setWordLoadError('단어장을 불러오지 못했습니다. 다시 시도해 주세요.'))
   }, [loadSavedWords, savedWords, status.type])
 
   useEffect(() => {
     if (status.type !== 'ready') return
     // 위와 같은 이유 (fetch 후 setState)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadActiveTest().catch(() => {})
   }, [loadActiveTest, status.type])
 
@@ -654,6 +671,8 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     () => (testLocked ? selectedWordIds : sortIdsBySection(selectedWordIds, selectedPrompts)),
     [selectedWordIds, selectedPrompts, testLocked],
   )
+  const testDirty = savedTestSelection !== null && savedTestSelection !== JSON.stringify(orderedSelectedWordIds.map(id => [id, selectedPrompts[id]]))
+  useSettingsEditState('vocab', isDirty || isPromptModified || testDirty || status.type === 'file-selected', wordSaving || testSaving || regenLoading || meaningLoading || savePrompt.isPending || status.type === 'loading' || status.type === 'saving')
   const selectedWords = useMemo(
     () => orderedSelectedWordIds
       .map((id) => savedWordsById.get(id))
@@ -757,7 +776,14 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   }
 
   async function saveWords(words: VocabEntry[], source?: SourceMeta) {
-    setVocabStatus(weekId, { type: 'saving', step: '단어 저장 중...' })
+    const editingExisting = savedWords.length > 0
+    setWordSaveError('')
+    setWordSaving(true)
+    if (!editingExisting) setVocabStatus(weekId, { type: 'saving', step: '단어 저장 중...' })
+    const reportError = (message: string) => {
+      if (editingExisting) setWordSaveError(message)
+      else setVocabStatus(weekId, { type: 'error', message })
+    }
     await runOrReport(async () => {
       const res = await fetch(`/api/weeks/${weekId}/vocab-words`, {
         method: 'POST',
@@ -770,7 +796,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       })
       const data = await res.json()
       if (!res.ok) {
-        setVocabStatus(weekId, { type: 'error', message: data.error ?? '저장 실패' })
+        reportError(data.error ?? '단어장을 저장하지 못했습니다.')
         return
       }
       qc.invalidateQueries({ queryKey: ['week', weekId] })
@@ -779,7 +805,8 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       toast.success(`단어 ${data.saved}개 저장 완료`)
       await loadSavedWords()
       await loadActiveTest()
-    }, () => setVocabStatus(weekId, { type: 'error', message: '저장 중 오류가 발생했습니다' }))
+    }, () => reportError('단어장을 저장하지 못했습니다. 다시 시도해 주세요.'))
+    setWordSaving(false)
   }
 
   async function handleUpload() {
@@ -811,18 +838,40 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   }
 
   async function handleRegenExamples() {
-    await runWithLoading(setRegenLoading, async () => {
-      const res = await fetch(`/api/weeks/${weekId}/vocab-words/regen-examples`, { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) {
-        toast.error(data.error ?? '예문 생성 실패')
-        return
+    if (exampleRun.current) return
+    exampleRun.current = true
+    setRegenLoading(true)
+    setExampleError('')
+    setExampleProgress(null)
+    try {
+      // Each request has at most one model batch. Completed batches are already durable.
+      // Do not automatically retry an uncertain/failed response and spend tokens again.
+      while (exampleMounted.current) {
+        const res = await fetch(`/api/weeks/${weekId}/vocab-words/regen-examples?batch=1`, { method: 'POST' })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? '예문을 생성하지 못했습니다.')
+        if (!exampleMounted.current) break
+        await loadSavedWords()
+        const remaining = data.remaining ?? 0
+        setExampleProgress(previous => {
+          const total = previous?.total ?? data.missing ?? 0
+          return { total, completed: Math.max(0, total - remaining) }
+        })
+        if (data.failedBatches > 0 || data.incomplete || (remaining > 0 && !data.saved)) {
+          throw new Error('일부 예문을 생성하지 못했습니다.')
+        }
+        if (remaining === 0) break
       }
-      if (data.generated === 0) toast.success('비어 있는 예문이 없습니다')
-      else if (data.failedBatches > 0) toast.warning(`${data.saved ?? data.generated}개 예문 생성 완료 — 일부 배치가 실패했습니다. 다시 누르면 빈 단어만 이어서 채웁니다`)
-      else toast.success(`${data.saved ?? data.generated}개 예문 생성 완료`)
-      await loadSavedWords()
-    }, () => toast.error('예문 생성 중 오류가 발생했습니다'))
+    } catch (error) {
+      if (exampleMounted.current) {
+        setExampleError(errorMessage(error, '예문 생성 연결이 끊겼습니다.'))
+        // A response can fail after the server committed; refresh before offering missing-only retry.
+        await loadSavedWords().catch(() => {})
+      }
+    } finally {
+      exampleRun.current = false
+      if (exampleMounted.current) setRegenLoading(false)
+    }
   }
 
   async function handleEnrichMeanings() {
@@ -831,12 +880,16 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       toast.success('뜻이 비어 있는 유의어/반의어/파생어가 없습니다')
       return
     }
+    setMeaningError('')
     await runWithLoading(setMeaningLoading, async () => {
       const filled = await enrichSelectedVariantMeanings(missingMeaningVariantIds)
       toast.success(`뜻 ${filled.size}개 보완 완료`)
       await loadSavedWords()
       await loadActiveTest()
-    }, (error) => toast.error(errorMessage(error, '단어 뜻 저장 중 오류가 발생했습니다')))
+    }, (error) => {
+      setMeaningError(errorMessage(error, '뜻을 보완하지 못했습니다.'))
+      void loadSavedWords().catch(() => {})
+    })
   }
 
   async function persistVocabTest(wordIds: string[], prompts: Record<string, SelectedPrompt>, options: { showToast?: boolean } = {}) {
@@ -844,7 +897,9 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       toast.error('시험에 넣을 단어를 선택해주세요')
       return
     }
-    await runWithLoading(setTestSaving, async () => {
+    let savedTestId: string | null = null
+    setTestSaveError('')
+    const success = await runWithLoading(setTestSaving, async () => {
       const res = await fetch(`/api/weeks/${weekId}/vocab-tests`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -874,19 +929,39 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
       })
       const data = await res.json()
       if (!res.ok) {
-        toast.error(data.error ?? '시험지 저장 실패')
-        return
+        throw new Error(data.error ?? '시험지 저장 실패')
       }
+      savedTestId = data.test?.id ?? null
       if (options.showToast !== false) toast.success(`${wordIds.length}문항 시험지가 저장되었습니다`)
       qc.invalidateQueries({ queryKey: ['week', weekId] })
       qc.invalidateQueries({ queryKey: ['weeks'] })
       qc.invalidateQueries({ queryKey: ['grade', weekId] })
       await loadActiveTest()
-    }, () => toast.error('시험지 저장 중 오류가 발생했습니다'))
+    }, error => { const message = errorMessage(error, '시험지 저장 중 오류가 발생했습니다'); setTestSaveError(message); toast.error(message) })
+    return success ? savedTestId : null
   }
 
   async function saveVocabTest() {
     await persistVocabTest(orderedSelectedWordIds, selectedPrompts)
+  }
+
+  async function printVocabTest() {
+    if (testSaving || selectedWordIds.length === 0) return
+    const printWindow = window.open('about:blank', '_blank')
+    if (printWindow) {
+      printWindow.document.title = '시험지 준비 중'
+      printWindow.document.body.textContent = '시험지를 준비하고 있습니다…'
+    }
+    const id = !activeTest || testDirty
+      ? await persistVocabTest(orderedSelectedWordIds, selectedPrompts)
+      : activeTest.id
+    if (!id) {
+      printWindow?.close()
+      return
+    }
+    const url = window.location.pathname.replace(/\/$/, '') + `/vocab-test/${id}/print`
+    if (printWindow && !printWindow.closed) printWindow.location.href = url
+    else if (!printWindow) { toast.error('팝업이 차단됐습니다. 팝업을 허용한 뒤 인쇄를 다시 눌러 주세요.') }
   }
 
   function hasDuplicatePrompt(wordId: string, prompt: SelectedPrompt) {
@@ -983,6 +1058,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   }
 
   async function selectRandomTestWords() {
+    if (testLocked || testSaving || wordSaving || meaningLoading || regenLoading) return
     if (filteredTestWords.length === 0) {
       toast.error('랜덤으로 선택할 단어가 없습니다')
       return
@@ -996,23 +1072,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
 
     setSelectedWordIds(orderedIds)
     setSelectedPrompts(prompts)
-    const variantIds = selected
-      .map((word) => findVariantForPrompt(word, prompts[word.id])?.id)
-      .filter((id): id is string => Boolean(id))
-    const counts = selected.reduce<Record<VocabTestPromptSource, number>>((acc, word) => {
-      const source = prompts[word.id]?.prompt_source ?? 'word'
-      acc[source] += 1
-      return acc
-    }, { word: 0, synonym: 0, antonym: 0, derivative: 0, example_meaning: 0, example: 0, example_choice: 0 })
-    if (variantIds.length > 0) {
-      const ok = await runWithLoading(setMeaningLoading, async () => {
-        await enrichSelectedVariantMeanings(variantIds)
-        await loadSavedWords()
-      }, (error) => toast.error(errorMessage(error, '단어 뜻 저장 중 오류가 발생했습니다')))
-      if (!ok) return
-    }
-    await persistVocabTest(selected.map((word) => word.id), prompts, { showToast: false })
-    toast.success(`${selected.length}개 선택: 원본 ${counts.word}, 유의어 ${counts.synonym}, 반의어 ${counts.antonym}, 파생어 ${counts.derivative}, 예문 ${counts.example_meaning + counts.example + counts.example_choice}`)
+    await persistVocabTest(selected.map(word => word.id), prompts)
   }
 
   async function openClinicPrint(mode: 'student' | 'grading') {
@@ -1042,7 +1102,10 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
     if (selectedVariantIds.length > 0) {
       const ok = await runWithLoading(setMeaningLoading, async () => {
         enrichedMeanings = await enrichSelectedVariantMeanings(selectedVariantIds)
-      }, (error) => toast.error(errorMessage(error, '단어 뜻 저장 중 오류가 발생했습니다')))
+      }, (error) => {
+      setMeaningError(errorMessage(error, '뜻을 보완하지 못했습니다.'))
+      void loadSavedWords().catch(() => {})
+    })
       if (!ok) return
     }
 
@@ -1109,18 +1172,19 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   )
   const handleMoveWord = useCallback((wordId: string, direction: -1 | 1) => rowHandlersRef.current.moveSelectedWord(wordId, direction), [])
 
+  if (wordLoadError && savedWords.length === 0) return <div role="alert" className="space-y-3 rounded-xl bg-muted p-4"><p className="text-sm">{wordLoadError}</p><Button variant="outline" onClick={() => void loadSavedWords().catch(() => setWordLoadError('단어장을 불러오지 못했습니다. 다시 시도해 주세요.'))}>다시 불러오기</Button></div>
+
   if (status.type === 'idle' || status.type === 'error') return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3">
-        <p className="text-sm font-semibold text-blue-900">엑셀 단어장을 원본으로 등록합니다.</p>
-        <p className="mt-1 text-xs leading-relaxed text-blue-700">
-          지문, 본문 단어, 품사, 본문 의미, 문맥 동의어, 파생어/변형 주의, 반의어 컬럼을 그대로 저장합니다.
-          저장된 값만 학생 share 단어장과 오답/재시험에 표시됩니다.
+      <div className="rounded-xl bg-muted px-4 py-3">
+        <p className="text-sm font-bold text-foreground">단어장 등록</p>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          단어장을 올린 뒤 시험에 낼 단어와 유형을 고르세요. 등록한 단어는 학생·학부모 화면의 단어장에도 표시됩니다.
         </p>
       </div>
 
       <FileUpload label="엑셀 단어장 선택" description="XLSX · 컬럼명이 있는 첫 단어장 시트를 읽습니다" accept=".xlsx" inputRef={inputRef} onChange={(e) => handleFileSelect(e, 'xlsx')} />
-      <FileUpload compact label="PDF/이미지 AI 추출 (보조 기능)" accept=".pdf,image/*" inputRef={legacyInputRef} onChange={(e) => handleFileSelect(e, 'legacy_ai')} />
+      <FileUpload compact label="PDF·사진에서 단어 가져오기 (AI)" accept=".pdf,image/*" inputRef={legacyInputRef} onChange={(e) => handleFileSelect(e, 'legacy_ai')} />
 
       {status.type === 'error' && (
         <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
@@ -1134,7 +1198,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   if (status.type === 'file-selected') return (
     <div className="space-y-4">
       <FileUpload label="단어장 파일 선택" description={uploadMode === 'xlsx' ? 'XLSX 파일' : 'PDF 또는 이미지'} accept={uploadMode === 'xlsx' ? '.xlsx' : '.pdf,image/*'} inputRef={inputRef} fileName={status.fileName} onChange={(e) => handleFileSelect(e, uploadMode)} />
-      <Button className="w-full" onClick={handleUpload}>
+      <Button variant="action" className="w-full" onClick={handleUpload}>
         <Upload className="mr-2 h-4 w-4" />
         원본 단어장 등록
       </Button>
@@ -1165,12 +1229,11 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
   const nonZeroCounts = RATIO_SOURCES.filter((source) => selectedPromptCounts[source] > 0)
 
   return (
-    <div className="space-y-4">
+    <fieldset disabled={wordSaving || testSaving || regenLoading || meaningLoading} className="min-w-0 space-y-4">
       {/* 단어장 상태 + 관리 액션 (보조 — 시험지 카드보다 눈에 덜 띄게) */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-1">
         <p className="flex items-center gap-2 text-xs text-gray-500">
           <span className="font-semibold text-gray-900">단어장 {editWords.length}개</span>
-          <span className="text-gray-400" title="예문이 있는 단어 수 — 예문 유형(예문뜻·빈칸·선택)은 이 단어들에서만 출제됩니다">예문 {savedWordsWithIds.length - missingExampleCount}/{savedWordsWithIds.length}</span>
           {isDirty ? (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">미저장</span>
           ) : (
@@ -1179,39 +1242,31 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
             </span>
           )}
         </p>
-        <div className="flex flex-wrap items-center gap-1">
-          {/* 채울 게 있을 때만 활성 — 다 차 있으면 회색 + 툴팁 */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-gray-500 disabled:opacity-40"
-            onClick={handleEnrichMeanings}
-            disabled={meaningLoading || missingMeaningVariantIds.length === 0}
-            title={missingMeaningVariantIds.length === 0 ? '유의어·반의어·파생어 뜻이 모두 채워져 있습니다' : `뜻이 비어 있는 유의어·반의어·파생어 ${missingMeaningVariantIds.length}개를 AI 로 채웁니다`}
-          >
-            {meaningLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1 h-3.5 w-3.5" />}
-            뜻 보완{missingMeaningVariantIds.length > 0 && <span className="ml-1 rounded-full bg-amber-100 px-1.5 text-[10px] font-bold text-amber-700">{missingMeaningVariantIds.length}</span>}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-gray-500 disabled:opacity-40"
-            onClick={handleRegenExamples}
-            disabled={regenLoading || missingExampleCount === 0}
-            title={missingExampleCount === 0 ? '모든 단어에 예문이 있습니다' : `예문이 없는 단어 ${missingExampleCount}개에 AI 예문을 만듭니다`}
-          >
-            {regenLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1 h-3.5 w-3.5" />}
-            예문 생성{missingExampleCount > 0 && <span className="ml-1 rounded-full bg-amber-100 px-1.5 text-[10px] font-bold text-amber-700">{missingExampleCount}</span>}
-          </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {missingMeaningVariantIds.length > 0 || meaningLoading ? <Button variant="outline" size="sm" className="relative h-8 overflow-hidden rounded-full px-3 text-xs" disabled={isDirty || meaningLoading} title="뜻이 없거나 검토가 필요한 유의어·반의어·파생어만 보완합니다" onClick={handleEnrichMeanings}>
+            {meaningLoading && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+            {meaningLoading ? 'AI 뜻 보완 중…' : `${meaningError ? '뜻 보완 재시도' : '뜻 보완'} · ${missingMeaningVariantIds.length}개`}
+            {meaningLoading && <progress aria-label="뜻 보완 진행 중" className="absolute inset-x-0 bottom-0 h-0.5 w-full accent-primary" />}
+          </Button> : <span role="status" className="flex items-center gap-1 text-xs text-emerald-600">뜻<CheckCircle2 className="h-3 w-3" /></span>}
+          {missingExampleCount > 0 || regenLoading ? <Button variant="outline" size="sm" className="relative h-8 overflow-hidden rounded-full px-3 text-xs" disabled={isDirty || regenLoading} title="예문 없는 단어만 생성합니다. 기존 예문은 유지됩니다" onClick={() => void handleRegenExamples()}>
+            {regenLoading && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+            {regenLoading ? `AI 예문 생성 중${exampleProgress ? ` · ${exampleProgress.completed}/${exampleProgress.total}` : '…'}` : `${exampleError ? '예문 재시도' : '예문 생성'} · ${missingExampleCount}개`}
+            {regenLoading && <progress aria-label="예문 생성 진행률" className="absolute inset-x-0 bottom-0 h-0.5 w-full accent-primary" max={exampleProgress?.total || 1} value={exampleProgress?.completed} />}
+          </Button> : <span role="status" className="flex items-center gap-1 text-xs text-emerald-600">예문<CheckCircle2 className="h-3 w-3" /></span>}
+        <details className="relative"><summary aria-label="단어장 관리" className="cursor-pointer rounded-full px-2 py-1 text-lg leading-none text-muted-foreground">⋯</summary><div className="absolute right-0 top-full z-20 mt-2 flex w-64 flex-col items-stretch gap-1 rounded-xl border bg-background p-2">
           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-gray-500" onClick={() => setVocabStatus(weekId, { type: 'idle' })}>
             <RotateCcw className="mr-1 h-3.5 w-3.5" />
-            다시 올리기
+            단어장 다시 등록
           </Button>
+        </div></details>
         </div>
       </div>
 
+      {isDirty && <p className="px-1 text-xs text-muted-foreground">뜻 보완·예문 생성은 단어장 변경을 저장한 뒤 실행할 수 있습니다.</p>}
+      {(meaningError || exampleError) && <p role="alert" className="px-1 text-xs text-destructive">{meaningError || exampleError} 완료된 결과는 유지됩니다. 위 버튼에서 남은 항목만 재시도하세요.</p>}
+      <div className="space-y-4">
       {/* 시험지 카드 */}
-      <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_10px_40px_rgba(0,75,198,0.04)]">
+      <div className="overflow-hidden rounded-2xl border border-gray-100 bg-card">
         {testLocked && (
           <div className="flex items-start gap-2.5 border-b border-amber-100 bg-amber-50 px-4 py-2.5 text-xs text-amber-900">
             <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
@@ -1225,55 +1280,17 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
             <p className="text-sm font-bold text-gray-900">
-              시험지
+              단어 시험 구성
               {activeTest && <span className="ml-1.5 text-xs font-semibold text-blue-600">{activeTest.item_count}문항 저장됨</span>}
             </p>
-            <p className="mt-0.5 text-xs text-gray-400">단어장에서 시험에 낼 항목을 고르고 유형을 정합니다</p>
+            <p className="mt-0.5 text-xs text-gray-400">단어 선택 → 구성 확인 → 저장·인쇄</p>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
-              onClick={() => {
-                if (!activeTest) {
-                  alert('먼저 시험지를 저장해 주세요.')
-                  return
-                }
-                const url = window.location.pathname.replace(/\/$/, '') + `/vocab-test/${activeTest.id}/print`
-                window.open(url, '_blank')
-              }}
-            >
-              <Printer className="mr-1.5 h-3.5 w-3.5" />
-              정규 시험지
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
-              onClick={() => openClinicPrint('student')}
-              disabled={filteredTestWords.length === 0 || meaningLoading}
-              title={`현재 표시된 단어 ${filteredTestWords.length}개 중 ${clinicPickCount}문항을 뽑아 저장 없이 인쇄합니다.`}
-            >
-              {meaningLoading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Dice5 className="mr-1.5 h-3.5 w-3.5" />}
-              보충 시험지
-            </Button>
-            {testLocked ? (
-              <span className="ml-1 flex h-8 items-center gap-1.5 rounded-md bg-gray-100 px-3 text-xs font-semibold text-gray-500" title={lockTitle}>
-                <Lock className="h-3.5 w-3.5" />
-                잠김
-              </span>
-            ) : (
-              <Button size="sm" className="ml-1 h-8" onClick={saveVocabTest} disabled={testSaving || selectedWordIds.length === 0}>
-                {testSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />}
-                {selectedWordIds.length}문항 저장
-              </Button>
-            )}
-          </div>
+
         </div>
 
         <div className={`grid border-t border-gray-100 lg:grid-cols-[minmax(0,1fr)_400px] ${testLocked ? 'opacity-70' : ''}`}>
           <div className="border-b border-gray-100 lg:border-b-0 lg:border-r">
+            <div className="flex items-center justify-between gap-3 px-4 pt-3"><h3 className="text-sm font-bold">1. 단어 선택</h3><span className="text-xs text-muted-foreground">체크하면 시험에 추가됩니다</span></div>
             {/* 도구 줄: 검색 · 지문 · 랜덤 */}
             <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
               <div className="relative min-w-[200px] flex-1">
@@ -1281,11 +1298,13 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                 <Input
                   value={testSearch}
                   onChange={(e) => setTestSearch(e.target.value)}
-                  placeholder="단어 · 뜻 · 유의어 · 반의어 검색"
+                  aria-label="시험에 낼 단어 검색"
+                  placeholder="단어·뜻 검색"
                   className="h-8 border-gray-200 pl-8 text-xs shadow-none"
                 />
               </div>
               <select
+                aria-label="지문 선택"
                 value={testPassageFilter}
                 onChange={(e) => setTestPassageFilter(e.target.value)}
                 className="h-8 rounded-md border border-gray-200 bg-white px-2 text-xs text-gray-600"
@@ -1296,23 +1315,12 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                 ))}
               </select>
               <div className={`flex h-8 shrink-0 items-center gap-0.5 rounded-md border border-gray-200 bg-white pl-1 pr-0.5 ${testLocked ? 'pointer-events-none' : ''}`} title={lockTitle}>
-                {[30, 40, 50].map((count) => (
-                  <button
-                    key={count}
-                    type="button"
-                    disabled={testLocked}
-                    onClick={() => setRandomPickCount(count)}
-                    className={`rounded px-1.5 py-0.5 text-[11px] font-bold transition-colors ${
-                      randomPickCount === count ? 'bg-[var(--control-selected)] text-[var(--control-on-selected)] ring-1 ring-border' : 'text-gray-500 hover:bg-gray-100'
-                    }`}
-                  >
-                    {count}
-                  </button>
-                ))}
+                <span className="px-2 text-xs text-muted-foreground">문항 수</span>
                 <Input
                   type="number"
                   min={1}
                   max={Math.max(1, filteredTestWords.length)}
+                  aria-label="자동 출제 문항 수"
                   value={randomPickCount}
                   disabled={testLocked}
                   onChange={(e) => {
@@ -1329,7 +1337,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                   disabled={meaningLoading || testLocked}
                 >
                   {meaningLoading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Dice5 className="mr-1 h-3 w-3" />}
-                  랜덤 출제
+                  자동 출제·저장
                 </Button>
               </div>
             </div>
@@ -1338,11 +1346,12 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
             <div className="border-y border-gray-100">
               <button
                 type="button"
+                aria-expanded={ratioOpen}
                 onClick={() => setRatioOpen((v) => !v)}
                 className="flex w-full items-center gap-2 px-4 py-2 text-left text-[11px] transition-colors hover:bg-[var(--control-bg)]"
               >
                 <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                <span className="font-bold text-gray-700">출제 비율</span>
+                <span className="font-bold text-gray-700">유형 비율</span>
                 <span className="min-w-0 truncate text-gray-500">
                   {RATIO_SOURCES.filter((source) => effectiveRatio[source] > 0).map((source) => `${ratioSourceLabel(source)} ${effectiveRatio[source]}`).join(' · ')}
                 </span>
@@ -1376,7 +1385,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
             </div>
 
             {/* 단어 목록 — 한 줄에 번호·단어·뜻·배지, 그 아래 고를 수 있는 유형 칩만 */}
-            <div className="max-h-[520px] divide-y divide-gray-100 overflow-y-auto">
+            <div className="max-h-[min(420px,46dvh)] divide-y divide-gray-100 overflow-y-auto">
               {filteredTestWords.length === 0 ? (
                 <p className="px-4 py-8 text-center text-xs text-gray-400">조건에 맞는 단어가 없습니다.</p>
               ) : filteredTestWords.map((word) => (
@@ -1399,7 +1408,7 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
             <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-2.5">
               <div className="min-w-0">
                 <p className="text-xs font-bold text-gray-700">
-                  미리보기 <span className="font-semibold text-gray-400">{selectedWords.length}문항</span>
+                  2. 시험 구성 <span className="font-semibold text-gray-400">{selectedWords.length}문항</span>
                 </p>
                 {nonZeroCounts.length > 0 && (
                   <p className="mt-0.5 truncate text-[10px] text-gray-400">
@@ -1416,13 +1425,13 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                   }}
                   className="shrink-0 text-[11px] font-semibold text-gray-400 hover:text-gray-600"
                 >
-                  비우기
+                  선택 해제
                 </button>
               )}
             </div>
-            <div className="max-h-[520px] divide-y divide-gray-100 overflow-y-auto">
+            <div className="max-h-[min(420px,46dvh)] divide-y divide-gray-100 overflow-y-auto">
               {selectedWords.length === 0 ? (
-                <p className="px-4 py-10 text-center text-xs text-gray-400">왼쪽에서 시험에 낼 항목을 선택하세요.</p>
+                <p className="px-4 py-10 text-center text-xs text-gray-400">단어를 체크하면 이곳에 출제 순서대로 표시됩니다.</p>
               ) : selectedWords.map((word, index) => (
                 <PreviewRow
                   key={word.id}
@@ -1439,6 +1448,53 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
           </aside>
         </div>
       </div>
+        <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t bg-background px-4 py-3" aria-label="시험 저장과 인쇄">
+          <div className="min-w-0">
+            <p className="text-sm font-bold">3. 저장하고 인쇄</p>
+            {testSaveError && <p role="alert" className="mt-1 text-xs text-destructive">{testSaveError} · 선택은 유지됩니다. 다시 저장해 주세요.</p>}
+            <p role="status" className="mt-1 text-xs text-muted-foreground">{testSaving ? '시험 구성을 저장하고 있습니다.' : testLocked ? '채점된 시험입니다. 저장한 시험지를 인쇄할 수 있습니다.' : testDirty ? `${selectedWordIds.length}문항 · 변경한 구성을 저장해 주세요.` : activeTest ? `${activeTest.item_count}문항 저장됨 · 인쇄할 수 있습니다.` : '단어를 선택하고 시험 구성을 저장해 주세요.'}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {testLocked ? (
+              <span className="ml-1 flex h-8 items-center gap-1.5 rounded-md bg-gray-100 px-3 text-xs font-semibold text-gray-500" title={lockTitle}>
+                <Lock className="h-3.5 w-3.5" />
+                잠김
+              </span>
+            ) : (
+              <Button variant="action" size="sm" className="ml-1 h-8" onClick={saveVocabTest} disabled={testSaving || selectedWordIds.length === 0}>
+                {testSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />}
+                시험 구성 저장 · {selectedWordIds.length}문항
+              </Button>
+            )}            <Button
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={selectedWordIds.length === 0 || testSaving}
+              title={!activeTest || testDirty ? '구성을 저장한 뒤 새 시험지를 인쇄합니다' : '저장된 시험지를 인쇄합니다'}
+              onClick={() => void printVocabTest()}
+            >
+              <Printer className="mr-1.5 h-3.5 w-3.5" />
+              {!activeTest || testDirty ? '저장 후 인쇄' : '시험지 인쇄'}
+            </Button>
+          </div>
+        </div>
+
+
+      <details className="rounded-xl border bg-card px-4 py-2">
+        <summary className="cursor-pointer py-1 text-xs font-semibold">보충 시험지 인쇄</summary>
+        <div className="flex flex-wrap items-center justify-between gap-3 py-2"><p className="text-xs text-muted-foreground">현재 검색·지문 범위에서 {clinicPickCount}문항을 무작위로 뽑아 인쇄합니다. 정규 시험 구성은 바뀌지 않습니다.</p>            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={() => openClinicPrint('student')}
+              disabled={filteredTestWords.length === 0 || meaningLoading}
+              title={`현재 표시된 단어 ${filteredTestWords.length}개 중 ${clinicPickCount}문항을 뽑아 저장 없이 인쇄합니다.`}
+            >
+              {meaningLoading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Dice5 className="mr-1.5 h-3.5 w-3.5" />}
+              보충 시험지 인쇄
+            </Button>
+</div>
+      </details>
 
       <div className="overflow-hidden rounded-lg border border-gray-200">
         <button
@@ -1549,9 +1605,10 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
             </div>
           ))}
         </div>
-        <div className="flex justify-end border-t border-gray-200 p-3">
-          <Button onClick={() => saveWords(editWords)} disabled={!isDirty}>
-            변경사항 저장
+        <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 bg-background p-3">
+          <p role={wordSaveError ? 'alert' : 'status'} className={`text-xs ${wordSaveError ? 'text-destructive' : 'text-muted-foreground'}`}>{wordSaveError ? `${wordSaveError} 입력은 유지됩니다.` : isDirty ? '단어장 미저장' : '단어장 변경 없음'}</p>
+          <Button variant="action" onClick={() => saveWords(editWords)} disabled={!isDirty || wordSaving}>
+            {wordSaving ? '저장 중…' : '단어장 저장'}
           </Button>
         </div>
         </div>
@@ -1600,12 +1657,13 @@ export function VocabWordSetup({ weekId }: { weekId: string }) {
                 className="h-7 text-xs"
               >
                 <Save className="mr-1 h-3 w-3" />
-                저장
+                채점 규칙 저장
               </Button>
             </div>
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </fieldset>
   )
 }

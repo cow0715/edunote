@@ -1,3 +1,4 @@
+import { collectBankCopyRows } from '@/lib/bank-copy-pagination'
 import { getAuth, getTeacherId, err, ok } from '@/lib/api'
 import { getBook } from '@/lib/book-pdf/catalog'
 
@@ -60,46 +61,55 @@ export async function GET(request: Request) {
 
   // 문항 조회 — 첫 페이지에서만 정확한 count, 이후엔 생략
   const wantCount = all || page === 0
-  let qQuery = supabase
-    .from('exam_bank_question')
-    .select(
-      '*, exam_bank!inner(title, exam_year, exam_month, grade, source, material_kind)',
-      wantCount ? { count: 'exact' } : undefined,
-    )
-    .in('exam_bank_id', examIds)
-    // 최신 시험 우선 → 같은 시험 내 문항번호 순
-    .order('exam_year', { foreignTable: 'exam_bank', ascending: false })
-    .order('exam_month', { foreignTable: 'exam_bank', ascending: false })
-    .order('exam_bank_id', { ascending: true })
-    .order('question_number', { ascending: true })
+  const makeQuestionQuery = (wantCount: boolean) => {
+    let qQuery = supabase
+      .from('exam_bank_question')
+      .select(
+        '*, exam_bank!inner(title, exam_year, exam_month, grade, source, material_kind)',
+        wantCount ? { count: 'exact' } : undefined,
+      )
+      .in('exam_bank_id', examIds)
+      // 최신 시험 우선 → 같은 시험 내 문항번호 순
+      .order('exam_year', { foreignTable: 'exam_bank', ascending: false })
+      .order('exam_month', { foreignTable: 'exam_bank', ascending: false })
+      .order('exam_bank_id', { ascending: true })
+      .order('question_number', { ascending: true })
+      .order('id', { ascending: true })
 
-  if (type) qQuery = qQuery.eq('question_type', type)
-  if (chapter) qQuery = qQuery.like('source_key', `${Number(chapter)}:%`)
-  if (points) qQuery = qQuery.eq('points', Number(points))
-  if (difficulty) {
-    const values = difficulty.split(',').map((d) => d.trim()).filter(Boolean)
-    if (values.length === 1) qQuery = qQuery.eq('difficulty', values[0])
-    else if (values.length > 1) qQuery = qQuery.in('difficulty', values)
+    if (type) qQuery = qQuery.eq('question_type', type)
+    if (chapter) qQuery = qQuery.like('source_key', `${Number(chapter)}:%`)
+    if (points) qQuery = qQuery.eq('points', Number(points))
+    if (difficulty) {
+      const values = difficulty.split(',').map((d) => d.trim()).filter(Boolean)
+      if (values.length === 1) qQuery = qQuery.eq('difficulty', values[0])
+      else if (values.length > 1) qQuery = qQuery.in('difficulty', values)
+    }
+    if (maxCorrectRate) qQuery = qQuery.lte('correct_rate', Number(maxCorrectRate))
+    if (q) {
+      // 단어들을 AND 로 묶어서 풀텍스트 검색 (simple config)
+      const tsQuery = q
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((w) => w.replace(/[\\&|!:()'"]/g, ''))
+        .filter(Boolean)
+        .join(' & ')
+      if (tsQuery) {
+        qQuery = qQuery.textSearch('tsv', tsQuery, { config: 'simple' })
+      }
+    }
+
+    return qQuery
   }
-  if (maxCorrectRate) qQuery = qQuery.lte('correct_rate', Number(maxCorrectRate))
-  if (q) {
-    // 단어들을 AND 로 묶어서 풀텍스트 검색 (simple config)
-    const tsQuery = q
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((w) => w.replace(/[\\&|!:()'"]/g, ''))
-      .filter(Boolean)
-      .join(' & ')
-    if (tsQuery) {
-      qQuery = qQuery.textSearch('tsv', tsQuery, { config: 'simple' })
+
+  if (all) {
+    try {
+      const result = await collectBankCopyRows((from, to) => makeQuestionQuery(true).range(from, to))
+      return ok({ ...result, page, limit, hasMore: false })
+    } catch (error) {
+      return err(error instanceof Error ? error.message : '전체 조회 실패')
     }
   }
-
-  if (!all) {
-    const from = page * limit
-    const to = from + limit - 1
-    qQuery = qQuery.range(from, to)
-  }
+  const qQuery = makeQuestionQuery(wantCount).range(page * limit, (page + 1) * limit - 1)
 
   const { data, error, count } = await qQuery
   if (error) return err(error.message)

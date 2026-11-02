@@ -2,10 +2,27 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { extraction } from '../fixtures/book-pdf'
 const mock = vi.hoisted(() => ({ call: vi.fn() }))
 vi.mock('@/lib/llm/client', async (original) => ({ ...await original<typeof import('@/lib/llm/client')>(), callLlmTextDetailed: mock.call }))
-import { enrichVerifiedMaterial, EXPLANATION_WRITING_RULES, validateMaterialSupplement } from '@/lib/llm/material-enrichment'
+import { enrichVerifiedMaterial, enrichVerifiedMaterialDetailed, EXPLANATION_WRITING_RULES, validateMaterialSupplement } from '@/lib/llm/material-enrichment'
+import { createLlmExecution, llmCallKey, type LlmDetailedResult } from '@/lib/llm/client'
+import { withPdfWorkerContext } from '@/lib/pdf-import/context'
 beforeEach(() => vi.clearAllMocks())
 const supplement = { questions: [{ key: '1:exercise:1', solution: '정답의 근거 설명', vocabulary: 'intact 온전한' }] }
 describe('shared supplementary explanation and vocabulary', () => {
+  it('reuses exact historical Sonnet supplements and records the real model after switching defaults', async () => {
+    mock.call.mockResolvedValue({ text: JSON.stringify(supplement), stopReason: 'end_turn' })
+    await enrichVerifiedMaterial(extraction)
+    const options = mock.call.mock.calls[0][0]
+    const current = createLlmExecution(), historic = { ...current, configVersion: 'routing-v1:4aed6b2450f3',
+      taskBindings: { ...current.taskBindings, 'book.enrichMaterial': 'claude-sonnet-5-5' } }
+    const key = llmCallKey(options, historic)
+    const result = { text: JSON.stringify(supplement), stopReason: 'end_turn', execution: { task: 'book.enrichMaterial', requestedModel: 'claude-sonnet-5-5', responseModel: 'claude-sonnet-5-5', configVersion: historic.configVersion, callKey: key } } as LlmDetailedResult
+    mock.call.mockClear()
+    const paid = vi.fn(async () => { throw Error('new paid request forbidden') })
+    const reused = await withPdfWorkerContext({ cacheOnly: true, signal: new AbortController().signal, concurrency: 1, execute: fn => fn(), stage: async () => {}, write: async () => {}, batchCall: paid,
+      read: async <T,>(k: string) => k === 'batch-result:' + key ? { result } as T : null }, () => enrichVerifiedMaterialDetailed(extraction))
+    expect(reused).toEqual({ supplement, model: 'claude-sonnet-5-5' })
+    expect(mock.call).not.toHaveBeenCalled(); expect(paid).not.toHaveBeenCalled()
+  })
   it('only returns generated supplementary fields, leaving original data untouched', async () => {
     mock.call.mockResolvedValue({ text: JSON.stringify(supplement), stopReason: 'end_turn' })
     const source = structuredClone(extraction)
