@@ -15,6 +15,7 @@ import { BOOK_PROFILE_VERSION } from '../book-pdf/profiles'
 import { EXPLANATION_WRITING_RULES } from '../llm/material-enrichment-contract'
 import { NATIVE_RECOVERY_REVISION } from '../book-pdf/recovery-policy'
 import { SOURCE_AUDIT_PROMPT, SOURCE_AUDIT_REPAIR_PROMPT, SOURCE_PATCH_REPAIR_PROMPT } from '../book-pdf/audit-source'
+import { SOURCE_IMAGE_AUDIT_PROMPT, SOURCE_IMAGE_AUDIT_POLICY } from '../book-pdf/image-audit-input'
 import type { PdfImportJob } from './types'
 import { allowsPdfBatchTask } from './batch-policy'
 import { bookRequestIdentity } from '../book-pdf/request-identity'
@@ -262,7 +263,7 @@ export class PdfBatchTransport {
       if (this.job.kind === 'bank_book') {
         const result = await this.db.rpc('book_pdf_cost_reserve', { p_job: this.job.id, p_token: this.job.lease_token,
           p_batch: row.id, p_estimates: estimates, p_protocol: bookCostProtocol([SOURCE_MAP_PROMPT, SOURCE_AUDIT_PROMPT, SOURCE_AUDIT_REPAIR_PROMPT, SOURCE_PATCH_REPAIR_PROMPT,
-            EXPLANATION_WRITING_RULES, `native-recovery:${NATIVE_RECOVERY_REVISION}`,
+            EXPLANATION_WRITING_RULES, `native-recovery:${NATIVE_RECOVERY_REVISION}`, SOURCE_IMAGE_AUDIT_PROMPT, SOURCE_IMAGE_AUDIT_POLICY,
             ...(this.job.payload?.bookProfile === BOOK_PROFILE_VERSION ? [BOOK_PROFILE_VERSION] : [])], entries[0].meta.configVersion) })
         if (result.error || !result.data || !result.data.allowed) {
           const deferred = ['bundle_busy', 'bundle_preparing'].includes(result.data?.reason ?? '')

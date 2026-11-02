@@ -11,6 +11,7 @@ import { withPdfWorkerContext } from '@/lib/pdf-import/context'
 import { writeBookUnitStage } from '@/lib/book-pdf/unit-progress'
 import { bookFingerprint } from '@/lib/book-pdf/proof'
 import { SourceOutputIncompleteError } from '@/lib/book-pdf/source-output-policy'
+import { SOURCE_IMAGE_AUDIT_PROMPT, SOURCE_IMAGE_AUDIT_POLICY } from '@/lib/book-pdf/image-audit-input'
 const pass = { status: 'pass', checks: { content: true, mapping: true, formatting: true, inventory: true }, issues: [] }
 const compactPass = { ...pass, repair: null }
 const response = (v: unknown) => ({ text: JSON.stringify(v), stopReason: 'end_turn', usage: {} })
@@ -20,6 +21,36 @@ function proposed(f: ReturnType<typeof input>, before = 'Original', after = 'Cor
   return { ...f.audit, repair: { base_hash: sourceDraftHash(f.draft), edits: [{ target: f.target, mode: 'patch', patches: [{ before, after }], pages: [9] }], issues: [] } }
 }
 describe('image audit and bounded repair', () => {
+  it('independently audits original images without leaking corrupt native text into the verdict input', async () => {
+    const f = input()
+    f.pages[0].lines[0].text = 'CORRUPT_NATIVE_PUNCTUATION_SENTINEL'
+    f.draft[0].extraction.translation = '(A) 원본 A 해석\n(D) 원본 D 해석\n(C) 원본 C 해석\n(B) 원본 B 해석'
+    mock.call.mockResolvedValueOnce(response(pass))
+    const result = await auditAndRepairSource({ ...f, failureMode: 'hold' })
+    expect(result.status).toBe('audited')
+    const options = mock.call.mock.calls[0][0]
+    expect(JSON.stringify(options)).not.toContain('CORRUPT_NATIVE_PUNCTUATION_SENTINEL')
+    expect(options.content.filter((c: { type: string }) => c.type === 'image')).toEqual([
+      { type: 'image', source: { data: 'original-image', media_type: 'image/png' } },
+    ])
+    const request = JSON.parse(options.content.at(-1).text)
+    expect(request).not.toHaveProperty('source')
+    expect(request).not.toHaveProperty('mapping')
+    expect(request.candidate[0].extraction.translation).toBe(f.draft[0].extraction.translation)
+    expect(request.pages).toEqual([9])
+    expect(options.bookOperation.evidence.imageInputPolicy).toBe(SOURCE_IMAGE_AUDIT_POLICY)
+    expect(result.groups[0].extraction.translation).toBe(f.draft[0].extraction.translation)
+  })
+  it('keeps mismatches held with no generated repair in the independent image comparison', async () => {
+    const f = input()
+    mock.call.mockResolvedValueOnce(response(f.audit))
+    const result = await auditAndRepairSource({ ...f, failureMode: 'hold' })
+    expect(result.status).toBe('unresolved')
+    expect(result.groups).toEqual(f.draft)
+    expect(result.ledger).toHaveLength(0)
+    expect(mock.call).toHaveBeenCalledOnce()
+    expect(result.errors.some(e => e.includes(f.audit.issues[0].reason))).toBe(true)
+  })
   it('holds the first mismatch, retains its paid patch, and requires a manual action plus fresh image pass', async () => {
     const f = input(), saved = new Map<string, unknown>(), checkpoint = { pdfHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64) }
     const context = { signal: new AbortController().signal, concurrency: 1, execute: async <T,>(fn: () => Promise<T>) => fn(), stage: async () => {},
@@ -36,7 +67,7 @@ describe('image audit and bounded repair', () => {
     expect(complete.status).toBe('audited'); expect(complete.groups[0].extraction.passage).toBe('Correct sentence.')
     expect(complete.ledger).toHaveLength(1); expect(mock.call).toHaveBeenCalledOnce()
     expect(mock.call.mock.calls[0][0].content.some((c: { type: string }) => c.type === 'image')).toBe(true)
-    expect(mock.call.mock.calls[0][0].content.at(-2).text).toBe(SOURCE_AUDIT_PROMPT)
+    expect(mock.call.mock.calls[0][0].content.at(-2).text).toBe(SOURCE_IMAGE_AUDIT_PROMPT)
     expect(JSON.parse(mock.call.mock.calls[0][0].content.at(-1).text).candidate[0].extraction.passage).toBe('Correct sentence.')
   })
   it('requires an independent completed image comparison after a correction when output is truncated', async () => {

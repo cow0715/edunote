@@ -12,6 +12,7 @@ import { SOURCE_OUTPUT_POLICY, SourceOutputIncompleteError } from '@/lib/book-pd
 import { buildAnthropicRequest } from '@/lib/llm/providers/anthropic'
 import { getModel, MODEL_IDS } from '@/lib/llm/models'
 import { bookRequestIdentity } from '@/lib/book-pdf/request-identity'
+import { BOOK_FAILURE_POLICY } from '@/lib/book-pdf/failure-policy'
 
 const pass = { status: 'pass', checks: { content: true, mapping: true, formatting: true, inventory: true }, issues: [] }
 function fixture() {
@@ -35,6 +36,19 @@ function fixture() {
 }
 
 describe('book audit restart with real request identities and no provider network', () => {
+  it('reuses a paid pre-independent hold-policy pass with zero new requests', async () => {
+    const s = fixture()
+    const evidence = { operation: 'source_audit', source: sourceMapEvidence(s.f.pages), mapping: s.f.mapping, candidate: sourceAuditEvidence(s.f.draft) }
+    const old: CallLlmOptions = { ...s.oldOptions(SOURCE_AUDIT_PROMPT, { operation: evidence.operation, round: 1, source: evidence.source, mapping: evidence.mapping, candidate: evidence.candidate }, 6000),
+      reasoning: { type: 'between_tools', effort: 'high' },
+      bookOperation: { kind: 'audit', evidence: { images: [[9, s.images[0].sha256]], request: evidence, outputPolicy: SOURCE_OUTPUT_POLICY, failurePolicy: BOOK_FAILURE_POLICY } } }
+    const key = llmCallKey(old, s.execution), delivery = { result: s.result(pass) }
+    s.saved.set(`batch-result:${key}`, delivery)
+    const result = await withPdfWorkerContext(s.context, () => auditAndRepairSource({ ...s.f, images: s.images, failureMode: 'hold' }))
+    expect(result.status).toBe('audited')
+    expect(s.batchCall).not.toHaveBeenCalled()
+    expect(s.saved.get(`batch-result:${key}`)).toBe(delivery)
+  })
   it('reuses the completed pilot-era 6,000-token request without applying new reasoning settings retroactively', async () => {
     const s = fixture()
     const request = { operation: 'source_audit', round: 1, source: sourceMapEvidence(s.f.pages), mapping: s.f.mapping,
