@@ -21,7 +21,7 @@ import type { LlmDetailedResult } from '@/lib/llm/types'
 let fixture = nativeFixture()
 const input = () => ({ unit: fixture.unit, pdfHash, bytes: pdfBytes })
 beforeEach(() => {
-  vi.clearAllMocks(); fixture = nativeFixture()
+  Object.values(mocks).forEach(mock => mock.mockReset()); fixture = nativeFixture()
   mocks.read.mockImplementation(async () => structuredClone(fixture.pages))
   mocks.map.mockImplementation(async () => ({ mapping: structuredClone(fixture.mapping), resolved: { errors: [] } }))
   mocks.render.mockResolvedValue(fixture.images)
@@ -91,22 +91,22 @@ describe('native textbook worker pipeline', () => {
     await withPdfWorkerContext(context, () => processNativeBookUnit(input()))
     expect(mocks.map).toHaveBeenCalledOnce(); expect(mocks.audit).toHaveBeenCalledTimes(2); expect(mocks.enrich).toHaveBeenCalledOnce()
   })
-  it('retains a mapping correction counter and its exact input across restarts', async () => {
+  it('holds the first mapping error across restarts and permits only an explicit new mapping attempt', async () => {
     const saved = new Map<string, unknown>()
     const context = { signal: new AbortController().signal, concurrency: 1, execute: createCallLimiter(1),
       read: async <T,>(key: string) => saved.get(key) as T ?? null,
       write: async (key: string, value: unknown) => { saved.set(key, structuredClone(value)) }, stage: async () => {} }
     mocks.map.mockResolvedValueOnce({ mapping: { wrong: 'unchanged rejected output' }, resolved: { errors: ['bad refs'] } })
-      .mockRejectedValueOnce(new BookBatchPending())
-      .mockResolvedValueOnce({ mapping: null, resolved: { errors: ['bad refs again'] } })
-    await expect(withPdfWorkerContext(context, () => processNativeBookUnit(input()))).rejects.toBeInstanceOf(BookBatchPending)
-    const waitingInput = mocks.map.mock.calls[1][0].repair
     expect((await withPdfWorkerContext(context, () => processNativeBookUnit(input()))).verification.status).toBe('unresolved')
-    expect(mocks.map.mock.calls[2][0].repair).toEqual(waitingInput)
-    await withPdfWorkerContext(context, () => processNativeBookUnit(input()))
-    expect(mocks.map).toHaveBeenCalledTimes(3); expect(mocks.audit).not.toHaveBeenCalled()
+    expect((await withPdfWorkerContext(context, () => processNativeBookUnit(input()))).verification.status).toBe('unresolved')
+    expect(mocks.map).toHaveBeenCalledOnce(); expect(mocks.audit).not.toHaveBeenCalled()
     const progress = [...saved.values()].find(v => (v as { stage?: string }).stage === 'progress') as { json: string }
-    expect(JSON.parse(progress.json)).toMatchObject({ stage: 'mapping', status: 'held', reasons: ['bad refs again'] })
+    expect(JSON.parse(progress.json)).toMatchObject({ stage: 'mapping', status: 'held', reasons: ['bad refs'] })
+    fixture.pages[0].lines[0].x += 1 // A parser coordinate fix still needs an explicit failed-unit resume.
+    const result = await withPdfWorkerContext({ ...context, bookResume: { id: '11111111-1111-4111-8111-111111111111', stage: 'mapping' } }, () => processNativeBookUnit(input()))
+    expect(result.verification.status).toBe('passed'); expect(mocks.map).toHaveBeenCalledTimes(2)
+    expect(mocks.map.mock.calls[1][0]).not.toHaveProperty('repair')
+    expect([...saved.keys()].some(key => key.startsWith('book-mapping-history:'))).toBe(true)
   })
   it('never proceeds to a paid audit when saving the accepted mapping fails', async () => {
     await expect(withPdfWorkerContext({ signal: new AbortController().signal, concurrency: 1, execute: createCallLimiter(1),
@@ -194,17 +194,18 @@ describe('native textbook worker pipeline', () => {
     expect((await processNativeBookUnit(input())).verification.status).toBe('unresolved')
     expect(mocks.map).not.toHaveBeenCalled(); expect(mocks.render).not.toHaveBeenCalled()
   })
-  it('repairs wrong question identities within a bounded mapping budget', async () => {
+  it('holds a wrong question identity without buying a mapping correction', async () => {
     const bad = structuredClone(fixture.mapping); bad.groups[0].questions[0].id = 'wrong'
     mocks.map.mockResolvedValueOnce({ mapping: bad, resolved: { errors: [] } })
-    expect((await processNativeBookUnit(input())).verification.status).toBe('passed')
-    expect(mocks.map).toHaveBeenCalledTimes(2)
-    expect(mocks.map.mock.calls[1][0].repair.errors[0]).toContain('식별자')
+    const result = await processNativeBookUnit(input())
+    expect(result.verification.status).toBe('unresolved')
+    expect(result.verification.issues[0]).toContain('식별자')
+    expect(mocks.map).toHaveBeenCalledOnce(); expect(mocks.audit).not.toHaveBeenCalled()
   })
   it('holds a source whose mapping never resolves and does not create images or supplements', async () => {
     mocks.map.mockResolvedValue({ mapping: null, resolved: { errors: ['missing_native'] } })
     expect((await processNativeBookUnit(input())).verification.issues).toContain('missing_native')
-    expect(mocks.map).toHaveBeenCalledTimes(2); expect(mocks.audit).not.toHaveBeenCalled(); expect(mocks.enrich).not.toHaveBeenCalled()
+    expect(mocks.map).toHaveBeenCalledOnce(); expect(mocks.audit).not.toHaveBeenCalled(); expect(mocks.enrich).not.toHaveBeenCalled()
   })
   it('does not reparse a verified source when enrichment encounters a network failure', async () => {
     const saved = new Map<string, unknown>(), controller = new AbortController()
@@ -212,8 +213,12 @@ describe('native textbook worker pipeline', () => {
       read: async <T,>(key: string) => (saved.get(key) ?? null) as T | null,
       write: async (key: string, value: unknown) => { saved.set(key, structuredClone(value)) }, stage: async () => {} }
     mocks.enrich.mockRejectedValueOnce(Error('network'))
-    await expect(withPdfWorkerContext(context, () => processNativeBookUnit(input()))).rejects.toThrow('network')
-    const result = await withPdfWorkerContext(context, () => processNativeBookUnit(input()))
+    const held = await withPdfWorkerContext(context, () => processNativeBookUnit(input()))
+    expect(held.verification.failure?.stage).toBe('enrichment')
+    expect(held.verification.issues).toContain('network')
+    expect((await withPdfWorkerContext(context, () => processNativeBookUnit(input()))).verification.status).toBe('unresolved')
+    expect(mocks.enrich).toHaveBeenCalledOnce()
+    const result = await withPdfWorkerContext({ ...context, bookResume: { id: '11111111-1111-4111-8111-111111111111', stage: 'enrichment' } }, () => processNativeBookUnit(input()))
     expect(result.verification.status).toBe('passed')
     expect(mocks.map).toHaveBeenCalledTimes(1); expect(mocks.audit).toHaveBeenCalledTimes(1); expect(mocks.enrich).toHaveBeenCalledTimes(2)
   })

@@ -7,7 +7,8 @@ import { nativeFixture } from '../fixtures/book-native'
 import { bookFingerprint, bookSourceFingerprint } from '@/lib/book-pdf/proof'
 import { NATIVE_RECOVERY_REVISION } from '@/lib/book-pdf/recovery-policy'
 import { BookBatchPending } from '@/lib/book-pdf/batch-policy'
-import { withPdfWorkerContext } from '@/lib/pdf-import/context'
+import { getPdfWorkerContext, withPdfWorkerContext } from '@/lib/pdf-import/context'
+import { BOOK_FAILURE_POLICY } from '@/lib/book-pdf/failure-policy'
 const mocks = vi.hoisted(() => ({ verify: vi.fn(), warm: vi.fn(), read: vi.fn(), slice: vi.fn(), inventory: vi.fn(), publish: vi.fn(),prepare:vi.fn(),plan:vi.fn() }))
 vi.mock('@/lib/book-pdf/pdf', () => ({ readBookPages: mocks.read, bookPageSlice: mocks.slice }))
 vi.mock('@/lib/book-pdf/inventory', () => ({ inventoryBook: mocks.inventory }))
@@ -29,7 +30,7 @@ function database(status = 'processing', completed = false, leaseLost = false) {
   }, from(table: string) {
     const query = { select: () => query, eq: () => query,
       single: async () => ({ data: doc, error: null }),
-      upsert: (records: {manifest: BookDraftUnit['manifest']}[]) => { if (!rows.length) rows.push({ ...draft(), manifest: records[0].manifest, extraction: null, verified_version: null, verification: { ...verification(), status: 'pending' } }); return query },
+      upsert: (records: {manifest: BookDraftUnit['manifest']}[]) => { for (const record of records) if (!rows.some(r => r.unit_key === record.manifest.key)) rows.push({ ...draft(), unit_key: record.manifest.key, manifest: record.manifest, extraction: null, verified_version: null, verification: { ...verification(), status: 'pending' } }); return query },
       update: (value: Record<string, unknown>) => { Object.assign(doc, value); return query },
       then: (resolve: (r: unknown) => unknown) => Promise.resolve({ data: table === 'book_pdf_unit' ? rows : null, error: null }).then(resolve),
     }
@@ -50,6 +51,25 @@ beforeEach(() => {
   mocks.publish.mockResolvedValue('bank')
 })
 describe('automatic textbook worker', () => {
+  it('resumes only explicitly selected failed units and leaves successful and unselected units untouched', async () => {
+    const db = database('processing', true), second = { ...manifest.units[0], key: 'unit-2', order: 2 }, third = { ...manifest.units[0], key: 'unit-3', order: 3 }
+    const failed = (unit: typeof second): BookDraftUnit => ({ ...draft(), unit_key: unit.key, manifest: unit, verified_version: null,
+      verification: { ...verification(), status: 'unresolved' as const, source_hash: bookSourceFingerprint(unit),
+        failure: { policy: BOOK_FAILURE_POLICY, stage: 'enrichment' as const, attempt_id: null }, issues: ['보완 오류'] } })
+    db.rows.push(failed(second), failed(third))
+    const before = JSON.stringify([db.rows[0], db.rows[2]])
+    mocks.inventory.mockReturnValue({ ...manifest, units: [manifest.units[0], second, third] })
+    const attempt = '11111111-1111-4111-8111-111111111111'
+    const resumedJob = { ...job, payload: { bookFailureResume: { id: attempt, units: [{ unit_key: second.key, stage: 'enrichment', source_hash: bookSourceFingerprint(second) }] } } }
+    const original = mocks.verify.getMockImplementation()!
+    mocks.verify.mockImplementation(async input => { expect(getPdfWorkerContext()?.bookResume).toEqual({ id: attempt, stage: 'enrichment' }); return original(input) })
+    const result = await withPdfWorkerContext({ signal: new AbortController().signal, concurrency: 1, execute: fn => fn(), stage: async () => {}, read: async () => null, write: async () => {} },
+      () => importBookPdf(db.client, resumedJob, pdfBytes))
+    expect(mocks.verify).toHaveBeenCalledOnce(); expect(mocks.verify.mock.calls[0][0].unit.key).toBe('unit-2')
+    expect(JSON.stringify([db.rows[0], db.rows[2]])).toBe(before)
+    expect(result).toMatchObject({ auto_published: false, manual_resume_only: true, book_failures: [{ unit_key: 'unit-3' }] })
+    expect(mocks.publish).not.toHaveBeenCalled()
+  })
   it('stops after the representative window and does not publish or recursively process the rest',async()=>{
     const db=database(), rpc=db.client.rpc.bind(db.client), other={...manifest.units[0],key:'unit-2',order:2}
     mocks.inventory.mockReturnValue({...manifest,units:[manifest.units[0],other]})
@@ -155,7 +175,11 @@ describe('automatic textbook worker', () => {
   it('does not warm or send an entire chapter even when units share a chapter', async () => {
     mocks.inventory.mockReturnValue({ ...manifest, units: [manifest.units[0], { ...manifest.units[0], key: 'unit-2', order: 2 }] })
     mocks.verify.mockRejectedValue(new Error('unit failure'))
-    await expect(importBookPdf(database().client, job, pdfBytes)).rejects.toThrow('unit failure')
+    const result = await importBookPdf(database().client, job, pdfBytes)
+    expect(result).toMatchObject({ manual_resume_only: true, book_failures: [
+      { unit_key: manifest.units[0].key, stage: 'preparation', reasons: ['unit failure'] },
+      { unit_key: 'unit-2', stage: 'preparation', reasons: ['unit failure'] },
+    ] })
     expect(mocks.warm).not.toHaveBeenCalled()
     expect(mocks.verify).toHaveBeenCalledTimes(2)
   })

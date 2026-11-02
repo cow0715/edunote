@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ImportJob } from '@/components/pdf-import/use-jobs'
 const data = vi.hoisted(() => ({ jobs: [] as ImportJob[] }))
@@ -9,7 +9,7 @@ import { PdfImportJobList } from '@/components/pdf-import/job-list'
 
 let client: QueryClient
 beforeEach(() => { client = new QueryClient(); data.jobs = [] })
-afterEach(() => { cleanup(); client.clear() })
+afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals() })
 const base: ImportJob = { id: 'job', kind: 'bank_questions', target_id: 'exam', status: 'failed', stage: '저장', completed_calls: 27, attempt: 1, error: null, can_retry: false, result: null }
 function show() {
   const open = vi.fn()
@@ -17,6 +17,17 @@ function show() {
   return open
 }
 describe('incomplete exam registration UI', () => {
+  it('shows book stage/reason and sends a failed-only resume only after an explicit click', async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ accepted: true })); vi.stubGlobal('fetch', fetch)
+    data.jobs = [{ ...base, kind: 'bank_book', can_resume_failed: true, updated_at: '2026-11-02T00:00:00Z', result: { manual_resume_only: true,
+      book_failures: [{ unit_key: 'unit-1', source_hash: 'a'.repeat(64), stage: 'audit', attempt_id: null, labels: ['1강 1번', '1강 2번'], reasons: ['문장 연결 불일치'] }] } }]
+    show(); expect(fetch).not.toHaveBeenCalled()
+    expect(screen.getByText(/1강 1번 · 1강 2번 — 원본 대조: 문장 연결 불일치/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '보류 1지문만 재개' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    expect(fetch.mock.calls[0][0]).toBe('/api/pdf-import/jobs/job/resume-failed')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ units: ['unit-1'], snapshot: '2026-11-02T00:00:00Z', confirm: true })
+  })
   it('preserves the weekly review draft status after merging the storage audit', () => {
     data.jobs = [{ ...base, kind: 'week_answers', status: 'succeeded', result: { needs_review: true } }]
     show()

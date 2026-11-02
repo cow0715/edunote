@@ -7,6 +7,9 @@ import type { PdfBatchTransport } from '../src/lib/pdf-import/batch-transport'
 import { examImportIssues } from '../src/lib/pdf-import/exam-completeness'
 import { savedExamProgress } from '../src/lib/pdf-import/exam-progress'
 import { PdfCostStopped } from '../src/lib/pdf-import/cost-policy'
+import { bookFailures, failedBookUnits } from '../src/lib/book-pdf/failure-policy'
+import { NATIVE_RECOVERY_REVISION } from '../src/lib/book-pdf/recovery-policy'
+import type { BookDraftUnit } from '../src/lib/book-pdf/types'
 
 export async function main() {
   if (process.argv.includes('--help')) {
@@ -125,10 +128,12 @@ export async function main() {
     const unresolved = job!.kind === 'bank_book' && result.verification_unresolved === true
     const examIssues = ['bank_questions', 'bank_explanation'].includes(job!.kind) ? examImportIssues(result) : []
     const incomplete = examIssues.length > 0 || result.exam_incomplete === true
+    const held = bookFailures(result)
     const { data, error } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: pilotReview || unresolved || incomplete ? 'failed' : 'succeeded',
       p_result: incomplete ? { ...result, exam_incomplete: true } : result,
       p_error: pilotReview ? '대표 구간 검증 완료 · 전체 처리 승인과 별도 재개를 기다립니다.' : incomplete ? `자동 복구 후에도 미완료 문항 ${examIssues.length}개가 남았습니다. 문항별 사유를 확인해주세요.`
-        : unresolved ? Array.isArray(result.inventory_errors) ? '원문 문항 경계를 확정하지 못해 등록을 보류했습니다.' : '자동 대조·복구 후 확정하지 못한 항목이 있어 등록을 보류했습니다.' : null })
+        : unresolved ? held.length ? `${held.length}지문 처리 보류 · 자동 재시도하지 않습니다. ${held[0].labels.join('·')}: ${held[0].reasons[0]}`.slice(0,500)
+          : Array.isArray(result.inventory_errors) ? '원문 문항 경계를 확정하지 못해 등록을 보류했습니다.' : '원본 대조 결과를 확정하지 못해 등록을 보류했습니다.' : null })
     if (error || !data) throw new Error('완료 상태 저장 실패')
     // Quality recovery already exhausted its bounded budget; don't start another paid platform retry.
     if (pilotReview || unresolved || incomplete) { console.log(`[pdf-worker] verification-unresolved ${id}`); return }
@@ -139,12 +144,27 @@ export async function main() {
     // A later infrastructure/vocabulary failure must not hide numbered parse failures.
     let progress: Record<string, unknown> | null = null
     try { progress = await savedExamProgress(context, job!) } catch { /* Preserve the original error if the checkpoint DB is unavailable. */ }
+    if (job?.kind === 'bank_book') {
+      try {
+        const rows = await client.from('book_pdf_unit').select('*').eq('document_id', job.target_id)
+        if (!rows.error) {
+          const book_failures = failedBookUnits((rows.data ?? []) as BookDraftUnit[])
+          if (book_failures.length) progress = { document_id: job.target_id, book_failures, manual_resume_only: true,
+            verification_unresolved: true, recovery_revision: NATIVE_RECOVERY_REVISION }
+        }
+      } catch { /* Keep the original job error when diagnostics cannot be read. */ }
+    }
     if (error instanceof PdfBatchStopped || error instanceof PdfBatchRequestFailed) {
       const { data, error: finishError } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token,
         p_status: 'failed', p_result: { ...progress, ...(error instanceof PdfCostStopped ? { cost_control: error.summary } : {}), ...(error instanceof PdfBatchRequestFailed ? { batch_exhausted: true } : { batch_stopped: true }) }, p_error: message.slice(0,500) })
       if (finishError || !data) throw new Error('배치 중단 상태 저장 실패')
       console.log(`[pdf-worker] batch-stopped ${id}`)
       return
+    }
+    if (job?.kind === 'bank_book') {
+      const saved = await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: 'failed', p_result: progress, p_error: message.slice(0,500) })
+      if (saved.error || !saved.data) throw Error('교재 보류 상태 저장 실패')
+      return // No Cloud Run task retry for textbook generation failures.
     }
     const attempt = Number(process.env.CLOUD_RUN_TASK_ATTEMPT ?? '3')
     await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: attempt < 3 ? 'queued' : 'failed', p_result: progress, p_error: message.slice(0, 500) })

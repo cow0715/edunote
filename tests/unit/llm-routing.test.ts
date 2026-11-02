@@ -14,6 +14,7 @@ import * as models from '../../src/lib/llm/models'
 import { parseJsonObjectResponse } from '../../src/lib/llm/json'
 import { createCallLimiter, withPdfWorkerContext, type PdfWorkerContext } from '../../src/lib/pdf-import/context'
 import { BookBatchPending } from '@/lib/book-pdf/batch-policy'
+import type { CallLlmOptions, LlmDetailedResult } from '@/lib/llm/types'
 
 const response = (overrides: Record<string, unknown> = {}) => ({
   model: 'provider-resolved-snapshot', stop_reason: 'end_turn',
@@ -32,6 +33,21 @@ function workerContext() {
 }
 
 describe('worker integration with task routing', () => {
+  it('keeps a manual retry identity stable across restarts and applies it only to its selected failed stage', async () => {
+    const { context, saved } = workerContext(), execution = createLlmExecution(), id = '11111111-1111-4111-8111-111111111111'
+    const options = { task: 'book.enrichMaterial', maxTokens: 1000, content: 'same verified source', execution } as const
+    context.bookResume = { id, stage: 'enrichment' }
+    context.batchCall = vi.fn(async (o: CallLlmOptions, key: string) => ({ text: '{"questions":[]}', finishReason: 'complete', stopReason: 'end_turn', usage: {},
+      execution: { task: o.task, requestedModel: execution.taskBindings[o.task], configVersion: execution.configVersion, callKey: key } }) as LlmDetailedResult)
+    await withPdfWorkerContext(context, () => callLlmTextDetailed(options))
+    await withPdfWorkerContext({ ...context }, () => callLlmTextDetailed(options))
+    expect(context.batchCall).toHaveBeenCalledOnce()
+    const [actual, key] = vi.mocked(context.batchCall).mock.calls[0]
+    expect(actual.bookAttempt).toBe(id); expect(key).not.toBe(llmCallKey(options, execution))
+    expect(saved.has(key)).toBe(true)
+    await withPdfWorkerContext(context, () => callLlmTextDetailed({ ...options, task: 'book.mapSource' }))
+    expect(vi.mocked(context.batchCall).mock.calls[1][0]).not.toHaveProperty('bookAttempt')
+  })
   it('retains initial request keys when adding internal recovery metadata and never sends it to Anthropic', async () => {
     const execution = createLlmExecution()
     const options = { task: 'examBank.parseQuestions', maxTokens: 8192, content: 'source' } as const
@@ -77,7 +93,7 @@ describe('worker integration with task routing', () => {
     await withPdfWorkerContext(context, () => callLlmTextDetailed(options))
     expect(sdk.create).toHaveBeenCalledTimes(1)
     expect(sdk.create.mock.calls[0][0].model).toBe(models.MODEL_IDS.haiku55)
-    expect(sdk.create.mock.calls[0][1]).toEqual(expect.objectContaining({ timeout: 180_000, maxRetries: 2, signal: context.signal }))
+    expect(sdk.create.mock.calls[0][1]).toEqual(expect.objectContaining({ timeout: 180_000, maxRetries: 0, signal: context.signal }))
     await withPdfWorkerContext(context, () => callLlmTextDetailed({ ...options,
       execution: createLlmExecution({ 'book.mapSource': models.MODEL_IDS.opus55 }) }))
     expect(sdk.create).toHaveBeenCalledTimes(2)

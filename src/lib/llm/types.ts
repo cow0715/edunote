@@ -68,6 +68,8 @@ export type CallLlmOptions = TaskCallOptions & {
   batchRetryGroup?: string
   /** Textbook-only evidence identity; internal metadata, never a provider field. */
   bookOperation?: { kind: 'mapping' | 'mapping_repair' | 'audit' | 'repair' | 'enrichment' | 'enrichment_repair'; evidence: unknown }
+  /** Durable manual retry identity. Internal metadata, not an Anthropic field. */
+  bookAttempt?: string
 }
 
 export type LlmDetailedResult = {

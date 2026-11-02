@@ -8,6 +8,7 @@ import type { PdfImportKind } from '@/lib/pdf-import/types'
 import { usePdfImportJobs, type ImportJob } from './use-jobs'
 import { examImportIssues, type ExamImportExclusion } from '@/lib/pdf-import/exam-completeness'
 import { PilotReview } from './pilot-review'
+import { bookFailures } from '@/lib/book-pdf/failure-policy'
 
 const EMPTY_JOBS: ImportJob[] = []
 
@@ -46,6 +47,16 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedT
       await client.invalidateQueries({ queryKey: ['pdf-import-jobs'] })
     }
   }
+  async function resumeFailed(job: ImportJob) {
+    setRetrying(job.id)
+    try {
+      const response = await fetch(`/api/pdf-import/jobs/${job.id}/resume-failed`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ units: bookFailures(job.result).map(u => u.unit_key), snapshot: job.updated_at, confirm: true }) })
+      if (!response.ok) throw new Error((await response.json()).error || '보류 구간 재개 실패')
+      toast.success('보류 구간만 재개하도록 요청했습니다.')
+    } catch (error) { toast.error(error instanceof Error ? error.message : '재개 요청 실패') }
+    finally { setRetrying(null); await client.invalidateQueries({ queryKey: ['pdf-import-jobs'] }) }
+  }
   return <div className="space-y-2 rounded-xl border bg-card p-4" aria-label="PDF 처리 작업" aria-live="polite">
     <p className="text-sm font-medium">최근 등록·처리 내역</p>
     {filtered.map((job) => {
@@ -53,6 +64,7 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedT
       const excluded = job.result?.recovery_excluded === true
       const pilotWaiting = job.result?.pilot_review_required === true && job.result?.pilot_review_approved !== true
       const issues = examJob ? examImportIssues(job.result) : []
+      const bookIssues = job.kind === 'bank_book' ? bookFailures(job.result) : []
       const storageError = typeof job.result?.storage_check_error === 'string' ? job.result.storage_check_error : null
       const skipped = examJob ? null : job.result?.skipped_questions ?? job.result?.skipped_pages
       const exclusions = Array.isArray(job.result?.excluded_questions) ? job.result.excluded_questions as ExamImportExclusion[] : []
@@ -65,6 +77,12 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedT
           {job.status === 'waiting_batch' && job.resume_after && <p className="text-xs text-muted-foreground">다음 상태 확인 {new Date(job.resume_after).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</p>}
           {job.status === 'waiting_batch' && <p className="text-muted-foreground">이 화면을 닫아도 계속 처리되며, 배치 완료 후 자동으로 이어집니다.</p>}
           {job.error && <p className="mt-1 text-destructive">{job.error}</p>}
+          {bookIssues.length > 0 && <details className="mt-2 text-destructive"><summary>보류 {bookIssues.length}지문 · 실패 구간과 사유</summary>
+            <ul className="mt-1 space-y-1" aria-label="교재 보류 구간과 사유">{bookIssues.map(u => <li key={u.unit_key}>
+              {u.labels.join(' · ')} — {{ preparation: 'PDF 준비', mapping: '문항 연결', audit: '원본 대조', enrichment: '풀이·어휘 보완' }[u.stage]}: {u.reasons.join(' / ')}
+            </li>)}</ul>
+            <p className="mt-1 text-muted-foreground">성공한 단계는 보존했습니다. 원인을 수정한 뒤 보류 구간만 재개할 수 있으며, 새 AI 요청에는 비용이 발생할 수 있습니다.</p>
+          </details>}
           {storageError && storageError !== job.error && <p className="mt-1 text-destructive">{storageError}</p>}
           {job.status === 'succeeded' && !issues.length && !storageError && <p className="text-muted-foreground">{job.kind === 'bank_book' ? job.result?.auto_published ? '자동 검증을 통과해 문제은행과 단어장에 등록했습니다.' : '자동 복구 후에도 확정하지 못한 항목이 있어 등록을 보류했습니다. 처리 결과에 사유를 남겼습니다.' : job.result?.needs_review ? '검토 초안을 만들었습니다. 아래에서 원문 정답을 확인하고 확정해 주세요. 기존 정답과 학생 답안은 변경하지 않았습니다.' : '완료됐습니다. 자료 목록에 반영했습니다.'}</p>}
           {issues.length > 0 && <div className="mt-2" role="alert">
@@ -87,6 +105,7 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedT
         {excluded && onOpenMaterial && typeof job.result?.registered_bank_id === 'string' && <Button size="sm" variant="outline" className="min-h-11" onClick={() => onOpenMaterial(job.result!.registered_bank_id as string)}>등록된 자료 보기</Button>}
         {(job.status === 'succeeded' || issues.length > 0) && job.kind !== 'bank_book' && onOpenMaterial && <Button size="sm" variant="outline" className="min-h-11" onClick={() => onOpenMaterial(String(job.result?.exam_id ?? job.target_id))}>{issues.length ? '저장된 자료 보기' : '자료 보기'}</Button>}
         {job.can_retry && <Button size="sm" variant="outline" disabled={retrying !== null} onClick={() => void retry(job.id)}>{retrying === job.id ? '요청 중' : job.result?.pilot_review_approved === true ? '전체 처리 재개' : '재실행'}</Button>}
+        {job.can_resume_failed && job.updated_at && <Button size="sm" variant="outline" disabled={retrying !== null} onClick={() => void resumeFailed(job)}>보류 {bookIssues.length}지문만 재개</Button>}
         </div>
       </div>
     })}

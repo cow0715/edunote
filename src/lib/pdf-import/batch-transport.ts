@@ -124,7 +124,7 @@ export class PdfBatchTransport {
         } else {
           const type = result.type === 'errored' ? result.error.error.type : result.type
           outcomes[meta.key] = type
-          if (!retryableBatchResult(type) || this.attempts(meta.key, meta.retryGroup) >= PDF_BATCH_REQUEST_ATTEMPTS) {
+          if (this.job.kind === 'bank_book' || !retryableBatchResult(type) || this.attempts(meta.key, meta.retryGroup) >= PDF_BATCH_REQUEST_ATTEMPTS) {
             await this.context.write(`batch-result:${meta.key}`, { error: `배치 ${getTask(meta.task).label} 요청 실패 (${type}, 접수 ${this.attempts(meta.key, meta.retryGroup)}회). 자동 재요청을 중단했습니다.`, attempts: this.attempts(meta.key, meta.retryGroup) } satisfies Delivery)
           }
         }
@@ -193,7 +193,9 @@ export class PdfBatchTransport {
       if (!this.context.cacheOnly && [...this.pending.values()].some(p => p.meta.semanticKey === semanticKey && p.meta.key !== key)) throw new PdfBatchPending()
     }
     if (this.context.cacheOnly) throw new PdfBatchStopped('저장된 응답이 없는 구간입니다. 추가 비용 방지 모드에서는 새 요청을 접수하지 않습니다.')
-    if (this.attempts(key, options.batchRetryGroup) >= PDF_BATCH_REQUEST_ATTEMPTS) throw new PdfBatchRequestFailed('배치 요청을 최초 포함 3회 접수했지만 완료하지 못했습니다.', PDF_BATCH_REQUEST_ATTEMPTS)
+    const limit = this.job.kind === 'bank_book' ? 1 : PDF_BATCH_REQUEST_ATTEMPTS
+    if (this.attempts(key, options.batchRetryGroup) >= limit) throw new PdfBatchRequestFailed(this.job.kind === 'bank_book'
+      ? '배치 요청이 실패해 보류했습니다. 성공 응답은 유지하며 자동 재접수하지 않습니다.' : '배치 요청을 최초 포함 3회 접수했지만 완료하지 못했습니다.', limit)
     if (!this.pending.has(key)) {
       const model = getModel(options.execution.taskBindings[options.task])
       if (!model) throw new PdfBatchStopped('PDF 배치 모델 설정이 올바르지 않습니다.')
@@ -276,7 +278,7 @@ export class PdfBatchTransport {
         if (error instanceof Anthropic.APIError && error.status && error.status >= 400 && error.status < 500 && error.status !== 408) {
           await this.update(row, 'rejected', null, Object.fromEntries(entries.map((r) => [r.meta.key, `http_${error.status}`])))
           await this.recordBatchUsage(row)
-          if (error.status !== 429) for (const entry of entries) await this.context.write(`batch-result:${entry.meta.key}`, { error: `배치 접수가 거절됐습니다 (HTTP ${error.status}). 설정·요청 확인이 필요합니다.`, attempts: this.attempts(entry.meta.key, entry.meta.retryGroup) } satisfies Delivery)
+          if (this.job.kind === 'bank_book' || error.status !== 429) for (const entry of entries) await this.context.write(`batch-result:${entry.meta.key}`, { error: `배치 접수가 거절됐습니다 (HTTP ${error.status}). 설정·요청 확인이 필요합니다.`, attempts: this.attempts(entry.meta.key, entry.meta.retryGroup) } satisfies Delivery)
           continue
         }
         throw new PdfBatchStopped('배치 접수 응답을 확인하지 못했습니다. 중복 과금을 막기 위해 자동 재접수를 중단했습니다. 배치 기록 확인이 필요합니다.')

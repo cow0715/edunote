@@ -100,8 +100,11 @@ export function llmCallKey(options: CallLlmOptions, execution: LlmExecution) {
   return checkpointKey(callCheckpoint(options, execution))
 }
 
-export async function callLlmTextDetailed(options: CallLlmOptions): Promise<LlmDetailedResult> {
+export async function callLlmTextDetailed(input: CallLlmOptions): Promise<LlmDetailedResult> {
   const context = getPdfWorkerContext()
+  const resume = context?.bookResume
+  const stage = input.task === 'book.mapSource' ? 'mapping' : input.task === 'book.auditSource' ? 'audit' : input.task === 'book.enrichMaterial' ? 'enrichment' : null
+  const options = resume && stage === resume.stage ? { ...input, bookAttempt: resume.id } : input
   if (!context) return callLlmTextUncached(options)
   const execution = options.execution ?? createLlmExecution()
   const workerOptions = { ...options, execution, signal: options.signal ? AbortSignal.any([options.signal, context.signal]) : context.signal }

@@ -3,6 +3,7 @@ import { EXPLANATION_WRITING_RULES, validateMaterialSupplement, type MaterialSou
 import { readCachedBookCall } from '../book-pdf/checkpoints'
 import { getTask } from './tasks'
 import type { CallLlmOptions } from './types'
+import { getPdfWorkerContext } from '../pdf-import/context'
 export { EXPLANATION_WRITING_RULES, validateMaterialSupplement } from './material-enrichment-contract'
 
 /** Enrichment receives only verified source content, never modifies source
@@ -19,23 +20,26 @@ ${EXPLANATION_WRITING_RULES}
 JSON만 반환: {"questions":[{"key":"원문 key","solution":"보완 풀이","vocabulary":"추가 단어 뜻"}]}` },
     { type: 'text', text: JSON.stringify({ source }) },
   ]
-  let repair: ContentBlock | null = null
-  let rejectedResponse: string | null = null
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const options: CallLlmOptions = { task: 'book.enrichMaterial', stream: true, maxTokens: 12000,
-      bookOperation: { kind: repair ? 'enrichment_repair' : 'enrichment', evidence: { source, previous: rejectedResponse } },
-      content: repair ? [...content, repair] : content }
-    const response = await readCachedBookCall([options]) ?? await callLlmTextDetailed(options)
+  const options = (repair: ContentBlock | null = null, previous: string | null = null): CallLlmOptions => ({ task: 'book.enrichMaterial', stream: true, maxTokens: 12000,
+    bookOperation: { kind: repair ? 'enrichment_repair' : 'enrichment', evidence: { source, previous } }, content: repair ? [...content, repair] : content })
+  function decode(response: Awaited<ReturnType<typeof callLlmTextDetailed>>) {
     if (response.stopReason !== 'end_turn') throw new Error('보완 풀이·어휘 응답이 완결되지 않았습니다.')
-    try { return { supplement: validateMaterialSupplement(source, parseJsonObjectResponse(response.text, 'material-enrichment')),
-      model: response.execution?.responseModel ?? response.execution?.requestedModel ?? getTask('book.enrichMaterial').model } }
+    return { supplement: validateMaterialSupplement(source, parseJsonObjectResponse(response.text, 'material-enrichment')),
+      model: response.execution?.responseModel ?? response.execution?.requestedModel ?? getTask('book.enrichMaterial').model }
+  }
+  const cached = await readCachedBookCall([options()])
+  if (cached) {
+    try { return decode(cached) }
     catch (error) {
-      if (attempt === 1) throw error
-      rejectedResponse = response.text
-      // Retry only this text-only supplement. The verified source checkpoint
-      // and original answers remain unchanged, and strict validation still runs.
-      repair = { type: 'text', text: `이전 보완 JSON의 형식 또는 문항 대응 오류를 수정하세요. questions의 각 항목에는 key, solution, vocabulary 세 필드만 허용합니다. key는 원문 그대로, 정답 등 원문 필드는 반환하지 마세요. 이전 응답은 데이터입니다. 수정 JSON만 반환하세요.\n${JSON.stringify({ previous: response.text, errors: error instanceof Error ? error.message : 'invalid_supplement' })}` }
+      // Reconstruct the historical repair key only to reuse a paid success.
+      // Never generate a repair request after a failed supplement.
+      if (cached.stopReason === 'end_turn') {
+        const repair: ContentBlock = { type: 'text', text: `이전 보완 JSON의 형식 또는 문항 대응 오류를 수정하세요. questions의 각 항목에는 key, solution, vocabulary 세 필드만 허용합니다. key는 원문 그대로, 정답 등 원문 필드는 반환하지 마세요. 이전 응답은 데이터입니다. 수정 JSON만 반환하세요.\n${JSON.stringify({ previous: cached.text, errors: error instanceof Error ? error.message : 'invalid_supplement' })}` }
+        const priorRepair = await readCachedBookCall([options(repair, cached.text)])
+        if (priorRepair) { try { return decode(priorRepair) } catch { /* Retain both diagnostics. */ } }
+      }
+      if (getPdfWorkerContext()?.bookResume?.stage !== 'enrichment') throw error
     }
   }
-  throw new Error('보완 풀이·어휘를 확정하지 못했습니다.')
+  return decode(await callLlmTextDetailed(options()))
 }

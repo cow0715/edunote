@@ -13,7 +13,7 @@ export async function resolvePdfImport(
     const job = await response.json() as PdfJobProgress
     onProgress?.(job)
     if (job.status === 'succeeded') return job.result ?? {}
-    if (job.status === 'failed') throw new Error(`${job.error || 'PDF 처리 실패'} — 작업 목록에서 재실행할 수 있습니다.`)
+    if (job.status === 'failed') throw new Error(`${job.error || 'PDF 처리 실패'} — ${job.result?.manual_resume_only === true ? '작업 목록에서 보류 구간과 사유를 확인해주세요.' : '작업 목록에서 재실행할 수 있습니다.'}`)
     if (job.can_retry || (job.status === 'queued' && job.error) || (job.status === 'running' && job.lease_expires_at && Date.now() - new Date(job.lease_expires_at).getTime() > 30_000)) {
       throw new Error('워커 실행이 지연되거나 중단됐습니다. 작업 목록에서 상태를 확인하고 재실행해주세요.')
     }

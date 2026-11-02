@@ -16,11 +16,13 @@ import { prepareBookProfiles, saveBookProfilePlan } from './profile-preflight'
 import { classificationConflict, sourceClassificationConflict, getBook } from './catalog'
 import { BOOK_METADATA_REVISION, oldMetadataRevision } from './academic-year'
 import { bookRecoveryExcluded } from './pilot-review'
+import { BOOK_FAILURE_POLICY, bookResume, failedBookUnits, heldBookUnit } from './failure-policy'
 
 export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, bytes: Uint8Array): Promise<Record<string, unknown>> {
   if (bookRecoveryExcluded(job)) throw new PdfBatchStopped('이미 등록된 교재이므로 재처리 대상에서 제외했습니다.')
   const pdfHash = createHash('sha256').update(bytes).digest('hex')
   const profileMode = job.payload.bookProfile === BOOK_PROFILE_VERSION, context = getPdfWorkerContext()
+  const resume = bookResume(job.payload)
   async function stage(unit: NativeBookResult | null, unitKey: string | null) {
     const { error } = await client.rpc('book_pdf_stage', { p_job_id: job.id, p_token: job.lease_token,
       p_unit_key: unitKey, p_extraction: unit?.extraction ?? null, p_validation: unit?.validation ?? null, p_verification: unit?.verification ?? null,
@@ -46,7 +48,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
       return { document_id: document.id, exam_id: await publishVerifiedBook(client, document), auto_published: true }
     }
     const recheckMetadata = !!document.manifest?.classification_error && oldMetadataRevision(document.manifest.metadata_revision)
-    if (profileMode || recheckMetadata || (document.manifest && !document.manifest.errors.length && data?.some((u) => needsUpdatedNativeRecovery((u as BookDraftUnit).verification)))) {
+    if (resume || profileMode || recheckMetadata || (document.manifest && !document.manifest.errors.length && data?.some((u) => needsUpdatedNativeRecovery((u as BookDraftUnit).verification)))) {
       // Keep accepted units and checkpoints; only a new deployed policy may
       // reopen an exhausted hold. A same-version restart keeps its budget.
       const resumed = await client.from('book_pdf_document').update({ status: 'processing' }).eq('id', document.id).eq('status', 'review')
@@ -81,12 +83,20 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   const existing = await client.from('book_pdf_unit').select('*').eq('document_id', job.target_id)
   if (existing.error) throw new Error(existing.error.message)
   const previous = new Map((existing.data as BookDraftUnit[]).map((u) => [u.unit_key, u]))
+  for (const selected of resume?.units ?? []) {
+    const unit = manifest.units.find(u => u.key === selected.unit_key), old = previous.get(selected.unit_key)
+    if (!unit || selected.source_hash !== bookSourceFingerprint(unit) || !old
+      || (!bookProofMatches(old) && old.verification.failure?.stage !== selected.stage)) throw new PdfBatchStopped('선택한 보류 구간의 원문·실패 단계가 바뀌었습니다. 최신 상태를 확인해주세요.')
+  }
   const prepared = profileMode ? await prepareBookProfiles(bytes, manifest, pdfHash) : null
   const phase = prepared ? await saveBookProfilePlan(client, job, prepared.plan) : null
   const pending = manifest.units.filter((unit) => {
+    const selected = resume?.units.find(u => u.unit_key === unit.key)
+    if (resume && !selected) return false
     if (phase?.phase === 'pilot' && !phase.pilot_keys.includes(unit.key)) return false
     const old = previous.get(unit.key)
     if (old && bookProofMatches(old) && old.verification.pdf_hash === pdfHash) return false
+    if (old && heldBookUnit(old.verification, selected && resume ? { id: resume.id, stage: selected.stage } : undefined)) return false
     // Explicit no-cost recovery can replay exhausted candidates using stored
     // responses. The transport stops at a missing response and cannot submit.
     if (getPdfWorkerContext()?.cacheOnly) return true
@@ -107,16 +117,33 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
     // Once this batch is full, don't re-slice and re-read the rest of a large PDF
     // merely to discover that the paid request window is already exhausted.
     if (getPdfWorkerContext()?.canPrepareUnit?.(unit.key) === false) throw new BookBatchPending()
-    const smallPdf = await bookPageSlice(bytes, unit.pages)
-    const verified = await withPdfUnit(unit.key, () => processNativeBookUnit({ unit, pdfHash, bytes: new Uint8Array(Buffer.from(smallPdf, 'base64')),
-      ...(prepared ? { prepared: prepared.sources.get(unit.key) } : {}) }))
+    const selected = resume?.units.find(u => u.unit_key === unit.key)
+    let verified: NativeBookResult
+    try {
+      const smallPdf = await bookPageSlice(bytes, unit.pages)
+      verified = await withPdfUnit(unit.key, () => processNativeBookUnit({ unit, pdfHash, bytes: new Uint8Array(Buffer.from(smallPdf, 'base64')),
+        ...(prepared ? { prepared: prepared.sources.get(unit.key) } : {}) }), selected && resume ? { id: resume.id, stage: selected.stage } : undefined)
+    } catch (error) {
+      if (error instanceof BookBatchPending || error instanceof PdfBatchStopped || context?.signal.aborted) throw error
+      const reasons = [error instanceof Error ? error.message : 'PDF 구간 준비 실패']
+      verified = { extraction: null, enrichment: null, validation: { errors: reasons, warnings: [], english_coverage: 0, translation_coverage: 0 },
+        verification: { protocol: 2, pipeline: 'native-image-v1', status: 'unresolved', exhausted: true, attempts: 0, models: [], issues: reasons,
+          source_hash: bookSourceFingerprint(unit), pdf_hash: pdfHash, extraction_hash: null, checks: null, recovery_revision: NATIVE_RECOVERY_REVISION,
+          failure: { policy: BOOK_FAILURE_POLICY, stage: 'preparation', attempt_id: selected?.stage === 'preparation' && resume ? resume.id : null } } }
+    }
     await stage(verified, unit.key)
   })))
   const failures = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
   const fatal = failures.find((r) => !(r.reason instanceof BookBatchPending))
   if (fatal) throw fatal.reason
   if (failures.length) return { document_id: job.target_id, batch_waiting: true }
+  const heldRows = await client.from('book_pdf_unit').select('*').eq('document_id', job.target_id)
+  if (heldRows.error) throw new Error(heldRows.error.message)
+  const book_failures = failedBookUnits(heldRows.data as BookDraftUnit[])
+  const failureResult = { book_failures, manual_resume_only: book_failures.length > 0, recovery_revision: NATIVE_RECOVERY_REVISION }
   if (phase?.phase === 'pilot') {
+    if (book_failures.length) return { document_id: job.target_id, auto_published: false, verification_unresolved: true,
+      unresolved_units: book_failures.map(u => u.unit_key), ...failureResult }
     const { data, error } = await client.rpc('book_pdf_profile_pause', { p_job: job.id, p_token: job.lease_token })
     if (error) throw new PdfBatchStopped('대표 구간 확인 대기를 저장하지 못했습니다. 검토 단계 SQL을 확인해주세요.')
     if (!data?.ready) return { document_id: job.target_id, verification_unresolved: true, inventory_errors: [data?.reason || '대표 구간에 미완료 항목이 있습니다.'] }
@@ -129,7 +156,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   if (error) throw new Error(error.message)
   const unresolved = (final as BookDraftUnit[]).filter((u) => !bookProofMatches(u))
   if (unresolved.length) return { document_id: job.target_id, auto_published: false, verification_unresolved: true,
-    unresolved_units: unresolved.map((u) => u.unit_key), question_count: manifest.question_count, unit_count: manifest.units.length, recovery_revision: NATIVE_RECOVERY_REVISION }
+    unresolved_units: unresolved.map((u) => u.unit_key), question_count: manifest.question_count, unit_count: manifest.units.length, ...failureResult }
   return { document_id: job.target_id, exam_id: await publishVerifiedBook(client, finished), auto_published: true,
     question_count: manifest.question_count, unit_count: manifest.units.length }
 }

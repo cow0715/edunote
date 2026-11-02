@@ -33,10 +33,11 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   const job = outcome.job!
   if (bookRecoveryExcluded(job)) return err('이미 등록된 교재이므로 재처리 대상에서 제외했습니다.', 409)
   if (bookPilotAwaitingApproval(job)) return err('대표 구간과 비용을 확인하고 전체 처리 범위를 승인해주세요. 승인만으로 작업이 재개되지는 않습니다.', 409)
+  if (job.kind === 'bank_book' && job.status === 'failed' && job.result?.manual_resume_only === true) return err('실패한 구간을 확인한 뒤 보류 구간 재개를 선택해주세요. 전체 작업을 다시 접수하지 않습니다.', 409)
   if (job.result?.batch_stopped === true) return err('배치 접수·결과 기록을 먼저 확인해야 합니다. 중복 접수를 막기 위해 재실행을 중단했습니다.', 409)
   if (job.result?.batch_exhausted === true) return err('자동 재시도할 수 없는 배치 요청입니다. 실패 사유를 확인해주세요. 성공한 요청은 다시 접수하지 않습니다.', 409)
   if (examRecoveryBlocked(job)) return err('누락 문항의 자동 복구를 종료했습니다. 번호별 실패 사유를 확인해주세요. 같은 작업을 다시 접수하지 않습니다.', 409)
-  if (bookQualityRetryBlocked(job)) return err('자동 복구 한도 내에 원문 일치를 확정하지 못했습니다. 같은 결과를 그대로 재실행하지 않습니다.', 409)
+  if (job.status === 'failed' && bookQualityRetryBlocked(job)) return err('원문 일치를 확정하지 못했습니다. 실패한 구간과 사유를 먼저 확인해주세요.', 409)
   if (job.status === 'waiting_batch') {
     if (!publicPdfJob(job).can_retry) return err('배치를 처리 중이며 자동으로 이어집니다.', 409)
     try {

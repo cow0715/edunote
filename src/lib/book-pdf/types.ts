@@ -28,6 +28,7 @@ export const bookBlindCheckSchema = z.object({
 }).strict()
 export type BookBlindCheck = z.infer<typeof bookBlindCheckSchema>
 export type BookVerification = {
+  failure?: import('./failure-policy').BookFailure;
   source_revision?: string;
   local_correction?: { revision: string; base_hash: string; replayed: boolean };
   source_regions?: import('./visual-regions').BookVisualRegion[]
