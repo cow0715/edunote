@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Camera, ChevronLeft, ChevronRight, Images, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { useGradeData, useSaveGrade, useSaveGradeDraft, useSaveWeekScore, GradeRow } from '@/hooks/use-grade'
 import { ExamQuestion } from '@/lib/types'
 import { formatOXStudentInput, oxNotation } from '@/lib/ox-grading'
@@ -630,6 +630,11 @@ export function GradeGrid({ weekId, vocabTotal, readingTotal, homeworkTotal, onS
               <SheetHeader className="flex-row items-center justify-between px-4 py-3 border-b sticky top-0 bg-white z-10 gap-0">
                 <div className="flex items-center gap-2">
                   <SheetTitle className="text-base font-semibold">{sheetRow.student_name}</SheetTitle>
+                  <SheetDescription className="sr-only">
+                    {sheetView.type === 'vocab'
+                      ? '단어 답안을 확인하고 사진으로 채점할 수 있습니다.'
+                      : '독해 답안을 확인하고 사진으로 판독할 수 있습니다.'}
+                  </SheetDescription>
                   <span className="text-xs text-gray-400">{sheetView.studentIndex + 1}/{rows.length}</span>
                   <span className={cn(
                     'text-xs px-1.5 py-0.5 rounded-full font-medium',

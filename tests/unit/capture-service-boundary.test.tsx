@@ -127,6 +127,10 @@ it.each(['reading-batch', 'vocab-batch', 'reading-single', 'vocab-single'])('%s 
     const studentRow = screen.getByText('학생 가', { selector: 'td' }).closest('tr')!
     fireEvent.click(within(studentRow).getByText(reading ? '0/2' : '0/3', { selector: 'button' }))
     const dialog = screen.getByRole('dialog')
+    const description = document.getElementById(dialog.getAttribute('aria-describedby') ?? '')
+    expect(description?.textContent).toBe(reading
+      ? '독해 답안을 확인하고 사진으로 판독할 수 있습니다.'
+      : '단어 답안을 확인하고 사진으로 채점할 수 있습니다.')
     fireEvent.change(dialog.querySelector('input[type="file"]')!, { target: { files: [new File(['a'], 'a.jpg', { type: 'image/jpeg' })] } })
     await screen.findByText('원본 사진', { selector: 'button' })
     expect(screen.queryByText('학생 확인', { selector: 'button' })).toBeNull()
