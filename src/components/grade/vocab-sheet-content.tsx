@@ -10,7 +10,6 @@ import { toast } from 'sonner'
 import { runWithLoading } from '@/lib/async-ui'
 import { GradeRow } from '@/hooks/use-grade'
 import { cn } from '@/lib/utils'
-import { VocabPhotoButton } from './vocab-photo-button'
 import { ExampleSentenceInline, EXAMPLE_LABEL, isExampleSourceValue } from './vocab-example-inline'
 import { gradeChoiceAnswer } from '@/lib/vocab-blank-grading'
 
@@ -111,24 +110,14 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
     <div className="space-y-4 p-4">
       {/* 사진 채점 */}
       <div className="flex items-center gap-3 flex-wrap">
-        <VocabPhotoButton
-          weekId={weekId}
-          studentId={row.student_id}
-          disabled={false}
-          hasExistingData={vocabAnswers.length > 0}
-          onResult={(correct, _total, _results) => {
-            updateRow(row.student_id, 'vocab_correct', correct)
-            queryClient.refetchQueries({ queryKey: ['grade', weekId] })
-          }}
-        />
         {photoUrl && (
           <button
             type="button"
             onClick={() => setPhotoOpen(true)}
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 transition-colors"
+            className="flex items-center gap-1 min-h-11 rounded-xl border px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 transition-colors"
           >
             <Camera className="h-3 w-3" />
-            원본 사진
+            원본 사진 보기
           </button>
         )}
       </div>
@@ -172,7 +161,7 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
               <>
                 <input
                   className={cn(
-                    'min-w-0 border-b border-gray-200 bg-transparent text-xs outline-none focus:border-[var(--share-blue)] px-0.5',
+                    'min-w-0 border-b border-gray-200 bg-transparent text-base sm:text-sm outline-none focus:border-[var(--share-blue)] px-0.5',
                     // 정오에 맞춰 학생 답 텍스트 색 — ✓✗ 아이콘만으로는 훑기 느림
                     a.is_correct ? 'text-emerald-700' : 'text-rose-500',
                     inputClass,
@@ -227,9 +216,9 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
                     {showPartLabels && <p className="mb-1 text-[11px] font-bold text-gray-500">뜻쓰기 <span className="font-normal text-gray-400">{meaningRows.length}문항</span></p>}
                     <div className="columns-1 sm:columns-2 gap-x-4">
                       {meaningRows.map((a) => (
-                        <div key={a.id} className={cn('flex items-center gap-1 text-xs min-w-0 py-0.5 break-inside-avoid rounded px-0.5', rowBg(a))}>
+                        <div key={a.id} className={cn('flex items-center gap-1 text-sm min-w-0 py-2 break-inside-avoid rounded px-0.5', rowBg(a))}>
                           <span className="text-gray-300 w-5 shrink-0 text-right">{a.number}.</span>
-                          <span className="font-mono text-gray-600 shrink-0 w-24 truncate">{a.test_word ?? a.english_word}</span>
+                          <span className="font-mono text-gray-600 w-28 shrink-0 break-words whitespace-normal">{a.test_word ?? a.english_word}</span>
                           <span className="text-gray-300 shrink-0">→</span>
                           {renderAnswerControls(a, 'flex-1')}
                         </div>
@@ -249,7 +238,7 @@ export function VocabSheetContent({ row, weekId, weekScoreId, vocabAnswers, voca
                         // 문장엔 정답, 옆칸엔 학생 답이라 서로 다른 걸 보여주던 게 헷갈렸다.
                         const isChoice = part.source === 'example_choice' && !!a.test_prompt
                         return (
-                        <div key={a.id} className={cn('flex items-center gap-1 text-xs min-w-0 py-0.5 rounded px-0.5', rowBg(a))}>
+                        <div key={a.id} className={cn('flex items-center gap-1 text-sm min-w-0 py-2 rounded px-0.5', rowBg(a))}>
                           <span className="text-gray-300 w-5 shrink-0 text-right">{a.number}.</span>
                           {/* 예문 파트: 시험지 문장이 메인, 학생 답 입력칸은 오른쪽 고정폭 */}
                           <div className="min-w-0 flex-1">

@@ -22,6 +22,18 @@ import { GradeGrid } from '@/components/grade/grade-grid'
 
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
+it('does not mark an already saved batch vocab result as an unsaved edit', async () => {
+  m.data = { grade_versions: [], classStudents: [{ student_id: 'student', student: { name: '가상 학생' } }], weekScores: [], questions: [], attendance: [] }
+  const client = new QueryClient()
+  vi.spyOn(client, 'refetchQueries').mockResolvedValue()
+  render(<QueryClientProvider client={client}><GradeGrid weekId="saved-vocab" vocabTotal={2} readingTotal={0} homeworkTotal={0} /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: '단어 사진 채점' }))
+  fireEvent.click(screen.getByRole('button', { name: '가상 단어 채점 완료' }))
+  await waitFor(() => expect(screen.queryByText('미저장 변경이 있습니다')).toBeNull())
+  expect((screen.getByRole('button', { name: '저장' }) as HTMLButtonElement).disabled).toBe(true)
+  client.clear()
+})
+
 it('keeps a local memo when a vocab completion refetch arrives before its metadata acknowledgement', async () => {
   const score = { id: 'score', student_id: 'student', grade_revision: 1, vocab_correct: 1,
     reading_correct: 1, homework_done: null, memo: 'server memo', student_answer: [], student_vocab_answer: [] }
@@ -37,7 +49,7 @@ it('keeps a local memo when a vocab completion refetch arrives before its metada
   fireEvent.blur(memo)
   expect(m.metadata).toHaveBeenCalledOnce()
   expect(memo.value).toBe('not acknowledged yet')
-  fireEvent.click(screen.getByRole('button', { name: '단어 시험지 채점' }))
+  fireEvent.click(screen.getByRole('button', { name: '단어 사진 채점' }))
   fireEvent.click(screen.getByRole('button', { name: '가상 단어 채점 완료' }))
   expect(refetch).toHaveBeenCalled()
   // Resolve that read with the new vocab result while the metadata request is still pending.

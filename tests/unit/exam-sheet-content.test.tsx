@@ -124,7 +124,7 @@ describe('ExamSheetContent — 객관식 압축 정오표', () => {
     expect(rows.map((r) => r.querySelector('td')?.textContent?.trim().charAt(0))).toEqual(['1', '2', '3'])
     expect(screen.getByPlaceholderText('답안 입력')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'O' })).toBeTruthy()
-    expect(screen.getByText(/AI 채점.*눌러 채점/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '사진 선택' })).toBeNull()
   })
 
   it('서술형 입력은 blur 전에도 보호되는 부모 답안에 반영된다', () => {

@@ -188,7 +188,6 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
       <div className="min-h-0 overflow-y-auto">
         <div className={`mx-auto flex min-h-full w-full max-w-[430px] flex-col gap-4 px-4 py-5 sm:px-6 ${!photos.length && !camera ? 'justify-center' : ''}`}>
           {!camera && <>
-            {!photos.length && <p className="text-center text-sm leading-relaxed text-[var(--share-muted)]">종이 답안을 촬영하거나<br />이미지·PDF 파일을 추가해주세요.</p>}
             <div className={photos.length ? 'flex gap-2' : 'grid grid-cols-2 gap-3'}>
               <Button type="button" variant="outline" disabled={!loaded || busy} onClick={startCamera} className={photos.length ? 'h-11 flex-1 rounded-xl shadow-none' : 'h-28 flex-col rounded-xl bg-[var(--share-card)] shadow-none sm:order-2'}><Camera className="size-6" />{photos.length ? '더 촬영' : '촬영하기'}</Button>
               <FileUpload compact className={photos.length ? 'flex-1 [&>button]:h-11 [&>button]:w-full' : 'sm:order-1 [&>button]:h-28 [&>button]:w-full [&>button]:flex-col'} beforeSelect={() => { if (!pickFiles) return true; void pickFiles(true).then(addFiles); return false }} label="파일 추가" description="이미지 또는 PDF · 여러 파일 선택 가능" accept="image/*,application/pdf" multiple inputRef={fileInput} disabled={!loaded || busy} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files) }} />
@@ -248,7 +247,7 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
       </div>
       <footer className="border-t border-[var(--share-line)] px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))] sm:px-6">
         <div className="mx-auto max-w-[430px] space-y-3">
-          <p role="status" className="text-center text-xs text-[var(--share-muted)]">{!loaded ? '보관한 사진 불러오는 중…' : busy ? '처리 중…' : photos.length ? `${photos.length}장 기기에 보관됨 · 닫거나 새로고침해도 유지됩니다.` : '추가한 답안은 이 기기에 자동으로 보관됩니다.'}</p>
+          <p role="status" className="text-center text-xs text-[var(--share-muted)]">{!loaded ? '보관한 사진 불러오는 중…' : busy ? '처리 중…' : photos.length ? `${photos.length}장 기기에 보관됨` : ''}</p>
           {camera ? <div className="flex items-center justify-center gap-5">
             <Button type="button" variant="outline" aria-label="답안지 촬영" className="size-16 rounded-full border-4 border-[var(--share-line-strong)] bg-[var(--share-box)] p-0 shadow-none" disabled={busy} onClick={shoot}><Camera className="size-6" /></Button>
             <Button type="button" variant="outline" disabled={busy} className="h-12 rounded-xl shadow-none" onClick={() => { if (photos.length) void submit(); else stopCamera() }}>{photos.length ? `촬영 완료 · 학생 확인` : '촬영 나가기'}</Button>

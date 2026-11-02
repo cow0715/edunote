@@ -58,7 +58,9 @@ async function runPool<T>(items: T[], limit: number, worker: (item: T, index: nu
   await Promise.all(runners)
 }
 
-export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, questionCount, onApplied }: {
+export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, questionCount, onApplied, onContinue, continueDisabled }: {
+  onContinue?: (studentIds: string[]) => Promise<void>
+  continueDisabled?: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
   weekId: string
@@ -72,6 +74,8 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
   const [phase, setPhase] = useState<Phase>('pick')
   const [items, setItems] = useState<Item[]>([])
   const [captureBusy, setCaptureBusy] = useState(false)
+  const [continuing, setContinuing] = useState(false)
+  const [continueError, setContinueError] = useState<string | null>(null)
 
   const patch = useCallback((id: string, changes: Partial<Item>) => {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...changes } : it)))
@@ -85,6 +89,7 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
       items.forEach((it) => URL.revokeObjectURL(it.previewUrl))
       setItems([])
       setPhase('pick')
+      setContinueError(null)
     }
   }
   // 언마운트 시 남은 URL 해제 (vocab 다이얼로그와 같은 이유로 ref 경유)
@@ -196,7 +201,7 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
 
   const doneCount = items.filter((it) => it.status === 'done').length
   const errorCount = items.filter((it) => it.status === 'error').length
-  const isBusy = captureBusy || phase === 'matching' || phase === 'reading'
+  const isBusy = continuing || captureBusy || phase === 'matching' || phase === 'reading'
 
   /** 닫기 요청 처리 — vocab 다이얼로그와 같은 규칙 */
   function requestClose() {
@@ -212,6 +217,18 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
   }
 
   return <BatchGradePanel open={open} kind="exam" draftKey={`exam:${weekId}`} phase={phase === 'reading' ? 'processing' : phase}
+    continueDisabled={continueDisabled} continueError={continueError} continuing={continuing}
+    onContinue={onContinue ? async () => {
+      if (continuing || continueDisabled || errorCount || !doneCount) return
+      setContinuing(true)
+      setContinueError(null)
+      try {
+        await onContinue(items.filter(item => item.status === 'done' && item.studentId).map(item => item.studentId!))
+        onOpenChange(false)
+      } catch (error) {
+        setContinueError(error instanceof Error ? error.message : '채점하지 못했습니다. 다시 시도해 주세요.')
+      } finally { setContinuing(false) }
+    } : undefined}
     items={items.map(item => ({...item, status: item.status === 'reading-name' || item.status === 'idle' ? 'matching' : item.status === 'reading' ? 'processing' : item.status, message: item.error ?? (item.result ? `${item.result.applied}/${item.result.total}문항 반영` : undefined)}))}
     students={students} busy={isBusy || captureBusy} readyCount={readyToRead.length} duplicateIds={duplicateStudentIds} canStart={allConfirmed}
     onClose={requestClose} onBack={()=>setPhase('pick')} onConfirm={addFiles} onCaptureBusy={setCaptureBusy}

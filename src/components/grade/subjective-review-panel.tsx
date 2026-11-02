@@ -12,8 +12,7 @@ import { GradeRow } from '@/hooks/use-grade'
 import { StyleBadge } from './question-inputs'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
-import { FocusReview } from './focus-review'
-import { buildReviewQueue, type ReviewDraft } from '@/lib/review-workflow'
+import { type ReviewDraft } from '@/lib/review-workflow'
 
 import { cacheReviewDrafts, restoreReviewDrafts, removeCachedReviewDrafts } from '@/lib/review-draft-cache'
 
@@ -40,10 +39,12 @@ export function SubjectiveReviewPanel({
   weekId,
   questions,
   rows,
+  onDone,
 }: {
   weekId: string
   questions: ExamQuestion[]
   rows: GradeRow[]
+  onDone?: () => void
 }) {
   const qc = useQueryClient()
   const [overrides, setOverrides] = useState<Map<string, Override>>(new Map())
@@ -58,7 +59,6 @@ export function SubjectiveReviewPanel({
   )
   // 검토 대기 건이 있으면 그것만 모아 보여주는 게 기본 — 전체는 칩으로 전환
   const [filterChoice, setFilterChoice] = useState<'review' | 'all' | null>(null)
-  const [focusMode, setFocusMode] = useState(false)
   const [pendingHref, setPendingHref] = useState<string | null>(null)
   const pendingLink = useRef<HTMLAnchorElement | null>(null)
   const allowNavigation = useRef(false)
@@ -70,10 +70,8 @@ export function SubjectiveReviewPanel({
     setOverrides(restored)
     setRestoredCount(restored.size)
     setFilterChoice(null)
-    setFocusMode(false)
     setPendingHref(null)
   }
-  const reviewQueue = buildReviewQueue(questions, rows)
   useEffect(() => { cacheReviewDrafts(weekId, overrides, questions, rows) }, [weekId, overrides, questions, rows])
   useEffect(() => {
     if (!overrides.size) return
@@ -194,10 +192,7 @@ export function SubjectiveReviewPanel({
         </div>
       </div>
 
-      {!focusMode && reviewQueue.length > 0 && <Button type="button" variant="outline" className="min-h-12 w-full sm:w-auto" onClick={() => setFocusMode(true)}>집중 검토 시작 ({reviewQueue.length}건)</Button>}
-      {focusMode ? <FocusReview items={reviewQueue} drafts={overrides} saving={confirm.isPending}
-        onDecide={(studentId, questionId, correct) => setVerdict(studentId, questionId, correct, false)}
-        onSave={() => confirm.mutate()} onClose={() => setFocusMode(false)} /> : subjectiveQuestions.map((q) => {
+      {subjectiveQuestions.map((q) => {
         const studentRows = rows
           .filter((r) => r.reading_present)
           .map((r) => {
@@ -238,6 +233,7 @@ export function SubjectiveReviewPanel({
                 <span className="font-medium text-sm">{qLabel}</span>
                 <StyleBadge style={q.question_style} />
               </div>
+              {q.question_stem && <p className="text-base leading-7 whitespace-pre-wrap">{q.question_stem}</p>}
               <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
                 모범답안: <span className="font-medium">{q.correct_answer_text}</span>
               </p>
@@ -335,8 +331,9 @@ export function SubjectiveReviewPanel({
         )
       })}
 
-      {!focusMode && <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-background py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pr-28">
-        <p className="text-sm text-muted-foreground">{pendingCount ? `미저장 판정 ${pendingCount}건 · 저장 전까지 성적에 반영되지 않습니다.` : '판정을 지정한 뒤 저장해 주세요.'}</p>
+      <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-background py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pr-28">
+        {onDone && pendingCount === 0 && <Button type="button" variant="outline" onClick={onDone}>성적표로</Button>}
+        <p className="text-sm text-muted-foreground">{pendingCount ? `미저장 판정 ${pendingCount}건` : needsReviewTotal ? '정답 또는 오답을 선택하세요.' : '검토를 마쳤습니다.'}</p>
         {pendingCount > 0 && <Button type="button" variant="ghost" onClick={() => { if (window.confirm('저장하지 않은 판정을 모두 취소할까요?')) setOverrides(new Map()) }}>변경 모두 취소</Button>}
         <Button
           onClick={() => confirm.mutate()}
@@ -350,7 +347,7 @@ export function SubjectiveReviewPanel({
               ? `검토 완료 저장 (${pendingCount}건)`
               : '변경 없음'}
         </Button>
-      </div>}
+      </div>
     </fieldset>
   )
 }

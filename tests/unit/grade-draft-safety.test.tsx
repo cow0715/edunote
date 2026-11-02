@@ -271,7 +271,7 @@ it('keeps exclusion out of the daily workspace and preserves inclusion values in
   expect(screen.queryByRole('button',{name:/성적 포함 설정/})).toBeNull()
   expect(screen.queryByRole('columnheader',{name:'성적 반영'})).toBeNull()
   expect(screen.queryByRole('checkbox',{name:/성적 포함/})).toBeNull()
-  fireEvent.click(screen.getByRole('button',{name:'AI 채점'}))
+  fireEvent.click(screen.getByRole('button',{name:'서술형 채점'}))
   await waitFor(()=>expect(fetchMock.mock.calls.some(([,init])=>init?.method==='POST')).toBe(true))
   const request=fetchMock.mock.calls.find(([,init])=>init?.method==='POST')
   const body=JSON.parse(String(request?.[1]?.body))
@@ -356,7 +356,7 @@ it('unifies homework and answer saving without AI, retaining only the failed ans
 it('shows only ordinary save on a week without subjective AI grading',async()=>{
  const data={...fixture(),questions:[{...fixture().questions[0],question_style:'objective'}]}
  const {fetchMock}=setup(async()=>({ok:true}),data,6)
- expect(screen.queryByRole('button',{name:'AI 채점'})).toBeNull()
+ expect(screen.queryByRole('button',{name:'서술형 채점'})).toBeNull()
  fireEvent.click(await screen.findByRole('button',{name:'학생1 숙제 수정'}))
  const input=screen.getByRole('textbox',{name:'학생1 숙제 완료량'})
  fireEvent.focus(input);fireEvent.change(input,{target:{value:'0'}})
@@ -367,7 +367,7 @@ it('shows only ordinary save on a week without subjective AI grading',async()=>{
 
 it('keeps upload/review actions and individual homework entry without bulk controls',async()=>{
  setup(undefined,fixture(),6,true)
- expect(await screen.findByRole('button',{name:'시험 답안 올리기'})).toBeTruthy()
+ expect(await screen.findByRole('button',{name:'독해 사진 채점'})).toBeTruthy()
  expect(screen.getByRole('button',{name:'검토할 답안'})).toBeTruthy()
  expect(screen.getByRole('button',{name:'출결 관리'})).toBeTruthy()
  expect(screen.queryByRole('combobox',{name:'일괄 변경 항목'})).toBeNull()
@@ -382,7 +382,7 @@ it('keeps absent students editable and preserves a real zero and existing answer
  const {fetchMock}=setup(async()=>({ok:true,json:async()=>({ok:true})}),data,6,true)
  expect((await screen.findByRole('button',{name:'학생1 시험 답안 열기'}) as HTMLButtonElement).disabled).toBe(false)
  expect((screen.getByRole('button',{name:'학생1 숙제 수정'}) as HTMLButtonElement).disabled).toBe(false)
- fireEvent.click(screen.getByRole('button',{name:'AI 채점'}))
+ fireEvent.click(screen.getByRole('button',{name:'서술형 채점'}))
  await waitFor(()=>expect(fetchMock.mock.calls.some(([url,init])=>url.endsWith('/grade') && init?.method==='POST')).toBe(true))
  const request=fetchMock.mock.calls.find(([url,init])=>url.endsWith('/grade') && init?.method==='POST')
  expect(JSON.parse(request?.[1].body).rows[0]).toMatchObject({present:true,reading_present:true,reading_correct:0,answers:[{student_answer_text:'retained answer'}]})
