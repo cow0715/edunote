@@ -3,7 +3,7 @@ import type { PdfImportJob } from '../pdf-import/types'
 import { oldMetadataRevision } from './academic-year'
 
 /** Change only when a deployed recovery policy can address a previous hold. */
-export const NATIVE_RECOVERY_REVISION = 4
+export const NATIVE_RECOVERY_REVISION = 5
 
 export function needsUpdatedNativeRecovery(proof: BookVerification) {
   return proof.protocol === 2 && proof.status === 'unresolved' && proof.exhausted === true

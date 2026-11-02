@@ -10,6 +10,7 @@ import type { PdfImportJob } from '@/lib/pdf-import/types'
 import type { PdfWorkerContext } from '@/lib/pdf-import/context'
 import { BOOK_PROFILE_VERSION } from '@/lib/book-pdf/profiles'
 import { PdfBundleDeferred } from '@/lib/pdf-import/batch-policy'
+import { SOURCE_OUTPUT_POLICY } from '@/lib/book-pdf/source-output-policy'
 
 const key = 'a'.repeat(64)
 function fixture(kind: PdfImportJob['kind'] = 'bank_book') {
@@ -44,6 +45,35 @@ function success(stop = 'end_turn'): MessageBatchIndividualResponse {
 const responseStream = (responses: MessageBatchIndividualResponse[]) => (async function* () { for (const r of responses) yield r })()
 
 describe('durable textbook Batch API transport', () => {
+  it('keeps a legacy truncation archived and submits the controlled audit at most once across restarts', async () => {
+    const f = fixture(), nextKey = 'b'.repeat(64)
+    const old: CallLlmOptions = { ...f.options, task: 'book.auditSource', maxTokens: 6000,
+      bookOperation: { kind: 'audit', evidence: { images: [[9, 'image-hash']], request: { candidate: 'unchanged' } } } }
+    const controlled: CallLlmOptions = { ...old, reasoning: { type: 'between_tools', effort: 'high' },
+      bookOperation: { kind: 'audit', evidence: { ...old.bookOperation!.evidence as object, outputPolicy: SOURCE_OUTPUT_POLICY } } }
+    const oldDelivery = { result: { text: '', stopReason: 'max_tokens', finishReason: 'length' } }
+    f.saved.set(`batch-result:${key}`, oldDelivery)
+    let broker = f.broker(); await broker.poll()
+    await broker.rememberBookCall(old, key, oldDelivery.result as never)
+    await expect(broker.call(controlled, nextKey)).rejects.toBeInstanceOf(BookBatchPending)
+    await broker.submit()
+    expect(f.provider.create.mock.calls[0][0][0].params).toMatchObject({
+      thinking: { type: 'between_tools' }, output_config: { effort: 'high' }, max_tokens: 6000,
+    })
+    f.provider.results.mockImplementation(async () => responseStream([{ ...success('max_tokens'), custom_id: nextKey }]))
+    broker = f.broker(); await broker.poll()
+    expect((await broker.call(controlled, nextKey)).stopReason).toBe('max_tokens')
+    broker = f.broker(); await broker.poll()
+    expect((await broker.call(controlled, nextKey)).stopReason).toBe('max_tokens')
+    // A changed prompt also resolves to that same failed delivery, never a new purchase.
+    expect((await broker.call({ ...controlled, content: 'changed instructions' }, 'c'.repeat(64))).stopReason).toBe('max_tokens')
+    f.context.cacheOnly = true
+    await expect(f.broker().call({ ...controlled, bookOperation: { kind: 'audit', evidence: { differentImage: true } } }, 'd'.repeat(64)))
+      .rejects.toBeInstanceOf(BookBatchStopped)
+    expect(f.saved.get(`batch-result:${key}`)).toBe(oldDelivery)
+    expect(f.provider.create).toHaveBeenCalledOnce()
+    expect(f.provider.countTokens).toHaveBeenCalledOnce()
+  })
   it('deduplicates equivalent evidence with changed prompts/keys before and after a worker restart', async () => {
     const f = fixture(), operation = { kind: 'mapping' as const, evidence: { pdf: 'same-pdf', lines: [1, 2], targets: ['q1'] } }
     const firstOptions = { ...f.options, bookOperation: operation }, changed = { ...firstOptions, content: 'changed instructions' }

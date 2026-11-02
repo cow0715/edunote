@@ -19,11 +19,12 @@ import type { BookEnrichment, BookExtraction, BookUnitManifest, BookValidation, 
 import { readBookUnitStage, writeBookUnitStage, reportBookUnitProgress } from './unit-progress'
 import { PdfBatchStopped } from '../pdf-import/batch-policy'
 import { knownSourcePolicy, correctKnownSource, KNOWN_SOURCE_REVISION } from './known-source-policy'
+import { SourceOutputIncompleteError } from './source-output-policy'
 
 type SourceResult = { extraction: BookExtraction | null; validation: BookValidation; verification: BookVerification }
 export type NativeBookResult = SourceResult & { enrichment: BookEnrichment | null }
 function qualityError(error: unknown) {
-  return error instanceof ZodError || isJsonParseError(error) || isContentFilterError(error)
+  return error instanceof SourceOutputIncompleteError || error instanceof ZodError || isJsonParseError(error) || isContentFilterError(error)
     || (error instanceof Error && /not complete|incomplete|완결되지|보완 풀이·어휘의/.test(error.message))
 }
 
@@ -172,7 +173,7 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
     } catch (error) {
       if (error instanceof BookBatchRequestFailed) return unresolved([error.message], 'audit')
       if (!qualityError(error)) throw error
-      return unresolved(['원본 이미지 대조·복구 응답이 완결되지 않았습니다.'], 'audit')
+      return unresolved([error instanceof SourceOutputIncompleteError ? error.message : '원본 이미지 대조·복구 응답이 완결되지 않았습니다.'], 'audit')
     }
   }
 }

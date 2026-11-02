@@ -5,7 +5,7 @@ import { MODEL_IDS } from '../llm/models'
 
 /** Read only exact, known request versions. Never match just a question number,
  * model output, or a prompt hash with different PDF/coordinate evidence. */
-export async function readCachedBookCall(versions: CallLlmOptions[]): Promise<LlmDetailedResult | null> {
+export async function readCachedBookCall(versions: CallLlmOptions[], policy?: { ignoreTruncated: true }): Promise<LlmDetailedResult | null> {
   const context = getPdfWorkerContext()
   if (!context?.batchCall) return null
   for (const options of versions) {
@@ -23,6 +23,10 @@ export async function readCachedBookCall(versions: CallLlmOptions[]): Promise<Ll
       if (result?.execution?.task === options.task && result.execution.requestedModel === version.taskBindings[options.task]
         && result.execution.configVersion === configVersion && (!result.execution.callKey || result.execution.callKey === key)
         && typeof result.text === 'string') {
+        // An opt-in output-policy migration can reuse completed old replies but
+        // must not let a truncated legacy delivery shadow a later complete one.
+        // Never mutate/delete the paid delivery or bind it to the new policy.
+        if (policy?.ignoreTruncated && (result.stopReason === 'max_tokens' || result.finishReason === 'length')) continue
         await context.rememberBookCall?.(options, key, result)
         return result
       }

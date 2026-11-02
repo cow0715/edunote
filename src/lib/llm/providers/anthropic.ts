@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { getPdfWorkerContext } from '../../pdf-import/context'
 import type { ContentBlockParam, MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/messages/messages'
 import { LlmError, isContentFilterError } from '../errors'
-import type { LlmModel } from '../models'
+import { MODEL_IDS, type LlmModel } from '../models'
 import type { CallLlmOptions, LlmErrorKind, LlmFinishReason, ProviderResult } from '../types'
 
 if (typeof window !== 'undefined') throw new LlmError('configuration', 'LLM 공급사 연결부는 서버에서만 사용할 수 있습니다.')
@@ -11,6 +11,10 @@ if (typeof window !== 'undefined') throw new LlmError('configuration', 'LLM 공�
 export function isAnthropicConfigured(): boolean { return Boolean(process.env.ANTHROPIC_API_KEY) }
 
 export function buildAnthropicRequest(options: CallLlmOptions, model: LlmModel): MessageCreateParamsNonStreaming {
+  if (options.reasoning && (options.task !== 'book.auditSource' || model.id !== MODEL_IDS.sonnet55
+    || options.phase === 'prewarm' || options.reasoning.type !== 'between_tools' || options.reasoning.effort !== 'high')) {
+    throw new LlmError('unsupported', '이 추론 설정은 Sonnet 5.5 교재 원본 대조에만 사용할 수 있습니다.')
+  }
   const content = typeof options.content === 'string' ? options.content : options.content.map((block, index): ContentBlockParam => {
     const cache = index === options.cacheBoundary ? { cache_control: { type: 'ephemeral' as const } } : {}
     if (block.type === 'text') return { type: 'text', text: block.text, ...cache }
@@ -20,6 +24,13 @@ export function buildAnthropicRequest(options: CallLlmOptions, model: LlmModel):
   return {
     model: model.id,
     max_tokens: options.phase === 'prewarm' ? 0 : options.maxTokens,
+    ...(options.reasoning ? {
+      // SDK 0.78 predates this documented Sonnet 5.5 wire enum. Keep the
+      // compatibility assertion here only; no SDK upgrade/catalog invalidation.
+      // https://platform.claude.com/docs/en/build-with-claude/thinking
+      thinking: { type: 'between_tools' } as unknown as MessageCreateParamsNonStreaming['thinking'],
+      output_config: { effort: options.reasoning.effort },
+    } : {}),
     ...(options.temperature !== undefined && model.capabilities.temperature ? { temperature: options.temperature } : {}),
     messages: [{ role: 'user', content }],
   }

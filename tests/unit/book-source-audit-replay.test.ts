@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
-import { auditAndRepairSource, SOURCE_AUDIT_PROMPT, SOURCE_REPAIR_PROMPT, LEGACY_COMPACT_SOURCE_AUDIT_REPAIR_PROMPT } from '@/lib/book-pdf/audit-source'
+import { auditAndRepairSource, SOURCE_AUDIT_PROMPT, SOURCE_REPAIR_PROMPT, SOURCE_AUDIT_REPAIR_PROMPT, LEGACY_COMPACT_SOURCE_AUDIT_REPAIR_PROMPT } from '@/lib/book-pdf/audit-source'
 import { buildFileBlock, createLlmExecution, llmCallKey } from '@/lib/llm/client'
 import type { CallLlmOptions, LlmDetailedResult } from '@/lib/llm/types'
 import { withPdfWorkerContext, type PdfWorkerContext } from '@/lib/pdf-import/context'
@@ -8,6 +8,10 @@ import { PdfBatchPending } from '@/lib/pdf-import/batch-policy'
 import { sourceAuditEvidence, sourceDraftHash } from '@/lib/book-pdf/source-audit-state'
 import { sourceMapEvidence } from '@/lib/book-pdf/source-map'
 import { sourceAuditFixture } from '../fixtures/book-source-audit'
+import { SOURCE_OUTPUT_POLICY, SourceOutputIncompleteError } from '@/lib/book-pdf/source-output-policy'
+import { buildAnthropicRequest } from '@/lib/llm/providers/anthropic'
+import { getModel, MODEL_IDS } from '@/lib/llm/models'
+import { bookRequestIdentity } from '@/lib/book-pdf/request-identity'
 
 const pass = { status: 'pass', checks: { content: true, mapping: true, formatting: true, inventory: true }, issues: [] }
 function fixture() {
@@ -31,6 +35,53 @@ function fixture() {
 }
 
 describe('book audit restart with real request identities and no provider network', () => {
+  it('reuses the completed pilot-era 6,000-token request without applying new reasoning settings retroactively', async () => {
+    const s = fixture()
+    const request = { operation: 'source_audit', round: 1, source: sourceMapEvidence(s.f.pages), mapping: s.f.mapping,
+      candidate: sourceAuditEvidence(s.f.draft), candidate_hash: sourceDraftHash(s.f.draft) }
+    const old = s.oldOptions(SOURCE_AUDIT_REPAIR_PROMPT, request, 6000), key = llmCallKey(old, s.execution)
+    const delivery = { result: s.result({ ...pass, repair: null }) }
+    s.saved.set(`batch-result:${key}`, delivery)
+    expect((await s.run()).status).toBe('audited')
+    expect(s.batchCall).not.toHaveBeenCalled()
+    expect(s.saved.get(`batch-result:${key}`)).toBe(delivery)
+  })
+  it('preserves a truncated pilot response and requests a separately bounded, no-upfront-thinking comparison', async () => {
+    const s = fixture()
+    const request = { operation: 'source_audit', round: 1, source: sourceMapEvidence(s.f.pages), mapping: s.f.mapping,
+      candidate: sourceAuditEvidence(s.f.draft), candidate_hash: sourceDraftHash(s.f.draft) }
+    const old = s.oldOptions(SOURCE_AUDIT_REPAIR_PROMPT, request, 6000), oldKey = llmCallKey(old, s.execution)
+    // Even syntactically valid JSON with a pass cannot certify a truncated reply.
+    const truncated = { ...s.result({ ...pass, repair: null }), stopReason: 'max_tokens', finishReason: 'length' as const }
+    const oldDelivery = { result: truncated }
+    s.saved.set(`batch-result:${oldKey}`, oldDelivery)
+    s.context.cacheOnly = false
+    await expect(s.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    const [options, newKey] = s.batchCall.mock.calls[0]
+    expect(options).toMatchObject({ maxTokens: 6000, reasoning: { type: 'between_tools', effort: 'high' },
+      bookOperation: { evidence: { outputPolicy: SOURCE_OUTPUT_POLICY } } })
+    expect(newKey).not.toBe(oldKey)
+    expect(buildAnthropicRequest(options, getModel(MODEL_IDS.sonnet55)!)).toMatchObject({
+      thinking: { type: 'between_tools' }, output_config: { effort: 'high' }, max_tokens: 6000,
+    })
+    expect(s.saved.get(`batch-result:${oldKey}`)).toBe(oldDelivery)
+    await expect(s.run()).rejects.toBeInstanceOf(PdfBatchPending)
+    const [again, againKey] = s.batchCall.mock.calls[1]
+    expect(againKey).toBe(newKey)
+    expect(bookRequestIdentity(again, 'doc', 'unit-1')).toBe(bookRequestIdentity(options, 'doc', 'unit-1'))
+    s.batchCall.mockImplementation(async () => s.result({ ...pass, repair: null }))
+    expect((await s.run()).status).toBe('audited')
+  })
+  it('does not parse or automatically enlarge another truncated response on repeated restarts', async () => {
+    const s = fixture()
+    s.batchCall.mockResolvedValue({ ...s.result({ ...pass, repair: null }), text: '', stopReason: 'max_tokens', finishReason: 'length' })
+    for (let n = 0; n < 2; n++) {
+      await expect(s.run()).rejects.toBeInstanceOf(SourceOutputIncompleteError)
+      expect(s.batchCall.mock.calls[n][0].maxTokens).toBe(6000)
+    }
+    expect(s.batchCall.mock.calls[0][1]).toBe(s.batchCall.mock.calls[1][1])
+    expect(s.batchCall).toHaveBeenCalledTimes(2) // same delivery; no alternate request
+  })
   it('reuses an original combined Sonnet response with omitted repair:null after prompt/model catalog changes', async () => {
     const s = fixture(), historic = { ...s.execution, configVersion: 'routing-v1:4aed6b2450f3' }
     const request = { operation: 'source_audit', round: 1, source: sourceMapEvidence(s.f.pages), mapping: s.f.mapping, candidate: sourceAuditEvidence(s.f.draft), candidate_hash: sourceDraftHash(s.f.draft) }

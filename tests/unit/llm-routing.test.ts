@@ -162,6 +162,27 @@ describe('task routing and isolation', () => {
 })
 
 describe('Anthropic request preservation', () => {
+  it('sends high-effort no-upfront thinking only for an explicitly controlled Sonnet 5.5 book image audit', async () => {
+    await callLlmTextDetailed({ task: 'book.auditSource', maxTokens: 6000, content: 'original image comparison',
+      reasoning: { type: 'between_tools', effort: 'high' } })
+    expect(sdk.create.mock.calls[0][0]).toMatchObject({ model: models.MODEL_IDS.sonnet55, max_tokens: 6000,
+      thinking: { type: 'between_tools' }, output_config: { effort: 'high' } })
+    for (const task of ['book.mapSource', 'book.enrichMaterial', 'examBank.parseQuestions', 'week.parseAnswers'] as const) {
+      await callLlmTextDetailed({ task, maxTokens: 6000, content: 'unchanged task' })
+      expect(sdk.create.mock.lastCall![0]).not.toHaveProperty('thinking')
+      expect(sdk.create.mock.lastCall![0]).not.toHaveProperty('output_config')
+    }
+  })
+  it('separates controlled request identities without changing old identities and rejects unsupported reasoning routes before network', async () => {
+    const execution = createLlmExecution(), old = { task: 'book.auditSource', maxTokens: 6000, content: 'same original evidence' } as const
+    const controlled = { ...old, reasoning: { type: 'between_tools', effort: 'high' } } as const
+    expect(llmCallKey(old, execution)).not.toBe(llmCallKey(controlled, execution))
+    await expect(callLlmTextDetailed({ ...controlled, task: 'week.parseAnswers' })).rejects.toMatchObject({ kind: 'unsupported' })
+    await expect(callLlmTextDetailed({ ...controlled, execution: createLlmExecution({ 'book.auditSource': models.MODEL_IDS.haiku55 }) }))
+      .rejects.toMatchObject({ kind: 'unsupported' })
+    expect(sdk.create).not.toHaveBeenCalled()
+    expect(sdk.stream).not.toHaveBeenCalled()
+  })
   it('preserves file order, cached prefix, output limit and omission of unsupported temperature', async () => {
     await callLlmText({
       task: 'week.parseAnswers', maxTokens: 8192, temperature: 0, cacheBoundary: 1,

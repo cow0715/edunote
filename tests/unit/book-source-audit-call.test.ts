@@ -10,6 +10,7 @@ import { PdfBatchPending } from '@/lib/pdf-import/batch-policy'
 import { withPdfWorkerContext } from '@/lib/pdf-import/context'
 import { writeBookUnitStage } from '@/lib/book-pdf/unit-progress'
 import { bookFingerprint } from '@/lib/book-pdf/proof'
+import { SourceOutputIncompleteError } from '@/lib/book-pdf/source-output-policy'
 const pass = { status: 'pass', checks: { content: true, mapping: true, formatting: true, inventory: true }, issues: [] }
 const compactPass = { ...pass, repair: null }
 const response = (v: unknown) => ({ text: JSON.stringify(v), stopReason: 'end_turn', usage: {} })
@@ -19,6 +20,19 @@ function proposed(f: ReturnType<typeof input>, before = 'Original', after = 'Cor
   return { ...f.audit, repair: { base_hash: sourceDraftHash(f.draft), edits: [{ target: f.target, mode: 'patch', patches: [{ before, after }], pages: [9] }], issues: [] } }
 }
 describe('image audit and bounded repair', () => {
+  it('requires an independent completed image comparison after a correction when output is truncated', async () => {
+    const f = input(), saved = new Map<string, unknown>(), checkpoint = { pdfHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64) }
+    const context = { signal: new AbortController().signal, concurrency: 1, execute: async <T,>(fn: () => Promise<T>) => fn(), stage: async () => {},
+      read: async <T,>(key: string) => (saved.get(key) ?? null) as T | null, write: async (key: string, value: unknown) => { saved.set(key, structuredClone(value)) } }
+    const run = () => withPdfWorkerContext(context, () => auditAndRepairSource({ ...f, checkpoint }))
+    mock.call.mockResolvedValueOnce(response(proposed(f))).mockResolvedValueOnce({ ...response(compactPass), stopReason: 'max_tokens' })
+    await expect(run()).rejects.toBeInstanceOf(SourceOutputIncompleteError)
+    mock.call.mockResolvedValueOnce(response(compactPass))
+    const result = await run()
+    expect(result.status).toBe('audited'); expect(result.ledger).toHaveLength(1); expect(result.audits).toHaveLength(2)
+    expect(JSON.parse(mock.call.mock.calls[2][0].content.at(-1).text).round).toBe(2)
+    expect(JSON.parse(mock.call.mock.calls[2][0].content.at(-1).text).candidate[0].extraction.passage).toBe('Correct sentence.')
+  })
   it('replays a previously held format-only verdict from the paid reply without a new API call', async () => {
     const f = input(), scope = { pdfHash: 'a'.repeat(64), sourceHash: 'b'.repeat(64) }, saved = new Map<string, unknown>()
     const context = { signal: new AbortController().signal, concurrency: 1, execute: async <T,>(fn: () => Promise<T>) => fn(), stage: async () => {},

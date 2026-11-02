@@ -16,6 +16,8 @@ import { extraction } from '../fixtures/book-pdf'
 import * as knownSource from '@/lib/book-pdf/known-source-policy'
 import { KNOWN_SOURCE_REVISION } from '@/lib/book-pdf/known-source-policy'
 import { writeBookUnitStage } from '@/lib/book-pdf/unit-progress'
+import { SourceOutputIncompleteError } from '@/lib/book-pdf/source-output-policy'
+import type { LlmDetailedResult } from '@/lib/llm/types'
 let fixture = nativeFixture()
 const input = () => ({ unit: fixture.unit, pdfHash, bytes: pdfBytes })
 beforeEach(() => {
@@ -28,6 +30,15 @@ beforeEach(() => {
 })
 
 describe('native textbook worker pipeline', () => {
+  it('reports the actual output ceiling and blocks enrichment/publication for a truncated image comparison', async () => {
+    const error = new SourceOutputIncompleteError('audit', 6000, { stopReason: 'max_tokens', finishReason: 'length' } as LlmDetailedResult)
+    mocks.audit.mockRejectedValueOnce(error)
+    const result = await processNativeBookUnit(input())
+    expect(result.verification).toMatchObject({ status: 'unresolved', exhausted: true, issues: [error.message] })
+    expect(result.verification.issues[0]).toContain('6,000토큰')
+    expect(result.enrichment).toBeNull()
+    expect(mocks.enrich).not.toHaveBeenCalled()
+  })
   it('quarantines a known passed/complete cache, reuses its mapping and correction, then requires a new image audit', async () => {
     const h = { manifest: fixture.unit, source: { extraction, verification: fixture.proof, validation: {errors:[],warnings:[],english_coverage:1,translation_coverage:1} } }
     const scope = { pdfHash: h.source.verification.pdf_hash, sourceHash: bookSourceFingerprint(h.manifest) }, saved = new Map<string, unknown>()

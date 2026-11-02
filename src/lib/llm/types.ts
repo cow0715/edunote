@@ -57,6 +57,8 @@ export type CallLlmOptions = TaskCallOptions & {
   maxTokens: number
   content: string | ContentBlock[]
   temperature?: number
+  /** Opt-in Sonnet 5.5 source-audit control. Omitted for all other tasks. */
+  reasoning?: { type: 'between_tools'; effort: 'high' }
   stream?: boolean
   /** Zero-based content-block index ending the reusable prefix. */
   cacheBoundary?: number
