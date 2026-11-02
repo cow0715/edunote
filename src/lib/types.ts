@@ -62,6 +62,8 @@ export interface ClassPeriod {
 }
 
 export interface ClassStudent {
+  joined_at?: string | null;
+  left_at?: string | null;
   id: string;
   class_id: string;
   student_id: string;

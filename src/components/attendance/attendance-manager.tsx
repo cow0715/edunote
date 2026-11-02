@@ -1,14 +1,17 @@
 'use client'
 
+import { rosterAtDate } from '@/lib/week-roster'
 import { useState } from 'react'
 import { runOrReport } from '@/lib/async-ui'
-import { Save, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useSettingsEditState } from '@/components/grade/settings-edit-state'
+import { Check, CheckCheck, LoaderCircle, Save, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { ClassStudent } from '@/lib/types'
 import { useAttendance, useSaveAttendance } from '@/hooks/use-attendance'
 
 interface Props {
+  recordedStudentIds?: string[]
   classId: string
   classStudents: ClassStudent[]
   defaultDate?: string
@@ -24,8 +27,8 @@ const STATUS_LABEL: Record<AttendanceStatus, string> = {
 }
 
 const STATUS_STYLE: Record<AttendanceStatus, string> = {
-  present: 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200',
-  late: 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200',
+  present: 'bg-[var(--share-blue-bg)] text-[var(--share-blue)] border-transparent hover:bg-muted',
+  late: 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100',
   absent: 'bg-red-100 text-red-700 border-red-200 hover:bg-red-200',
 }
 
@@ -62,18 +65,27 @@ function offsetDate(date: string, days: number) {
   return d.toISOString().slice(0, 10)
 }
 
-export function AttendanceManager({ classId, classStudents, defaultDate, scheduledDates }: Props) {
+export function AttendanceManager({ classId, classStudents, defaultDate, scheduledDates, recordedStudentIds = [] }: Props) {
   const initDate = defaultDate ?? todayStr()
   const [date, setDate] = useState(initDate)
   const [statusMap, setStatusMap] = useState<Record<string, AttendanceStatus>>({})
+  const [savedMap, setSavedMap] = useState<Record<string, AttendanceStatus>>({})
 
-  const { data: records, isLoading } = useAttendance(classId, date)
+  const { data: records, isLoading, isError, refetch } = useAttendance(classId, date)
   const saveAttendance = useSaveAttendance(classId)
 
-  // 해당 날짜 이전에 등록된 학생만 표시
-  const activeStudents = classStudents.filter(
-    (cs) => cs.created_at.slice(0, 10) <= date
-  )
+  const activeStudents = rosterAtDate(classStudents, date, [...(records ?? []).map(record => record.student_id), ...(date === defaultDate ? recordedStudentIds : [])])
+
+  const changedStudents = activeStudents.filter(student => statusMap[student.student_id] !== savedMap[student.student_id])
+  const dirty = changedStudents.length > 0
+  const blocked = saveAttendance.isPending || isLoading || isError || records === undefined
+  const recordByStudent = new Map(records?.map(record => [record.student_id, record]))
+  const missingCount = activeStudents.filter(student => !statusMap[student.student_id]).length
+  useSettingsEditState('attendance', dirty, saveAttendance.isPending)
+  function changeDate(next: string) {
+    if (saveAttendance.isPending || (dirty && !window.confirm('출결 변경을 저장하지 않고 날짜를 바꿀까요?'))) return
+    setStatusMap({}); setSavedMap({}); setDate(next)
+  }
 
   // 서버 출결이 도착/갱신되면 편집용 맵을 다시 만든다 — 렌더 중 조정.
   // (effect + exhaustive-deps 억제 주석이면 React Compiler 가 이 컴포넌트를 건너뛴다)
@@ -82,11 +94,11 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
   const [syncedRecords, setSyncedRecords] = useState<{ records: typeof records; date: string }>({ records: undefined, date })
   if (syncedRecords.records !== records || syncedRecords.date !== date) {
     setSyncedRecords({ records, date })
-    if (records) {
+    if (records && (!dirty || syncedRecords.date !== date)) {
       const map: Record<string, AttendanceStatus> = {}
-      activeStudents.forEach((cs) => { map[cs.student_id] = 'present' })
       records.forEach((r) => { map[r.student_id] = r.status })
       setStatusMap(map)
+      setSavedMap(map)
     }
   }
 
@@ -94,18 +106,18 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
   function prevDate() {
     if (scheduledDates) {
       const idx = scheduledDates.indexOf(date)
-      if (idx > 0) setDate(scheduledDates[idx - 1])
+      if (idx > 0) changeDate(scheduledDates[idx - 1])
     } else {
-      setDate(offsetDate(date, -7))
+      changeDate(offsetDate(date, -7))
     }
   }
 
   function nextDate() {
     if (scheduledDates) {
       const idx = scheduledDates.indexOf(date)
-      if (idx < scheduledDates.length - 1) setDate(scheduledDates[idx + 1])
+      if (idx < scheduledDates.length - 1) changeDate(scheduledDates[idx + 1])
     } else {
-      setDate(offsetDate(date, 7))
+      changeDate(offsetDate(date, 7))
     }
   }
 
@@ -126,27 +138,31 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
   }
 
   async function handleSave() {
+    if (blocked || !dirty) return
+    const saved = { ...statusMap }
     await runOrReport(async () => {
       await saveAttendance.mutateAsync({
         date,
-        records: activeStudents.map((cs) => ({
+        records: changedStudents.map((cs) => ({
           student_id: cs.student_id,
-          status: statusMap[cs.student_id] ?? 'present',
+          status: statusMap[cs.student_id],
+          note: recordByStudent.get(cs.student_id)?.note ?? null,
         })),
       })
+      setSavedMap(saved)
       toast.success('출결이 저장되었습니다')
     }, () => toast.error('저장 실패'))
   }
 
   const counts = { present: 0, late: 0, absent: 0 }
-  activeStudents.forEach((cs) => { counts[statusMap[cs.student_id] ?? 'present']++ })
+  activeStudents.forEach((cs) => { const status = statusMap[cs.student_id]; if (status) counts[status]++ })
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* 날짜 네비 */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={prevDate} disabled={isFirst}>
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={prevDate} aria-label="이전 수업일" disabled={isFirst || saveAttendance.isPending || isLoading}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
 
@@ -159,14 +175,15 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
           ) : (
             /* 자유 선택: date input */
             <input
+              disabled={saveAttendance.isPending || isLoading}
               type="date"
               value={date}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={(e) => changeDate(e.target.value)}
               className="rounded-md border px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
             />
           )}
 
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={nextDate} disabled={isLast}>
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={nextDate} aria-label="다음 수업일" disabled={isLast || saveAttendance.isPending || isLoading}>
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -181,8 +198,12 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
         </div>
       </div>
 
+      {!isLoading && !isError && activeStudents.length > 0 && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2">
+        <div className="text-xs text-muted-foreground">{missingCount > 0 ? `미기록 ${missingCount}명` : '전체 입력 완료'}<span className="ml-2">지각·결석만 아래에서 수정하세요.</span></div>
+        <Button size="sm" variant="outline" disabled={blocked || missingCount === 0} onClick={() => setStatusMap(previous => ({...previous, ...Object.fromEntries(activeStudents.filter(student => !previous[student.student_id]).map(student => [student.student_id, 'present' as const]))}))}><CheckCheck aria-hidden="true" className="size-4" />미기록 모두 출석</Button>
+      </div>}
       {/* 학생 목록 */}
-      {isLoading ? (
+      {isError ? <div role="alert" className="rounded-lg border border-destructive/30 p-4 text-sm">출결을 불러오지 못했습니다. <Button size="sm" variant="outline" onClick={() => void refetch()}>다시 조회</Button></div> : isLoading ? (
         <div className="space-y-2">
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-12 animate-pulse rounded-lg bg-gray-100" />
@@ -193,27 +214,29 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
       ) : (
         <div className="space-y-1.5">
           {activeStudents.map((cs) => {
-            const status = statusMap[cs.student_id] ?? 'present'
+            const status = statusMap[cs.student_id]
             return (
               <div key={cs.student_id} className="flex items-center gap-3 rounded-lg border bg-white px-4 py-2.5">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary shrink-0">
-                  {cs.student?.name[0]}
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-foreground">{cs.student?.name}</div>
+                  {recordByStudent.get(cs.student_id)?.note && <p className="mt-0.5 break-words text-xs text-muted-foreground">{recordByStudent.get(cs.student_id)?.note}</p>}
                 </div>
-                <div className="flex-1 text-sm font-medium text-gray-900">{cs.student?.name}</div>
-                {cs.student?.grade && (
-                  <span className="text-xs text-gray-400">{cs.student.grade}</span>
-                )}
+                {!status && <span className="text-[11px] text-muted-foreground">미기록</span>}
                 <div className="flex gap-1">
                   {STATUS_ORDER.map((s) => (
                     <button
                       key={s}
+                      aria-label={`${cs.student?.name ?? '학생'} ${STATUS_LABEL[s]}`}
+                      aria-pressed={status === s}
+                      disabled={blocked}
                       onClick={() => setStatusMap((prev) => ({ ...prev, [cs.student_id]: s }))}
-                      className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
+                      className={`inline-flex min-h-9 items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
                         status === s
                           ? STATUS_STYLE[s]
                           : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'
                       }`}
                     >
+                      {status === s && <Check aria-hidden="true" className="size-3" />}
                       {STATUS_LABEL[s]}
                     </button>
                   ))}
@@ -225,10 +248,11 @@ export function AttendanceManager({ classId, classStudents, defaultDate, schedul
       )}
 
       {activeStudents.length > 0 && (
-        <div className="flex justify-end pt-1">
-          <Button onClick={handleSave} disabled={saveAttendance.isPending} size="sm">
-            <Save className="mr-1.5 h-3.5 w-3.5" />
-            {saveAttendance.isPending ? '저장 중...' : '출결 저장'}
+        <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t bg-background py-3">
+          <p role="status" className="text-xs text-muted-foreground">{saveAttendance.isPending ? '출결 저장 중…' : dirty ? `${changedStudents.length}명 변경 · 미저장` : missingCount > 0 ? `미기록 ${missingCount}명` : '출결 저장됨'}</p>
+          <Button variant="action" onClick={handleSave} disabled={blocked || !dirty} size="sm">
+            {saveAttendance.isPending ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <Save aria-hidden="true" className="size-4" />}
+            {saveAttendance.isPending ? '저장 중…' : '출결 저장'}
           </Button>
         </div>
       )}

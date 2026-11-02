@@ -1,5 +1,6 @@
 'use client'
 
+import { Camera, ImagePlus } from 'lucide-react'
 import { FileUpload } from '@/components/ui/file-upload'
 
 import { useRef, useState } from 'react'
@@ -56,8 +57,8 @@ export function VocabPhotoButton({ weekId, studentId, disabled, hasExistingData,
 
 const beforeSelect = () => { if (!pickFiles) return true; void pickFiles(false).then(files => { if (files[0]) return processFile(files[0]) }); return false }
   return (<div className="flex flex-wrap gap-2 [&_button]:min-h-12">
-    <FileUpload compact label="카메라로 촬영 채점" accept="image/*" capture="environment" onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect}/>
-    <FileUpload compact label={loading ? '채점 중...' : hasExistingData ? '파일로 재채점' : '사진·PDF 선택 채점'} accept="image/*,application/pdf" inputRef={fileRef} onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect}/>
+    <FileUpload compact iconOnly icon={<Camera aria-hidden="true" className="size-5" />} label="카메라로 촬영 채점" accept="image/*" capture="environment" onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect}/>
+    <FileUpload compact iconOnly icon={<ImagePlus aria-hidden="true" className="size-5" />} label={loading ? '채점 중...' : hasExistingData ? '파일로 재채점' : '사진·PDF 선택 채점'} accept="image/*,application/pdf" inputRef={fileRef} onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect}/>
     {error && <span role="alert" className="text-xs text-red-500">{error}</span>}
     {warning && <span className="text-xs text-amber-600">{warning}</span>}
   </div>)

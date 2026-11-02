@@ -92,7 +92,6 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
   useEffect(() => { itemsRef.current = items }, [items])
   useEffect(() => () => { itemsRef.current.forEach((it) => URL.revokeObjectURL(it.previewUrl)) }, [])
 
-  const presentStudents = useMemo(() => students.filter((s) => s.present), [students])
 
   async function addFiles(files: FileList | File[]) {
     const list = Array.from(files).filter((f) => f.type.startsWith('image/') || f.type === 'application/pdf')
@@ -126,7 +125,7 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
           body: JSON.stringify({ fileData: b64, mimeType }),
         })
         const data = await resp.json() as { studentId: string | null; rawName: string | null; confidence: Confidence; duplicate?: boolean }
-        const ok = data.studentId && presentStudents.some((s) => s.student_id === data.studentId)
+        const ok = data.studentId && students.some((s) => s.student_id === data.studentId)
         patch(it.id, {
           studentId: ok ? data.studentId : null,
           confidence: ok ? data.confidence : 'none',
@@ -214,7 +213,7 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
 
   return <BatchGradePanel open={open} kind="exam" draftKey={`exam:${weekId}`} phase={phase === 'reading' ? 'processing' : phase}
     items={items.map(item => ({...item, status: item.status === 'reading-name' || item.status === 'idle' ? 'matching' : item.status === 'reading' ? 'processing' : item.status, message: item.error ?? (item.result ? `${item.result.applied}/${item.result.total}문항 반영` : undefined)}))}
-    students={presentStudents} busy={isBusy || captureBusy} readyCount={readyToRead.length} duplicateIds={duplicateStudentIds} canStart={allConfirmed}
+    students={students} busy={isBusy || captureBusy} readyCount={readyToRead.length} duplicateIds={duplicateStudentIds} canStart={allConfirmed}
     onClose={requestClose} onBack={()=>setPhase('pick')} onConfirm={addFiles} onCaptureBusy={setCaptureBusy}
     onSelect={(id,studentId)=>patch(id,{studentId,confirmedStudentId:null})} onRemove={removeItem} onStart={startReading} onRetry={retryFailed}
     onConfirmStudent={id=>{ const item=items.find(item=>item.id===id); if ((phase==='review'||phase==='done') && item?.studentId && !duplicateStudentIds.has(item.studentId)) patch(id,{confirmedStudentId:item.studentId}) }}/>

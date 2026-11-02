@@ -131,7 +131,7 @@ describe('촬영 확인 → 기존 일괄 처리 연결', () => {
     fireEvent.click(read)
     await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(2))
     expect(onApplied.mock.calls.map(([id]) => id).sort()).toEqual(['a', 'b'])
-    expect(screen.getByText(/채점표에서 답안을 확인하고/)).toBeTruthy()
+    expect(screen.getByText(/입력된 답안을 성적표에서 확인하세요/)).toBeTruthy()
   })
 
   it.each(['exam', 'vocab'])('%s: 같은 학생에게 두 장이 매칭되면 처리를 차단한다', async (kind) => {
@@ -234,4 +234,18 @@ describe('촬영 확인 → 기존 일괄 처리 연결', () => {
     expect(onGraded).toHaveBeenCalledWith('a', 9, 10, [])
     expect(request.mock.calls.filter(([url]) => url.endsWith('grade-vocab-photo'))).toHaveLength(2)
   })
+})
+
+it.each(['exam','vocab'])('%s accepts a matching student regardless of the legacy attendance inclusion flag',async kind=>{
+ let index=0
+ request.mockResolvedValue({ok:true,json:async()=>({studentId:students[index++].student_id,confidence:'high'})})
+ const roster=students.map(student=>({...student,present:false}))
+ if(kind==='exam')render(<ExamBatchGradeDialog open onOpenChange={vi.fn()} weekId="absent-exam" students={roster} questionCount={1} onApplied={vi.fn()}/>)
+ else render(<VocabBatchGradeDialog open onOpenChange={vi.fn()} weekId="absent-vocab" students={roster} onGraded={vi.fn()}/>)
+ fireEvent.click(screen.getByRole('button',{name:'촬영한 두 장 확인 완료'}))
+ await waitFor(()=>expect(screen.getAllByRole('combobox').map(element=>(element as HTMLSelectElement).value).sort()).toEqual(['a','b']))
+ await confirmAllExamStudents()
+ const start=screen.getByRole('button',{name:kind==='exam'?'2명 답안 인식':'2명 채점 시작'})
+ expect(start.hasAttribute('disabled')).toBe(false)
+ expect(screen.getAllByRole('option',{name:'학생 가'}).every(element=>!(element as HTMLOptionElement).disabled)).toBe(true)
 })

@@ -6,6 +6,8 @@ import { cn } from '@/lib/utils'
 
 type FileUploadProps = {
   label: string
+  icon?: ReactNode
+  iconOnly?: boolean
   description?: string
   accept: string
   capture?: 'user' | 'environment'
@@ -24,7 +26,7 @@ type FileUploadProps = {
 
 /** Selection only: existing callers own validation, upload, confirmation and progress. */
 export function FileUpload({
-  label, description, accept, capture, multiple = false, inputRef, onChange, fileName,
+  label, icon, iconOnly = false, description, accept, capture, multiple = false, inputRef, onChange, fileName,
   disabled = false, loading = false, compact = false, className, preview, onClear, beforeSelect,
 }: FileUploadProps) {
   const localRef = useRef<HTMLInputElement>(null)
@@ -45,7 +47,7 @@ export function FileUpload({
       <input ref={ref} type="file" accept={accept} capture={capture} multiple={multiple} disabled={unavailable}
         className="hidden" aria-label={label} onChange={onChange} />
       <button
-        type="button" disabled={unavailable} aria-label={label} aria-busy={loading}
+        type="button" disabled={unavailable} aria-label={label} title={iconOnly ? label : undefined} aria-busy={loading}
         aria-describedby={description ? descriptionId : undefined}
         onClick={select}
         onDragOver={(event) => {
@@ -85,8 +87,8 @@ export function FileUpload({
       >
         {loading ? <Loader2 aria-hidden className="size-5 shrink-0 animate-spin text-muted-foreground" />
           : fileName ? <FileCheck2 aria-hidden className="size-5 shrink-0 text-muted-foreground" />
-            : <Upload aria-hidden className="size-5 shrink-0 text-muted-foreground" />}
-        <span className="min-w-0">
+            : icon ?? <Upload aria-hidden className="size-5 shrink-0 text-muted-foreground" />}
+        <span className={cn("min-w-0", iconOnly && "sr-only")}>
           <span className="block break-words text-sm font-medium [overflow-wrap:anywhere]">{fileName || label}</span>
           {!compact && <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
             {fileName ? '클릭하거나 파일을 놓아 변경' : '클릭하거나 파일을 여기에 놓으세요'}

@@ -11,3 +11,9 @@ it('prevents URL query parameters from weakening TLS or changing the role', () =
   expect(new URL(options.connectionString!).search).toBe('')
   expect(options.ssl).toEqual({ rejectUnauthorized: true, ca: 'line1\nline2' })
 })
+
+it('reuses bounded connections across answer-entry pauses without changing TLS or role checks', () => {
+ const config=poolConfig('postgresql://edunote_app.project:fixture@localhost:6543/postgres')
+ expect(config).toMatchObject({idleTimeoutMillis:60000,max:5,connectionTimeoutMillis:5000})
+ expect(config.ssl).toMatchObject({rejectUnauthorized:true})
+})

@@ -61,17 +61,17 @@ export function BatchGradePanel(props: Props) {
       : phase === 'processing' ? kind === 'exam' ? '답안을 읽고 있어요' : '채점하고 있어요' : '처리 결과'
   const description = phase === 'pick' ? '학생당 한 장 · 이름과 답안 전체가 나오게 준비해주세요.'
     : phase === 'review' ? '사진과 학생이 맞는지 확인해주세요.'
-      : phase === 'done' ? kind === 'exam' ? '채점표에서 답안을 확인하고 ‘채점 저장’으로 확정해주세요.' : '완료된 채점 결과는 저장되었습니다.'
+      : phase === 'done' ? kind === 'exam' ? '입력된 답안을 성적표에서 확인하세요.' : '완료된 채점 결과는 저장되었습니다.'
         : '창을 닫지 말고 잠시 기다려주세요.'
 
   return (
     <Dialog open={open} onOpenChange={(value) => { if (!value) onClose() }}>
-      <DialogContent showCloseButton={false} className="top-0 left-0 h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-0 rounded-none border-0 bg-[var(--share-canvas)] p-0 text-[var(--share-ink)] shadow-none sm:top-1/2 sm:left-1/2 sm:h-[min(820px,90dvh)] sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[20px]">
+      <DialogContent showCloseButton={false} className={cn("top-0 left-0 h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-0 rounded-none border-0 bg-[var(--share-canvas)] p-0 text-[var(--share-ink)] shadow-none sm:top-1/2 sm:left-1/2 sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[20px]", phase === 'pick' && captureView === 'add' ? 'sm:h-[min(560px,90dvh)]' : 'sm:h-[min(820px,90dvh)]')}>
         <DialogHeader className="gap-3 border-b border-[var(--share-line)] px-4 py-4 text-left sm:px-6">
           <div className="flex items-center gap-2">
             {phase === 'review' && <Button type="button" variant="ghost" size="icon" aria-label="사진 확인으로 돌아가기" disabled={busy} onClick={onBack}><ArrowLeft className="size-5" /></Button>}
             <div className="min-w-0 flex-1">
-              <p className="mb-1 text-[11px] font-medium text-[var(--share-muted)]">{kind === 'exam' ? '진단평가 답안 판독' : '단어 시험 채점'}</p>
+              <p className="mb-1 text-[11px] font-medium text-[var(--share-muted)]">{kind === 'exam' ? '시험 답안 올리기' : '단어 시험지 채점'}</p>
               <DialogTitle className="text-xl font-bold tracking-tight">{title}</DialogTitle>
             </div>
             <Button type="button" variant="ghost" size="icon" aria-label="닫기" disabled={busy} onClick={onClose}><X className="size-5" /></Button>
@@ -102,7 +102,7 @@ export function BatchGradePanel(props: Props) {
                   const confirmed = !!item.studentId && !duplicate && item.confirmedStudentId === item.studentId
                   const existing = students.find(student=>student.student_id===item.studentId)?.hasExisting
                   return <li key={item.id}><ExamStudentConfirmationCard number={index+1} previewUrl={item.previewUrl} mimeType={item.file.type}
-                    studentId={item.studentId} students={students.filter(student=>student.present)} rawName={item.rawName}
+                    studentId={item.studentId} students={students} rawName={item.rawName}
                     confirmed={confirmed} duplicate={duplicate} disabled={busy||item.status==='done'}
                     onStudentChange={studentId=>onSelect(item.id,studentId)} onConfirm={()=>onConfirmStudent(item.id)} onRemove={()=>onRemove(item.id)}>
                     {existing && <p className="text-xs text-[var(--share-muted)]">기존 답안을 새 결과로 반영합니다.{kind==='vocab' ? ' 교사 확정 답안은 유지됩니다.' : ''}</p>}

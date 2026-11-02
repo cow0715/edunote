@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Plus, BookOpen, Calendar, Pencil, Trash2, Archive, ArchiveRestore, MoreHorizontal } from 'lucide-react'
+import { Plus, BookOpen, Calendar, Pencil, Trash2, Archive, ArchiveRestore, MoreHorizontal, Search } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ClassFormDialog } from '@/components/classes/class-form-dialog'
@@ -18,9 +19,14 @@ function formatDate(dateStr: string) {
 
 export default function DashboardPage() {
   const [filter, setFilter] = useState<'active' | 'archived' | 'all'>('active')
+  const [search, setSearch] = useState('')
   const [archiveTarget, setArchiveTarget] = useState<Class | null>(null)
   const { data: allClasses, isLoading, isError, refetch } = useClasses(true)
-  const classes = allClasses?.filter(cls => filter === 'all' || (filter === 'archived' ? !!cls.archived_at : !cls.archived_at))
+  const query = search.trim().toLocaleLowerCase('ko')
+  const classes = allClasses?.filter(cls =>
+    (filter === 'all' || (filter === 'archived' ? !!cls.archived_at : !cls.archived_at)) &&
+    (!query || `${cls.name} ${cls.description ?? ''}`.toLocaleLowerCase('ko').includes(query))
+  )
   const deleteClass = useDeleteClass()
   const archiveClass = useArchiveClass()
 
@@ -47,7 +53,7 @@ export default function DashboardPage() {
     <div>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">수업 목록</h1>
+          <h1 className="text-[23px] leading-[1.32] font-bold tracking-[-0.025em] text-foreground">수업 목록</h1>
           <p className="mt-1 text-sm text-gray-500">수업을 선택하면 상세 내용을 확인할 수 있습니다</p>
         </div>
         <div className="flex items-center gap-2">
@@ -58,7 +64,11 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className={`mt-6 flex w-fit gap-1 rounded-2xl p-1 ${styles.statusFilter}`} role="group" aria-label="수업 상태">
+      <div className="relative mt-5 w-full sm:max-w-xs">
+        <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input aria-label="수업 검색" placeholder="수업 이름·설명 검색" value={search} onChange={event => setSearch(event.target.value)} className="pl-9" />
+      </div>
+      <div className={`mt-3 flex w-fit gap-1 rounded-2xl p-1 ${styles.statusFilter}`} role="group" aria-label="수업 상태">
         {([['active', '운영 중'], ['archived', '보관된 반'], ['all', '전체']] as const).map(([value, label]) => (
           <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className={`inline-flex h-11 items-center justify-center rounded-xl px-4 text-sm font-medium ${styles.statusButton}`}>{label}</button>
         ))}
@@ -69,21 +79,21 @@ export default function DashboardPage() {
         {isError ? (
           <div className="rounded-2xl bg-gray-50 p-8 text-center"><p className="text-sm">수업을 불러오지 못했어요.</p><Button className="mt-3" variant="outline" onClick={() => void refetch()}>다시 시도</Button></div>
         ) : isLoading ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-40 rounded-xl bg-gray-100 animate-pulse" />
+              <div key={i} className="h-40 rounded-[20px] bg-card animate-pulse motion-reduce:animate-none" />
             ))}
           </div>
         ) : classes?.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-20 text-center">
+          <div className="flex flex-col items-center justify-center rounded-[20px] bg-card py-12 text-center">
             <BookOpen className="mb-3 h-10 w-10 text-gray-300" />
-            <p className="text-sm text-gray-500">{filter === 'archived' ? '보관된 반이 없어요' : '아직 운영 중인 수업이 없어요'}</p>
-            <Button variant="outline" className="mt-4" onClick={handleCreate} hidden={filter === 'archived'}>
-              첫 수업 만들기
+            <p className="text-sm text-gray-500">{query ? '검색 결과가 없어요' : filter === 'archived' ? '보관된 반이 없어요' : '아직 운영 중인 수업이 없어요'}</p>
+            <Button variant="outline" className="mt-4" onClick={query ? () => setSearch('') : handleCreate} hidden={!query && filter === 'archived'}>
+              {query ? '검색 초기화' : '첫 수업 만들기'}
             </Button>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {classes?.map((cls) => (
               <Card key={cls.id} className={`relative rounded-[20px] border-0 shadow-none ${styles.classCard}`}>
                 <Link href={`/dashboard/${cls.id}`} className="absolute inset-0 z-0 cursor-pointer rounded-[20px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:bg-accent" aria-label={`${cls.name} 수업 열기`} />
@@ -106,7 +116,7 @@ export default function DashboardPage() {
                   )}
                 </CardHeader>
                 <CardContent className="pointer-events-none">
-                  <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Calendar className="h-3.5 w-3.5" />
                     <span>{formatDate(cls.start_date)} ~ {formatDate(cls.end_date)}</span>
                   </div>

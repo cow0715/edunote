@@ -13,3 +13,18 @@ export function getPool() {
   globalDb.edunotePool = pool
   return pool
 }
+
+/** Prepare one connection while the authorized grade GET loads its REST data.
+ * No identity is cached, no query runs, and failures cannot prevent the page loading.
+ */
+export async function warmDatabaseConnection() {
+  try {
+    const pool = getPool()
+    // An idle or connecting/busy client already exists; never fill the pool speculatively.
+    if (pool.totalCount > 0) return
+    const client = await pool.connect()
+    client.release()
+  } catch {
+    console.warn('[database pool] connection warmup unavailable')
+  }
+}

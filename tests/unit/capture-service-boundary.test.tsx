@@ -36,6 +36,8 @@ let clients: QueryClient[] = []
 
 beforeEach(() => {
   vi.clearAllMocks()
+  localStorage.clear()
+  questions[1].question_style = 'objective'
   scores = students.map((student) => ({ id: `score-${student.student_id}`, student_id: student.student_id,
     grade_revision: 1, vocab_correct: 0, reading_correct: 0, homework_done: null, memo: '', student_answer: [], student_vocab_answer: [] }))
   requests = []
@@ -100,14 +102,16 @@ it.each(['reading', 'vocab'])('%s ordinary individual capture still opens the na
   expect(requests).toHaveLength(0)
 })
 
-it.each(['reading-batch', 'vocab-batch', 'reading-single', 'vocab-single'])('%s uses ordinary capture/API/save without a sample provider', async (kind) => {
+it.each(['reading-batch', 'vocab-batch', 'reading-single', 'vocab-single', 'reading-single-ai'])('%s uses ordinary capture/API/save without a sample provider', async (kind) => {
   const reading = kind.startsWith('reading'), batch = kind.endsWith('batch')
+  const ai = kind.endsWith('-ai')
+  if (ai) questions[1].question_style = 'subjective'
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   clients.push(client)
   render(<QueryClientProvider client={client}><GradeGrid weekId={week} readingTotal={2} vocabTotal={3} homeworkTotal={0} /></QueryClientProvider>)
-  await screen.findByText('학생 가', { selector: 'td' })
+  await waitFor(() => expect(within(screen.getByRole('table')).getByRole('button', { name: '학생 가 시험 답안 열기' })).toBeTruthy())
   if (batch) {
-    fireEvent.click(screen.getByText(reading ? '답안지 일괄 판독' : '단어 시험지 일괄 채점', { selector: 'button' }))
+    fireEvent.click(screen.getByRole('button', { name: reading ? '시험 답안 올리기' : '단어 시험지 채점' }))
     const dialog = screen.getByRole('dialog')
     const picker = dialog.querySelector<HTMLInputElement>('input[aria-label="파일 추가"]')!
     fireEvent.change(picker, { target: { files: [new File(['a'], 'a.jpg', { type: 'image/jpeg' }), new File(['b'], 'b.jpg', { type: 'image/jpeg' })] } })
@@ -124,8 +128,8 @@ it.each(['reading-batch', 'vocab-batch', 'reading-single', 'vocab-single'])('%s 
     fireEvent.click(close)
     expect(vi.mocked(captureDraft).mock.calls.some(([key]) => key === `${reading ? 'exam' : 'vocab'}:${week}`)).toBe(true)
   } else {
-    const studentRow = screen.getByText('학생 가', { selector: 'td' }).closest('tr')!
-    fireEvent.click(within(studentRow).getByText(reading ? '0/2' : '0/3', { selector: 'button' }))
+    const studentRow = within(screen.getByRole('table')).getByRole('button', {name:'학생 가 시험 답안 열기'}).closest('tr')!
+    fireEvent.click(within(studentRow).getByRole('button', { name: reading ? '학생 가 시험 답안 열기' : '학생 가 단어 답안 열기' }))
     const dialog = screen.getByRole('dialog')
     const description = document.getElementById(dialog.getAttribute('aria-describedby') ?? '')
     expect(description?.textContent).toBe(reading
@@ -140,11 +144,13 @@ it.each(['reading-batch', 'vocab-batch', 'reading-single', 'vocab-single'])('%s 
   }
   if (reading) {
     await waitFor(() => expect(scores[0].reading_correct).toBe(2))
-    fireEvent.click(screen.getByText('채점 저장', { selector: 'button' }))
-    await waitFor(() => expect(notice.success).toHaveBeenCalledWith('채점이 저장되었습니다'))
-    await waitFor(() => expect(within(screen.getByText('학생 가', { selector: 'td' }).closest('tr')!).getByText('2/2', { selector: 'button' })).toBeTruthy())
+    if (ai) {
+      fireEvent.click(screen.getByRole('button',{name:'AI 채점'}))
+      await waitFor(() => expect(notice.success).toHaveBeenCalledWith('채점이 저장되었습니다'))
+      expect(requests.some((entry) => entry.body.skip_ai === false)).toBe(true)
+    }
+    await waitFor(() => expect(within(screen.getByRole('table')).getByRole('button',{name:'학생 가 시험 답안 열기'}).textContent?.replace(/\s/g,'')).toContain('2/2'))
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(requests.some((entry) => entry.body.skip_ai === false)).toBe(true)
     expect(scores[0].exam_photo_path).toBe(`${week}/student-a/ordinary-photo`)
   } else {
     await waitFor(() => expect(scores[0].vocab_correct).toBe(2))

@@ -5,7 +5,7 @@ import { withTeacherTransaction } from '@/lib/db/transaction'
 import { saveErrorResponse } from '@/lib/db/errors'
 import { enrollStudent } from '@/lib/services/students'
 
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
   const { id: classId } = await params
@@ -13,9 +13,12 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (!teacherId) return err('강사 정보 없음', 404)
   if (!await assertClassOwner(supabase, classId, teacherId)) return err('접근 권한 없음', 403)
   try {
-    const data = await collectPages((from, to) => supabase.from('class_student')
-      .select('*, student(*)').eq('class_id', classId).is('left_at', null)
-      .order('joined_at').order('id').range(from, to))
+    const includeInactive = new URL(request.url).searchParams.get('includeInactive') === 'true'
+    const data = await collectPages((from, to) => {
+      let query = supabase.from('class_student').select('*, student(*)').eq('class_id', classId)
+      if (!includeInactive) query = query.is('left_at', null)
+      return query.order('joined_at').order('id').range(from, to)
+    })
     return ok(data)
   } catch (error) {
     console.error('[GET /api/classes/[id]/students]', error)

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { SourceImagePreview } from '@/components/grade/source-image-preview'
+import { useSettingsEditState } from './settings-edit-state'
 import { FormattedQuestionText } from '@/components/grade/formatted-question-text'
 import { useConceptCategories, useConceptTags } from '@/hooks/use-concept-tags'
 import { ExamQuestion } from '@/lib/types'
@@ -82,6 +83,9 @@ export function QuestionTypeEditor({ weekId }: Props) {
   const [allCorrectMap, setAllCorrectMap] = useState<Record<string, boolean>>({})
   const [addState, setAddState] = useState<Record<string, { catId: string; tagId: string }>>({})
   const [editMap, setEditMap] = useState<Record<string, EditRow>>({})
+  const [savedEdits, setSavedEdits] = useState<string | null>(null)
+  const editFingerprint = JSON.stringify([tagMap, styleMap, answerMap, voidMap, allCorrectMap, editMap])
+  const dirty = savedEdits !== null && savedEdits !== editFingerprint
 
   const readingQuestions = useMemo(
     () => sortQuestionsByPdf(questions.filter((q) => q.exam_type === 'reading')),
@@ -97,7 +101,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
   // 서버에서 온 문항 데이터를 편집용 로컬 state 로 펼친다. snapshot 이 바뀔 때만 다시 계산한다.
   // 렌더 중 조정(React 공식 패턴) — effect 로 하면 첫 렌더에 빈 맵이 한 번 그려진다.
   const [syncedSnapshot, setSyncedSnapshot] = useState<string | null>(null)
-  if (readingQuestions.length > 0 && syncedSnapshot !== snapshot) {
+  if (readingQuestions.length > 0 && syncedSnapshot !== snapshot && !dirty) {
     setSyncedSnapshot(snapshot)
 
     const nextTagMap: Record<string, string[]> = {}
@@ -134,6 +138,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
     setVoidMap(nextVoidMap)
     setAllCorrectMap(nextAllCorrectMap)
     setEditMap(nextEditMap)
+    setSavedEdits(JSON.stringify([nextTagMap, nextStyleMap, nextAnswerMap, nextVoidMap, nextAllCorrectMap, nextEditMap]))
   }
 
   function toggleExpanded(id: string) {
@@ -220,10 +225,12 @@ export function QuestionTypeEditor({ weekId }: Props) {
       })
 
       if (!res.ok) throw new Error('문항 저장에 실패했습니다.')
+      return editFingerprint
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['exam-questions', weekId] })
-      qc.invalidateQueries({ queryKey: ['grade', weekId] })
+    onSuccess: async (savedFingerprint) => {
+      await qc.invalidateQueries({ queryKey: ['exam-questions', weekId] })
+      setSavedEdits(savedFingerprint)
+      await qc.invalidateQueries({ queryKey: ['grade', weekId] })
       toast.success('문항 정보를 저장했습니다.')
     },
     onError: () => {
@@ -250,6 +257,8 @@ export function QuestionTypeEditor({ weekId }: Props) {
     },
   })
 
+  useSettingsEditState('questions', dirty, save.isPending || generateSourceImage.isPending)
+
   if (isLoading) {
     return <div className="h-40 animate-pulse rounded-[24px] bg-slate-100 dark:bg-slate-900/60" />
   }
@@ -257,16 +266,16 @@ export function QuestionTypeEditor({ weekId }: Props) {
   if (readingQuestions.length === 0) {
     return (
       <div className="rounded-[24px] border border-dashed border-slate-200 bg-card/70 px-6 py-14 text-center text-sm text-slate-400 dark:border-white/10 dark:bg-slate-900/60 dark:text-slate-500">
-        먼저 해설지나 문제지 PDF를 업로드해 문항을 가져와 주세요.
+        시험 자료 탭에서 PDF를 등록하고 정답을 확정하면 문항이 표시됩니다.
       </div>
     )
   }
 
   return (
-    <div className="space-y-4">
+    <fieldset disabled={save.isPending} className="min-w-0 space-y-4">
       <div className="rounded-[20px] bg-slate-50/90 px-4 py-3 text-xs leading-5 text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-        문항 번호, 문제 요약, 유형, 정답을 먼저 확인하고 필요한 문항만 펼쳐서 자세히 수정하세요.
-        펼친 화면에서는 문제 전문, 해설, 서술형 정답, 채점 기준까지 한 번에 수정할 수 있습니다.
+        <h3 className="text-sm font-bold text-foreground">문항·정답 수정</h3>
+        <p className="mt-1">수정할 문항을 펼쳐 주세요. 정답·해설·채점 기준은 하단의 ‘문항 정보 저장’으로 적용합니다.</p>
       </div>
 
       <div className="space-y-3">
@@ -302,7 +311,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
             : (editRow.correct_answer_text || q.correct_answer_text || '미설정')
 
           return (
-            <div key={q.id} className="overflow-hidden rounded-[24px] bg-card/95 shadow-[0_10px_40px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/90">
+            <div key={q.id} className="overflow-hidden rounded-[20px] bg-card/95 shadow-none dark:border dark:border-white/5 dark:bg-slate-900/90">
               <div className="flex items-start justify-between gap-3 px-4 py-4">
                 <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
@@ -321,22 +330,20 @@ export function QuestionTypeEditor({ weekId }: Props) {
                       </span>
                     ) : null}
                     {allCorrectMap[q.id] ? (
-                      <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300">
+                      <span className="rounded-full bg-[var(--share-blue-bg)] px-2.5 py-1 text-[11px] font-medium text-[var(--share-blue)] dark:bg-[var(--share-blue-solid)] dark:text-[var(--share-blue)]">
                         전원 정답
                       </span>
                     ) : null}
                   </div>
-                  <FormattedQuestionText
-                    text={questionDisplayText}
-                    className="rounded-[18px] bg-slate-50/80 px-3 py-2 text-sm leading-6 break-words text-slate-700 dark:bg-slate-950/40 dark:text-slate-300"
-                  />
-                  <SourceImagePreview question={q} compact />
+                  <p className="line-clamp-2 text-sm leading-6 text-muted-foreground">{(q.question_stem || questionDisplayText).split('\n')[0]}</p>
+                  {expanded && <SourceImagePreview question={q} compact />}
                 </div>
 
                 <Button
                   type="button"
                   variant="outline"
                   className="rounded-full border-0 bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                  aria-expanded={expanded}
                   onClick={() => toggleExpanded(q.id)}
                 >
                   {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -347,12 +354,11 @@ export function QuestionTypeEditor({ weekId }: Props) {
               {expanded ? (
                 <div className="space-y-4 border-t border-slate-100 bg-slate-50/40 px-4 py-4 dark:border-white/5 dark:bg-slate-950/20">
                   <div className="rounded-[20px] bg-blue-50/80 px-4 py-3 text-xs leading-5 text-blue-800 dark:bg-blue-500/10 dark:text-blue-200">
-                    <b className="font-semibold">사용법</b> 왼쪽에서 문제 원문과 해설을 확인하고, 오른쪽에서 유형·정답·태그만 빠르게 수정하세요.
-                    객관식은 번호를 누르면 정답이 바뀌고, 서답형은 모범답안과 채점 기준을 함께 적어두면 AI 채점에 사용됩니다.
+                    객관식은 정답 번호를 선택하세요. 서술형은 모범답안과 채점 기준을 입력하면 AI 채점에 사용됩니다.
                   </div>
 
                   <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
-                    <div className="space-y-4 rounded-[22px] bg-white p-4 shadow-[0_10px_30px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/80">
+                    <div className="space-y-4 rounded-[22px] bg-white p-4 shadow-none dark:border dark:border-white/5 dark:bg-slate-900/80">
                       <div>
                         <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">문제와 해설</p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -363,7 +369,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
                         <label className="text-xs font-medium text-slate-500 dark:text-slate-400">문제 전문</label>
                         <Textarea
                           rows={12}
-                          className="resize-y rounded-[18px] border-0 bg-slate-50/90 text-sm leading-6 shadow-inner dark:bg-slate-950/40"
+                          className="resize-y rounded-[18px] border-0 bg-slate-50/90 text-sm leading-6 shadow-none dark:bg-slate-950/40"
                           value={editRow.question_text}
                           onChange={(event) => setField(q.id, 'question_text', event.target.value)}
                         />
@@ -373,7 +379,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
                         <Button
                           type="button"
                           variant="outline"
-                          className="rounded-full border-0 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-200 dark:hover:bg-amber-500/20"
+                          className="rounded-full border-0 bg-muted text-muted-foreground hover:bg-muted dark:bg-muted dark:text-muted-foreground dark:hover:bg-muted"
                           disabled={generateSourceImage.isPending}
                           onClick={() => generateSourceImage.mutate(q.id)}
                         >
@@ -386,14 +392,14 @@ export function QuestionTypeEditor({ weekId }: Props) {
                         <label className="text-xs font-medium text-slate-500 dark:text-slate-400">해설 / 오답 사유</label>
                         <Textarea
                           rows={5}
-                          className="resize-y rounded-[18px] border-0 bg-slate-50/90 text-sm leading-6 shadow-inner dark:bg-slate-950/40"
+                          className="resize-y rounded-[18px] border-0 bg-slate-50/90 text-sm leading-6 shadow-none dark:bg-slate-950/40"
                           value={editRow.explanation}
                           onChange={(event) => setField(q.id, 'explanation', event.target.value)}
                         />
                       </div>
                     </div>
 
-                    <div className="space-y-4 rounded-[22px] bg-white p-4 shadow-[0_10px_30px_rgba(0,75,198,0.03)] dark:border dark:border-white/5 dark:bg-slate-900/80">
+                    <div className="space-y-4 rounded-[22px] bg-white p-4 shadow-none dark:border dark:border-white/5 dark:bg-slate-900/80">
                       <div>
                         <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">정답 설정</p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -444,8 +450,8 @@ export function QuestionTypeEditor({ weekId }: Props) {
                             className={[
                               'inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium transition-colors',
                               allCorrectMap[q.id]
-                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
-                                : 'bg-slate-100 text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 dark:bg-slate-800 dark:text-slate-300',
+                                ? 'bg-[var(--share-blue-bg)] text-[var(--share-blue)] dark:bg-[var(--share-blue-solid)] dark:text-[var(--share-blue)]'
+                                : 'bg-slate-100 text-slate-500 hover:bg-[var(--share-blue-bg)] hover:text-[var(--share-blue)] dark:bg-slate-800 dark:text-slate-300',
                             ].join(' ')}
                           >
                             <CheckCheck className="h-3.5 w-3.5" />
@@ -471,7 +477,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
                                     isPrimary
                                       ? 'bg-blue-600 text-white'
                                       : isExtra
-                                        ? 'bg-amber-400 text-white'
+                                        ? 'bg-muted text-white'
                                         : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700',
                                   ].join(' ')}
                                 >
@@ -483,7 +489,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
                         ) : (
                           <Textarea
                             rows={3}
-                            className="resize-y rounded-[18px] border-0 bg-slate-50/90 text-sm leading-6 shadow-inner dark:bg-slate-950/40"
+                            className="resize-y rounded-[18px] border-0 bg-slate-50/90 text-sm leading-6 shadow-none dark:bg-slate-950/40"
                             placeholder={ANSWER_TEXT_LABEL[style] ?? '정답 텍스트'}
                             value={editRow.correct_answer_text}
                             onChange={(event) => setField(q.id, 'correct_answer_text', event.target.value)}
@@ -496,7 +502,7 @@ export function QuestionTypeEditor({ weekId }: Props) {
                           <label className="text-xs font-medium text-slate-500 dark:text-slate-400">채점 기준</label>
                           <Textarea
                             rows={4}
-                            className="resize-y rounded-[18px] border-0 bg-slate-50/90 text-sm leading-6 shadow-inner dark:bg-slate-950/40"
+                            className="resize-y rounded-[18px] border-0 bg-slate-50/90 text-sm leading-6 shadow-none dark:bg-slate-950/40"
                             value={editRow.grading_criteria}
                             onChange={(event) => setField(q.id, 'grading_criteria', event.target.value)}
                           />
@@ -586,15 +592,16 @@ export function QuestionTypeEditor({ weekId }: Props) {
         ))}
       </div>
 
-      <div className="flex justify-end">
+      <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t border-border bg-background py-3">
+        <p role="status" className="text-xs text-muted-foreground">{dirty ? '문항 정보 미저장' : '문항 정보 변경 없음'}</p>
         <Button
-          className="rounded-full bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400"
+          variant="action"
           onClick={() => save.mutate()}
-          disabled={save.isPending}
+          disabled={save.isPending || !dirty}
         >
           {save.isPending ? '저장 중...' : '문항 정보 저장'}
         </Button>
       </div>
-    </div>
+    </fieldset>
   )
 }

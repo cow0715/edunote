@@ -190,8 +190,8 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
           {!camera && <>
             {!photos.length && <p className="text-center text-sm leading-relaxed text-[var(--share-muted)]">종이 답안을 촬영하거나<br />이미지·PDF 파일을 추가해주세요.</p>}
             <div className={photos.length ? 'flex gap-2' : 'grid grid-cols-2 gap-3'}>
-              <Button type="button" variant="outline" disabled={!loaded || busy} onClick={startCamera} className={photos.length ? 'h-11 flex-1 rounded-xl shadow-none' : 'h-28 flex-col rounded-xl bg-[var(--share-card)] shadow-none'}><Camera className="size-6" />{photos.length ? '더 촬영' : '촬영하기'}</Button>
-              <FileUpload compact className={photos.length ? 'flex-1 [&>button]:h-11 [&>button]:w-full' : '[&>button]:h-28 [&>button]:w-full [&>button]:flex-col'} beforeSelect={() => { if (!pickFiles) return true; void pickFiles(true).then(addFiles); return false }} label="파일 추가" description="이미지 또는 PDF · 여러 파일 선택 가능" accept="image/*,application/pdf" multiple inputRef={fileInput} disabled={!loaded || busy} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files) }} />
+              <Button type="button" variant="outline" disabled={!loaded || busy} onClick={startCamera} className={photos.length ? 'h-11 flex-1 rounded-xl shadow-none' : 'h-28 flex-col rounded-xl bg-[var(--share-card)] shadow-none sm:order-2'}><Camera className="size-6" />{photos.length ? '더 촬영' : '촬영하기'}</Button>
+              <FileUpload compact className={photos.length ? 'flex-1 [&>button]:h-11 [&>button]:w-full' : 'sm:order-1 [&>button]:h-28 [&>button]:w-full [&>button]:flex-col'} beforeSelect={() => { if (!pickFiles) return true; void pickFiles(true).then(addFiles); return false }} label="파일 추가" description="이미지 또는 PDF · 여러 파일 선택 가능" accept="image/*,application/pdf" multiple inputRef={fileInput} disabled={!loaded || busy} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files) }} />
             </div>
           </>}
 

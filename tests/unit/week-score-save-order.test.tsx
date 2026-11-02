@@ -51,3 +51,39 @@ it('keeps different weeks independent while one memo save is pending',async()=>{
  expect(result.current.memo.isPending).toBe(true)
  await act(async()=>finish(reply()))
 })
+
+it('rejects HTTP draft failures instead of reporting a completed save', async () => {
+ const { useSaveGradeDraft } = await import('@/hooks/use-grade')
+ vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: '저장 거절' }) }))
+ const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+ const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+ const { result } = renderHook(() => useSaveGradeDraft('w'), { wrapper })
+ await act(async () => { await expect(result.current.mutateAsync([])).rejects.toThrow('저장 거절') })
+ expect(result.current.isSuccess).toBe(false)
+})
+
+it('preserves an explicit unattempted exam and nullable scores in the save payload', async () => {
+ const { useSaveGrade } = await import('@/hooks/use-grade')
+ const fetchMock = vi.fn().mockResolvedValue({ok:true,json:async()=>({ok:true,versions:[{student_id:'s',score_id:null,revision:'b'.repeat(64)}]})})
+ vi.stubGlobal('fetch', fetchMock)
+ const client = new QueryClient({defaultOptions:{mutations:{retry:false}}})
+ const wrapper = ({children}:{children:ReactNode}) => <QueryClientProvider client={client}>{children}</QueryClientProvider>
+ const {result} = renderHook(() => useSaveGrade('w'), {wrapper})
+ const row = {grade_version:{score_id:null,revision:null},student_id:'s',student_name:'Student',present:true,reading_present:false,reading_correct:null,vocab_correct:0,homework_done:null,memo:'',answers:[{exam_question_id:'q',student_answer:2}]}
+ await act(async () => {await result.current.mutateAsync([row])})
+ const payload = JSON.parse(fetchMock.mock.calls[0][1].body)
+ expect(payload.rows[0]).toMatchObject({present:true,reading_present:false,reading_correct:null,vocab_correct:0,homework_done:null})
+ expect(payload.rows[0].answers).toEqual(row.answers)
+})
+
+it('uses the existing full-save queue with AI explicitly skipped for ordinary score persistence',async()=>{
+ const {useSaveGrade}=await import('@/hooks/use-grade')
+ const fetchMock=vi.fn().mockResolvedValue({ok:true,json:async()=>({ok:true,versions:[{student_id:'s',score_id:null,revision:'b'.repeat(64)}]})})
+ vi.stubGlobal('fetch',fetchMock)
+ const client=new QueryClient({defaultOptions:{mutations:{retry:false}}})
+ const wrapper=({children}:{children:ReactNode})=><QueryClientProvider client={client}>{children}</QueryClientProvider>
+ const {result}=renderHook(()=>useSaveGrade('w',true),{wrapper})
+ await act(async()=>{await result.current.mutateAsync([])})
+ expect(fetchMock).toHaveBeenCalledTimes(1)
+ expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({rows:[],skip_ai:true})
+})

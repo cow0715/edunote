@@ -87,7 +87,6 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
   useEffect(() => { itemsRef.current = items }, [items])
   useEffect(() => () => { itemsRef.current.forEach((it) => URL.revokeObjectURL(it.previewUrl)) }, [])
 
-  const presentStudents = useMemo(() => students.filter((s) => s.present), [students])
 
   async function addFiles(files: FileList | File[]) {
     const list = Array.from(files).filter((f) => f.type.startsWith('image/') || f.type === 'application/pdf')
@@ -122,7 +121,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
         })
         const data = await resp.json() as { studentId: string | null; rawName: string | null; confidence: Confidence }
         // 자동 매칭은 present 학생으로만
-        const ok = data.studentId && presentStudents.some((s) => s.student_id === data.studentId)
+        const ok = data.studentId && students.some((s) => s.student_id === data.studentId)
         patch(it.id, {
           studentId: ok ? data.studentId : null,
           confidence: ok ? data.confidence : 'none',
@@ -219,7 +218,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
 
   return <BatchGradePanel open={open} kind="vocab" draftKey={`vocab:${weekId}`} phase={phase === 'grading' ? 'processing' : phase}
     items={items.map(item => ({...item, status: item.status === 'reading' || item.status === 'idle' ? 'matching' : item.status === 'grading' ? 'processing' : item.status, message: item.error ?? (item.result ? `${item.result.vocab_correct}/${item.result.vocab_total}${item.result.missing.length ? ` · 미인식 ${formatNumberRanges(item.result.missing)}` : ''}` : undefined)}))}
-    students={presentStudents} busy={isBusy || captureBusy} readyCount={readyToGrade.length} duplicateIds={duplicateStudentIds} canStart={allConfirmed}
+    students={students} busy={isBusy || captureBusy} readyCount={readyToGrade.length} duplicateIds={duplicateStudentIds} canStart={allConfirmed}
     onClose={requestClose} onBack={()=>setPhase('pick')} onConfirm={addFiles} onCaptureBusy={setCaptureBusy}
     onSelect={(id,studentId)=>patch(id,{studentId,confirmedStudentId:null})} onRemove={removeItem} onStart={startGrading} onRetry={retryFailed}
     onConfirmStudent={id=>{ const item=items.find(item=>item.id===id); if ((phase==='review'||phase==='done') && item?.studentId && !duplicateStudentIds.has(item.studentId)) patch(id,{confirmedStudentId:item.studentId}) }}/>

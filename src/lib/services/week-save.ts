@@ -2,16 +2,61 @@ import 'server-only'
 import { createHash } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { SaveError } from '@/lib/db/errors'
-import { withTeacherTransaction, lockClass, type TeacherTransaction } from '@/lib/db/transaction'
+import { withTeacherTransaction, lockClass, type TeacherTransaction, type TransactionTiming } from '@/lib/db/transaction'
 import { executeStatements, type Statement } from '@/lib/db/statements'
 
-export async function lockWeek(context: TeacherTransaction, weekId: string) {
+export async function lockWeek(context: TeacherTransaction, weekId: string, batchChildren = false, readingStudentIds?: string[]) {
   const { rows } = await context.tx.execute(sql`select class_id from public.week where id=${weekId}::uuid`)
   if (!rows[0]) throw new SaveError('접근 권한이 없거나 주차를 찾을 수 없습니다.', 403)
   const classId = String(rows[0].class_id)
   await lockClass(context, classId)
   const locked = await context.tx.execute(sql`select id from public.week where id=${weekId}::uuid and class_id=${classId}::uuid for update`)
   if (!locked.rows.length) throw new SaveError('주차가 변경됐습니다.', 409)
+  if (readingStudentIds) {
+    // Reading drafts never read/write vocabulary. Keep class/week/question locks,
+    // and lock every score/answer they can change, in the existing lock order.
+    const students = readingStudentIds.length ? sql`student_id in (${sql.join(readingStudentIds.map(id=>sql`${id}::uuid`),sql`, `)})` : sql`false`
+    await context.tx.execute(sql`with
+      questions as materialized (select id from public.exam_question where week_id=${weekId}::uuid order by id for update),
+      scores as materialized (select id from public.week_score where week_id=${weekId}::uuid and ${students}
+        and (select count(*) from questions)>=0 order by id for update),
+      answers as materialized (select id from public.student_answer where week_score_id in
+        (select id from public.week_score where week_id=${weekId}::uuid and ${students})
+        and ((select count(*) from questions)+(select count(*) from scores))>=0 order by id for update)
+      select (select count(*) from questions) as questions, (select count(*) from scores) as scores,
+        (select count(*) from answers) as answers`)
+    return classId
+  }
+  if (batchChildren) {
+    // MATERIALIZED dependencies keep the legacy lock order, in one DB round trip.
+    // Each lock depends on ALL preceding CTEs, so an empty intermediate table
+    // cannot skip an earlier lock. Every CTE is consumed; lock scope is unchanged.
+    await context.tx.execute(sql`with
+      questions as materialized (select id from public.exam_question where week_id=${weekId}::uuid order by id for update),
+      words as materialized (select id from public.vocab_word where week_id=${weekId}::uuid
+        and (select count(*) from questions)>=0 order by id for update),
+      variants as materialized (select id from public.vocab_word_variant where vocab_word_id in
+        (select id from public.vocab_word where week_id=${weekId}::uuid)
+        and ((select count(*) from questions) + (select count(*) from words))>=0 order by id for update),
+      tests as materialized (select id from public.vocab_test where week_id=${weekId}::uuid
+        and ((select count(*) from questions) + (select count(*) from words) + (select count(*) from variants))>=0 order by id for update),
+      items as materialized (select id from public.vocab_test_item where vocab_test_id in
+        (select id from public.vocab_test where week_id=${weekId}::uuid)
+        and ((select count(*) from questions) + (select count(*) from words) + (select count(*) from variants) + (select count(*) from tests))>=0 order by id for update),
+      scores as materialized (select id from public.week_score where week_id=${weekId}::uuid
+        and ((select count(*) from questions) + (select count(*) from words) + (select count(*) from variants) + (select count(*) from tests) + (select count(*) from items))>=0 order by id for update),
+      answers as materialized (select id from public.student_answer where week_score_id in
+        (select id from public.week_score where week_id=${weekId}::uuid)
+        and ((select count(*) from questions) + (select count(*) from words) + (select count(*) from variants) + (select count(*) from tests) + (select count(*) from items) + (select count(*) from scores))>=0 order by id for update),
+      vocab_answers as materialized (select id from public.student_vocab_answer where week_score_id in
+        (select id from public.week_score where week_id=${weekId}::uuid)
+        and ((select count(*) from questions) + (select count(*) from words) + (select count(*) from variants) + (select count(*) from tests) + (select count(*) from items) + (select count(*) from scores) + (select count(*) from answers))>=0 order by id for update)
+      select (select count(*) from questions) as questions, (select count(*) from words) as words,
+        (select count(*) from variants) as variants, (select count(*) from tests) as tests,
+        (select count(*) from items) as items, (select count(*) from scores) as scores,
+        (select count(*) from answers) as answers, (select count(*) from vocab_answers) as vocab_answers`)
+    return classId
+  }
   // Also coordinate with older writers: existing children cannot be changed
   // between the version comparison and COMMIT, and FK inserts wait on parents.
   await context.tx.execute(sql`select id from public.exam_question where week_id=${weekId}::uuid order by id for update`)
@@ -59,6 +104,34 @@ export async function assertWeekStudents(context: TeacherTransaction, weekId: st
     where w.id=${weekId}::uuid and s.teacher_id=${context.teacherId}::uuid
       and s.id in (${sql.join(ids.map(id => sql`${id}::uuid`), sql`, `)}) for update of s`)
   if (new Set(result.rows.map(row => String(row.id))).size !== ids.length) throw new SaveError('해당 수업 학생이 아닙니다.', 403)
+}
+
+/** Code-only saves have no unlocked AI interval to snapshot and compare.
+ * Keep the existing lock order/ownership checks, and plan from locked DB records.
+ * Never pass a planner that makes external calls or returns before its writes finish.
+ */
+export function saveImmediateWeekPlan(userId: string, weekId: string, studentIds: string[],
+  prepare: (context: TeacherTransaction) => Promise<Statement[]>, onTiming?: TransactionTiming) {
+  return withTeacherTransaction(userId, context => applyImmediateWeekPlan(context, weekId, studentIds, prepare, onTiming), onTiming)
+}
+
+export async function applyImmediateWeekPlan(context: TeacherTransaction, weekId: string, studentIds: string[],
+  prepare: (context: TeacherTransaction) => Promise<Statement[]>, onTiming?: TransactionTiming) {
+  let stageAt = performance.now()
+  const mark = (stage: string) => {
+    const now = performance.now()
+    // Diagnostics must not alter persistence or connection-release behavior.
+    try { onTiming?.(stage, now - stageAt) } catch { /* ignore observer errors */ }
+    stageAt = now
+  }
+  await lockWeek(context, weekId, true, studentIds)
+  mark('db_locks')
+  await assertWeekStudents(context, weekId, studentIds)
+  mark('db_students')
+  const statements = await prepare(context)
+  mark('db_plan')
+  await executeStatements(context.tx, statements)
+  mark('db_writes')
 }
 
 export function saveWeekPlan(userId: string, weekId: string, version: string, statements: Statement[], studentIds: string[] = []) {

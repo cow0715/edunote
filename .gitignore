@@ -68,3 +68,6 @@ tmp/pdfs/
 /tmp/*.log
 /tmp/*.exit
 /tmp/*.cjs
+
+# Local UI/capture integration backup and review artifacts
+/tmp/capture-style-integration-20261101/

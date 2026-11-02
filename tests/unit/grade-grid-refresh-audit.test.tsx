@@ -37,7 +37,7 @@ it('keeps a local memo when a vocab completion refetch arrives before its metada
   fireEvent.blur(memo)
   expect(m.metadata).toHaveBeenCalledOnce()
   expect(memo.value).toBe('not acknowledged yet')
-  fireEvent.click(screen.getByRole('button', { name: '단어 시험지 일괄 채점' }))
+  fireEvent.click(screen.getByRole('button', { name: '단어 시험지 채점' }))
   fireEvent.click(screen.getByRole('button', { name: '가상 단어 채점 완료' }))
   expect(refetch).toHaveBeenCalled()
   // Resolve that read with the new vocab result while the metadata request is still pending.

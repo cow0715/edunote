@@ -1,12 +1,15 @@
+import { warmDatabaseConnection } from '@/lib/db/pool'
+import { rosterAtDate } from '@/lib/week-roster'
+import type { GradeSaveResult, GradeVersion } from '@/lib/atomic-grade'
 export async function GET(request: Request, args: { params: Promise<{ id: string }> }) {
   try { return await handleGET(request, args) } catch(error) { return saveErrorResponse(error) }
 }
-import { requireGradeToken, saveGradePlan, captureGradeVersions } from '@/lib/services/grade-save'
+import { requireGradeToken, saveGradePlan, captureGradeVersions, applyGradePlan } from '@/lib/services/grade-save'
 import { assertGradePhotosAvailable } from '@/lib/exam-photo'
 import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
-import { captureWeekVersion, readingTotals } from '@/lib/services/week-save'
-import { insertRows, updateRows, deleteRows, type Statement } from '@/lib/db/statements'
+import { captureWeekVersion, saveImmediateWeekPlan, readingTotals } from '@/lib/services/week-save'
+import { insertRows, updateRows, type Statement } from '@/lib/db/statements'
 import { saveErrorResponse, SaveError } from '@/lib/db/errors'
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { gradeSubjectiveAnswers, SubjectiveStudentAnswer } from '@/lib/anthropic'
@@ -63,12 +66,8 @@ async function handleGET(_: Request, { params }: { params: Promise<{ id: string 
   if (!week) return err('주차 없음', 404)
 
   // 해당 주차 수업일 기준으로 재원 중이었던 학생만 조회
-  let csQuery = supabase.from('class_student').select('student_id, student(*)').eq('class_id', week.class_id)
-  if (week.start_date) {
-    csQuery = csQuery.lte('joined_at', week.start_date).or(`left_at.is.null,left_at.gt.${week.start_date}`)
-  } else {
-    csQuery = csQuery.is('left_at', null)
-  }
+  const csQuery = supabase.from('class_student').select('*, student(*)').eq('class_id', week.class_id)
+  void warmDatabaseConnection()
 
   const reads = await Promise.all([
     csQuery,
@@ -137,7 +136,7 @@ async function handleGET(_: Request, { params }: { params: Promise<{ id: string 
     attendance = att ?? []
   }
 
-  const sortedClassStudents = (classStudents ?? []).slice().sort((a, b) =>
+  const sortedClassStudents = rosterAtDate(classStudents ?? [], week.start_date, [...(weekScores ?? []).map(score => score.student_id), ...attendance.map(record => record.student_id)]).sort((a, b) =>
     ((a.student as { name?: string } | null)?.name ?? '').localeCompare(
       (b.student as { name?: string } | null)?.name ?? '', 'ko'
     )
@@ -157,15 +156,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 }
 
 async function handlePost(request: Request, params: Promise<{ id: string }>) {
+  const startedAt = performance.now()
+  let stageAt = startedAt
+  const timings: string[] = []
+  const dbTimings: string[] = []
+  function mark(stage: string) { const now = performance.now(); timings.push(`${stage};dur=${(now - stageAt).toFixed(1)}`); stageAt = now }
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
-  const teacherId = await getTeacherId(supabase, user.id)
-  if (!teacherId) return err('강사 정보 없음', 404)
-  if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
 
   type GradeRow = {
-    grade_version: unknown
+    grade_version: GradeVersion
     exam_photo_path?: string | null
     student_id: string
     student_name: string
@@ -189,6 +190,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
 
   let rows: GradeRow[]
   let skipAI = false
+  let answersOnlyDraft = false
   try {
     const body = await request.json()
     if (Array.isArray(body)) {
@@ -196,232 +198,284 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     } else {
       rows = body.rows
       skipAI = body.skip_ai ?? false
+      answersOnlyDraft = skipAI && body.draft_only === true
     }
   } catch {
     return err('요청 데이터 파싱 실패')
   }
 
+  if (!answersOnlyDraft) {
+    const teacherId = await getTeacherId(supabase, user.id)
+    if (!teacherId) return err('강사 정보 없음', 404)
+    if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
+  }
+  // Draft authorization is checked once inside withTeacherTransaction + lockWeek,
+  // using the same verified user, approved teacher and class/week ownership.
+  mark('auth')
+
   if (!Array.isArray(rows) || rows.some(row => !row.student_id || !Array.isArray(row.answers))) throw new SaveError('채점 데이터가 올바르지 않습니다.')
   if (new Set(rows.map(row => row.student_id)).size !== rows.length) throw new SaveError('학생이 중복되었습니다.')
-  if (!rows.length) throw new SaveError('학생 목록이 비어 있습니다.',422)
-  const version = Object.fromEntries(rows.map(row=>[row.student_id,requireGradeToken(row.grade_version)]))
-  const current = await captureGradeVersions(user.id,weekId,rows.map(row=>row.student_id))
-  if (current.some(v=>v.revision !== version[v.student_id])) throw new SaveError('답안이 변경됐습니다. 새로고침해주세요.',409)
-  await assertGradePhotosAvailable(supabase,weekId,rows)
-  const statements: Statement[] = []
-  const { data: existingScores, error: existingError } = await supabase.from('week_score').select('id,student_id').eq('week_id', weekId)
-  if (existingError) throw new SaveError('채점 자료 조회 실패', 503)
-  const scoreMap = new Map((existingScores ?? []).map(score => [score.student_id, score.id]))
-  // 이 주차의 모든 문항 정보 한 번에 조회 (style, correct_answer, 모범답안)
-  const { data: allQuestions, error: questionsError } = await supabase
-    .from('exam_question')
-    .select('id, question_number, sub_label, correct_answer, extra_correct_answers, all_correct, correct_answer_text, grading_criteria, question_style, question_text, question_stem, passage')
-    .eq('week_id', weekId)
-    .eq('exam_type', 'reading')
+  if (!Array.isArray(rows) || !rows.length) throw new SaveError('학생 목록이 비어 있습니다.',422)
+  const studentIds = rows.map(row => row.student_id)
+  const version = Object.fromEntries(rows.map(row => [row.student_id, requireGradeToken(row.grade_version)]))
+  await assertGradePhotosAvailable(supabase, weekId, rows)
+  let savedResult: GradeSaveResult | undefined
+  async function readInputs() {
+    return Promise.all([
+      supabase.from('week_score').select('id,student_id').eq('week_id', weekId),
+      supabase.from('exam_question').select('id, question_number, sub_label, correct_answer, extra_correct_answers, all_correct, correct_answer_text, grading_criteria, question_style, question_text, question_stem, passage').eq('week_id', weekId).eq('exam_type', 'reading'),
+    ])
+  }
+  type Inputs = Awaited<ReturnType<typeof readInputs>>
+  async function buildPlan([{ data: existingScores, error: existingError }, { data: allQuestions, error: questionsError }]: Inputs, currentReadingTotal?: number) {
+    const statements: Statement[] = []
+    mark('read')
+    if (existingError) throw new SaveError('채점 자료 조회 실패', 503)
+    const scoreMap = new Map((existingScores ?? []).map(score => [score.student_id, score.id]))
+    if (questionsError) throw new SaveError('문항 조회 실패', 503)
+    const questionMap = new Map(allQuestions?.map((q) => [q.id, q]) ?? [])
 
-  if (questionsError) throw new SaveError('문항 조회 실패', 503)
-  const questionMap = new Map(allQuestions?.map((q) => [q.id, q]) ?? [])
+    // 서술형/오류교정 배치 채점용 수집 (모두 AI 경로)
+    const subjectiveForGrading: SubjectiveStudentAnswer[] = []
+    const processedScoreIds: string[] = []
 
-  // 서술형/오류교정 배치 채점용 수집 (모두 AI 경로)
-  const subjectiveForGrading: SubjectiveStudentAnswer[] = []
-  const processedScoreIds: string[] = []
+    for (const row of rows) {
+      // Compatibility with old clients/cache: an excluded row is never a deletion command.
+      // Current backoffice includes all roster students independently of attendance.
+      if (row.present === false) continue
+      if (row.answers.some(answer => !questionMap.has(answer.exam_question_id))) throw new SaveError('다른 주차의 문항을 저장할 수 없습니다.', 403)
+      const score = { id: scoreMap.get(row.student_id) ?? randomUUID() }
+      statements.push(...insertRows('week_score', [{ id: score.id, week_id: weekId, student_id: row.student_id,
+        reading_correct: row.reading_present === false ? null : row.reading_correct,
+        ...(row.reading_present !== false && row.exam_photo_path ? { exam_photo_path: row.exam_photo_path } : {}),
+        // Background exam drafts must not overwrite a newer vocabulary/memo/homework save.
+        ...(!answersOnlyDraft ? { vocab_correct: row.vocab_correct, homework_done: row.homework_done, memo: row.memo || null } : !scoreMap.has(row.student_id) ? { vocab_correct: null, homework_done: null, memo: null } : {}) }], ['week_id','student_id'], answersOnlyDraft))
 
-  for (const row of rows) {
-    if (!row.present) {
-      statements.push(deleteRows('week_score', sql`week_id=${weekId}::uuid and student_id=${row.student_id}::uuid`))
-      continue
-    }
-    if (row.reading_present !== false && row.answers.some(answer => !questionMap.has(answer.exam_question_id))) throw new SaveError('다른 주차의 문항을 저장할 수 없습니다.', 403)
-    const score = { id: scoreMap.get(row.student_id) ?? randomUUID() }
-    statements.push(...insertRows('week_score', [{ id: score.id, week_id: weekId, student_id: row.student_id,
-      vocab_correct: row.vocab_correct, reading_correct: row.reading_present === false ? null : row.reading_correct,
-      homework_done: row.homework_done, memo: row.memo || null, ...(row.reading_present !== false && row.exam_photo_path ? {exam_photo_path:row.exam_photo_path}: {}) }], ['week_id','student_id']))
+      // reading_present=false이면 answers 처리 스킵 + reading_correct=null 이미 upsert됨
+      if (row.reading_present === false) continue
 
-    // reading_present=false이면 answers 처리 스킵 + reading_correct=null 이미 upsert됨
-    if (row.reading_present === false) continue
+      if (row.answers.length > 0) {
+        // Directly entered scores (including 0) have no answer rows to aggregate.
+        processedScoreIds.push(score.id)
+        // find_error: 같은 문항의 소문항들을 모아 순서 무관 집합 매칭으로 코드 선채점.
+        // 확정 정오는 여기서 끝나고, 의미 비교가 필요한 답('ai')만 AI 배치로 넘어간다.
+        const findErrorVerdicts = new Map<string, FindErrorAssignment>()
+        {
+          const byQuestion = new Map<number, { id: string; text: string }[]>()
+          for (const a of row.answers) {
+            const q = questionMap.get(a.exam_question_id)
+            if (q?.question_style !== 'find_error' || a.teacher_confirmed) continue
+            const arr = byQuestion.get(q.question_number) ?? []
+            arr.push({ id: a.exam_question_id, text: a.student_answer_text ?? '' })
+            byQuestion.set(q.question_number, arr)
+          }
+          for (const items of byQuestion.values()) {
+            const keyRows = items.map(({ id }) => ({ id, correctAnswerText: questionMap.get(id)?.correct_answer_text ?? null }))
+            for (const assignment of assignFindErrorAnswers(keyRows, items.map((i) => i.text))) {
+              findErrorVerdicts.set(assignment.id, assignment)
+            }
+          }
+        }
 
-    processedScoreIds.push(score.id)
-
-    if (row.answers.length > 0) {
-      // find_error: 같은 문항의 소문항들을 모아 순서 무관 집합 매칭으로 코드 선채점.
-      // 확정 정오는 여기서 끝나고, 의미 비교가 필요한 답('ai')만 AI 배치로 넘어간다.
-      const findErrorVerdicts = new Map<string, FindErrorAssignment>()
-      {
-        const byQuestion = new Map<number, { id: string; text: string }[]>()
-        for (const a of row.answers) {
+        const answersToUpsert = row.answers.map((a) => {
           const q = questionMap.get(a.exam_question_id)
-          if (q?.question_style !== 'find_error' || a.teacher_confirmed) continue
-          const arr = byQuestion.get(q.question_number) ?? []
-          arr.push({ id: a.exam_question_id, text: a.student_answer_text ?? '' })
-          byQuestion.set(q.question_number, arr)
-        }
-        for (const items of byQuestion.values()) {
-          const keyRows = items.map(({ id }) => ({ id, correctAnswerText: questionMap.get(id)?.correct_answer_text ?? null }))
-          for (const assignment of assignFindErrorAnswers(keyRows, items.map((i) => i.text))) {
-            findErrorVerdicts.set(assignment.id, assignment)
+          const style = q?.question_style ?? 'objective'
+
+          // 선생님이 확정한 답안 → AI 재채점 없이 그대로 보존
+          if (a.teacher_confirmed) {
+            const isTextAnswer = style === 'subjective' || style === 'multi_select' || style === 'find_error'
+            return {
+              week_score_id: score.id,
+              exam_question_id: a.exam_question_id,
+              student_answer: isTextAnswer ? null : a.student_answer,
+              student_answer_text: isTextAnswer ? (a.student_answer_text ?? null) : null,
+              ox_selection: style === 'ox' ? (a.ox_selection ?? null) : null,
+              is_correct: a.is_correct ?? false,
+              needs_review: false,
+              teacher_confirmed: true,
+            }
           }
-        }
-      }
 
-      const answersToUpsert = row.answers.map((a) => {
-        const q = questionMap.get(a.exam_question_id)
-        const style = q?.question_style ?? 'objective'
+          if (style === 'ox') {
+            // UI 포맷("O"/"X 수정어"/"T"/"F") → ox_selection + student_answer_text(수정어만) 분리
+            const { oxSelection, correction } = parseOXStudentInput(a.student_answer_text)
+            // 판정은 채점지 UI 와 같은 함수로 — 규칙이 두 군데로 갈라지지 않게 한다.
+            // 미체크(빈칸)도 오답이다.
+            const is_correct = gradeOXAnswer(q ?? {}, a.student_answer_text)
+            return {
+              week_score_id: score.id,
+              exam_question_id: a.exam_question_id,
+              student_answer: null,
+              student_answer_text: correction,
+              ox_selection: oxSelection,
+              is_correct,
+              needs_review: false,
+              teacher_confirmed: false,
+            }
+          }
 
-        // 선생님이 확정한 답안 → AI 재채점 없이 그대로 보존
-        if (a.teacher_confirmed) {
           const isTextAnswer = style === 'subjective' || style === 'multi_select' || style === 'find_error'
-          return {
-            week_score_id: score.id,
-            exam_question_id: a.exam_question_id,
-            student_answer: isTextAnswer ? null : a.student_answer,
-            student_answer_text: style === 'ox' ? parseOXStudentInput(a.student_answer_text).correction : isTextAnswer ? (a.student_answer_text ?? null) : null,
-            ox_selection: style === 'ox' ? parseOXStudentInput(a.student_answer_text).oxSelection : null,
-            is_correct: a.is_correct ?? false,
-            needs_review: false,
-            teacher_confirmed: true,
-            ai_feedback: a.ai_feedback ?? null,
-          }
-        }
+          const isSubjective = style === 'subjective'
 
-        if (style === 'ox') {
-          // UI 포맷("O"/"X 수정어"/"T"/"F") → ox_selection + student_answer_text(수정어만) 분리
-          const { oxSelection, correction } = parseOXStudentInput(a.student_answer_text)
-          // 판정은 채점지 UI 와 같은 함수로 — 규칙이 두 군데로 갈라지지 않게 한다.
-          // 미체크(빈칸)도 오답이다.
-          const is_correct = gradeOXAnswer(q ?? {}, a.student_answer_text)
-          return {
-            week_score_id: score.id,
-            exam_question_id: a.exam_question_id,
-            student_answer: null,
-            student_answer_text: correction,
-            ox_selection: oxSelection,
-            is_correct,
-            needs_review: false,
-            teacher_confirmed: false,
-          }
-        }
+          let is_correct: boolean
+          let needs_review = false
+          let ai_feedback: string | null = null
 
-        const isTextAnswer = style === 'subjective' || style === 'multi_select' || style === 'find_error'
-        const isSubjective = style === 'subjective'
-
-        let is_correct: boolean
-        let needs_review = false
-        let ai_feedback: string | null = null
-
-        if (style === 'objective') {
-          // 복수정답(extra_correct_answers)·전원정답(all_correct)은 문항 편집 API 의 재채점과 같은 규칙
-          is_correct = q ? (gradeObjective(q, a.student_answer) ?? false) : false
-        } else if (style === 'find_error') {
-          const assignment = findErrorVerdicts.get(a.exam_question_id)
-          if (assignment?.verdict === 'ai' && skipAI) {
-            // draft 저장: AI 미확정 답은 기존 채점 결과 보존
+          if (style === 'objective') {
+            // 복수정답(extra_correct_answers)·전원정답(all_correct)은 문항 편집 API 의 재채점과 같은 규칙
+            is_correct = q ? (gradeObjective(q, a.student_answer) ?? false) : false
+          } else if (style === 'find_error') {
+            const assignment = findErrorVerdicts.get(a.exam_question_id)
+            if (assignment?.verdict === 'ai' && skipAI) {
+              // draft 저장: AI 미확정 답은 기존 채점 결과 보존
+              is_correct = a.is_correct ?? false
+              needs_review = a.needs_review ?? false
+              ai_feedback = a.ai_feedback ?? null
+            } else {
+              is_correct = assignment?.verdict === 'correct'
+            }
+            // 집합 매칭이 답을 제 정답 행으로 재배열했을 수 있다 → 배정된 텍스트로 저장
+            return {
+              week_score_id: score.id,
+              exam_question_id: a.exam_question_id,
+              student_answer: null,
+              student_answer_text: assignment?.text || null,
+              ox_selection: null,
+              is_correct,
+              needs_review,
+              teacher_confirmed: false,
+              ai_feedback,
+            }
+          } else if (style === 'multi_select') {
+            is_correct = q?.correct_answer_text ? gradeMultiSelect(q.correct_answer_text, a.student_answer_text ?? '') : false
+          } else if (isSubjective && skipAI) {
+            // draft 저장 시: 기존 AI 채점 결과 보존 (덮어쓰지 않음)
             is_correct = a.is_correct ?? false
             needs_review = a.needs_review ?? false
             ai_feedback = a.ai_feedback ?? null
           } else {
-            is_correct = assignment?.verdict === 'correct'
+            is_correct = false // subjective: AI 채점 후 업데이트
           }
-          // 집합 매칭이 답을 제 정답 행으로 재배열했을 수 있다 → 배정된 텍스트로 저장
+
           return {
             week_score_id: score.id,
             exam_question_id: a.exam_question_id,
-            student_answer: null,
-            student_answer_text: assignment?.text || null,
+            student_answer: isTextAnswer ? null : a.student_answer,
+            student_answer_text: isTextAnswer ? (a.student_answer_text ?? null) : null,
             ox_selection: null,
             is_correct,
             needs_review,
             teacher_confirmed: false,
-            ai_feedback,
+            ...(isSubjective && { ai_feedback }),
           }
-        } else if (style === 'multi_select') {
-          is_correct = q?.correct_answer_text ? gradeMultiSelect(q.correct_answer_text, a.student_answer_text ?? '') : false
-        } else if (isSubjective && skipAI) {
-          // draft 저장 시: 기존 AI 채점 결과 보존 (덮어쓰지 않음)
-          is_correct = a.is_correct ?? false
-          needs_review = a.needs_review ?? false
-          ai_feedback = a.ai_feedback ?? null
-        } else {
-          is_correct = false // subjective: AI 채점 후 업데이트
-        }
+        })
 
-        return {
-          week_score_id: score.id,
-          exam_question_id: a.exam_question_id,
-          student_answer: isTextAnswer ? null : a.student_answer,
-          student_answer_text: style === 'ox' ? parseOXStudentInput(a.student_answer_text).correction : isTextAnswer ? (a.student_answer_text ?? null) : null,
-          ox_selection: null,
-          is_correct,
-          needs_review,
-          teacher_confirmed: false,
-          ...(isSubjective && { ai_feedback }),
-        }
-      })
+        statements.push(...insertRows('student_answer', answersToUpsert, ['week_score_id','exam_question_id'], answersOnlyDraft))
 
-      statements.push(...insertRows('student_answer', answersToUpsert, ['week_score_id','exam_question_id']))
+        if (skipAI) continue
 
       // AI 배치 채점 수집 — subjective 전부 + find_error 중 코드가 확정 못한 것('ai')만
-      for (const a of row.answers) {
-        if (a.teacher_confirmed) continue  // 선생님 확정 답안은 재채점 스킵
-        const q = questionMap.get(a.exam_question_id)
-        if (q?.question_style !== 'subjective' && q?.question_style !== 'find_error') continue
-        // find_error: 코드가 정오를 확정한 답은 AI 로 보내지 않는다. 텍스트도 배정된 것 사용.
-        const assignment = q.question_style === 'find_error' ? findErrorVerdicts.get(a.exam_question_id) : undefined
-        if (q.question_style === 'find_error' && assignment?.verdict !== 'ai') continue
-        const textForGrading = (assignment?.text ?? a.student_answer_text ?? '').trim()
-        if (!textForGrading) continue
-        subjectiveForGrading.push({
-          week_score_id: score.id,
-          exam_question_id: a.exam_question_id,
-          question_number: q.question_number,
-          sub_label: q.sub_label ?? null,
-          student_name: row.student_name,
-          student_answer_text: textForGrading,
-        })
-      }
-    }
-  }
-
-  const aiStatements: Statement[] = []
-  // 서술형/오류교정 AI 배치 채점 (skip_ai=true이면 건너뜀)
-  if (!skipAI && subjectiveForGrading.length > 0) {
-    const uniqueKeys = [...new Set(subjectiveForGrading.map((a) => `${a.question_number}__${a.sub_label ?? ''}`))]
-    const subjectiveQuestions = uniqueKeys
-      .map((key) => {
-        const [qNumStr, subLabel] = key.split('__')
-        const qNum = Number(qNumStr)
-        const sub = subLabel || null
-        const q = allQuestions?.find((q) => q.question_number === qNum && q.sub_label === sub && (q.question_style === 'subjective' || q.question_style === 'find_error'))
-        return q ? {
-          question_number: q.question_number,
-          sub_label: q.sub_label ?? null,
-          correct_answer_text: q.correct_answer_text ?? '',
-          question_text: q.question_text,
-          question_stem: q.question_stem,
-          passage: q.passage,
-          grading_criteria: q.grading_criteria,
-          question_style: q.question_style as 'subjective' | 'find_error',
-        } : null
-      })
-      .filter((q): q is NonNullable<typeof q> => q !== null && q.correct_answer_text !== '')
-
-    if (subjectiveQuestions.length > 0) {
-      try {
-        const gradingResults = await gradeSubjectiveAnswers(subjectiveQuestions, subjectiveForGrading)
-        const expectedPairs = new Set(subjectiveForGrading.map(answer => `${answer.week_score_id}:${answer.exam_question_id}`))
-        if (gradingResults.length !== subjectiveForGrading.length || new Set(gradingResults.map(result => `${result.week_score_id}:${result.exam_question_id}`)).size !== subjectiveForGrading.length) throw new SaveError('일부 답안의 채점 결과가 누락/중복됐습니다.',422)
-        for (const result of gradingResults) {
-          if (!expectedPairs.has(`${result.week_score_id}:${result.exam_question_id}`)) throw new SaveError('AI 채점 응답이 올바르지 않습니다.', 422)
-          aiStatements.push(updateRows('student_answer', { is_correct: result.is_correct, needs_review: result.needs_review, ai_feedback: result.ai_feedback },
-            sql`week_score_id=${result.week_score_id}::uuid and exam_question_id=${result.exam_question_id}::uuid`, true))
+        for (const a of row.answers) {
+          if (a.teacher_confirmed) continue  // 선생님 확정 답안은 재채점 스킵
+          const q = questionMap.get(a.exam_question_id)
+          if (q?.question_style !== 'subjective' && q?.question_style !== 'find_error') continue
+          // find_error: 코드가 정오를 확정한 답은 AI 로 보내지 않는다. 텍스트도 배정된 것 사용.
+          const assignment = q.question_style === 'find_error' ? findErrorVerdicts.get(a.exam_question_id) : undefined
+          if (q.question_style === 'find_error' && assignment?.verdict !== 'ai') continue
+          const textForGrading = (assignment?.text ?? a.student_answer_text ?? '').trim()
+          if (!textForGrading) continue
+          subjectiveForGrading.push({
+            week_score_id: score.id,
+            exam_question_id: a.exam_question_id,
+            question_number: q.question_number,
+            sub_label: q.sub_label ?? null,
+            student_name: row.student_name,
+            student_answer_text: textForGrading,
+          })
         }
-      } catch (e) {
-        throw new SaveError(e instanceof Error ? e.message : 'AI 채점 실패. 기존 답안은 유지됩니다.',503)
-
       }
     }
+
+    mark('prepare')
+    const aiStatements: Statement[] = []
+    // 서술형/오류교정 AI 배치 채점 (skip_ai=true이면 건너뜀)
+    if (!skipAI && subjectiveForGrading.length > 0) {
+      const uniqueKeys = [...new Set(subjectiveForGrading.map((a) => `${a.question_number}__${a.sub_label ?? ''}`))]
+      const subjectiveQuestions = uniqueKeys
+        .map((key) => {
+          const [qNumStr, subLabel] = key.split('__')
+          const qNum = Number(qNumStr)
+          const sub = subLabel || null
+          const q = allQuestions?.find((q) => q.question_number === qNum && q.sub_label === sub && (q.question_style === 'subjective' || q.question_style === 'find_error'))
+          return q ? {
+            question_number: q.question_number,
+            sub_label: q.sub_label ?? null,
+            correct_answer_text: q.correct_answer_text ?? '',
+            question_text: q.question_text,
+            question_stem: q.question_stem,
+            passage: q.passage,
+            grading_criteria: q.grading_criteria,
+            question_style: q.question_style as 'subjective' | 'find_error',
+          } : null
+        })
+        .filter((q): q is NonNullable<typeof q> => q !== null && q.correct_answer_text !== '')
+
+      if (subjectiveQuestions.length > 0) {
+        try {
+          const gradingResults = await gradeSubjectiveAnswers(subjectiveQuestions, subjectiveForGrading)
+          if (gradingResults.some(result => result.grading_failure) || gradingResults.length !== subjectiveForGrading.length || new Set(gradingResults.map(result => `${result.week_score_id}:${result.exam_question_id}`)).size !== subjectiveForGrading.length) throw new SaveError('일부 답안의 채점 결과가 누락되거나 실패했습니다.',503)
+          const expectedPairs = new Set(subjectiveForGrading.map(answer => `${answer.week_score_id}:${answer.exam_question_id}`))
+          for (const result of gradingResults) {
+            if (!expectedPairs.has(`${result.week_score_id}:${result.exam_question_id}`)) throw new SaveError('AI 채점 응답이 올바르지 않습니다.', 422)
+            aiStatements.push(updateRows('student_answer', { is_correct: result.is_correct, needs_review: result.needs_review, ai_feedback: result.ai_feedback },
+              sql`week_score_id=${result.week_score_id}::uuid and exam_question_id=${result.exam_question_id}::uuid`, true))
+          }
+        } catch (e) {
+          throw new SaveError(e instanceof Error ? e.message : 'AI 채점 실패. 기존 답안은 유지됩니다.',503)
+
+        }
+      }
+    }
+
+    mark('ai')
+    statements.push(...aiStatements, ...readingTotals(processedScoreIds))
+    if (allQuestions?.length && (!answersOnlyDraft || currentReadingTotal === 0)) statements.push(updateRows('week', { reading_total: allQuestions.length }, sql`id=${weekId}::uuid and reading_total=0`))
+    return { statements }
   }
 
-  statements.push(...aiStatements, ...readingTotals(processedScoreIds))
-  if (allQuestions?.length) statements.push(updateRows('week', { reading_total: allQuestions.length }, sql`id=${weekId}::uuid and reading_total=0`))
-  return ok(await saveGradePlan(user.id, weekId, version, statements, rows.map(row => row.student_id)))
+  if (answersOnlyDraft) {
+    // No network/AI work while locked: read, code-grade and write in the same transaction.
+    // Final grading keeps its optimistic snapshot/compare around the external AI call.
+    await saveImmediateWeekPlan(user.id, weekId, studentIds, async context => {
+      mark('snapshot')
+      const result = await context.tx.execute(sql`select
+        (select reading_total from public.week where id=${weekId}::uuid) as reading_total,
+        (select coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'student_id', s.student_id)), '[]'::jsonb)
+          from public.week_score s where s.week_id=${weekId}::uuid
+            and ${studentIds.length ? sql`s.student_id in (${sql.join(studentIds.map(id => sql`${id}::uuid`), sql`, `)})` : sql`false`}) as scores,
+        (select coalesce(jsonb_agg(to_jsonb(q)), '[]'::jsonb)
+          from (select id, question_number, sub_label, correct_answer, extra_correct_answers, all_correct,
+            correct_answer_text, question_style, null::text as grading_criteria, null::text as question_text,
+            null::text as question_stem, null::text as passage
+            from public.exam_question where week_id=${weekId}::uuid) q) as questions`)
+      const data = result.rows[0]
+      const plan = await buildPlan([
+        { data: data.scores as Inputs[0]['data'], error: null },
+        { data: data.questions as Inputs[1]['data'], error: null },
+      ] as Inputs, Number(data.reading_total))
+      savedResult = await applyGradePlan(context, weekId, version, plan.statements, studentIds)
+      return []
+    }, (stage, duration) => dbTimings.push(`${stage};dur=${duration.toFixed(1)}`))
+  } else {
+    const current = await captureGradeVersions(user.id, weekId, studentIds)
+    if (current.some(value => value.revision !== version[value.student_id])) throw new SaveError('답안이 변경됐습니다. 입력은 유지됩니다. 새로고침 후 다시 시도해주세요.',409)
+    mark('snapshot')
+    const plan = await buildPlan(await readInputs())
+    savedResult = await saveGradePlan(user.id, weekId, version, plan.statements, studentIds)
+  }
+  mark('commit')
+  timings.push(...dbTimings)
+  timings.push(`total;dur=${(performance.now() - startedAt).toFixed(1)}`)
+  if (process.env.NODE_ENV === 'development' && answersOnlyDraft) console.info('[grade-draft-timing]', timings.join(', '))
+  return ok({ ...savedResult }, { headers: { 'Server-Timing': timings.join(', ') } })
 }

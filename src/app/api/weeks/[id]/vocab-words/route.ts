@@ -113,15 +113,16 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   const wordRows = data ?? []
   const wordIds = wordRows.map((word) => word.id)
-  const { data: variants, error: variantError } = wordIds.length > 0
-    ? await supabase
-        .from('vocab_word_variant')
-        .select('id, vocab_word_id, word, part_of_speech, meaning, relation_type, usage_note, excluded_meanings, raw_text, exam_enabled, needs_review, confidence, sort_order')
-        .in('vocab_word_id', wordIds)
-        .order('sort_order')
-    : { data: [], error: null }
-
+  // Large in-filters exceed request-header/URL limits for real weekly word banks.
+  const variantBatches = await Promise.all(Array.from({ length: Math.ceil(wordIds.length / 50) }, (_, index) =>
+    supabase.from('vocab_word_variant')
+      .select('id, vocab_word_id, word, part_of_speech, meaning, relation_type, usage_note, excluded_meanings, raw_text, exam_enabled, needs_review, confidence, sort_order')
+      .in('vocab_word_id', wordIds.slice(index * 50, (index + 1) * 50))
+      .order('sort_order')
+  ))
+  const variantError = variantBatches.find(batch => batch.error)?.error
   if (variantError) return err(variantError.message, 500)
+  const variants = variantBatches.flatMap(batch => batch.data ?? [])
 
   const variantsByWordId = new Map<string, typeof variants>()
   for (const variant of variants ?? []) {

@@ -54,6 +54,7 @@ async function saveRequest(weekId: string, method: string, body: unknown): Promi
 export function useSaveWeekScore(weekId: string, sharedQueue?: GradeSaveQueue, onSaved?: () => void) {
   const queue = useGradeQueue(weekId, sharedQueue)
   return useMutation({
+    scope: { id: `week-score:${weekId}` },
     mutationFn: (row: Pick<GradeRow, 'student_id' | 'grade_version'> & Partial<Pick<GradeRow, 'homework_done' | 'memo'>>) =>
       queue.run([row], ([submitted]) => saveRequest(weekId, 'PATCH', submitted)),
     onSuccess: onSaved,
@@ -65,17 +66,20 @@ export function useSaveWeekScore(weekId: string, sharedQueue?: GradeSaveQueue, o
 export function useSaveGradeDraft(weekId: string, sharedQueue?: GradeSaveQueue, onSaved?: () => void) {
   const queue = useGradeQueue(weekId, sharedQueue)
   return useMutation({
-    mutationFn: (rows: GradeRow[]) => queue.run(rows, (submitted) => saveRequest(weekId, 'POST', { rows: submitted, skip_ai: true })),
+    scope: { id: `week-score:${weekId}` },
+    mutationFn: (rows: GradeRow[]) => queue.run(rows, (submitted) => saveRequest(weekId, 'POST', { rows: submitted, skip_ai: true, draft_only: true })),
     onSuccess: onSaved,
     onError: (e: Error) => toast.error(e.message),
   })
 }
 
-export function useSaveGrade(weekId: string, sharedQueue?: GradeSaveQueue, onSaved?: () => void) {
+export function useSaveGrade(weekId: string, sharedQueue?: GradeSaveQueue | boolean, onSaved?: () => void, skipAI = false) {
   const qc = useQueryClient()
-  const queue = useGradeQueue(weekId, sharedQueue)
+  const queue = useGradeQueue(weekId, typeof sharedQueue === 'boolean' ? undefined : sharedQueue)
+  const withoutAI = typeof sharedQueue === 'boolean' ? sharedQueue : skipAI
   return useMutation({
-    mutationFn: (rows: GradeRow[]) => queue.run(rows, (submitted) => saveRequest(weekId, 'POST', { rows: submitted, skip_ai: false })),
+    scope: { id: `week-score:${weekId}` },
+    mutationFn: (rows: GradeRow[]) => queue.run(rows, (submitted) => saveRequest(weekId, 'POST', { rows: submitted, skip_ai: withoutAI })),
     onSuccess: async () => {
       onSaved?.()
       await queue.idle()

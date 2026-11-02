@@ -9,7 +9,7 @@ export const reviewKey = (studentId: string, questionId: string) => `${studentId
 export function buildReviewQueue(questions: ExamQuestion[], rows: GradeRow[]): ReviewQueueItem[] {
   return questions.filter(q => !q.is_void && !q.all_correct && (q.question_style === 'subjective' || q.question_style === 'find_error'))
     .flatMap(question => rows.flatMap(row => {
-      if (!row.present || !row.reading_present) return []
+      if (!row.reading_present) return []
       const answer = row.answers.find(a => a.exam_question_id === question.id)
       if (!answer?.needs_review || answer.teacher_confirmed || !answer.student_answer_text?.trim()) return []
       return [{ key: reviewKey(row.student_id, question.id), studentId: row.student_id, studentName: row.student_name,

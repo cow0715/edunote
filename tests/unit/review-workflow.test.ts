@@ -10,7 +10,7 @@ function row(id: string, options: Partial<GradeRow> = {}, answer = {}) {
 it('keeps source order and includes only actionable unconfirmed review answers', () => {
   const rows = [row('second'), row('absent', { present: false }), row('first'), row('not-taking', { reading_present: false }),
     row('empty', {}, { student_answer_text: '  ' }), row('confirmed', {}, { teacher_confirmed: true }), row('automatic', {}, { needs_review: false })]
-  expect(buildReviewQueue([question], rows).map(item => item.studentId)).toEqual(['second', 'first'])
+  expect(buildReviewQueue([question], rows).map(item => item.studentId)).toEqual(['second', 'absent', 'first'])
 })
 it('excludes objective, void and all-correct questions from manual review', () => {
   for (const patch of [{ question_style: 'objective' }, { is_void: true }, { all_correct: true }]) {

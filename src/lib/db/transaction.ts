@@ -11,22 +11,37 @@ export interface TeacherTransaction {
   teacherId: string
 }
 
+export type TransactionTiming = (stage: string, duration: number) => void
+
 /** userId comes from verified Auth or the server-resolved owner of a validated share capability; never request JSON. */
-export async function withTeacherTransaction<T>(userId: string, work: (context: TeacherTransaction) => Promise<T>): Promise<T> {
+export async function withTeacherTransaction<T>(userId: string, work: (context: TeacherTransaction) => Promise<T>, onTiming?: TransactionTiming): Promise<T> {
+  let stageAt = performance.now()
+  const mark = (stage: string) => {
+    const now = performance.now()
+    // Diagnostics must not alter persistence or connection-release behavior.
+    try { onTiming?.(stage, now - stageAt) } catch { /* ignore observer errors */ }
+    stageAt = now
+  }
   const client = await getPool().connect()
+  mark('db_connect')
   let destroy = false
   let committing = false
   try {
     await client.query('BEGIN')
+    mark('db_begin')
     // SET LOCAL is released by both COMMIT and ROLLBACK under transaction pooling.
     await client.query("select set_config('request.jwt.claims', $1, true), set_config('request.jwt.claim.sub', $2, true), set_config('statement_timeout', '10000', true), set_config('lock_timeout', '3000', true), set_config('idle_in_transaction_session_timeout', '10000', true), set_config('search_path', 'public, extensions', true)", [JSON.stringify({ sub: userId }), userId])
+    mark('db_session')
     const tx = drizzle(client, { schema })
     const [teacher] = await tx.select({ id: schema.teachers.id }).from(schema.teachers)
       .where(and(eq(schema.teachers.auth_id, userId), eq(schema.teachers.approval_status, 'approved')))
+    mark('db_teacher')
     if (!teacher) throw new SaveError('승인된 강사만 변경할 수 있습니다.', 403)
     const result = await work({ tx, teacherId: teacher.id })
+    mark('db_work')
     committing = true
     await client.query('COMMIT')
+    mark('db_commit')
     committing = false
     return result
   } catch (error) {

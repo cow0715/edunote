@@ -211,3 +211,21 @@ describe('공유 리포트 실제 화면 재사용', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 })
+
+describe('미응시 보관 답안 표시', () => {
+  it.each([null, 0])('성적 %s: 홈·기록의 오답 진입은 실제 응시에만 표시한다', (correct) => {
+    const data = structuredClone(getShareDesignSample('october'))
+    data.weekScores = data.weekScores.map(score => ({...score, reading_correct:correct, vocab_correct:correct}))
+    const original = structuredClone(data)
+    setup({data,historyAllData:data})
+    if (correct === null) expect(screen.queryByRole('button',{name:/진단평가 오답 \d+문항/})).toBeNull()
+    else expect(screen.getByRole('button',{name:/진단평가 오답 \d+문항/})).toBeTruthy()
+    selectTab('기록')
+    if (correct === null) expect(screen.queryByRole('button',{name:/오답 \d+문항 보기/})).toBeNull()
+    else expect(screen.getAllByRole('button',{name:/오답 \d+문항 보기/}).length).toBeGreaterThan(0)
+    selectTab('오답')
+    if (correct === null) expect(screen.queryByRole('button',{name:/\d+문항 다시 풀기/})).toBeNull()
+    else expect(screen.getAllByRole('button',{name:/\d+문항 다시 풀기/}).length).toBeGreaterThan(0)
+    expect(data).toEqual(original)
+  })
+})

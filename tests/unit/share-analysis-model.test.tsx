@@ -80,3 +80,82 @@ describe('공유 분석 모델의 입력 범위', () => {
     expect(result.current.weekNumberByWeekId.get(later.id)).toBe(4)
   })
 })
+
+it('keeps nonparticipation null despite retained answers and shows an attempted zero independently of attendance',()=>{
+ const week=analysisWeek('w1',1)
+ const data=analysisData([analysisAnswer('a','w1',false)],[week])
+ data.attendance=[{id:'absent',class_id:'class',date:'2026-04-08',status:'absent'}]
+ data.weekScores=data.weekScores.map(score=>({...score,reading_correct:null}))
+ const view=renderHook(({input})=>useShareModel(input),{initialProps:{input:data}})
+ expect(view.result.current.weekRate(data.weekScores[0],week,'reading')).toBeNull()
+ const zero={...data,weekScores:data.weekScores.map(score=>({...score,reading_correct:0}))}
+ view.rerender({input:zero})
+ expect(view.result.current.weekRate(zero.weekScores[0],week,'reading')).toBe(0)
+})
+
+it('shows a manually entered zero without answer rows but keeps an unattempted null empty',()=>{
+ const week=analysisWeek('manual',1)
+ const data=analysisData([],[week])
+ const view=renderHook(({input})=>useShareModel(input),{initialProps:{input:data}})
+ expect(view.result.current.weekRate(data.weekScores[0],week,'reading')).toBe(0)
+ const missing={...data,weekScores:data.weekScores.map(score=>({...score,reading_correct:null}))}
+ view.rerender({input:missing})
+ expect(view.result.current.weekRate(missing.weekScores[0],week,'reading')).toBeNull()
+})
+
+it('excludes retained unattempted answers from every share reading model and restores actual zero without mutating originals', () => {
+  const data = analysisData([analysisAnswer('retained', 'w1', false)], [analysisWeek('w1', 1)])
+  data.weekScores[0].reading_correct = null
+  const original = structuredClone(data)
+  const view = renderHook(({input}) => useShareModel(input), {initialProps:{input:data}})
+  expect(view.result.current.studentAnswers).toEqual([])
+  expect(view.result.current.answersByScore.size).toBe(0)
+  expect(view.result.current.wrongNoteGroups).toEqual([])
+  expect(view.result.current.latestReport?.wrongReading).toBe(0)
+  expect(view.result.current.latestReport?.wrongPreview).toEqual([])
+  expect(view.result.current.analysisSummary.readingCount).toBe(0)
+  expect(view.result.current.analysisSummary.wrongCount).toBe(0)
+  expect(view.result.current.radarData).toEqual([])
+  expect(view.result.current.repeatPatterns).toEqual([])
+  expect(data).toEqual(original)
+  const zero = {...data, weekScores: data.weekScores.map(score => ({...score, reading_correct:0}))}
+  view.rerender({input:zero})
+  expect(view.result.current.studentAnswers).toHaveLength(1)
+  expect(view.result.current.wrongNoteGroups[0].answers).toHaveLength(1)
+  expect(view.result.current.latestReport?.wrongReading).toBe(1)
+  expect(view.result.current.analysisSummary.wrongCount).toBe(1)
+  expect(view.result.current.periodSummary.reading?.mean).toBe(0)
+  expect(data).toEqual(original)
+})
+
+it('uses each subject participation separately while preserving vocabulary study words', () => {
+  const data = analysisData([analysisAnswer('retained','w1',false)], [analysisWeek('w1',1)])
+  data.weeks[0].vocab_total = 1
+  const word = {id:'word',week_id:'w1',number:1,english_word:'apple',correct_answer:'사과'} as import('@/app/share/[token]/share-types').VocabWord
+  data.vocabWords = [word]
+  data.vocabAnswers = [{id:'va',week_score_id:'score-w1',student_answer:'책',is_correct:false,vocab_word:word}] as import('@/app/share/[token]/share-types').VocabAnswer[]
+  data.weekScores[0].reading_correct = null
+  data.weekScores[0].vocab_correct = 0
+  const view = renderHook(({input})=>useShareModel(input),{initialProps:{input:data}})
+  expect(view.result.current.wrongNoteGroups).toEqual([])
+  expect(view.result.current.vocabWrongGroups[0].answers).toHaveLength(1)
+  const switched = {...data,weekScores:data.weekScores.map(score=>({...score,reading_correct:0,vocab_correct:null}))}
+  view.rerender({input:switched})
+  expect(view.result.current.wrongNoteGroups[0].answers).toHaveLength(1)
+  expect(view.result.current.vocabWrongGroups).toEqual([])
+  expect(view.result.current.vocabStudyItems).toHaveLength(1)
+  expect(view.result.current.vocabStudyItems[0].wrongAnswer).toBeNull()
+  expect(data.vocabAnswers).toHaveLength(1)
+})
+
+
+it('keeps an earlier attempted zero visible when the latest week is unattempted', () => {
+  const data = analysisData([analysisAnswer('old','w1',false),analysisAnswer('latest','w2',false)], [analysisWeek('w1',1),analysisWeek('w2',2)])
+  data.weekScores[1].reading_correct = null
+  const {result} = renderHook(()=>useShareModel(data))
+  expect(result.current.latestReport?.wrongReading).toBe(0)
+  expect(result.current.wrongNoteGroups.map(group=>group.week.id)).toEqual(['w1'])
+  expect(result.current.analysisSummary.readingCount).toBe(1)
+  expect(result.current.periodSummary.reading?.mean).toBe(0)
+  expect(data.studentAnswers).toHaveLength(2)
+})

@@ -28,6 +28,7 @@ export type SubjectiveStudentAnswer = {
 }
 
 export type GradingResult = {
+  grading_failure?: 'batch_failed' | 'response_missing'
   week_score_id: string
   exam_question_id: string
   is_correct: boolean
@@ -339,6 +340,7 @@ export async function gradeSubjectiveAnswers(
           is_correct: false,
           needs_review: true,
           ai_feedback: 'AI 채점 실패 — 수동 확인 필요',
+          grading_failure: 'batch_failed',
         })
       }
     }
@@ -359,6 +361,7 @@ export async function gradeSubjectiveAnswers(
       is_correct: false,
       needs_review: true,
       ai_feedback: 'AI 응답 누락 — 수동 확인 필요',
+      grading_failure: 'response_missing',
     })
   }
 

@@ -76,7 +76,7 @@ export function SourceImagePreview({
   if (!question.source_image_path && !sourceQuestionId) {
     if (!question.needs_source_image) return null
     return (
-      <div className="rounded-2xl bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-200">
+      <div className="rounded-2xl bg-muted px-3 py-2 text-xs text-muted-foreground dark:bg-muted dark:text-muted-foreground">
         원본 이미지가 필요한 문항으로 표시됐지만 저장된 이미지가 없습니다. 시험지를 다시 가져오면 원본 페이지가 저장됩니다.
       </div>
     )
@@ -91,7 +91,7 @@ export function SourceImagePreview({
         <button
           type="button"
           onClick={() => setIsOpen((prev) => !prev)}
-          className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+          className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-none transition-colors hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
         >
           {isOpen ? '접기' : '보기'}
         </button>
@@ -104,13 +104,13 @@ export function SourceImagePreview({
                 src={url}
                 alt="문항 원본 페이지"
                 className={[
-                  'w-full rounded-xl bg-white object-contain shadow-sm dark:bg-slate-900',
+                  'w-full rounded-xl bg-white object-contain shadow-none dark:bg-slate-900',
                   compact ? 'h-auto' : 'max-h-[560px]',
                 ].join(' ')}
               />
             </button>
           ) : (
-            <div className="rounded-xl bg-white px-3 py-4 text-xs text-slate-400 shadow-sm dark:bg-slate-900 dark:text-slate-500">
+            <div className="rounded-xl bg-white px-3 py-4 text-xs text-slate-400 shadow-none dark:bg-slate-900 dark:text-slate-500">
               {failed ?? '원본 이미지를 불러오는 중입니다.'}
             </div>
           )}

@@ -102,3 +102,20 @@ it('requires screen versions on manual edits and refuses AI edits of teacher loc
  expect((await regrade(request({weekScoreId:score,grade_version,items:[{id:'answer',number:1,english_word:'word1',student_answer:'answer'}]})))?.status).toBe(409)
  expect(m.meaning).not.toHaveBeenCalled();expect(m.save).not.toHaveBeenCalled()
 })
+
+it('rejects a swallowed batch failure without committing partial AI grading',async()=>{
+ m.ai.mockImplementation(async(_questions,answers)=>[{week_score_id:answers[0].week_score_id,exam_question_id:question,is_correct:false,needs_review:true,ai_feedback:'AI 채점 실패 — 수동 확인 필요',grading_failure:'batch_failed'}])
+ const response=await invoke()
+ expect(response.status).toBe(503)
+ expect(m.save).not.toHaveBeenCalled()
+})
+
+it('does not AI-grade retained answers when exam participation is explicitly false',async()=>{
+ const response=await POST(new Request('http://localhost/grade',{method:'POST',body:JSON.stringify({rows:body.map(row=>({...row,reading_present:false,reading_correct:0})),skip_ai:false})}),{params:Promise.resolve({id:week})})
+ expect(response.status).toBe(200)
+ expect(m.ai).not.toHaveBeenCalled()
+ expect(m.save).toHaveBeenCalledOnce()
+ const dialect=new PgDialect()
+ const statements=m.save.mock.calls[0][3] as {query:Parameters<PgDialect['sqlToQuery']>[0]}[]
+ expect(statements.map(statement=>dialect.sqlToQuery(statement.query).sql).some(query=>query.includes('student_answer'))).toBe(false)
+})

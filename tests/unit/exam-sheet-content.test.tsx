@@ -124,10 +124,10 @@ describe('ExamSheetContent — 객관식 압축 정오표', () => {
     expect(rows.map((r) => r.querySelector('td')?.textContent?.trim().charAt(0))).toEqual(['1', '2', '3'])
     expect(screen.getByPlaceholderText('답안 입력')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'O' })).toBeTruthy()
-    expect(screen.getByText(/채점 저장 버튼을 눌러야 AI 채점/)).toBeTruthy()
+    expect(screen.getByText(/AI 채점.*눌러 채점/)).toBeTruthy()
   })
 
-  it('서술형 입력은 blur 때 부모로 올라간다', () => {
+  it('서술형 입력은 blur 전에도 보호되는 부모 답안에 반영된다', () => {
     const questions = [q({ id: 'q1', question_number: 1, question_style: 'subjective', correct_answer_text: '모범답안' })]
     const updateAnswerText = vi.fn()
     render(
@@ -143,7 +143,7 @@ describe('ExamSheetContent — 객관식 압축 정오표', () => {
     )
     const textarea = screen.getByPlaceholderText('답안 입력')
     fireEvent.change(textarea, { target: { value: '학생 답' } })
-    expect(updateAnswerText).not.toHaveBeenCalled()
+    expect(updateAnswerText).toHaveBeenCalledWith('s1', 'q1', '학생 답')
     fireEvent.blur(textarea)
     expect(updateAnswerText).toHaveBeenCalledWith('s1', 'q1', '학생 답')
   })

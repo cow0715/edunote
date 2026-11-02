@@ -12,7 +12,7 @@ import { saveMockResult, captureMockInputs } from '@/lib/services/mock-results'
 import { replaceMockQuestions, createMockExam } from '@/lib/services/mock-questions'
 import { editQuestions } from '@/lib/services/questions'
 import { publishMockReports } from '@/lib/services/mock-reports'
-import { applyWeekPlan, weekVersion, readingTotals } from '@/lib/services/week-save'
+import { applyImmediateWeekPlan, applyWeekPlan, weekVersion, readingTotals } from '@/lib/services/week-save'
 
 vi.mock('server-only', () => ({}))
 const teacher = '00000000-0000-4000-8000-000000000001'
@@ -101,6 +101,39 @@ describe('compound saves on PostgreSQL with the actual role migration', () => {
     await db.exec(`update student_answer set teacher_confirmed=true,is_correct=true`)
     await expect(run(c => applyWeekPlan(c,week,version,[updateRows('week_score',{reading_correct:0},sql`id=${score}::uuid`)]))).rejects.toMatchObject({status:409})
     expect((await db.query('select reading_correct from week_score')).rows).toEqual([{reading_correct:null}])
+  })
+
+  it('code-only draft rolls back answers on total failure and invalidates a previously captured AI plan', async () => {
+    const forbiddenPlanner = vi.fn(async () => [])
+    await expect(run(c => applyImmediateWeekPlan(c,otherWeek,[foreignStudent],forbiddenPlanner))).rejects.toMatchObject({status:403})
+    expect(forbiddenPlanner).not.toHaveBeenCalled()
+    const before = (await db.query('select * from student_answer')).rows
+    await expect(run(c => applyImmediateWeekPlan(c,week,[student],async () => [
+      updateRows('student_answer',{is_correct:false},sql`week_score_id=${score}::uuid`),
+      updateRows('week_score',{reading_correct:0},sql`id=${otherWeek}::uuid`,true),
+    ]))).rejects.toMatchObject({status:409})
+    expect((await db.query('select * from student_answer')).rows).toEqual(before)
+    const version = await run(c => weekVersion(c,week,[student]))
+    await run(c => applyImmediateWeekPlan(c,week,[student],async context => {
+      const locked = await context.tx.execute(sql`select is_correct from student_answer where week_score_id=${score}::uuid`)
+      expect(locked.rows[0].is_correct).toBe(true)
+      return [updateRows('student_answer',{is_correct:false},sql`week_score_id=${score}::uuid`),...readingTotals([score])]
+    }))
+    expect((await db.query('select reading_correct::int from week_score where id=$1',[score])).rows).toEqual([{reading_correct:0}])
+    await expect(run(c => applyWeekPlan(c,week,version,[],[student]))).rejects.toMatchObject({status:409})
+    await expect(run(c => applyImmediateWeekPlan(c,week,[foreignStudent],async () => []))).rejects.toMatchObject({status:403})
+    await run(c => executeStatements(c.tx,[updateRows('student_answer',{is_correct:true},sql`week_score_id=${score}::uuid`)]))
+  })
+
+  it('draft no-op upserts skip updates while changed answers still persist atomically',async()=>{
+    const before=(await db.query<{is_correct:boolean}>('select is_correct from student_answer where week_score_id=$1',[score])).rows[0].is_correct
+    await db.exec(`create function reject_answer_update() returns trigger language plpgsql as $$begin raise exception 'unnecessary update'; end$$; create trigger reject_answer_update before update on student_answer for each row execute function reject_answer_update();`)
+    await run(c=>executeStatements(c.tx,insertRows('student_answer',[{week_score_id:score,exam_question_id:question,is_correct:before}],['week_score_id','exam_question_id'],true)))
+    await expect(run(c=>executeStatements(c.tx,insertRows('student_answer',[{week_score_id:score,exam_question_id:question,is_correct:!before}],['week_score_id','exam_question_id'],true)))).rejects.toThrow()
+    await db.exec('drop trigger reject_answer_update on student_answer')
+    await run(c=>executeStatements(c.tx,insertRows('student_answer',[{week_score_id:score,exam_question_id:question,is_correct:!before}],['week_score_id','exam_question_id'],true)))
+    expect((await db.query('select is_correct from student_answer where week_score_id=$1',[score])).rows).toEqual([{is_correct:!before}])
+    await run(c=>executeStatements(c.tx,insertRows('student_answer',[{week_score_id:score,exam_question_id:question,is_correct:before}],['week_score_id','exam_question_id'],true)))
   })
 
   it('rolls back confirmed answers when updating the aggregate fails, then commits both', async () => {

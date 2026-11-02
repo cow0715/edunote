@@ -126,11 +126,11 @@ export function useDeleteStudent() {
   })
 }
 
-export function useClassStudents(classId: string) {
+export function useClassStudents(classId: string, includeInactive = false) {
   return useQuery({
-    queryKey: ['class-students', classId],
+    queryKey: includeInactive ? ['class-students', classId, 'history'] : ['class-students', classId],
     queryFn: async () => {
-      const res = await fetch(`/api/classes/${classId}/students`)
+      const res = await fetch(`/api/classes/${classId}/students${includeInactive ? '?includeInactive=true' : ''}`)
       if (!res.ok) throw new Error('수업 학생 조회 실패')
       const data = await res.json()
       return (data as { student_id: string; student?: { name?: string } | null }[]).slice().sort((a, b) =>

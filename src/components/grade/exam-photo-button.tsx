@@ -1,5 +1,6 @@
 'use client'
 
+import { Camera, ImagePlus } from 'lucide-react'
 import { FileUpload } from '@/components/ui/file-upload'
 
 import { useRef, useState } from 'react'
@@ -59,8 +60,8 @@ export function ExamPhotoButton({ weekId, studentId, disabled, onResult }: {
 
 const beforeSelect = () => { if (!pickFiles) return true; void pickFiles(false).then(files => { if (files[0]) return processFile(files[0]) }); return false }
   return (<div className="flex flex-wrap gap-2 [&_button]:min-h-12">
-    <FileUpload compact label="카메라로 촬영" accept="image/*" capture="environment" onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect}/>
-    <FileUpload compact label={loading ? 'OCR 중...' : '사진 선택'} accept="image/*" inputRef={fileRef} onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect}/>
+    <FileUpload compact iconOnly icon={<Camera aria-hidden="true" className="size-5" />} label="카메라로 촬영" accept="image/*" capture="environment" onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect}/>
+    <FileUpload compact iconOnly icon={<ImagePlus aria-hidden="true" className="size-5" />} label={loading ? 'OCR 중...' : '사진 선택'} accept="image/*" inputRef={fileRef} onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect}/>
     {error && <span role="alert" className="text-xs text-red-500">{error}</span>}
   </div>)
 }
