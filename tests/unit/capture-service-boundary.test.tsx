@@ -147,7 +147,8 @@ it.each(['reading-batch', 'vocab-batch', 'reading-single', 'vocab-single', 'read
   if (reading) {
     await waitFor(() => expect(scores[0].reading_correct).toBe(2))
     if (ai) {
-      fireEvent.click(screen.getByRole('button',{name:'서술형 채점'}))
+        fireEvent.click(screen.getByRole('button',{name:'서술형 채점'}))
+  fireEvent.click(screen.getByRole('button',{name:'채점 시작'}))
       await waitFor(() => expect(notice.success).toHaveBeenCalledWith('채점이 저장되었습니다'))
       expect(requests.some((entry) => entry.body.skip_ai === false)).toBe(true)
     }

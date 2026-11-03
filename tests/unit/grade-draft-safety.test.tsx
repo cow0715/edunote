@@ -12,7 +12,7 @@ vi.mock('@/components/grade/exam-batch-grade-dialog', () => ({ ExamBatchGradeDia
 vi.mock('@/components/grade/exam-photo-button', () => ({ ExamPhotoButton: () => null }))
 vi.mock('@/components/grade/source-image-preview', () => ({ SourceImagePreview: () => null }))
 
-afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 function fixture() {
   return {
     classStudents: [{ student_id: 's1', student: { name: '학생1' } }, { student_id: 's2', student: { name: '학생2' } }],
@@ -271,7 +271,8 @@ it('keeps exclusion out of the daily workspace and preserves inclusion values in
   expect(screen.queryByRole('button',{name:/성적 포함 설정/})).toBeNull()
   expect(screen.queryByRole('columnheader',{name:'성적 반영'})).toBeNull()
   expect(screen.queryByRole('checkbox',{name:/성적 포함/})).toBeNull()
-  fireEvent.click(screen.getByRole('button',{name:'서술형 채점'}))
+    fireEvent.click(screen.getByRole('button',{name:'서술형 채점'}))
+  fireEvent.click(screen.getByRole('button',{name:'채점 시작'}))
   await waitFor(()=>expect(fetchMock.mock.calls.some(([,init])=>init?.method==='POST')).toBe(true))
   const request=fetchMock.mock.calls.find(([,init])=>init?.method==='POST')
   const body=JSON.parse(String(request?.[1]?.body))
@@ -377,12 +378,22 @@ it('keeps upload/review actions and individual homework entry without bulk contr
 })
 
 
+it('does not grade or save when the teacher cancels the subjective grading confirmation', async () => {
+ const {fetchMock}=setup(undefined,fixture())
+ fireEvent.click(await screen.findByRole('button',{name:'서술형 채점'}))
+ expect(screen.getByRole('dialog',{name:'서술형 답안을 채점할까요?'})).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'취소'}))
+ expect(screen.queryByRole('dialog')).toBeNull()
+ expect(fetchMock.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false)
+})
+
 it('keeps absent students editable and preserves a real zero and existing answer on AI save',async()=>{
  const data={...fixture(),attendance:[{student_id:'s1',status:'absent'}],weekScores:[{id:'score1',student_id:'s1',reading_correct:0,vocab_correct:0,homework_done:2.5,student_answer:[{exam_question_id:'q1',student_answer:null,student_answer_text:'retained answer',is_correct:false}]}]}
  const {fetchMock}=setup(async()=>({ok:true,json:async()=>({ok:true})}),data,6,true)
  expect((await screen.findByRole('button',{name:'학생1 시험 답안 열기'}) as HTMLButtonElement).disabled).toBe(false)
  expect((screen.getByRole('button',{name:'학생1 숙제 수정'}) as HTMLButtonElement).disabled).toBe(false)
- fireEvent.click(screen.getByRole('button',{name:'서술형 채점'}))
+   fireEvent.click(screen.getByRole('button',{name:'서술형 채점'}))
+  fireEvent.click(screen.getByRole('button',{name:'채점 시작'}))
  await waitFor(()=>expect(fetchMock.mock.calls.some(([url,init])=>url.endsWith('/grade') && init?.method==='POST')).toBe(true))
  const request=fetchMock.mock.calls.find(([url,init])=>url.endsWith('/grade') && init?.method==='POST')
  expect(JSON.parse(request?.[1].body).rows[0]).toMatchObject({present:true,reading_present:true,reading_correct:0,answers:[{student_answer_text:'retained answer'}]})

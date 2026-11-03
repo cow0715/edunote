@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useIsMutating, useQueryClient } from '@tanstack/react-query'
 import { CalendarCheck2, Camera, CheckCircle2, ChevronLeft, ChevronRight, Images, ListChecks, LoaderCircle, Table2, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { ParentReportLink } from './parent-report-link'
 import { Button } from '@/components/ui/button'
 import { AnswerWorkspace } from './answer-workspace'
 import { useGradeData, useSaveGrade, useSaveGradeDraft, useSaveWeekScore, GradeRow } from '@/hooks/use-grade'
@@ -70,6 +71,7 @@ export function GradeGrid({ classId, attendanceDate, weekId, vocabTotal, reading
   const saveWithoutAI = useSaveGrade(weekId, saveQueue, syncVersions, true)
   const saveDraft = useSaveGradeDraft(weekId, saveQueue, syncVersions)
   const saveWeekScore = useSaveWeekScore(weekId, saveQueue, syncVersions)
+  const [gradeConfirmOpen, setGradeConfirmOpen] = useState(false)
   const [showReviewPanel, setShowReviewPanel] = useState(false)
   const reviewPanelRef = useRef<HTMLDivElement | null>(null)
   const revealReview = useCallback((node: HTMLDivElement | null) => {
@@ -582,42 +584,37 @@ export function GradeGrid({ classId, attendanceDate, weekId, vocabTotal, reading
         <div className="grid grid-cols-2 items-center gap-2 pt-2 sm:flex sm:flex-wrap sm:justify-end">
           <div className="col-span-2 mr-auto flex items-baseline gap-2"><h2 className="text-[15px] font-bold text-foreground">학생별 성적</h2></div>
 
-          {onOpenAttendance && <Button size="sm" variant="outline" onClick={onOpenAttendance} disabled={entryBusy || pendingDrafts > 0}><CalendarCheck2 aria-hidden="true" className="size-4" />출결 관리</Button>}
+          {onOpenAttendance && <Button className="h-12 gap-2 text-sm sm:h-10" variant="outline" onClick={onOpenAttendance} disabled={entryBusy || pendingDrafts > 0}><CalendarCheck2 aria-hidden="true" className="size-4" />출결 관리</Button>}
           {questions.length > 0 && (
-            <button
+            <Button variant="outline"
               type="button"
               aria-label="독해 사진 채점" title="사진을 올려 학생별 답안을 입력합니다" disabled={saving || pendingDrafts > 0}
               onClick={() => setExamBatchOpen(true)}
-              className="flex h-9 min-h-11 items-center justify-center gap-2 sm:min-h-9 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+              className="h-12 gap-2 text-sm sm:h-10"
             >
               <Camera className="h-3.5 w-3.5" />
               <span>독해 사진 채점</span>
-            </button>
+            </Button>
           )}
           {showVocab && (
-          <button
+          <Button variant="outline"
             type="button"
             aria-label="단어 사진 채점" title="단어 시험지 사진을 올려 채점합니다" disabled={saving || pendingDrafts > 0}
             onClick={() => setBatchOpen(true)}
-            className="flex h-9 min-h-11 items-center justify-center gap-2 sm:min-h-9 rounded-lg border border-border bg-[var(--control-bg)] px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+            className="h-12 gap-2 text-sm sm:h-10"
           >
             <Images className="h-3.5 w-3.5" />
             <span>단어 사진 채점</span>
-          </button>
+          </Button>
           )}
           {hasSubjective && (() => {
             const needsReviewCount = reviewCount
             return (
-              <button
+              <Button variant="outline"
                 type="button"
                 aria-label="검토할 답안" aria-pressed={showReviewPanel} title="AI 채점 결과를 확인하고 수정합니다" disabled={saving || pendingDrafts > 0}
                 onClick={() => setShowReviewPanel((v) => !v)}
-                className={cn(
-                  'flex h-9 min-h-11 items-center justify-center gap-2 sm:min-h-9 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors',
-                  showReviewPanel
-                    ? 'bg-[var(--share-blue-bg)] border-transparent text-[var(--share-blue)]'
-                    : 'border-gray-200 text-gray-500 hover:bg-[var(--control-bg)]'
-                )}
+                className={cn('h-12 gap-2 text-sm sm:h-10', showReviewPanel && 'border-[var(--share-blue)] bg-[var(--share-blue-bg)] text-[var(--share-blue)]')}
               >
                 <ListChecks aria-hidden="true" className="size-4" />
                 <span>{showReviewPanel ? "성적표로" : needsReviewCount ? "검토 필요" : "답안 검토"}</span>
@@ -626,7 +623,7 @@ export function GradeGrid({ classId, attendanceDate, weekId, vocabTotal, reading
                     {needsReviewCount}
                   </span>
                 )}
-              </button>
+              </Button>
             )
           })()}
           <ExamBatchGradeDialog
@@ -712,7 +709,7 @@ export function GradeGrid({ classId, attendanceDate, weekId, vocabTotal, reading
             {rows.map((row) => (
               <tr key={row.student_id} aria-selected={sheetView?.studentId === row.student_id} className={cn('transition-colors hover:bg-[var(--control-bg)]', sheetView?.studentId === row.student_id && 'bg-[var(--share-blue-bg)]')}>
                 {/* 학생명 */}
-                <td data-grade-student className="px-3 py-3 text-[13px] font-semibold text-foreground"><div className="flex flex-wrap items-center gap-x-1 gap-y-1"><span>{row.student_name}</span>{shareTokens.get(row.student_id) && <a href={`/share/${shareTokens.get(row.student_id)}`} target="_blank" rel="noopener noreferrer" aria-label={`${row.student_name} 학부모 화면 새 탭에서 열기`} className="inline-flex min-h-8 whitespace-nowrap items-center gap-1 rounded-md px-1.5 text-[11px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground"><span className={cn(active && sheetView && 'min-[1200px]:hidden')}>학부모 화면</span><span aria-hidden="true">↗</span></a>}</div></td>
+                <td data-grade-student className="px-3 py-3 text-[13px] font-semibold text-foreground"><div className="flex flex-wrap items-center gap-x-1 gap-y-1"><span>{row.student_name}</span>{shareTokens.get(row.student_id) && <ParentReportLink token={shareTokens.get(row.student_id)!} studentName={row.student_name} />}</div></td>
                 {onOpenAttendance && <td className="px-2 py-2 text-center"><AttendanceStatus studentName={row.student_name} status={attendanceStatuses.get(row.student_id)} /></td>}
 
                 {/* 단어 셀 */}
@@ -799,8 +796,27 @@ export function GradeGrid({ classId, attendanceDate, weekId, vocabTotal, reading
           {hasSubjective && <Button
             variant="outline"
             title="서술형 AI 채점 및 저장"
+            onClick={() => setGradeConfirmOpen(true)}
+            disabled={saving || savingEntries || invalidHomework.size>0 || pendingDrafts > 0 || recovery !== null}
+          >
+            {saveGrade.isPending ? '채점 중…' : '서술형 채점'}
+          </Button>}
+        </div>
+      </div>}
+
+      <Dialog open={active && gradeConfirmOpen} onOpenChange={setGradeConfirmOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>서술형 답안을 채점할까요?</DialogTitle>
+            <DialogDescription>입력된 답안을 AI로 채점하고 결과를 저장합니다. 교사가 확정한 판정은 유지됩니다.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" className="min-h-11" onClick={() => setGradeConfirmOpen(false)}>취소</Button>
+            <Button type="button" variant="action" className="min-h-11"
+              disabled={saving || savingEntries || invalidHomework.size > 0 || pendingDrafts > 0 || recovery !== null}
             onClick={() => {
-              if (pendingDraftsRef.current > 0 || recovery) return
+              if (saving || savingEntries || invalidHomework.size > 0 || pendingDraftsRef.current > 0 || recovery) return
+              setGradeConfirmOpen(false)
               setSavedAt(null)
               const snapshot = capture(rows.map(row => row.student_id))
               saveGrade.mutate(rows, {
@@ -816,13 +832,10 @@ export function GradeGrid({ classId, attendanceDate, weekId, vocabTotal, reading
                   onSaved?.()
                 },
               })
-            }}
-            disabled={saving || savingEntries || invalidHomework.size>0 || pendingDrafts > 0 || recovery !== null}
-          >
-            {saveGrade.isPending ? '채점 중…' : '서술형 채점'}
-          </Button>}
-        </div>
-      </div>}
+            }}>채점 시작</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 서술형 검토 패널 */}
       {showReviewPanel && hasSubjective && (
