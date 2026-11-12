@@ -2,13 +2,17 @@ import { weekAnswerContractIssues, canRepairCorrectionInventory, NEW_CORRECTION_
 import { buildFileBlock, callLlmTextDetailed, createLlmExecution, type TaskCallOptions, parseJsonArrayResponse, parseJsonObjectResponse } from './client'
 import type { RangedCallStats, RangedFile } from './ranged'
 import type { ParsedAnswer } from './week'
-import { buildWeekQuestionTargets, inventoryLabel, weekTargetIssues, type WeekQuestionTarget } from '../week-question-inventory'
+import { buildSourceLines } from '../book-pdf/layout-source'
+import { buildNativeWeekInventory, buildWeekQuestionTargets, findWeekQuestionHeadings, findWrittenAnswerSlots, inventoryLabel, weekTargetIssues, type WeekQuestionTarget } from '../week-question-inventory'
 import { sanitizeWeekExtraction } from '../week-extraction-shape'
 import { getPdfWorkerContext } from '../pdf-import/context'
 
-async function nativeEvidence(files: RangedFile[]): Promise<{ questionText: string; pages: string }> {
+async function nativeEvidence(files: RangedFile[]) {
   const texts: string[] = []
   const pageBlocks: string[] = []
+  const lines: string[] = []
+  const questionFiles = files.filter((file) => file.role !== 'answers')
+  let completeText = questionFiles.length > 0 && questionFiles.every((file) => file.mimeType === 'application/pdf')
   for (const [index, file] of files.entries()) {
     if (file.mimeType !== 'application/pdf') continue
     try {
@@ -16,16 +20,32 @@ async function nativeEvidence(files: RangedFile[]): Promise<{ questionText: stri
       const pdf = await getDocumentProxy(new Uint8Array(Buffer.from(file.fileData, 'base64')))
       try {
         const { text } = await extractText(pdf, { mergePages: false })
-        if (file.role !== 'answers') texts.push(text.join('\n'))
+        if (file.role !== 'answers') {
+          texts.push(text.join('\n'))
+          for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+            const page = await pdf.getPage(pageNumber)
+            const { items } = await page.getTextContent()
+            const pieces = items.flatMap((item) => 'str' in item ? [{
+              str: item.str, x: item.transform[4], y: item.transform[5], width: item.width,
+              height: item.height, bold: false, underline: false,
+            }] : [])
+            if (!pieces.some((piece) => piece.str.trim())) completeText = false
+            const positioned = buildSourceLines(pieces, pageNumber, page.getViewport({ scale: 1 }).width)
+            lines.push(...positioned.map((line) => line.text))
+            page.cleanup()
+          }
+        }
         text.forEach((page, i) => {
           if (page.trim()) pageBlocks.push(`[파일 ${index + 1} / ${i + 1}쪽 원문 텍스트 시작]\n${page}\n[원문 텍스트 끝]`)
         })
       } finally { await pdf.destroy() }
     } catch {
+      if (file.role !== 'answers') completeText = false
       console.warn('[week-inventory] PDF 텍스트층을 읽지 못해 이미지 기반 문항 목록을 사용합니다.')
     }
   }
-  return { questionText: texts.join('\n'), pages: pageBlocks.join('\n\n') }
+  return { questionText: texts.join('\n'), pages: pageBlocks.join('\n\n'), lines, completeText,
+    headings: findWeekQuestionHeadings(lines), slots: findWrittenAnswerSlots(lines) }
 }
 
 const inventoryInstruction = `문항 목록 조사: 첨부 자료의 모든 페이지를 마지막 페이지까지 확인하세요.
@@ -57,22 +77,27 @@ export async function parseWeekInventory(files: RangedFile[], prompt: string, op
   const prefix = [...files.map((f) => buildFileBlock(f.fileData, f.mimeType)),
     { type: 'text' as const, text: prompt + (options.validateAnswerContract ? '\n' + NEW_CORRECTION_EXTRACTION_RULES : '') + '\n첨부 파일 순서/역할: ' + files.map((f, i) => `${i + 1}: ${f.role ?? (files.length === 1 ? 'combined' : i === 0 ? 'questions' : 'answers')}`).join(', ') + '\n문항 구조는 문제지에서, 정답·해설은 정답/해설지에서 읽으세요. 파일별 페이지는 각각 1부터 셉니다.\n아래 원문 텍스트가 있는 페이지의 answer_evidence.quote는 해당 구간 안에서 정답 행만 짧게 그대로 복사하세요. 시각적 배열을 재구성하거나 해설을 덧붙이지 마세요.\n' + native.pages }]
   const calls: RangedCallStats[] = []
-  async function call(instruction: string, maxTokens: number) {
+  async function request(instruction: string, maxTokens: number) {
     const started = Date.now()
     const response = await callLlmTextDetailed({ task: 'week.parseAnswers', execution, cacheBoundary: prefix.length - 1, maxTokens,
       content: [...prefix, { type: 'text', text: instruction }] })
     calls.push({ ...response.usage, stopReason: response.stopReason, ms: Date.now() - started, range: null })
+    return response
+  }
+  function completedText(response: Awaited<ReturnType<typeof request>>) {
     if (response.stopReason !== 'end_turn') throw new Error('문항 응답이 끝까지 완료되지 않았습니다.')
     return response.text
   }
   const evidence = native.questionText
-  let targets: WeekQuestionTarget[] = []
+  const codeInventory = native.completeText
+    ? buildNativeWeekInventory(evidence, [...new Set(native.headings)], native.lines) : null
+  const targets = codeInventory ? buildWeekQuestionTargets(codeInventory, evidence, native.headings, false) : []
   let discoveryError = ''
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; !targets.length && attempt < 2; attempt++) {
+    const instruction = inventoryInstruction + (discoveryError ? `\n이전 조사 오류: ${discoveryError}. 전체 목록을 다시 조사하세요.` : '')
+    const response = await request(instruction, attempt ? 16384 : 8192)
     try {
-      const text = await call(`${inventoryInstruction}${discoveryError ? `\n이전 조사 오류: ${discoveryError}. 전체 목록을 다시 조사하세요.` : ''}`, 8192)
-      targets = buildWeekQuestionTargets(parseJsonObjectResponse(text, 'week-inventory'), evidence)
-      break
+      targets.push(...buildWeekQuestionTargets(parseJsonObjectResponse(completedText(response), 'week-inventory'), evidence, native.headings))
     } catch (error) {
       getPdfWorkerContext()?.signal.throwIfAborted()
       discoveryError = error instanceof Error ? error.message : '문항 목록 오류'
@@ -84,20 +109,22 @@ export async function parseWeekInventory(files: RangedFile[], prompt: string, op
   for (const t of targets) if (t.passage_group && groupCounts.get(t.passage_group) === 1) t.passage_group = null
 
   const parts = await Promise.all(targets.map(async (target) => {
+    const expectedLabels = codeInventory ? native.slots.get(`${target.section}:${target.number}`) : target.sub_labels
     let issues: string[] = []
     for (let attempt = 0; attempt < 2; attempt++) {
       const instruction = `[문항 식별 범위] 원본의 ${inventoryLabel(target)} 문항만 추출하세요.
 원본 번호가 같은 다른 구역의 문항을 섞지 마세요. 연결된 공통 지문과 다른 페이지의 해설까지 찾아 포함하세요.
 모든 객체에 source_section=${JSON.stringify(target.section)}, source_question_number=${target.number}, question_number=${target.question_number}를 출력하세요.
-sub_label은 ${JSON.stringify(target.sub_labels)}의 각 값마다 정확히 한 객체씩 출력하세요. 추가/누락/중복은 금지입니다.
+${expectedLabels ? `sub_label은 ${JSON.stringify(expectedLabels)}의 각 값마다 정확히 한 객체씩 출력하세요. 추가/누락/중복은 금지입니다.` : '독립 채점하는 소문항을 모두 추출하고 인쇄 순서대로 sub_label을 a, b, c 순으로 부여하세요. 소문항이 없으면 null인 객체 하나만 출력하세요. 보기나 선지의 표시는 소문항이 아닙니다.'}
 단, 오류교정(find_error)의 잘못된 기호가 정답/해설에 명시되어 있으면 해당 기호와 실제 답안 유형을 유지하세요. 목록에 맞추려고 subjective로 바꾸지 마세요. 정답 근거가 없으면 정답 필드는 비우고 answer_status=missing으로 표시하세요.
 ${options.validateAnswerContract ? '신규 교정 문항 예외: 실제 원문 정답이 독립 교정 답 여러 개를 명시하면 상단 sub_label 목록과 달라도 각 답을 별도 객체로 추출하세요. 기호가 있으면 실제 기호, 없으면 작성 칸 순서 a,b,…를 사용하세요. 목록에 맞추려고 답을 한 객체에 묶거나 유형을 바꾸지 마세요. 이 예외는 선택 교정 답에만 적용하며 다른 문항의 목록은 유지하세요.' : ''}
 원래 발문 번호는 원문 그대로 두세요. 내부 question_number를 발문에 붙이지 마세요.
-${target.passage_group ? `공통 지문 그룹 ${JSON.stringify(target.passage_group)}입니다. shared_passage에 공통 지문 전체를 정확히 추출하세요. 같은 부모의 소문항 중 첫 객체에만 채워도 됩니다. 그 문항의 발문·보기·선지는 공통 지문에 섞지 말고 기존 문항 필드에 보존하세요.` : '독립 문항이므로 shared_passage는 null입니다.'}
+${target.passage_group ? `공통 지문 그룹 ${JSON.stringify(target.passage_group)}입니다. shared_passage에 공통 지문 전체를 정확히 추출하세요. 같은 부모의 소문항 중 첫 객체에만 채워도 됩니다. 그 문항의 발문·보기·선지는 공통 지문에 섞지 말고 기존 문항 필드에 보존하세요.` : '해당 문항에 필요한 지문 전체를 passage에 추출하고 shared_passage는 null로 두세요.'}
 ${issues.length ? `이전 응답 검증 실패: ${issues.join(', ')}. 문항 전체를 다시 출력하세요.` : ''}
 기존 추출 규칙에 따른 JSON 배열만 출력하세요.`
+      const response = await request(instruction, attempt ? 16384 : 8192)
       try {
-        const received = parseJsonArrayResponse<unknown>(await call(instruction, 8192), 'week-inventory-target').map(value => sanitizeWeekExtraction(value, options.validateAnswerContract))
+        const received = parseJsonArrayResponse<unknown>(completedText(response), 'week-inventory-target').map(value => sanitizeWeekExtraction(value, options.validateAnswerContract))
         // The server owns these constants. Missing echoed metadata is not missing content;
         // conflicting metadata and wrong question numbers still fail exact coverage.
         const answers = received.map(a => a.question_number === target.question_number ? { ...a,
@@ -111,9 +138,13 @@ ${issues.length ? `이전 응답 검증 실패: ${issues.join(', ')}. 문항 전
         const repairNewCorrection = options.validateAnswerContract && canRepairCorrectionInventory(answers)
         const repairLegacySymbol = !options.validateAnswerContract && target.sub_labels.length === 1 &&
           target.sub_labels[0] === null && answers.every(a => a.question_style === 'find_error')
-        if (sameParent && (repairNewCorrection || repairLegacySymbol)) target.sub_labels = answers.map(a => a.sub_label)
-        issues = [...weekTargetIssues(target, answers), ...(options.validateAnswerContract ? weekAnswerContractIssues(answers) : [])]
+        let labels = expectedLabels ?? (answers.some((answer) => answer.sub_label !== null)
+          ? answers.map((_, index) => String.fromCharCode(97 + index)) : [null])
+        if (sameParent && (repairNewCorrection || repairLegacySymbol)) labels = answers.map(a => a.sub_label)
+        issues = [...weekTargetIssues({ ...target, sub_labels: labels }, answers), ...(options.validateAnswerContract ? weekAnswerContractIssues(answers) : [])]
+        if (labels.length > 26) issues.push(`${inventoryLabel(target)}: 소문항 범위 초과`)
         if (!issues.length) {
+          target.sub_labels = labels
           return answers.map((answer) => ({ ...answer, inventory_sub_labels: target.sub_labels,
             display_order: target.display_order, passage_group: target.passage_group,
             shared_passage: target.passage_group ? answer.shared_passage?.trim() : null }))
@@ -138,8 +169,8 @@ ${issues.length ? `이전 응답 검증 실패: ${issues.join(', ')}. 문항 전
     const members = targets.filter(t => t.passage_group === group).map(inventoryLabel).join(', ')
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const value = parseJsonObjectResponse<{ shared_passage?: string }>(await call(
-          `[공통 지문 확인] ${members}가 공유하는 원문 지문을 한 번만 추출하세요. 발문·보기·선지·해설은 제외하세요. JSON 객체만 출력: {"shared_passage":"원문 지문 전체"}`, 8192), 'week-shared-passage')
+        const value = parseJsonObjectResponse<{ shared_passage?: string }>(completedText(await request(
+          `[공통 지문 확인] ${members}가 공유하는 원문 지문을 한 번만 추출하세요. 발문·보기·선지·해설은 제외하세요. JSON 객체만 출력: {"shared_passage":"원문 지문 전체"}`, attempt ? 16384 : 8192)), 'week-shared-passage')
         if (typeof value.shared_passage === 'string' && value.shared_passage.trim()) { passages.set(group, value.shared_passage.trim()); break }
       } catch { getPdfWorkerContext()?.signal.throwIfAborted() }
     }

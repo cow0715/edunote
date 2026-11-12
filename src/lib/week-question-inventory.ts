@@ -16,14 +16,99 @@ export const weekInventorySchema = z.object({
 export type WeekQuestionIdentity = z.infer<typeof questionSchema>
 export type WeekQuestionTarget = WeekQuestionIdentity & { question_number: number }
 
+export function findWeekQuestionHeadings(lines: readonly string[]): string[] {
+  return lines.flatMap((line) => {
+    const written = line.match(/^\s*(?:\[서(?:답|술)형\s*(\d+)\]\s*|서(?:답|술)형\s*(\d+)\s+)(?!개(?:\s|$)|문항(?:\s|$))(?=[가-힣])/)
+    if (written) return [`written:${Number(written[1] ?? written[2])}`]
+    const general = line.match(/^\s*(\d+)(?:\.\s*|\s+)(?=[가-힣])/)
+    return general ? [`general:${Number(general[1])}`] : []
+  })
+}
+
+export function findWrittenAnswerSlots(lines: readonly string[]): Map<string, string[]> {
+  const seen = new Set<string>()
+  const slotsByHeading = new Map<string, Set<number>>()
+  let current: Set<number> | undefined
+  for (const line of lines) {
+    const [heading] = findWeekQuestionHeadings([line])
+    if (heading) {
+      current = undefined
+      if (!seen.has(heading) && heading.startsWith('written:')) {
+        current = new Set<number>()
+        slotsByHeading.set(heading, current)
+      }
+      seen.add(heading)
+    }
+    const slot = line.match(/^\s*\((\d+)\)(?=\s|$)/)
+    if (slot) current?.add(Number(slot[1]))
+  }
+  return new Map([...slotsByHeading].flatMap(([key, slots]) => {
+    const numbers = [...slots].sort((a, b) => a - b)
+    if (numbers.length < 2 || numbers.length > 26 || numbers.some((number, index) => number !== index + 1)) return []
+    return [[key, numbers.map((_, index) => String.fromCharCode(97 + index))]]
+  }))
+}
+
 export function inventoryLabel(q: WeekQuestionIdentity): string {
   return `${q.section === 'written' ? '서답형' : '일반'} ${q.number}`
+}
+
+function printedPassageGroups(text: string) {
+  const mixed = [...text.matchAll(/\[(\d+)\s*[,，]\s*서(?:답|술)형\s*(\d+)\]/g)]
+    .map((match) => ({ label: match[0], keys: [`general:${Number(match[1])}`, `written:${Number(match[2])}`] }))
+  const ranges = [...text.matchAll(/\[(\d+)\s*[~～–-]\s*(\d+)\]/g)].flatMap((match) => {
+    const start = Number(match[1]), end = Number(match[2])
+    if (end <= start || end - start > 100) return []
+    return [{ label: match[0], keys: Array.from({ length: end - start + 1 }, (_, i) => `general:${start + i}`) }]
+  })
+  return [...mixed, ...ranges]
+}
+
+function printedSectionCounts(text: string) {
+  return [...text.matchAll(/객관식\s*(\d+)\s*(?:개|문항)?\s*[+·ㆍ•]\s*서(?:답|술)형\s*(\d+)/g)]
+    .map((match) => ({ general: Number(match[1]), written: Number(match[2]) }))
+}
+
+/** A printed count independently confirms that the positioned headings cover each section. */
+export function buildNativeWeekInventory(text: string, headings: readonly string[], lines: readonly string[] = []) {
+  const printedCounts = printedSectionCounts(text)
+  const first = printedCounts[0]
+  if (!first || printedCounts.some((counts) => counts.general !== first.general || counts.written !== first.written)) return null
+  const counts = first
+  if (headings.length !== counts.general + counts.written || !headings.length) return null
+
+  const groups = new Map<string, string>()
+  const positionedGroups = lines.flatMap((line) => {
+    const match = line.match(/^\s*(\d+)(?:\s*[~～–-]\s*(\d+))?\s*[,，]\s*서(?:답|술)형\s*(\d+)\s+(?=[가-힣])/)
+    if (!match) return []
+    const start = Number(match[1]), end = Number(match[2] ?? match[1])
+    if (end < start || end - start > 100) return []
+    return [{ keys: [...Array.from({ length: end - start + 1 }, (_, i) => `general:${start + i}`), `written:${Number(match[3])}`] }]
+  })
+  for (const { keys } of [...printedPassageGroups(text), ...positionedGroups]) {
+    if (keys.some((key) => !headings.includes(key))) return null
+    const previous = new Set(keys.flatMap((key) => groups.get(key) ?? []))
+    const group = previous.values().next().value ?? keys[0]
+    for (const [key, value] of groups) {
+      if (previous.has(value)) groups.set(key, group)
+    }
+    for (const key of keys) groups.set(key, group)
+  }
+  const questions = headings.map((key, index) => {
+    const [section, number] = key.split(':')
+    return { section, number: Number(number), display_order: index + 1, passage_group: groups.get(key) ?? null, sub_labels: [null] }
+  })
+  for (const section of ['general', 'written'] as const) {
+    const numbers = questions.filter((q) => q.section === section).map((q) => q.number).sort((a, b) => a - b)
+    if (numbers.length !== counts[section] || numbers.some((number, index) => number !== index + 1)) return null
+  }
+  return { counts, questions }
 }
 
 /** Check an independent PDF text layer as well as the model's declared counts.
  * Shared-passage references count as evidence that a parent exists, never as extra parents.
  * Images without a text layer still use the complete visual inventory. */
-export function buildWeekQuestionTargets(input: unknown, nativeText = ''): WeekQuestionTarget[] {
+export function buildWeekQuestionTargets(input: unknown, nativeText = '', headings: readonly string[] = [], checkTextSlots = true): WeekQuestionTarget[] {
   const inventory = weekInventorySchema.parse(input)
   const keys = new Set<string>()
   const orders = new Set<number>()
@@ -40,44 +125,29 @@ export function buildWeekQuestionTargets(input: unknown, nativeText = ''): WeekQ
   }
   if ([...orders].some((order) => order > inventory.questions.length)) throw new Error('PDF 문항 배치 순서 누락')
   // A printed shared-passage heading is independent evidence of the relationship.
-  for (const match of nativeText.matchAll(/\[(\d+)\s*[,，]\s*서(?:답|술)형\s*(\d+)\]/g)) {
-    const general = inventory.questions.find((q) => q.section === 'general' && q.number === Number(match[1]))
-    const written = inventory.questions.find((q) => q.section === 'written' && q.number === Number(match[2]))
-    if (!general?.passage_group || general.passage_group !== written?.passage_group) {
-      throw new Error(`공통 지문 그룹 불일치: ${match[0]}`)
+  for (const { keys: members, label } of printedPassageGroups(nativeText)) {
+    const groups = members.map((key) => inventory.questions.find((q) => `${q.section}:${q.number}` === key)?.passage_group)
+    if (!groups[0] || groups.some((group) => group !== groups[0])) {
+      throw new Error(`공통 지문 그룹 불일치: ${label}`)
     }
   }
-  for (const match of nativeText.matchAll(/\[(\d+)\s*[~～–-]\s*(\d+)\]/g)) {
-    const start = Number(match[1]), end = Number(match[2])
-    if (end <= start || end - start > 100) continue
-    const members = inventory.questions.filter((q) => q.section === 'general' && q.number >= start && q.number <= end)
-    if (members.length !== end - start + 1 || !members[0]?.passage_group ||
-        members.some((q) => q.passage_group !== members[0].passage_group)) {
-      throw new Error(`공통 지문 그룹 불일치: ${match[0]}`)
-    }
-  }
-  // Text-layer parent headings cross-check the inventory's visual reading order.
-  const headings: { key: string; position: number }[] = []
-  for (const match of nativeText.matchAll(/(?:^|\s)(\d+)\.\s*(?=[가-힣])/g)) {
-    headings.push({ key: `general:${Number(match[1])}`, position: match.index })
-  }
-  for (const match of nativeText.matchAll(/서(?:답|술)형\s*(\d+)\s+(?=[가-힣])/g)) {
-    if (/^(?:개|문항)/.test(nativeText.slice(match.index + match[0].length))) continue
-    headings.push({ key: `written:${Number(match[1])}`, position: match.index })
-  }
+  // Headings arrive in page and column order from the PDF's positioned lines.
   const seenHeadings = new Set<string>()
   let lastOrder = 0
-  for (const heading of headings.sort((a, b) => a.position - b.position)) {
-    if (seenHeadings.has(heading.key)) continue // repeated answer/explanation heading
-    seenHeadings.add(heading.key)
-    const q = inventory.questions.find((q) => `${q.section}:${q.number}` === heading.key)
-    if (!q) throw new Error(`PDF 문항 목록 누락: ${heading.key}`)
+  for (const key of headings) {
+    if (seenHeadings.has(key)) continue // repeated answer/explanation heading
+    seenHeadings.add(key)
+    const q = inventory.questions.find((q) => `${q.section}:${q.number}` === key)
+    if (!q) throw new Error(`PDF 문항 목록 누락: ${key}`)
     if (q.display_order <= lastOrder) throw new Error(`PDF 문항 배치 순서 불일치: ${inventoryLabel(q)}`)
     lastOrder = q.display_order
   }
   for (const section of ['general', 'written'] as const) {
     const count = inventory.questions.filter((q) => q.section === section).length
     if (count !== inventory.counts[section]) throw new Error(`문항 목록 개수 불일치: ${section}`)
+    if (printedSectionCounts(nativeText).some((counts) => counts[section] !== count)) {
+      throw new Error(`PDF 총 문항 수 불일치: ${section}`)
+    }
   }
   for (const match of nativeText.matchAll(/서(?:답|술)형\s*(\d+)(?!\d)/g)) {
     // A cover's "서답형 3 ·" is a count, not a printed question number.
@@ -87,7 +157,7 @@ export function buildWeekQuestionTargets(input: unknown, nativeText = ''): WeekQ
   // Explicit numbered written answer slots are independent evidence for leaf coverage.
   // Stop at the next parent heading; shared-passage references and section counts
   // do not match this heading pattern.
-  for (const match of nativeText.matchAll(/서(?:답|술)형\s*(\d+)\s+(?=[가-힣])/g)) {
+  for (const match of (checkTextSlots ? nativeText : '').matchAll(/서(?:답|술)형\s*(\d+)\s+(?=[가-힣])/g)) {
     const remainder = nativeText.slice(match.index + match[0].length)
     const end = remainder.search(/서(?:답|술)형\s*\d+|(?:^|\s)\d+\.\s*[가-힣]/)
     const body = end < 0 ? remainder : remainder.slice(0, end)

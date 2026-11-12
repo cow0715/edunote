@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ParsedAnswer } from '@/lib/llm/week'
 
-const mocks = vi.hoisted(() => ({ call: vi.fn() }))
+const mocks = vi.hoisted(() => ({ call: vi.fn(), extractText: vi.fn(), getDocumentProxy: vi.fn() }))
+vi.mock('unpdf', () => ({ extractText: mocks.extractText, getDocumentProxy: mocks.getDocumentProxy }))
 vi.mock('@/lib/llm/client', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/llm/client')>(), callLlmTextDetailed: mocks.call,
 }))
@@ -36,9 +37,32 @@ function setup(written: (attempt: number) => ParsedAnswer[], stopReason = 'end_t
   })
 }
 
-beforeEach(() => { mocks.call.mockReset() })
+beforeEach(() => {
+  mocks.call.mockReset()
+  mocks.extractText.mockReset()
+  mocks.getDocumentProxy.mockReset()
+})
 
 describe('week inventory extraction through document normalization (mocked LLM)', () => {
+  it.each([true, false])('skips model discovery only when the layout covers the printed count (%s)', async (complete) => {
+    const lines = ['객관식 1 + 서답형 1', complete ? '1 다음 글을 읽으시오.' : '1', '[서답형 1] 조건에 맞게 쓰시오.', '(1) 첫 답', '(2) 둘째 답']
+    mocks.extractText.mockResolvedValue({ text: [lines.join(' ')] })
+    mocks.getDocumentProxy.mockResolvedValue({ numPages: 1, destroy: vi.fn(), getPage: async () => ({
+      cleanup: vi.fn(), getViewport: () => ({ width: 600 }), getTextContent: async () => ({ items: lines.map((str, index) => ({
+        str, transform: [1, 0, 0, 1, 30, 700 - index * 20], width: 200, height: 12,
+      })) }),
+    }) })
+    setup(() => [answer(2, 'a'), answer(2, 'b')])
+    const result = await parseAnswerSheetDocument([{ ...files[0], mimeType: 'application/pdf' }])
+    expect(result.answers.map((a) => [a.question_number, a.sub_label])).toEqual([[1, null], [2, 'a'], [2, 'b']])
+    expect(mocks.call).toHaveBeenCalledTimes(complete ? 2 : 3)
+  })
+
+  it('does not resend a model request when the request itself throws', async () => {
+    mocks.call.mockRejectedValue(new Error('request failed'))
+    await expect(parseAnswerSheetDocument(files)).rejects.toThrow('request failed')
+    expect(mocks.call).toHaveBeenCalledTimes(1)
+  })
   it('keeps 6 → written 1(a,b) → 7 in PDF order with one shared passage and distinct grading keys', async () => {
     const layout = { counts: { general: 2, written: 1 }, questions: [
       { section: 'general', number: 6, sub_labels: [null], display_order: 1, passage_group: 'p6' },

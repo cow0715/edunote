@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildWeekQuestionTargets, weekTargetIssues } from '@/lib/week-question-inventory'
+import { buildWeekQuestionTargets, findWeekQuestionHeadings, weekTargetIssues } from '@/lib/week-question-inventory'
 
 const inventory = () => ({
   counts: { general: 7, written: 3 },
@@ -21,11 +21,21 @@ describe('week question inventory', () => {
     const sortedNumerically = inventory()
     sortedNumerically.questions[6].display_order = 7
     sortedNumerically.questions[7].display_order = 8
-    expect(() => buildWeekQuestionTargets(sortedNumerically, native)).toThrow('배치 순서 불일치')
+    const headings = findWeekQuestionHeadings(['6 다음 글을 읽으시오.', '서답형 1 윗글에서 두 가지를 쓰시오.', '7. 다음 글의 주제는?'])
+    expect(() => buildWeekQuestionTargets(sortedNumerically, native, headings)).toThrow('배치 순서 불일치')
     const wrongGroup = inventory()
     wrongGroup.questions[7].passage_group = 'different'
     expect(() => buildWeekQuestionTargets(wrongGroup, native)).toThrow('공통 지문 그룹 불일치')
     expect(() => buildWeekQuestionTargets(inventory(), '[3~4]')).toThrow('공통 지문 그룹 불일치')
+  })
+
+  it('uses only same-line question headings and accepts printed numbers without a period', () => {
+    const headings = findWeekQuestionHeadings([
+      '단어 · 객관식 7 + 서답형 3', '이름', '학번', '6 다음 글을 읽으시오.',
+      '서답형 1 윗글에서 두 가지를 쓰시오.', '7 다음 글의 주제는?', '서답형 3 다음 빈칸을 쓰시오.',
+    ])
+    expect(headings).toEqual(['general:6', 'written:1', 'general:7', 'written:3'])
+    expect(() => buildWeekQuestionTargets(inventory(), native, headings)).not.toThrow()
   })
   it('keeps objective numbering and gives written parents unique internal numbers, with all 13 leaves', () => {
     const targets = buildWeekQuestionTargets(inventory(), native)
