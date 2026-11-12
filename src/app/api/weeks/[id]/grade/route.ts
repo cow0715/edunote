@@ -7,6 +7,8 @@ export async function GET(request: Request, args: { params: Promise<{ id: string
 import { requireGradeToken, saveGradePlan, captureGradeVersions, applyGradePlan } from '@/lib/services/grade-save'
 import { assertGradePhotosAvailable } from '@/lib/exam-photo'
 import { randomUUID } from 'node:crypto'
+import { createServiceClient } from '@/lib/supabase/service'
+import { finalizeExamPhotoJob } from '@/lib/services/exam-photo-finalize'
 import { sql } from 'drizzle-orm'
 import { captureWeekVersion, saveImmediateWeekPlan, readingTotals } from '@/lib/services/week-save'
 import { insertRows, updateRows, type Statement } from '@/lib/db/statements'
@@ -191,6 +193,9 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
   let rows: GradeRow[]
   let skipAI = false
   let answersOnlyDraft = false
+  let preview = false
+  let photoJobId: string | undefined
+  let finalizePhotoJobId: string | undefined
   try {
     const body = await request.json()
     if (Array.isArray(body)) {
@@ -198,14 +203,19 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     } else {
       rows = body.rows
       skipAI = body.skip_ai ?? false
-      answersOnlyDraft = skipAI && body.draft_only === true
+      preview = body.preview === true
+      photoJobId = preview && typeof body.photoJobId === 'string' ? body.photoJobId : undefined
+      finalizePhotoJobId = !preview && typeof body.finalizePhotoJobId === 'string' ? body.finalizePhotoJobId : undefined
+      skipAI = preview ? false : !!finalizePhotoJobId || skipAI
+      answersOnlyDraft = skipAI && body.draft_only === true && !finalizePhotoJobId
     }
   } catch {
     return err('요청 데이터 파싱 실패')
   }
 
+  let teacherId: string | null = null
   if (!answersOnlyDraft) {
-    const teacherId = await getTeacherId(supabase, user.id)
+    teacherId = await getTeacherId(supabase, user.id)
     if (!teacherId) return err('강사 정보 없음', 404)
     if (!await assertWeekOwner(supabase, weekId, teacherId)) return err('접근 권한 없음', 403)
   }
@@ -238,6 +248,8 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     // 서술형/오류교정 배치 채점용 수집 (모두 AI 경로)
     const subjectiveForGrading: SubjectiveStudentAnswer[] = []
     const processedScoreIds: string[] = []
+    const previewRows = new Map<string, GradeRow>()
+    const previewAnswers = new Map<string, GradeRow['answers'][number]>()
 
     for (const row of rows) {
       // Compatibility with old clients/cache: an excluded row is never a deletion command.
@@ -249,7 +261,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
         reading_correct: row.reading_present === false ? null : row.reading_correct,
         ...(row.reading_present !== false && row.exam_photo_path ? { exam_photo_path: row.exam_photo_path } : {}),
         // Background exam drafts must not overwrite a newer vocabulary/memo/homework save.
-        ...(!answersOnlyDraft ? { vocab_correct: row.vocab_correct, homework_done: row.homework_done, memo: row.memo || null } : !scoreMap.has(row.student_id) ? { vocab_correct: null, homework_done: null, memo: null } : {}) }], ['week_id','student_id'], answersOnlyDraft))
+        ...(!answersOnlyDraft && !finalizePhotoJobId ? { vocab_correct: row.vocab_correct, homework_done: row.homework_done, memo: row.memo || null } : !scoreMap.has(row.student_id) ? { vocab_correct: null, homework_done: null, memo: null } : {}) }], ['week_id','student_id'], answersOnlyDraft))
 
       // reading_present=false이면 answers 처리 스킵 + reading_correct=null 이미 upsert됨
       if (row.reading_present === false) continue
@@ -288,8 +300,8 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
               week_score_id: score.id,
               exam_question_id: a.exam_question_id,
               student_answer: isTextAnswer ? null : a.student_answer,
-              student_answer_text: isTextAnswer ? (a.student_answer_text ?? null) : null,
-              ox_selection: style === 'ox' ? (a.ox_selection ?? null) : null,
+              student_answer_text: finalizePhotoJobId && style === 'ox' ? parseOXStudentInput(a.student_answer_text).correction : isTextAnswer ? (a.student_answer_text ?? null) : null,
+              ox_selection: style === 'ox' ? (a.ox_selection ?? (finalizePhotoJobId ? parseOXStudentInput(a.student_answer_text).oxSelection : null)) : null,
               is_correct: a.is_correct ?? false,
               needs_review: false,
               teacher_confirmed: true,
@@ -326,7 +338,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
             is_correct = q ? (gradeObjective(q, a.student_answer) ?? false) : false
           } else if (style === 'find_error') {
             const assignment = findErrorVerdicts.get(a.exam_question_id)
-            if (assignment?.verdict === 'ai' && skipAI) {
+            if (finalizePhotoJobId || (assignment?.verdict === 'ai' && skipAI)) {
               // draft 저장: AI 미확정 답은 기존 채점 결과 보존
               is_correct = a.is_correct ?? false
               needs_review = a.needs_review ?? false
@@ -339,7 +351,7 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
               week_score_id: score.id,
               exam_question_id: a.exam_question_id,
               student_answer: null,
-              student_answer_text: assignment?.text || null,
+              student_answer_text: finalizePhotoJobId ? (a.student_answer_text ?? null) : assignment?.text || null,
               ox_selection: null,
               is_correct,
               needs_review,
@@ -370,6 +382,18 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
           }
         })
 
+        if (preview) {
+          const graded = row.answers.map((answer, index) => {
+            const saved = answersToUpsert[index]
+            const output = { ...answer, is_correct: saved.is_correct, needs_review: saved.needs_review,
+              teacher_confirmed: saved.teacher_confirmed, ai_feedback: ('ai_feedback' in saved ? saved.ai_feedback : answer.ai_feedback) ?? '',
+              ...(questionMap.get(answer.exam_question_id)?.question_style === 'find_error'
+                ? { student_answer_text: saved.student_answer_text ?? '' } : {}) }
+            previewAnswers.set(`${score.id}:${answer.exam_question_id}`, output)
+            return output
+          })
+          previewRows.set(row.student_id, { ...row, answers: graded })
+        }
         statements.push(...insertRows('student_answer', answersToUpsert, ['week_score_id','exam_question_id'], answersOnlyDraft))
 
         if (skipAI) continue
@@ -427,6 +451,8 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
           const expectedPairs = new Set(subjectiveForGrading.map(answer => `${answer.week_score_id}:${answer.exam_question_id}`))
           for (const result of gradingResults) {
             if (!expectedPairs.has(`${result.week_score_id}:${result.exam_question_id}`)) throw new SaveError('AI 채점 응답이 올바르지 않습니다.', 422)
+            const answer = previewAnswers.get(`${result.week_score_id}:${result.exam_question_id}`)
+            if (answer) Object.assign(answer, { is_correct: result.is_correct, needs_review: result.needs_review, ai_feedback: result.ai_feedback })
             aiStatements.push(updateRows('student_answer', { is_correct: result.is_correct, needs_review: result.needs_review, ai_feedback: result.ai_feedback },
               sql`week_score_id=${result.week_score_id}::uuid and exam_question_id=${result.exam_question_id}::uuid`, true))
           }
@@ -440,7 +466,24 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
     mark('ai')
     statements.push(...aiStatements, ...readingTotals(processedScoreIds))
     if (allQuestions?.length && (!answersOnlyDraft || currentReadingTotal === 0)) statements.push(updateRows('week', { reading_total: allQuestions.length }, sql`id=${weekId}::uuid and reading_total=0`))
-    return { statements }
+    return { statements, gradedRows: rows.map(row => previewRows.get(row.student_id) ?? row) }
+  }
+
+  if (preview) {
+    const { gradedRows } = await buildPlan(await readInputs())
+    if (photoJobId) {
+      const { error } = await createServiceClient().rpc('save_initial_exam_photo_grades', {
+        p_job_id: photoJobId, p_week_id: weekId, p_teacher_id: teacherId, p_rows: gradedRows,
+      })
+      if (error) throw new SaveError('1차 채점 결과를 작업에 저장하지 못했습니다. 작업을 다시 열어 주세요.', error.code === '40001' ? 409 : 503)
+    }
+    return ok({ rows: gradedRows })
+  }
+  if (finalizePhotoJobId) {
+    const { statements } = await buildPlan(await readInputs())
+    const saved = await finalizeExamPhotoJob(user.id, weekId, finalizePhotoJobId, rows, version, statements)
+    console.info('[reading-photo-finalize]', JSON.stringify({ jobId: finalizePhotoJobId, replayed: saved.replayed, count: saved.versions.length }))
+    return ok({ ok: saved.ok, versions: saved.versions })
   }
 
   if (answersOnlyDraft) {

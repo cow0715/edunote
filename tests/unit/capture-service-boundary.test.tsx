@@ -60,6 +60,9 @@ beforeEach(() => {
       const id = atob(String(body.fileData)).startsWith('a') ? 'student-a' : 'student-b'
       return Response.json({ studentId: id, rawName: id === 'student-a' ? '학생 가' : '학생 나', confidence: 'high' })
     }
+    if (url === `/api/weeks/${week}/exam-photo-job`) {
+      return Response.json(method === 'POST' ? { id: 'ordinary-photo' } : { job: null })
+    }
     if (url === `/api/weeks/${week}/ocr-exam-photo`) return Response.json({ ok: true,
       photoPath: `${week}/${body.studentId}/ordinary-photo`,
       results: [1, 2].map((n) => ({ question_number: n, sub_label: null, student_answer: 3 })),
@@ -71,6 +74,7 @@ beforeEach(() => {
     }
     if (url === `/api/weeks/${week}/grade` && method === 'POST') {
       const rows = body.rows as GradeRow[]
+      if (body.preview) return Response.json({ rows })
       if (rows.some((row) => token(row.student_id).revision !== row.grade_version.revision)) {
         return Response.json({ error: 'stale version' }, { status: 409 })
       }
@@ -122,12 +126,17 @@ it.each(['reading-batch', 'vocab-batch', 'reading-single', 'vocab-single', 'read
     expect(requests.some((entry) => /ocr-exam-photo|grade-vocab-photo/.test(entry.url))).toBe(false)
     fireEvent.click(first)
     fireEvent.click(screen.getByLabelText('사진 2: 학생 나 학생 확인'))
-    fireEvent.click(screen.getByText(reading ? '2명 답안 인식' : '2명 채점 시작', { selector: 'button' }))
-    const close = await screen.findByText(reading ? '채점하고 저장' : '성적표 보기', { selector: 'button' })
-    if (reading) await waitFor(() => expect(requests.filter((entry) => entry.body.skip_ai === true)).toHaveLength(2))
+    fireEvent.click(screen.getByText(reading ? '2명 답안 인식 및 채점' : '2명 채점 시작', { selector: 'button' }))
+    const close = await screen.findByText(reading ? '2명 일괄 확정' : '성적표 보기', { selector: 'button' })
+    if (reading) {
+      const operations = requests.filter(entry => /ocr-exam-photo|\/grade$/.test(entry.url) && entry.method === 'POST')
+      expect(operations.map(({ body }) => body.storeOnly ? 'upload' : body.useStored ? 'ocr' : 'preview'))
+        .toEqual(['upload', 'upload', 'ocr', 'ocr', 'preview'])
+    }
     await waitFor(() => expect((close as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(close)
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    if (reading) expect(requests.filter(entry => entry.body.finalizePhotoJobId === 'ordinary-photo')).toHaveLength(1)
     expect(vi.mocked(captureDraft).mock.calls.some(([key]) => key === `${reading ? 'exam' : 'vocab'}:${week}`)).toBe(true)
   } else {
     const studentRow = within(screen.getByRole('table')).getByRole('button', {name:'학생 가 시험 답안 열기'}).closest('tr')!

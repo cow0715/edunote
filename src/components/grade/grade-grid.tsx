@@ -24,7 +24,7 @@ import { buildReviewQueue } from '@/lib/review-workflow'
 import { MobileGradeCards } from './mobile-grade-cards'
 import { SubjectiveReviewPanel } from './subjective-review-panel'
 import { VocabBatchGradeDialog } from './vocab-batch-grade-dialog'
-import { ExamBatchGradeDialog } from './exam-batch-grade-dialog'
+import { ExamPhotoBatchDialog } from './exam-photo-batch-dialog'
 import type { ExamOcrResult } from './exam-photo-button'
 import { mergeGradeDrafts } from '@/lib/grade-draft-merge'
 import { createGradeSaveQueue } from '@/lib/atomic-grade'
@@ -80,7 +80,6 @@ export function GradeGrid({ classId, attendanceDate, weekId, vocabTotal, reading
   }, [])
   const [batchOpen, setBatchOpen] = useState(false)
   const [examBatchOpen, setExamBatchOpen] = useState(false)
-  const [localExamPhotoPaths, setLocalExamPhotoPaths] = useState<Map<string, string>>(new Map())
   const queryClient = useQueryClient()
   const [dirtyFields, setDirtyFields] = useState<Record<string, number>>({})
   const dirtyRef = useRef<Record<string, number>>({})
@@ -343,9 +342,8 @@ export function GradeGrid({ classId, attendanceDate, weekId, vocabTotal, reading
     for (const score of data?.weekScores ?? []) {
       if (score.exam_photo_path) m.set(score.student_id, score.exam_photo_path)
     }
-    for (const [studentId, path] of localExamPhotoPaths) m.set(studentId, path)
     return m
-  }, [data?.weekScores, localExamPhotoPaths])
+  }, [data?.weekScores])
 
   const updateRow = useCallback((studentId: string, key: keyof GradeRow, value: unknown) => {
     markChanged(studentId, key)
@@ -390,44 +388,32 @@ export function GradeGrid({ classId, attendanceDate, weekId, vocabTotal, reading
 
   useEffect(() => { rowsRef.current = rows }, [rows])
 
-  /** 일괄 판독 결과를 해당 학생 행에 채우고 임시저장. 반영된 문항 수를 돌려준다. */
-  const applyExamOcr = useCallback((studentId: string, results: ExamOcrResult[], photoPath: string) => {
+  const prepareExamOcr = useCallback((studentId: string, results: ExamOcrResult[], photoPath: string) => {
     const questionByKey = new Map<string, ExamQuestion>(
       (data?.questions ?? []).map((q: ExamQuestion) => [`${q.question_number}__${q.sub_label ?? ''}`, q] as const),
     )
     let applied = 0
-    const merged = rowsRef.current.map((r) => {
-      if (r.student_id !== studentId) return r
-      const answers = r.answers.map((a) => ({ ...a }))
-      const byQid = new Map(answers.map((a) => [a.exam_question_id, a]))
-      for (const res of results) {
-        const q = questionByKey.get(`${res.question_number}__${res.sub_label ?? ''}`)
-        const a = q ? byQid.get(q.id) : undefined
-        if (!a) continue
-        if (res.student_answer !== undefined) {
-          a.student_answer = res.student_answer
-          applied += 1
-        } else if (res.student_answer_text !== undefined) {
-          a.student_answer_text = res.student_answer_text
-          a.teacher_confirmed = false
-          applied += 1
-        }
+    const row = rowsRef.current.find((entry) => entry.student_id === studentId)
+    if (!row?.present) throw new Error('채점 대상 학생을 다시 확인해 주세요.')
+    const answers: GradeRow['answers'] = row.answers.map(({ exam_question_id }) => ({
+      exam_question_id, student_answer: null, student_answer_text: '',
+    }))
+    const byQid = new Map(answers.map((answer) => [answer.exam_question_id, answer]))
+    for (const result of results) {
+      const question = questionByKey.get(`${result.question_number}__${result.sub_label ?? ''}`)
+      const answer = question ? byQid.get(question.id) : undefined
+      if (!answer) continue
+      if (result.student_answer !== undefined) {
+        answer.student_answer = result.student_answer
+        applied += 1
+      } else if (result.student_answer_text !== undefined) {
+        answer.student_answer_text = result.student_answer_text
+        applied += 1
       }
-      return { ...r, answers, reading_present: true, exam_photo_path: photoPath }
-    })
-    markChanged(studentId, 'answers')
-    markChanged(studentId, 'reading_present')
-    rowsRef.current = merged
-    setRows(merged)
-    setLocalExamPhotoPaths((prev) => {
-      const next = new Map(prev)
-      next.set(studentId, photoPath)
-      return next
-    })
-    const target = merged.find((r) => r.student_id === studentId)
-    if (target) persistDraft([target])
-    return applied
-  }, [data?.questions, persistDraft, markChanged, weekId])
+    }
+    if (applied === 0) throw new Error('인식한 답안이 없습니다. 사진과 시험 문항을 확인해 주세요.')
+    return { row: { ...row, reading_present: true, exam_photo_path: photoPath, answers }, applied }
+  }, [data?.questions])
 
   const navigationLock = useRef(false)
   const [navigationSaving, setNavigationSaving] = useState(false)
@@ -626,7 +612,7 @@ export function GradeGrid({ classId, attendanceDate, weekId, vocabTotal, reading
               </Button>
             )
           })()}
-          <ExamBatchGradeDialog
+          <ExamPhotoBatchDialog
             open={active && examBatchOpen}
             onOpenChange={setExamBatchOpen}
             weekId={weekId}
@@ -637,20 +623,18 @@ export function GradeGrid({ classId, attendanceDate, weekId, vocabTotal, reading
               present: r.present,
               hasExisting: r.answers.some((a) => a.student_answer !== null || !!a.student_answer_text),
             }))}
-            onApplied={applyExamOcr}
-            continueDisabled={saving || pendingDrafts > 0 || savingEntries || recovery !== null || invalidHomework.size > 0}
-            onContinue={async (studentIds) => {
-              if (pendingDraftsRef.current > 0 || recovery) throw new Error('답안 저장이 끝난 뒤 다시 시도해 주세요.')
-              const targets = rowsRef.current.filter(row => studentIds.includes(row.student_id))
-              if (!targets.length) throw new Error('채점할 답안이 없습니다.')
-              const snapshot = capture(studentIds)
-              await saveGrade.mutateAsync(snapshotGradeRows(targets))
-              acknowledge(snapshot)
-              setFailedStudents(previous => new Set([...previous].filter(id => !studentIds.includes(id))))
+            questions={activeQuestions}
+            prepareOcr={prepareExamOcr}
+            onFinalize={async (gradedRows, finalizePhotoJobId) => {
+              if (pendingDraftsRef.current > 0 || recovery || savingEntries) {
+                throw new Error('답안 저장이 끝난 뒤 다시 시도해 주세요.')
+              }
+              await saveDraft.mutateAsync({ rows: gradedRows, finalizePhotoJobId })
+              await queryClient.refetchQueries({ queryKey: ['grade', weekId] })
+              setFailedStudents(previous => new Set([...previous].filter(id => !gradedRows.some(row => row.student_id === id))))
               setServerRevision(version => version + 1)
               setDraftError(null)
               setSavedAt(new Date())
-              setShowReviewPanel(hasSubjective)
               onSaved?.()
             }}
           />

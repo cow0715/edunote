@@ -67,7 +67,12 @@ export function useSaveGradeDraft(weekId: string, sharedQueue?: GradeSaveQueue, 
   const queue = useGradeQueue(weekId, sharedQueue)
   return useMutation({
     scope: { id: `week-score:${weekId}` },
-    mutationFn: (rows: GradeRow[]) => queue.run(rows, (submitted) => saveRequest(weekId, 'POST', { rows: submitted, skip_ai: true, draft_only: true })),
+    mutationFn: (input: GradeRow[] | { rows: GradeRow[]; finalizePhotoJobId: string }) => {
+      const rows = Array.isArray(input) ? input : input.rows
+      return queue.run(rows, (submitted) => saveRequest(weekId, 'POST', Array.isArray(input)
+        ? { rows: submitted, skip_ai: true, draft_only: true }
+        : { rows: submitted, finalizePhotoJobId: input.finalizePhotoJobId }))
+    },
     onSuccess: onSaved,
     onError: (e: Error) => toast.error(e.message),
   })
