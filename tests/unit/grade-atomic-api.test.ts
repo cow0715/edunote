@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const m = vi.hoisted(() => ({
+  finalize: vi.fn(),
   auth: vi.fn(), teacher: vi.fn(), owner: vi.fn(), readingAI: vi.fn(), vocabAI: vi.fn(), rpc: vi.fn(),
   upload: vi.fn(), info: vi.fn(), directWrite: vi.fn(), failTable: '',
   events: [] as string[],
@@ -11,6 +12,7 @@ const m = vi.hoisted(() => ({
 vi.mock('@/lib/api', () => ({ getAuth: m.auth, getTeacherId: m.teacher, assertWeekOwner: m.owner,
   ok: (body: unknown) => Response.json(body), err: (error: string, status = 400) => Response.json({ error }, { status }) }))
 vi.mock('@/lib/anthropic', () => ({ gradeSubjectiveAnswers: m.readingAI, gradeVocabPhoto: m.vocabAI }))
+vi.mock('@/lib/db/exam-photo-transaction', () => ({ saveExamPhotoFinalization: m.finalize }))
 import { GET, PATCH as saveMetadata, POST as saveReading } from '@/app/api/weeks/[id]/grade/route'
 import { POST as saveVocab } from '@/app/api/weeks/[id]/grade-vocab-photo/route'
 import { recalcReadingCorrect } from '@/lib/grade-utils'
@@ -109,17 +111,17 @@ describe('single-commit reading saves', () => {
   })
   it('finalizes an exam photo job through its replay-safe transaction and returns the original versions', async () => {
     const versions = [{ student_id: 'student', score_id: 'score', revision: 8 }]
-    m.rpc.mockResolvedValueOnce({ data: { versions, replayed: true }, error: null })
+    m.finalize.mockResolvedValueOnce({ versions, replayed: true })
     m.questions[0].question_style = 'subjective'
     const graded = { ...row, exam_photo_path: 'week/student/job',
       answers: [{ exam_question_id: 'q1', student_answer: null, student_answer_text: '답안', is_correct: true }] }
     const response = await saveReading(req({ rows: [graded], finalizePhotoJobId: 'job' }), params)
     expect(await response.json()).toEqual({ ok: true, versions })
-    expect(m.rpc).toHaveBeenCalledExactlyOnceWith('finalize_exam_photo_job', {
-      p_week_id: 'week', p_job_id: 'job',
-      p_rows: [expect.objectContaining({ expected_revision: 7, exam_photo_path: 'week/student/job',
+    expect(m.finalize).toHaveBeenCalledExactlyOnceWith('user', 'teacher', 'week', 'job',
+      [expect.objectContaining({ expected_revision: 7, exam_photo_path: 'week/student/job',
         answers: [expect.objectContaining({ is_correct: true })] })],
-    })
+    )
+    expect(m.rpc).not.toHaveBeenCalled()
     expect(m.readingAI).not.toHaveBeenCalled()
   })
   it('uses the same version guard for metadata and does not clear omitted homework', async () => {

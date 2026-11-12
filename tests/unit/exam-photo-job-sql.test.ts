@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { PGlite } from '@electric-sql/pglite'
 import { expect, it } from 'vitest'
+import { finalizeExamPhotoBatch } from '@/lib/db/exam-photo-finalize'
+import type { PreparedReadingRow } from '@/lib/atomic-grade'
 
 it('creates a single recoverable job for 15 students and restricts access to the service role', async () => {
   const db = new PGlite()
@@ -48,32 +50,40 @@ it('creates a single recoverable job for 15 students and restricts access to the
     await db.exec('reset role')
     await db.exec(readFileSync('supabase/migrations/20261029114636_atomic_grade_saves.sql', 'utf8'))
     await db.exec(readFileSync('supabase/migrations/20261113000001_finalize_exam_photo_job.sql', 'utf8'))
+    await db.exec('drop function public.finalize_exam_photo_job(uuid,uuid,jsonb)')
     await db.query("insert into exam_question (id, week_id) values ($1, $2)", [unrelated, week])
     await db.query(`update exam_photo_job_item set
       photo_path = $1 || '/' || student_id || '/' || $2,
       grade_draft = coalesce(grade_draft, '{}'::jsonb) where job_id = $2::uuid`, [week, id])
-    const rows = students.map((studentId) => ({
+    const rows: PreparedReadingRow[] = students.map((studentId) => ({
       student_id: studentId, score_id: studentId, expected_revision: null,
       present: true, reading_present: true, exam_photo_path: `${week}/${studentId}/${id}`,
-      answers: [{ exam_question_id: unrelated, student_answer: 1, is_correct: true }],
+      vocab_correct: null, reading_correct: null, homework_done: null, memo: '',
+      answers: [{ exam_question_id: unrelated, student_answer: 1, is_correct: true,
+        student_answer_text: null, ox_selection: null, needs_review: false, teacher_confirmed: false }],
     }))
-    const commit = (submitted = rows) => db.query<{ result: { versions: unknown[]; replayed: boolean } }>(
-      'select finalize_exam_photo_job($1, $2, $3) as result', [week, id, JSON.stringify(submitted)],
-    )
-    await db.exec("set role authenticated")
+    const commit = (submitted = rows, failReceipt = false) => db.transaction((tx) => finalizeExamPhotoBatch({
+      query: async (sql, params) => {
+        if (failReceipt && sql.includes('set finalized_grade_version')) throw new Error('receipt write interrupted')
+        const result = await tx.query(sql, params)
+        return { rows: result.rows as never[], rowCount: result.affectedRows ?? null }
+      },
+    }, teacher, week, id, submitted))
     await db.query("select set_config('request.jwt.claim.sub', $1, false)", [unrelated])
-    await expect(commit()).rejects.toMatchObject({ code: '42501' })
+    await expect(commit()).rejects.toMatchObject({ status: 403 })
     await db.query("select set_config('request.jwt.claim.sub', $1, false)", [teacher])
-    await expect(commit([{ ...rows[0], exam_photo_path: 'wrong-path' }])).rejects.toMatchObject({ code: '22023' })
+    await expect(commit([{ ...rows[0], exam_photo_path: 'wrong-path' }])).rejects.toMatchObject({ status: 422 })
     const writeVersions = () => db.query(
       'select id, xmin::text from week_score union all select id, xmin::text from student_answer order by id, xmin',
     )
-    const first = (await commit()).rows[0].result
+    await expect(commit(rows, true)).rejects.toThrow('receipt write interrupted')
+    expect((await writeVersions()).rows).toHaveLength(0)
+    const first = await commit()
     expect(first.replayed).toBe(false)
     expect(first.versions).toHaveLength(15)
     const afterCommit = await writeVersions()
     expect(afterCommit.rows).toHaveLength(30)
-    const replay = (await commit([...rows].reverse())).rows[0].result
+    const replay = await commit([...rows].reverse())
     expect(replay.replayed).toBe(true)
     expect(replay.versions).toEqual(expect.arrayContaining(first.versions))
     expect(await writeVersions()).toEqual(afterCommit)

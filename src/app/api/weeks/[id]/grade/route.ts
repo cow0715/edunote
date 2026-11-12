@@ -9,6 +9,8 @@ import { gradeObjective } from '@/lib/objective-grading'
 import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
 import { assertGradePhotosAvailable } from '@/lib/exam-photo'
 import { logExamPhotos, type ExamPhotoLogTarget } from '@/lib/exam-photo-log'
+import { saveErrorResponse } from '@/lib/db/errors'
+import { saveExamPhotoFinalization } from '@/lib/db/exam-photo-transaction'
 
 function one<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null
@@ -460,13 +462,13 @@ async function handlePost(request: Request, params: Promise<{ id: string }>, pho
 
   // AI finishes before this single transactional write. A concurrent edit rejects the entire stale batch.
   if (finalizePhotoJobId) {
-    const { data, error } = await supabase.rpc('finalize_exam_photo_job', {
-      p_week_id: weekId, p_job_id: finalizePhotoJobId, p_rows: preparedRows,
-    })
-    if (error) return err(error.message, gradePersistenceStatus(error.code))
-    // The first commit already logged the write. A replay returns its original acknowledgement.
-    if (data.replayed) photoTargets.length = 0
-    return ok({ ok: true, versions: data.versions })
+    try {
+      const result = await saveExamPhotoFinalization(user.id, teacherId, weekId, finalizePhotoJobId, preparedRows)
+      if (result.replayed) photoTargets.length = 0
+      return ok({ ok: true, versions: result.versions })
+    } catch (error) {
+      return saveErrorResponse(error)
+    }
   }
   const { data: versions, error: saveError } = await supabase.rpc('save_week_reading_grades', { p_week_id: weekId, p_rows: preparedRows })
   if (saveError) return err(saveError.message, gradePersistenceStatus(saveError.code))

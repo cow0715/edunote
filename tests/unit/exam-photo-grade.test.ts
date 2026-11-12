@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('@/lib/db/exam-photo-transaction', () => ({ saveExamPhotoFinalization: vi.fn() }))
 import type { SupabaseServerClient } from '@/lib/api'
 import { assertGradePhotosAvailable, requireExamPhotoPath } from '@/lib/exam-photo'
 
