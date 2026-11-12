@@ -147,15 +147,20 @@ export type FindErrorAssignment = {
  * texts 는 UI/OCR 슬롯 순서의 학생 답 (정답 행과 같은 개수, 빈 칸 포함).
  * 반환은 정답 행마다 하나 — 매칭된 답이 그 행으로 이동한다.
  */
+function comparableSymbol(symbol: string | null | undefined) {
+  return symbol && /^[a-e]$/.test(symbol) ? String(symbol.charCodeAt(0) - 96) : symbol
+}
+
 export function assignFindErrorAnswers(
   keyRows: FindErrorKeyRow[],
   texts: string[],
 ): FindErrorAssignment[] {
   const keys = keyRows.map((row) => ({ row, part: parseFindErrorKey(row.correctAnswerText) }))
-  const keySymbols = new Set(keys.map((k) => k.part?.symbol).filter((s): s is string => !!s))
+  const keySymbols = new Set(keys.map((k) => comparableSymbol(k.part?.symbol)).filter((s): s is string => !!s))
 
   type Entry = { text: string; part: FindErrorPart }
   const entries: Entry[] = texts
+    .flatMap((text) => text.split(/\n+/))
     .map((text) => text.trim())
     .filter(Boolean)
     .map((text) => ({ text, part: parseFindErrorStudentAnswer(text) }))
@@ -166,7 +171,7 @@ export function assignFindErrorAnswers(
   // 1차: 기호가 정답 기호와 일치하는 답 → 그 정답 행에 배정
   for (const entry of entries) {
     if (!entry.part.symbol) continue
-    const key = keys.find((k) => !assigned.has(k.row.id) && k.part?.symbol === entry.part.symbol)
+    const key = keys.find((k) => !assigned.has(k.row.id) && comparableSymbol(k.part?.symbol) === comparableSymbol(entry.part.symbol))
     if (!key?.part) continue
     usedEntries.add(entry)
     const verdict: FindErrorVerdict = !entry.part.correction
@@ -198,7 +203,7 @@ export function assignFindErrorAnswers(
     // 기호를 썼는데 어떤 정답 기호와도 다름 → 확정 오답 (기호 다르면 무조건 오답 규칙)
     // 단, 정답키에 기호가 하나도 없으면 기호로 판정할 수 없으니 AI 로
     const verdict: FindErrorVerdict =
-      entry.part.symbol && keySymbols.size > 0 && !keySymbols.has(entry.part.symbol) ? 'wrong' : 'ai'
+      entry.part.symbol && keySymbols.size > 0 && !keySymbols.has(comparableSymbol(entry.part.symbol)!) ? 'wrong' : 'ai'
     assigned.set(key.row.id, { text: entry.text, verdict })
   })
 
@@ -208,7 +213,7 @@ export function assignFindErrorAnswers(
     const lastId = keys[keys.length - 1].row.id
     const last = assigned.get(lastId)
     const extraText = overflow.map((e) => e.text).join(' / ')
-    if (last) assigned.set(lastId, { ...last, text: `${last.text} / ${extraText}` })
+    if (last) assigned.set(lastId, { text: `${last.text}\n${extraText}`, verdict: 'ai' })
     else assigned.set(lastId, { text: extraText, verdict: 'ai' })
   }
 
@@ -227,15 +232,16 @@ export function gradeFindErrorRow(
   keyTexts: (string | null)[],
   studentText: string | null | undefined,
 ): FindErrorVerdict {
+  if ((studentText ?? '').trim().includes('\n')) return 'ai' // Preserve extra selections for review.
   const keys = keyTexts.map((k) => parseFindErrorKey(k)).filter((k): k is FindErrorPart => !!k)
   if (keys.length === 0) return 'ai'
   const entry = parseFindErrorStudentAnswer(studentText)
   if (!entry.correction && !entry.symbol) return 'wrong' // 빈 답
 
-  const keySymbols = new Set(keys.map((k) => k.symbol).filter((s): s is string => !!s))
+  const keySymbols = new Set(keys.map((k) => comparableSymbol(k.symbol)).filter((s): s is string => !!s))
   if (entry.symbol) {
-    if (keySymbols.size > 0 && !keySymbols.has(entry.symbol)) return 'wrong'
-    const key = keys.find((k) => k.symbol === entry.symbol)
+    if (keySymbols.size > 0 && !keySymbols.has(comparableSymbol(entry.symbol)!)) return 'wrong'
+    const key = keys.find((k) => comparableSymbol(k.symbol) === comparableSymbol(entry.symbol))
     if (key) {
       if (!entry.correction) return 'wrong'
       return normalizeCorrection(entry.correction) === normalizeCorrection(key.correction) ? 'correct' : 'ai'

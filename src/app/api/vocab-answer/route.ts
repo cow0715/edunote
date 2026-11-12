@@ -3,6 +3,8 @@ import { gradeVocabItems } from '@/lib/anthropic'
 import { gradeBlankAnswer, gradeChoiceAnswer } from '@/lib/vocab-blank-grading'
 import { extractBlankAnswer, extractChoiceAnswerIndex, parseChoiceOptions } from '@/lib/vocab-example-blank'
 
+import { gradePersistenceStatus, isGradeVersion, type GradeVersion } from '@/lib/atomic-grade'
+
 const CODE_GRADED_SOURCES = ['example', 'example_choice']
 
 export const maxDuration = 120
@@ -43,34 +45,23 @@ export async function PATCH(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
 
-  const { id, week_score_id, student_answer, is_correct, teacher_locked } = await request.json()
-  if (!id) return err('id 필요')
+  const { id, student_answer, is_correct, teacher_locked, grade_version } = await request.json()
+  if (!id || typeof is_correct !== 'boolean') return err('답안을 확인해주세요.')
+  if (!isGradeVersion(grade_version) || !grade_version.score_id) return err('저장 버전을 확인해주세요.', 409)
   const owned = await getOwnedAnswerRows(supabase, user.id, [id])
   if ('error' in owned) return owned.error
-  const actualWeekScoreId = owned.rows[0]?.week_score_id
-
-  const { error } = await supabase
-    .from('student_vocab_answer')
-    .update({
-      student_answer: student_answer ?? null,
-      is_correct,
-      ...(teacher_locked !== undefined && { teacher_locked }),
-    })
-    .eq('id', id)
-
-  if (error) return err(error.message, 500)
-
-  // vocab_correct 재계산 (빈 문자열 방어)
-  if (actualWeekScoreId || week_score_id) {
-    const { data: all } = await supabase
-      .from('student_vocab_answer')
-      .select('is_correct')
-      .eq('week_score_id', actualWeekScoreId ?? week_score_id)
-    const vocabCorrect = (all ?? []).filter((a) => a.is_correct).length
-    await supabase.from('week_score').update({ vocab_correct: vocabCorrect }).eq('id', actualWeekScoreId ?? week_score_id)
-  }
-
-  return ok({ ok: true })
+  if (owned.rows[0]?.week_score_id !== grade_version.score_id) return err('학생 답안이 변경됐습니다.', 409)
+  const weekId = one(owned.rows[0].week_score)?.week_id
+  const { data: active, error: testError } = await supabase.from('vocab_test').select('id')
+    .eq('week_id', weekId).eq('is_active', true).order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (testError) return err('시험지를 확인하지 못했습니다.', 503)
+  const { data: versions, error } = await supabase.rpc('save_vocab_answer_edits', {
+    p_score_id: grade_version.score_id, p_expected_revision: grade_version.revision,
+    p_answers: [{ id, student_answer: student_answer ?? null, is_correct,
+      ...(teacher_locked !== undefined ? { teacher_locked } : {}) }], p_regrade: false, p_expected_test_id: active?.id ?? null,
+  })
+  if (error) return err(error.message, gradePersistenceStatus(error.code))
+  return ok({ ok: true, versions })
 }
 
 // 수정된 답안 재채점 — items: { id, number, english_word, student_answer }[]
@@ -78,22 +69,30 @@ export async function POST(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
 
-  const { weekScoreId, items } = await request.json() as {
+  const { items, grade_version } = await request.json() as {
     weekScoreId: string
+    grade_version: GradeVersion
     items: { id: string; number: number; english_word: string; student_answer: string | null }[]
   }
   if (!items?.length) return err('items 필요')
+  if (new Set(items.map((item) => item.number)).size !== items.length) return err('문항이 중복됐습니다.', 422)
+  if (!isGradeVersion(grade_version) || !grade_version.score_id) return err('저장 버전을 확인해주세요.', 409)
   const owned = await getOwnedAnswerRows(supabase, user.id, items.map((i) => i.id))
   if ('error' in owned) return owned.error
-  const actualWeekScoreId = owned.rows[0]?.week_score_id
 
+  if (owned.rows.some((row) => row.week_score_id !== grade_version.score_id)) return err('학생 답안을 확인해주세요.', 409)
+  const weekId = one(owned.rows[0].week_score)?.week_id
+  const { data: currentTest, error: currentTestError } = await supabase.from('vocab_test').select('id')
+    .eq('week_id', weekId).eq('is_active', true).order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (currentTestError) return err('시험지를 확인하지 못했습니다.', 503)
   // correct_answer 조회 (student_vocab_answer → vocab_word)
   // 예문빈칸(test_source='example')은 정답이 문장 속 영어 표면형이라 활성 시험지의 prompt_text 로 역산한다.
-  const { data: answerDetails } = await supabase
+  const { data: answerDetails, error: detailsError } = await supabase
     .from('student_vocab_answer')
     .select('id, test_source, test_number, vocab_word_id, vocab_word(correct_answer, english_word, example_sentence), vocab_word_variant(meaning)')
     .in('id', items.map((i) => i.id))
 
+  if (detailsError || !answerDetails || answerDetails.length !== items.length) return err('답안을 확인하지 못했습니다.', 503)
   const detailRows = (answerDetails ?? []) as unknown as Array<{
     id: string
     test_source: string | null
@@ -105,31 +104,12 @@ export async function POST(request: Request) {
 
   const blankRows = detailRows.filter((a) => CODE_GRADED_SOURCES.includes(a.test_source ?? ''))
   const blankPromptByWordId = new Map<string, string | null>()
-  if (blankRows.length > 0 && (actualWeekScoreId || weekScoreId)) {
-    const { data: scoreRow } = await supabase
-      .from('week_score')
-      .select('week_id')
-      .eq('id', actualWeekScoreId ?? weekScoreId)
-      .maybeSingle()
-    if (scoreRow?.week_id) {
-      const { data: activeTest } = await supabase
-        .from('vocab_test')
-        .select('id')
-        .eq('week_id', scoreRow.week_id)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (activeTest) {
-        const { data: testItems } = await supabase
-          .from('vocab_test_item')
-          .select('vocab_word_id, prompt_text')
-          .eq('vocab_test_id', activeTest.id)
-          .in('prompt_source', CODE_GRADED_SOURCES)
-          .in('vocab_word_id', blankRows.map((a) => a.vocab_word_id))
-        for (const ti of testItems ?? []) blankPromptByWordId.set(ti.vocab_word_id, ti.prompt_text)
-      }
-    }
+  if (blankRows.length && currentTest?.id) {
+    const { data: testItems, error: itemsError } = await supabase.from('vocab_test_item')
+      .select('vocab_word_id, prompt_text').eq('vocab_test_id', currentTest.id)
+      .in('prompt_source', CODE_GRADED_SOURCES).in('vocab_word_id', blankRows.map((a) => a.vocab_word_id))
+    if (itemsError) return err('시험 문항을 확인하지 못했습니다.', 503)
+    for (const ti of testItems ?? []) blankPromptByWordId.set(ti.vocab_word_id, ti.prompt_text)
   }
 
   const correctAnswerById = new Map(
@@ -158,7 +138,8 @@ export async function POST(request: Request) {
     correct_answer: correctAnswerById.get(i.id) ?? null,
   }))
 
-  const { data: promptRow } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
+  const { data: promptRow, error: promptError } = await supabase.from('prompts').select('content').eq('key', 'vocab_grading_rules').maybeSingle()
+  if (promptError) return err('채점 기준을 확인하지 못했습니다.', 503)
   const customRules = promptRow?.content ?? undefined
 
   // 예문빈칸은 코드 비교, 나머지는 LLM 뜻 채점
@@ -176,25 +157,14 @@ export async function POST(request: Request) {
     })),
   ]
 
-  // DB 업데이트 (재채점 완료 → teacher_locked: false 해제)
-  await Promise.all(graded.map((g) => {
-    const orig = items.find((i) => i.number === g.number)
-    if (!orig) return
-    return supabase
-      .from('student_vocab_answer')
-      .update({ student_answer: g.student_answer ?? null, is_correct: g.is_correct, teacher_locked: false })
-      .eq('id', orig.id)
-  }))
-
-  // vocab_correct 재계산 (weekScoreId 빈 문자열 방어)
-  if (actualWeekScoreId || weekScoreId) {
-    const { data: all } = await supabase
-      .from('student_vocab_answer')
-      .select('is_correct')
-      .eq('week_score_id', actualWeekScoreId ?? weekScoreId)
-    const vocabCorrect = (all ?? []).filter((a) => a.is_correct).length
-    await supabase.from('week_score').update({ vocab_correct: vocabCorrect }).eq('id', actualWeekScoreId ?? weekScoreId)
-  }
-
-  return ok({ ok: true, results: graded })
+  if (graded.length !== items.length || new Set(graded.map((g) => g.number)).size !== items.length ||
+    graded.some((g) => !items.some((item) => item.number === g.number))) return err('일부 채점 결과를 확인하지 못했습니다.', 503)
+  const { data: versions, error: saveError } = await supabase.rpc('save_vocab_answer_edits', {
+    p_score_id: grade_version.score_id, p_expected_revision: grade_version.revision, p_regrade: true,
+    p_expected_test_id: currentTest?.id ?? null,
+    p_answers: graded.map((g) => ({ id: items.find((item) => item.number === g.number)!.id,
+      student_answer: g.student_answer ?? null, is_correct: g.is_correct })),
+  })
+  if (saveError) return err(saveError.message, gradePersistenceStatus(saveError.code))
+  return ok({ ok: true, versions, results: graded })
 }

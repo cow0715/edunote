@@ -10,12 +10,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { runOrReport } from '@/lib/async-ui'
-import { AlertTriangle, CheckCircle2, ImagePlus, Loader2, RefreshCw, Trash2, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ImagePlus, Loader2, RefreshCw, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn, formatNumberRanges } from '@/lib/utils'
-import { compressImageForUpload } from '@/lib/image-compress'
+import { useCaptureRuntime } from './capture-runtime'
 import type { VocabResult } from './vocab-photo-button'
+import { MobileCapture } from './mobile-capture'
+import { ExamStudentConfirmationCard } from './exam-student-confirmation-card'
+import { duplicateExamStudents, isExamStudentConfirmed } from '@/lib/exam-student-confirmation'
 
 type Student = { student_id: string; student_name: string; present: boolean; hasExisting: boolean }
 
@@ -30,6 +33,7 @@ type Item = {
   b64: string | null
   mimeType: string
   studentId: string | null
+  confirmedStudentId: string | null
   confidence: Confidence
   rawName: string | null
   status: 'idle' | 'reading' | 'ready' | 'grading' | 'done' | 'error'
@@ -61,9 +65,11 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
   /** 학생 한 명 채점 완료마다 호출 — 그리드의 점수 갱신용 */
   onGraded: (studentId: string, vocabCorrect: number, total: number, results: VocabResult[]) => void
 }) {
+  const { request, compress, pickFiles } = useCaptureRuntime()
   const [phase, setPhase] = useState<Phase>('pick')
   const [items, setItems] = useState<Item[]>([])
   const [dragOver, setDragOver] = useState(false)
+  const [captureBusy, setCaptureBusy] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const patch = useCallback((id: string, changes: Partial<Item>) => {
@@ -99,6 +105,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
       b64: null,
       mimeType: file.type,
       studentId: null,
+      confirmedStudentId: null,
       confidence: 'none',
       rawName: null,
       status: 'idle',
@@ -111,9 +118,9 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
       patch(it.id, { status: 'reading' })
       await runOrReport(async () => {
         // 압축본을 이름 판독·채점 양쪽에 재사용
-        const { base64: b64, mimeType } = await compressImageForUpload(it.file)
+        const { base64: b64, mimeType } = await compress(it.file)
         patch(it.id, { b64, mimeType })
-        const resp = await fetch(`/api/weeks/${weekId}/vocab-photo-name`, {
+        const resp = await request(`/api/weeks/${weekId}/vocab-photo-name`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileData: b64, mimeType }),
@@ -141,27 +148,21 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
   }
 
   // 같은 학생에 사진이 2장 이상 붙었는지
-  const duplicateStudentIds = useMemo(() => {
-    const count = new Map<string, number>()
-    for (const it of items) if (it.studentId) count.set(it.studentId, (count.get(it.studentId) ?? 0) + 1)
-    return new Set([...count.entries()].filter(([, n]) => n > 1).map(([id]) => id))
-  }, [items])
+  const duplicateStudentIds = useMemo(() => duplicateExamStudents(items), [items])
 
   const unmatched = items.filter((it) => !it.studentId).length
   const readyToGrade = items.filter((it) => it.studentId && it.b64)
+  const confirmedCount = items.filter((it) => isExamStudentConfirmed(it, duplicateStudentIds)).length
+  const allConfirmed = items.length > 0 && confirmedCount === items.length && readyToGrade.length === items.length
   const overwriteCount = readyToGrade.filter((it) => students.find((s) => s.student_id === it.studentId)?.hasExisting).length
 
   async function startGrading() {
-    if (readyToGrade.length === 0) return
-    if (overwriteCount > 0) {
-      const ok = window.confirm(`${overwriteCount}명은 이미 채점된 데이터가 있습니다.\n교사 확정(잠금) 항목을 제외한 기존 결과가 덮어씌워집니다.\n계속하시겠습니까?`)
-      if (!ok) return
-    }
+    if (phase !== 'review' || !allConfirmed) return
     setPhase('grading')
     await runPool(readyToGrade, CONCURRENCY, async (it) => {
       patch(it.id, { status: 'grading', error: undefined })
       await runOrReport(async () => {
-        const resp = await fetch(`/api/weeks/${weekId}/grade-vocab-photo`, {
+        const resp = await request(`/api/weeks/${weekId}/grade-vocab-photo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ studentId: it.studentId, fileData: it.b64, mimeType: it.mimeType }),
@@ -179,13 +180,14 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
   }
 
   async function retryFailed() {
-    const failed = items.filter((it) => it.status === 'error' && it.studentId && it.b64)
+    if (!allConfirmed) return
+    const failed = items.filter((it) => it.status === 'error' && it.b64 && isExamStudentConfirmed(it, duplicateStudentIds))
     if (failed.length === 0) return
     setPhase('grading')
     await runPool(failed, CONCURRENCY, async (it) => {
       patch(it.id, { status: 'grading', error: undefined })
       await runOrReport(async () => {
-        const resp = await fetch(`/api/weeks/${weekId}/grade-vocab-photo`, {
+        const resp = await request(`/api/weeks/${weekId}/grade-vocab-photo`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ studentId: it.studentId, fileData: it.b64, mimeType: it.mimeType }),
@@ -202,8 +204,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
 
   const doneCount = items.filter((it) => it.status === 'done').length
   const errorCount = items.filter((it) => it.status === 'error').length
-  const gradingCount = items.filter((it) => it.status === 'grading').length
-  const isBusy = phase === 'matching' || phase === 'grading'
+  const isBusy = captureBusy || phase === 'matching' || phase === 'grading'
 
   /**
    * 닫기 요청 처리 (X · 바깥 클릭 · 취소 · Esc 공통).
@@ -216,8 +217,8 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
     const pendingCount = items.filter((it) => it.status !== 'done').length
     if (items.length > 0 && pendingCount > 0) {
       const msg = phase === 'done'
-        ? `실패 ${errorCount}건이 남아 있습니다. 닫으면 목록이 사라집니다. (완료된 ${doneCount}명 결과는 이미 저장됨)\n닫을까요?`
-        : `넣어둔 사진 ${items.length}장이 사라집니다. 닫을까요?`
+        ? `채점하지 못한 답안지 ${errorCount}장이 있습니다. 완료된 ${doneCount}명의 결과는 유지됩니다.\n창을 닫으시겠습니까?`
+        : `창을 닫으면 답안지 ${items.length}장의 학생 확인이 초기화됩니다.\n닫으시겠습니까?`
       if (!window.confirm(msg)) return
     }
     onOpenChange(false)
@@ -225,34 +226,35 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) requestClose(); else onOpenChange(v) }}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-hidden p-0">
+      <DialogContent className="max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)_auto] rounded-[20px] shadow-none sm:max-w-2xl overflow-hidden p-0">
         <DialogHeader className="border-b px-5 py-4">
-          <DialogTitle className="text-base">단어 시험지 일괄 채점</DialogTitle>
-          <p className="text-xs text-gray-500">
-            {phase === 'pick' && '학생들 시험지 사진을 한 번에 넣으면 이름을 읽어 자동으로 매칭합니다.'}
-            {phase === 'matching' && '이름란을 읽는 중…'}
-            {phase === 'review' && '매칭이 맞는지 확인하고 채점을 시작하세요. 틀린 건 직접 고르면 됩니다.'}
+          <DialogTitle className="text-base">{phase === 'pick' ? '단어 답안지 등록' : phase === 'grading' ? '단어 채점' : phase === 'done' ? '채점 결과' : '학생 확인'}</DialogTitle>
+          <DialogDescription className="text-xs text-gray-500">
+            {phase === 'pick' && '답안지를 촬영하거나 사진을 추가해 주세요.'}
+            {phase === 'matching' && '학생 이름을 인식하고 있습니다.'}
+            {phase === 'review' && '답안지에 적힌 이름과 학생을 확인해 주세요. 모든 답안지를 확인하면 채점을 시작할 수 있습니다.'}
             {phase === 'grading' && `채점 중 ${doneCount + errorCount} / ${readyToGrade.length}`}
             {phase === 'done' && `완료 ${doneCount}명${errorCount > 0 ? ` · 실패 ${errorCount}명` : ''}`}
-          </p>
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[calc(90vh-140px)] overflow-y-auto px-5 py-4">
+        <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-5">
+          <MobileCapture key={`vocab:${weekId}`} draftKey={`vocab:${weekId}`} active={open && phase === 'pick'} onConfirm={addFiles} onBusyChange={setCaptureBusy} />
           {/* 드롭존 — pick/review 단계에서 추가 가능 */}
           {(phase === 'pick' || phase === 'review') && (
             <div
               onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
               onDrop={(e) => { e.preventDefault(); setDragOver(false); void addFiles(e.dataTransfer.files) }}
-              onClick={() => inputRef.current?.click()}
+              onClick={async () => { if (pickFiles) await addFiles(await pickFiles(true)); else inputRef.current?.click() }}
               className={cn(
                 'mb-4 flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed py-6 text-center transition-colors',
                 dragOver ? 'border-indigo-400 bg-indigo-50/60' : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50',
               )}
             >
               <ImagePlus className="h-6 w-6 text-indigo-400" />
-              <p className="text-sm font-medium text-gray-700">{items.length === 0 ? '사진을 여기에 놓거나 클릭해서 선택' : '사진 더 추가'}</p>
-              <p className="text-[11px] text-gray-400">여러 장 한 번에 · 이미지/PDF · 학생 한 명당 한 장</p>
+              <p className="text-sm font-medium text-gray-700">{items.length === 0 ? '답안지 사진 추가' : '사진 추가'}</p>
+              <p className="text-xs text-gray-400">여러 장 선택 가능 · 학생당 답안지 1장</p>
               <input
                 ref={inputRef}
                 type="file"
@@ -265,108 +267,52 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
           )}
 
           {items.length > 0 && (
-            <div className="space-y-1.5">
-              {items.map((it) => {
-                const isDup = it.studentId ? duplicateStudentIds.has(it.studentId) : false
+            <div className="space-y-3">
+              {items.map((it, index) => {
+                const isDup = !!it.studentId && duplicateStudentIds.has(it.studentId)
                 return (
-                  <div
-                    key={it.id}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg border px-2.5 py-2',
-                      it.status === 'error' ? 'border-rose-200 bg-rose-50/40'
-                        : it.status === 'done' ? 'border-emerald-200 bg-emerald-50/40'
-                        : !it.studentId && it.status === 'ready' ? 'border-amber-200 bg-amber-50/40'
-                        : 'border-gray-100',
-                    )}
+                  <ExamStudentConfirmationCard key={it.id}
+                    number={index + 1} previewUrl={it.previewUrl} mimeType={it.mimeType}
+                    studentId={it.studentId} students={presentStudents} rawName={it.rawName}
+                    confirmed={isExamStudentConfirmed(it, duplicateStudentIds)} duplicate={isDup}
+                    disabled={isBusy || it.status === 'done'}
+                    onStudentChange={(studentId) => patch(it.id, { studentId, confirmedStudentId: null })}
+                    onConfirm={() => {
+                      if ((phase === 'review' || phase === 'done') && it.studentId && !isDup) patch(it.id, { confirmedStudentId: it.studentId })
+                    }}
+                    onRemove={() => removeItem(it.id)}
                   >
-                    {/* 썸네일 */}
-                    {it.file.type.startsWith('image/') ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={it.previewUrl} alt="" className="h-12 w-9 shrink-0 rounded object-cover ring-1 ring-gray-200" />
-                    ) : (
-                      <div className="flex h-12 w-9 shrink-0 items-center justify-center rounded bg-gray-100 text-[9px] font-bold text-gray-500 ring-1 ring-gray-200">PDF</div>
-                    )}
-
-                    {/* 파일명 + 읽은 이름 */}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs text-gray-500">{it.file.name}</p>
-                      <p className="mt-0.5 truncate text-[11px] text-gray-400">
-                        {it.status === 'reading' ? '이름 읽는 중…'
-                          : it.rawName ? `읽은 이름: ${it.rawName}`
-                          : it.status === 'ready' || phase !== 'matching' ? '이름을 못 읽음' : ''}
-                      </p>
-                    </div>
-
-                    {/* 학생 선택 */}
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      {it.status === 'reading' ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-gray-300" />
-                      ) : (
-                        <>
-                          <select
-                            value={it.studentId ?? ''}
-                            disabled={it.status === 'grading' || it.status === 'done'}
-                            onChange={(e) => patch(it.id, { studentId: e.target.value || null, confidence: e.target.value ? 'high' : 'none' })}
-                            className={cn(
-                              'h-8 w-32 rounded-md border bg-white px-2 text-xs',
-                              !it.studentId ? 'border-amber-300 text-amber-700' : isDup ? 'border-rose-300' : 'border-gray-200',
-                            )}
-                          >
-                            <option value="">— 학생 선택 —</option>
-                            {students.map((s) => (
-                              <option key={s.student_id} value={s.student_id} disabled={!s.present}>
-                                {s.student_name}{!s.present ? ' (결석)' : ''}
-                              </option>
-                            ))}
-                          </select>
-                          {it.studentId && it.status === 'ready' && (
-                            <span
-                              title={it.confidence === 'high' ? '자동 매칭 (확실)' : it.confidence === 'low' ? '자동 매칭 (불확실 — 확인 필요)' : '직접 선택'}
-                              className={cn('h-2 w-2 shrink-0 rounded-full', it.confidence === 'high' ? 'bg-emerald-400' : it.confidence === 'low' ? 'bg-amber-400' : 'bg-gray-300')}
-                            />
-                          )}
-                        </>
-                      )}
-                    </div>
-
-                    {/* 상태 */}
-                    <div className="flex w-20 shrink-0 items-center justify-end gap-1 text-xs">
-                      {it.status === 'grading' && <><Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" /><span className="text-indigo-500">채점 중</span></>}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {it.status === 'reading' && <span className="text-[var(--share-muted)]">이름 인식 중</span>}
+                      {it.status === 'grading' && <><Loader2 className="size-3.5 animate-spin" /><span>채점 중</span></>}
                       {it.status === 'done' && it.result && (it.result.missing.length > 0
-                        ? <><AlertTriangle className="h-3.5 w-3.5 text-amber-500" /><span className="font-semibold text-amber-700" title={`읽지 못한 문항: ${formatNumberRanges(it.result.missing)}`}>{it.result.vocab_correct}/{it.result.vocab_total} · {it.result.missing.length}개 누락</span></>
-                        : <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /><span className="font-semibold text-emerald-700">{it.result.vocab_correct}/{it.result.vocab_total}</span></>)}
-                      {it.status === 'error' && <><XCircle className="h-3.5 w-3.5 text-rose-400" /><span className="truncate text-rose-500" title={it.error}>실패</span></>}
-                      {isDup && it.status === 'ready' && <span title="같은 학생에 사진이 2장 이상 — 뒤 사진이 앞 결과를 덮어씁니다"><AlertTriangle className="h-3.5 w-3.5 text-rose-400" /></span>}
-                      {(it.status === 'ready' || it.status === 'idle') && !isDup && (
-                        <button type="button" onClick={() => removeItem(it.id)} className="rounded p-1 text-gray-300 hover:bg-gray-100 hover:text-gray-500" title="제거">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                        ? <><AlertTriangle className="size-3.5 text-[var(--share-red)]" /><span title={`미인식 문항: ${formatNumberRanges(it.result.missing)}`}>{it.result.vocab_correct}/{it.result.vocab_total} · 미인식 {it.result.missing.length}문항</span></>
+                        : <><CheckCircle2 className="size-3.5 text-[var(--share-blue)]" /><span>{it.result.vocab_correct}/{it.result.vocab_total}</span></>)}
+                      {it.status === 'error' && <><XCircle className="size-3.5 text-[var(--share-red)]" /><span role="alert" className="text-[var(--share-red)]">{it.error}</span></>}
                     </div>
-                  </div>
+                  </ExamStudentConfirmationCard>
                 )
               })}
             </div>
           )}
         </div>
-
         {/* 하단 액션 */}
-        <div className="flex items-center justify-between gap-3 border-t bg-gray-50/60 px-5 py-3">
-          <p className="text-xs text-gray-500">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-gray-50/60 px-5 py-3">
+          <p aria-live="polite" className="text-xs text-[var(--share-body)]">
             {phase === 'review' && (
               <>
-                {readyToGrade.length}명 채점 준비
-                {unmatched > 0 && <span className="ml-2 text-amber-600">· 미매칭 {unmatched}장 (채점에서 제외)</span>}
-                {duplicateStudentIds.size > 0 && <span className="ml-2 text-rose-600">· 중복 매칭 {duplicateStudentIds.size}명</span>}
-                {overwriteCount > 0 && <span className="ml-2 text-gray-500">· 재채점 {overwriteCount}명</span>}
+                {confirmedCount} / {items.length}장 확인
+                {unmatched > 0 && <span className="ml-2">· 학생 미선택 {unmatched}장</span>}
+                {duplicateStudentIds.size > 0 && <span className="ml-2 text-[var(--share-red)]">· 학생 중복 {duplicateStudentIds.size}명</span>}
+                {overwriteCount > 0 && <span className="ml-2 text-gray-500">· 재채점 {overwriteCount}명 · 교사 확정 답안 유지</span>}
               </>
             )}
-            {phase === 'grading' && `동시 ${Math.min(CONCURRENCY, gradingCount || 1)}명씩 · 학생당 15~20초`}
-            {phase === 'done' && errorCount > 0 && '실패한 건은 재시도하거나 학생 행에서 개별 채점하세요.'}
+            {phase === 'grading' && `${items.length}명 채점 중`}
+            {phase === 'done' && errorCount > 0 && '채점하지 못한 답안지는 다시 시도할 수 있습니다.'}
           </p>
           <div className="flex items-center gap-2">
             {phase === 'done' && errorCount > 0 && (
-              <Button size="sm" variant="outline" onClick={retryFailed}>
+              <Button size="sm" variant="outline" onClick={retryFailed} disabled={!allConfirmed}>
                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
                 실패 {errorCount}건 재시도
               </Button>
@@ -376,7 +322,7 @@ export function VocabBatchGradeDialog({ open, onOpenChange, weekId, students, on
             ) : (
               <>
                 <Button size="sm" variant="ghost" disabled={isBusy} onClick={requestClose}>취소</Button>
-                <Button size="sm" disabled={phase !== 'review' || readyToGrade.length === 0 || duplicateStudentIds.size > 0} onClick={startGrading}>
+                <Button size="sm" variant="action" disabled={isBusy || phase !== 'review' || !allConfirmed} onClick={startGrading}>
                   {phase === 'grading' ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
                   {readyToGrade.length > 0 ? `${readyToGrade.length}명 채점 시작` : '채점 시작'}
                 </Button>

@@ -547,6 +547,7 @@ function SubjectiveReviewPreview() {
     }),
   ]
   const mkRow = (id: string, name: string, byQ: Record<string, { text: string; is_correct?: boolean; needs_review?: boolean; feedback?: string }>): GradeRow => ({
+    grade_version: { score_id: null, revision: null },
     student_id: id, student_name: name, present: true, vocab_correct: null,
     reading_present: true, reading_correct: null, homework_done: null, memo: '',
     answers: questions.map((q) => {
@@ -594,6 +595,7 @@ function SubjectiveReviewPreview() {
 
 function ExamSheetPreview() {
   const [row, setRow] = useState<GradeRow>(() => ({
+    grade_version: { score_id: null, revision: null },
     student_id: 's1', student_name: '김테스트', present: true, vocab_correct: null, reading_present: true, reading_correct: null,
     homework_done: null, memo: '',
     // 샘플 답: 대부분 정답, 3·8·13·20 오답, 24 미입력, 21 전원정답, 22 무효

@@ -30,6 +30,7 @@ function makeRow(studentId: string, name: string, answer: {
   text: string; is_correct?: boolean; needs_review?: boolean
 }): GradeRow {
   return {
+    grade_version: { score_id: null, revision: null },
     student_id: studentId, student_name: name, present: true,
     vocab_correct: null, reading_present: true, reading_correct: null,
     homework_done: null, memo: '',

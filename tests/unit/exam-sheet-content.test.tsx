@@ -40,6 +40,7 @@ function q(partial: Partial<ExamQuestion> & { id: string; question_number: numbe
 
 function row(answers: GradeRow['answers']): GradeRow {
   return {
+    grade_version: { score_id: null, revision: null },
     student_id: 's1',
     student_name: '홍길동',
     present: true,

@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react'
 import { Camera, Loader2, RefreshCw } from 'lucide-react'
 import { cn, formatNumberRanges } from '@/lib/utils'
-import { compressImageForUpload } from '@/lib/image-compress'
+import { useCaptureRuntime } from './capture-runtime'
 import { runWithLoading } from '@/lib/async-ui'
 
 export type VocabResult = { number: number; english_word: string; student_answer: string; is_correct: boolean }
@@ -15,30 +15,27 @@ export function VocabPhotoButton({ weekId, studentId, disabled, hasExistingData,
   hasExistingData: boolean
   onResult: (vocabCorrect: number, total: number, results: VocabResult[]) => void
 }) {
+  const { request, compress, pickFiles } = useCaptureRuntime()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // 채점은 성공했지만 시험지 문항 일부를 못 읽은 경우 — 재촬영 유도 (조용한 결손 방지)
   const [warning, setWarning] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  function handleClick() {
-    if (hasExistingData) {
-      const ok = window.confirm('이미 채점된 데이터가 있습니다.\n재촬영하면 교사 확정(잠금) 항목을 제외한 기존 결과가 덮어씌워집니다.\n계속하시겠습니까?')
-      if (!ok) return
-    }
-    fileRef.current?.click()
-  }
-
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
+    await processFile(file)
+  }
+
+  async function processFile(file: File) {
     setError(null)
     setWarning(null)
     await runWithLoading(setLoading, async () => {
       // 업로드 전 압축 (긴 변 1600 · JPEG 80%). Storage 용량 + 전송/OCR 시간 절약
-      const { base64: b64, mimeType } = await compressImageForUpload(file)
-      const resp = await fetch(`/api/weeks/${weekId}/grade-vocab-photo`, {
+      const { base64: b64, mimeType } = await compress(file)
+      const resp = await request(`/api/weeks/${weekId}/grade-vocab-photo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ studentId, fileData: b64, mimeType }),
@@ -62,7 +59,7 @@ export function VocabPhotoButton({ weekId, studentId, disabled, hasExistingData,
       <button
         type="button"
         disabled={disabled || loading}
-        onClick={handleClick}
+        onClick={async () => { if (pickFiles) { const files = await pickFiles(false); if (files[0]) await processFile(files[0]) } else fileRef.current?.click() }}
         className={cn(
           'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors shrink-0',
           disabled || loading ? 'text-gray-300 cursor-not-allowed' : 'text-indigo-500 hover:bg-indigo-50'

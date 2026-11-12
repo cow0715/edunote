@@ -2,21 +2,9 @@ import type { SupabaseServerClient } from '@/lib/api'
 import { normalizeErrorSymbol } from '@/lib/find-error-grading'
 
 export async function recalcReadingCorrect(supabase: SupabaseServerClient, scoreIds: string[]) {
-  await Promise.all(
-    scoreIds.map(async (scoreId) => {
-      const { data: answers } = await supabase
-        .from('student_answer')
-        .select('is_correct, exam_question(is_void)')
-        .eq('week_score_id', scoreId)
-      // void 문항 제외하고 집계
-      const nonVoidAnswers = (answers ?? []).filter(
-        (a) => !(a.exam_question as unknown as { is_void: boolean } | null)?.is_void
-      )
-      const readingCorrect =
-        nonVoidAnswers.length > 0 ? nonVoidAnswers.filter((a) => a.is_correct).length : null
-      await supabase.from('week_score').update({ reading_correct: readingCorrect }).eq('id', scoreId)
-    })
-  )
+  if (!scoreIds.length) return
+  const { error } = await supabase.rpc('recalculate_reading_scores', { p_score_ids: [...new Set(scoreIds)] })
+  if (error) throw new Error('점수 재계산에 실패했습니다. 기존 점수는 유지됩니다.')
 }
 
 // ── 공유 채점 헬퍼 ───────────────────────────────────────────────────────
