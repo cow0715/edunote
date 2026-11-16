@@ -32,4 +32,10 @@ describe('live textbook line-break regressions', () => {
     expect(buildExplanationCopyText(q, '교재')).toContain('[AI 보완 풀이]')
     expect(JSON.stringify(q)).toBe(before)
   })
+  it('keeps an inline marker inside its sentence in both clipboard formats', () => {
+    const q = { question_type: 'grammar', question_text: '어법상 틀린 것은?', answer: '③', choices: [],
+      passage: 'Read ① one, ② two, and ③ three. I lead a discussion about how ④ <strong><u>whatever</u></strong>\ntheir teachers ask is the goal. Later comes ⑤ five.' }
+    expect(buildQuestionCopyText(q, '교재')).toContain('about how ④ whatever their teachers ask')
+    expect(buildQuestionCopyHtml(q, '교재')).toContain('about how ④ <strong><u>whatever</u></strong> their teachers ask')
+  })
 })

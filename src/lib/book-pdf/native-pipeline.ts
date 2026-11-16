@@ -6,6 +6,7 @@ import { auditAndRepairSource } from './audit-source'
 import { readLayoutSource } from './layout-source'
 import { mapBookSource } from './map-source'
 import { bindBookMapping, nativeBookExtraction, validateNativeBookUnit } from './native-unit'
+import { normalizeAuditedBookLayout } from './inline-source-breaks'
 import { bookFingerprint, bookProofMatches, bookSourceFingerprint, bookSourceProofMatches, bookSourceArchiveMatches } from './proof'
 import { renderBookSourceImages } from './render-source'
 import { resolveSourceMap, sourceMapSchema } from './source-map'
@@ -184,6 +185,7 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
       base.models = [...new Set([...base.models, ...(result.models ?? [])])]
       if (result.groups.length === 1) extraction = nativeBookExtraction(unit, result.groups[0].extraction)
       if (result.status !== 'audited' || !extraction) return unresolved(result.errors.length ? result.errors : ['원본 이미지 검증을 통과하지 못했습니다.'], 'audit')
+      if (result.mapping.groups.length === 1) extraction = normalizeAuditedBookLayout(extraction, pages, result.mapping.groups[0])
       const validation = validateNativeBookUnit(unit, extraction)
       if (validation.errors.length) return unresolved(validation.errors, 'audit')
       const extractionHash = bookFingerprint(extraction)

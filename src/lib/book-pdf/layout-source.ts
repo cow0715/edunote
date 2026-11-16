@@ -1,7 +1,7 @@
 import { bookItemUnderlined, bookUnderlineSegments } from './underlines'
 import type { SourceLine, SourcePage } from './source-map'
 
-export type NativePiece = { str: string; x: number; y: number; width: number; height: number; bold: boolean; underline: boolean }
+export type NativePiece = { str: string; x: number; y: number; width: number; height: number; bold: boolean; italic?: boolean; underline: boolean }
 
 /** Printed separators make exact source atoms without assigning field roles. */
 export function atomizeSourceLines(lines: SourceLine[], firstId = 1): SourceLine[] {
@@ -15,38 +15,54 @@ export function atomizeSourceLines(lines: SourceLine[], firstId = 1): SourceLine
     return offsets.slice(0, -1).flatMap((a, i) => {
       const b = offsets[i + 1]
       if (!line.text.slice(a, b).trim()) return []
-      return [{ ...line, id: id++, text: line.text.slice(a, b),
+      const atom = { ...line, id: id++, text: line.text.slice(a, b),
         // Position is a visual aid; field reconstruction uses exact characters.
         x: line.x + line.width * a / line.text.length, width: line.width * (b - a) / line.text.length,
-        marks: line.marks.flatMap((m) => m.end > a && m.start < b ? [{ ...m, start: Math.max(m.start, a) - a, end: Math.min(m.end, b) - a }] : []) }]
+        marks: line.marks.flatMap((m) => m.end > a && m.start < b ? [{ ...m, start: Math.max(m.start, a) - a, end: Math.min(m.end, b) - a }] : []) }
+      const origins = glyphOrigins.get(line)
+      if (origins) glyphOrigins.set(atom, origins.slice(a, b))
+      return [atom]
     })
   })
 }
 
 /** Group only neighboring glyph runs. Wide horizontal gaps remain separate so
  * two columns and vocabulary tables cannot be interleaved into one sentence. */
-export function buildSourceLines(items: NativePiece[], page: number, width: number, firstId = 1): SourceLine[] {
+const glyphOrigins = new WeakMap<SourceLine, readonly number[]>()
+
+export function sourceGlyphOrigin(line: SourceLine, offset: number) {
+  return glyphOrigins.get(line)?.[offset]
+}
+
+export function buildSourceLines(items: NativePiece[], page: number, width: number, firstId = 1, glyphLayout = false): SourceLine[] {
   const rows: { y: number; pieces: NativePiece[] }[] = []
   for (const piece of [...items].filter((p) => p.str.length).sort((a, b) => b.y - a.y || a.x - b.x)) {
-    let row = rows.find((r) => Math.abs(r.y - piece.y) < 1.5)
+    let row = rows.find((r) => Math.abs(r.y - piece.y) < (glyphLayout ? .65 : 1.5))
     if (!row) { row = { y: piece.y, pieces: [] }; rows.push(row) }
     row.pieces.push(piece)
   }
-  const fragments: Omit<SourceLine, 'id'>[] = []
+  const fragments: (Omit<SourceLine, 'id'> & { origins: number[] })[] = []
   for (const row of rows) {
     let parts: NativePiece[] = []
     const flush = () => {
       if (!parts.length) return
       let text = ''
       const marks: SourceLine['marks'] = []
+      const origins: number[] = []
       for (let n = 0; n < parts.length; n++) {
         const p = parts[n], before = parts[n - 1]
-        if (before && p.x - before.x - before.width > 1.5) text += ' '
+        if (before && p.x - before.x - before.width > 1.5) { text += ' '; origins.push(p.x) }
         const start = text.length; text += p.str
-        if (p.bold || p.underline) marks.push({ start, end: text.length, bold: p.bold, underline: p.underline })
+        for (let i = 0; i < p.str.length; i++) origins.push(p.x)
+        if (p.bold || p.italic || p.underline) {
+          const prior = marks.at(-1)
+          if (glyphLayout && prior && prior.bold === p.bold && !!prior.italic === !!p.italic &&
+            prior.underline === p.underline && !text.slice(prior.end, start).trim()) prior.end = text.length
+          else marks.push({ start, end: text.length, bold: p.bold, underline: p.underline, ...(p.italic ? { italic: true } : {}) })
+        }
       }
       if (text.trim()) fragments.push({ page, x: parts[0].x, y: row.y, width: Math.max(...parts.map((p) => p.x + p.width)) - parts[0].x,
-        height: Math.max(...parts.map((p) => p.height)), text, marks })
+        height: Math.max(...parts.map((p) => p.height)), text, marks, origins })
       parts = []
     }
     for (const p of row.pieces.sort((a, b) => a.x - b.x)) {
@@ -61,9 +77,12 @@ export function buildSourceLines(items: NativePiece[], page: number, width: numb
   const origins = [...new Set(fragments.filter((f) => f.text.trim().length > 5).map((f) => Math.round(f.x)))].sort((a, b) => a - b)
   const cuts = origins.slice(1).flatMap((x, i) => x - origins[i] > width * 0.16 ? [(x + origins[i]) / 2] : [])
   const column = (x: number) => cuts.filter((cut) => x > cut).length
-  return fragments.sort((a, b) => column(a.x) - column(b.x) || b.y - a.y || a.x - b.x).map((f, i) => ({ ...f, id: firstId + i }))
+  return fragments.sort((a, b) => column(a.x) - column(b.x) || b.y - a.y || a.x - b.x).map(({ origins, ...fragment }, i) => {
+    const line = { ...fragment, id: firstId + i }
+    glyphOrigins.set(line, origins)
+    return line
+  })
 }
-
 /** Preserve every native text item, including page furniture. The model must
  * explicitly account for ignored labels; no template-specific text is cut out. */
 export async function readLayoutSource(bytes: Uint8Array, originalPages?: number[]): Promise<SourcePage[]> {

@@ -10,3 +10,10 @@ export function joinBankNumberedContent(text: string): string {
 export function bankChoiceText(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
 }
+
+/** A fixed five-slot answer record can represent markers printed inside the passage. */
+export function hasInlineBankChoices(choices: readonly string[], passage: string | null) {
+  const markers = Array.from('①②③④⑤')
+  const body = (passage ?? '').replace(/[❶❷❸❹❺]/g, c => markers['❶❷❸❹❺'.indexOf(c)])
+  return choices.length === markers.length && choices.every((c, i) => c.trim() === markers[i] && body.includes(markers[i]))
+}

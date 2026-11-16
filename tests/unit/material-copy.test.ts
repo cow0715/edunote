@@ -46,6 +46,16 @@ describe('clipboard paragraph reflow without source mutation', () => {
     expect(copyBlockHtml('A\t10\nB\t20')).toBe('<p>A\t10<br>B\t20</p>')
     expect(copyBlockText('20\n27')).toBe('20\n27')
   })
+  it('keeps a bold notice section separate from its prose when copying', () => {
+    expect(copyBlockText('• <strong>Shop the Sale: July 25 (2 PM – 5 PM)</strong>\nAll donated equipment will be available\nfor purchase.'))
+      .toBe('• Shop the Sale: July 25 (2 PM – 5 PM)\nAll donated equipment will be available for purchase.')
+  })
+  it('keeps notice fields, dash lists and a multi-line signature separate when copying', () => {
+    const notice = 'Location: State Museum\nDates &amp; Times: Saturday morning\n– Bring your ticket\n– Check in at the desk'
+    expect(copyBlockText(notice)).toBe(notice.replace('&amp;', '&'))
+    const letter = 'To whom it may concern,\nWe are writing to invite you.\nBest regards,\nAlex Park\nEvents Coordinator'
+    expect(copyBlockText(letter)).toBe(letter)
+  })
   it('preserves already clean text, blank/underline tokens, ordering and character content', () => {
     const cases = ['A clean passage without printed wraps.', '(A) First.\n(B) Second.', 'An ___ remains\nblank in this sentence.', '◆ 첫 문단\n◆ 둘째 문단', '\\*resume: 이력서\n** semester: 학기']
     for (const source of cases) {
