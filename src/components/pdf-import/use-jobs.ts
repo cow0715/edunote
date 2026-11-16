@@ -10,6 +10,8 @@ export function usePdfImportJobs(weekId?: string) {
   return useQuery<ImportJob[]>({ queryKey: ['pdf-import-jobs', weekId ?? 'bank'], queryFn: async () => {
     const response = await fetch(`/api/pdf-import/jobs${weekId ? `?weekId=${encodeURIComponent(weekId)}` : ''}`, { cache: 'no-store' })
     if (!response.ok) throw new Error('처리 내역을 불러오지 못했습니다. 다시 시도해주세요.')
-    return response.json()
+    const data: unknown = await response.json()
+    if (!Array.isArray(data)) throw new Error('처리 내역 형식을 확인하지 못했습니다.')
+    return data
   }, refetchInterval: (q) => q.state.data?.some(isActiveImport) ? 5_000 : 30_000 })
 }

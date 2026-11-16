@@ -9,6 +9,22 @@ vi.mock('@/components/pdf-import/job-list', () => ({ PdfImportJobList: () => nul
 vi.mock('@/lib/supabase/client', () => ({ createClient: vi.fn() }))
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 describe('automatic import result UI', () => {
+  it('shows completed question-bank registration alongside the prior automatic review', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/pdf-import/jobs') return Response.json([{target_id:'doc',kind:'bank_book',status:'failed',
+        result:{recovery_excluded:true,registered_bank_id:'bank',registration_reconciliation:{bank_id:'bank',question_count:1}}}])
+      if (url === '/api/exam-bank/bank/questions') return Response.json([{source_key:'one'}])
+      return Response.json({document:{...document(),exam_bank_id:'bank',status:'review',
+        manifest:{...manifest,question_count:1,unit_count:1}},units:[]})
+    }))
+    const client = new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}})
+    render(<QueryClientProvider client={client}><BookResult id="doc" /></QueryClientProvider>)
+    expect(await screen.findByText(/문제은행 등록 완료 · 원본 PDF/)).toBeTruthy()
+    expect(await screen.findByRole('link',{name:'저장된 1문항 보기'})).toBeTruthy()
+    expect(screen.getByText(/이전 자동 처리 기록: 자동 등록 보류/)).toBeTruthy()
+    expect(screen.queryByText(/미통과 사유를 남겼습니다/)).toBeNull()
+    client.clear()
+  })
   it('distinguishes registered and detected years and names the metadata hold',async()=>{
     vi.stubGlobal('fetch',vi.fn(async(url:string)=> url === '/api/pdf-import/jobs' ? Response.json([]) : Response.json({document:{...document(),status:'review',manifest:{...manifest,printed_years:[2023],classification_error:'선택한 2027학년도와 감지된 2023학년도가 다릅니다.',unit_count:105}},units:[]})))
     const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}})

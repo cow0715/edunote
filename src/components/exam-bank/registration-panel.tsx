@@ -8,6 +8,7 @@ import { BulkExplanationDialog } from './bulk-explanation-dialog'
 import { PdfImportJobList } from '@/components/pdf-import/job-list'
 import { BookBundleHistory, useBookBundles } from './book-bundle'
 import { RECOVERED_BOOK } from './book-processing-summary'
+import { usePdfImportJobs } from '@/components/pdf-import/use-jobs'
 
 export function RegistrationPanel({ documentId, materialId, onOpenBook, onOpenMaterial }: {
   documentId: string | null; materialId?: string | null; onOpenBook: (id: string) => void; onOpenMaterial: (id: string) => void
@@ -15,6 +16,7 @@ export function RegistrationPanel({ documentId, materialId, onOpenBook, onOpenMa
   const [kind, setKind] = useState<'book' | 'exam'>('book'), [bulkOpen, setBulkOpen] = useState(false)
   const [opened, setOpened] = useState({ book: true, exam: false })
   const bundles = useBookBundles().data?.bundles ?? []
+  const jobs = usePdfImportJobs().data
   const books = useBookDocuments()
   const documents = books.data?.documents ?? []
   const selectedDocument = documentId || documents.find((d) => d.exam_bank_id === materialId)?.id || (materialId === RECOVERED_BOOK.bankId ? documents.find((d) => d.id === RECOVERED_BOOK.documentId)?.id : null) || documents[0]?.id
@@ -35,7 +37,7 @@ export function RegistrationPanel({ documentId, materialId, onOpenBook, onOpenMa
     {opened.book && <div hidden={kind !== 'book'}><BookUploadForm onRegistered={onOpenBook} /></div>}
     {opened.exam && <div hidden={kind !== 'exam'} className="space-y-3"><UploadDialog inline open onOpenChange={() => {}} /><div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><p>기존 기출에 해설지만 추가하려면</p><Button variant="ghost" className="min-h-11" onClick={() => setBulkOpen(true)}>일괄 해설 등록</Button></div></div>}
     </section>
-    <section className="min-w-0 space-y-5 border-t pt-6" aria-label="등록 및 처리 내역"><BookBundleHistory bundles={bundles} onOpenBook={onOpenBook} /><PdfImportJobList excludedTargetIds={bundles.flatMap(b => b.files.map(f => f.document_id))} onOpenBook={onOpenBook} onOpenMaterial={onOpenMaterial} /></section>
+    <section className="min-w-0 space-y-5 border-t pt-6" aria-label="등록 및 처리 내역"><BookBundleHistory bundles={bundles} jobs={jobs} onOpenBook={onOpenBook} /><PdfImportJobList excludedTargetIds={bundles.flatMap(b => b.files.map(f => f.document_id))} onOpenBook={onOpenBook} onOpenMaterial={onOpenMaterial} /></section>
     <BulkExplanationDialog open={bulkOpen} onOpenChange={setBulkOpen} />
   </div>
 }

@@ -53,4 +53,13 @@ describe('four-file textbook registration',()=>{
     expect(screen.queryByRole('button',{name:'재실행'})).toBeNull()
     fireEvent.click(screen.getByRole('button',{name:'처리 상세'}));expect(open).toHaveBeenCalledWith('doc')
   })
+  it('shows the verified saved count while the original automatic job remains stopped',()=>{
+    render(<BookBundleHistory onOpenBook={vi.fn()}
+      jobs={[{id:'job',target_id:'doc',kind:'bank_book',result:{recovery_excluded:true,registered_bank_id:'bank',registration_reconciliation:{bank_id:'bank',question_count:108}}}]}
+      bundles={[{id:'bundle',state:'ready',limit_usd:20,stop_reason:'이전 오류',files:[
+        {document_id:'doc',title:'영독 상',phase:'held',reason:'대표 구간 미완료',job_id:'job',status:'failed',error:null,spent_usd:2,reserved_usd:0,question_count:108},
+      ]}]}/>)
+    expect(screen.getByText(/등록 완료 · 108문항/)).toBeTruthy()
+    expect(screen.queryByText(/등록 보류|대표 구간 미완료|이전 오류/)).toBeNull()
+  })
 })

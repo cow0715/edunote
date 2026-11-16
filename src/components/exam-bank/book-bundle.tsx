@@ -7,6 +7,8 @@ import { createClient } from '@/lib/supabase/client'
 import { examPdfUploadPath } from '@/lib/pdf-import/client'
 import { BOOK_CATALOG, bookVolumes, VOLUME_LABELS, validBookVolume, type BookCode, type BookVolume } from '@/lib/book-pdf/catalog'
 import { bookFileIssue, bookSelectionIssue, inferBookSelection, type BookSelection } from '@/lib/book-pdf/registration-selection'
+import { bookReconciledRegistration } from '@/lib/book-pdf/pilot-review'
+import type { ImportJob } from '@/components/pdf-import/use-jobs'
 type Row = { file: File; pages: number; selection: BookSelection }
 type BundleFile = { document_id: string; title: string; phase: string; reason: string | null; job_id: string | null; status: string; error: string | null; spent_usd: number; reserved_usd: number; unit_count?: number; question_count?: number; done_units?: number }
 export type BookBundle = { id: string; state: string; limit_usd: number; stop_reason?: string | null; files: BundleFile[] }
@@ -87,11 +89,18 @@ export function BookBundleUpload({ onBack }: { onBack: () => void }) {
     <div className="flex flex-wrap gap-2"><Button variant="action" className="min-h-11" disabled={busy || checking || !rows.length || !!issue || !!message || year<1900 || year>2200} onClick={() => void upload()}>{busy?'묶음 접수 중…':'교재 묶음 등록 시작'}</Button><Button variant="ghost" className="min-h-11" disabled={busy} onClick={() => void upload(true)}>이전 접수 이어 확인</Button></div>
   </section>
 }
-export function BookBundleHistory({ bundles, onOpenBook }: { bundles: BookBundle[]; onOpenBook: (id: string) => void }) {
+export function BookBundleHistory({ bundles, jobs = [], onOpenBook }: { bundles: BookBundle[]; jobs?: Pick<ImportJob, 'id' | 'target_id' | 'kind' | 'result'>[]; onOpenBook: (id: string) => void }) {
+  const registrationCount = (file: BundleFile) => {
+    const registration = bookReconciledRegistration(jobs.find(job => job.id === file.job_id && job.target_id === file.document_id))
+    return registration && registration.count === file.question_count ? registration.count : null
+  }
   return <div className="space-y-5">{bundles.map(bundle => <section key={bundle.id} aria-label="교재 묶음 처리" className="space-y-3 border-b pb-4">
     <div className="flex flex-wrap justify-between gap-2 text-sm"><p className="font-medium">교재 {bundle.files.length}개 묶음 · {bundle.state==='ready'?'접수됨':'접수 준비 중'}</p><p>사용 ${bundle.files.reduce((n,f)=>n+Number(f.spent_usd),0).toFixed(2)} · 예약 ${bundle.files.reduce((n,f)=>n+Number(f.reserved_usd),0).toFixed(2)} / 상한 ${Number(bundle.limit_usd).toFixed(2)}</p></div>
-    {bundle.stop_reason && <p role="alert" className="text-sm text-destructive">{bundle.stop_reason}</p>}
-    {bundle.files.map(file => <div key={file.document_id} className="space-y-1 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><p>{file.title}</p><Button variant="ghost" className="min-h-11" onClick={() => onOpenBook(file.document_id)}>처리 상세</Button></div><p className="text-xs text-muted-foreground">{file.status==='published'?'등록 완료':file.status==='failed'||file.phase==='held'?'등록 보류':file.status==='waiting_batch'?'응답·처리 순서 대기':file.phase==='pilot'?'전체 구조·대표 구간 확인':'원본 대조·풀이·어휘 보완'} · 사용 ${Number(file.spent_usd).toFixed(2)} · 예약 ${Number(file.reserved_usd).toFixed(2)} / $5</p>{(file.error||file.reason) && <p className="text-xs text-destructive">{file.error||file.reason}</p>}</div>)}
+    {bundle.stop_reason && !bundle.files.every(file => file.status === 'published' || registrationCount(file) !== null) && <p role="alert" className="text-sm text-destructive">{bundle.stop_reason}</p>}
+    {bundle.files.map(file => {
+      const count = registrationCount(file)
+      return <div key={file.document_id} className="space-y-1 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><p>{file.title}</p><Button variant="ghost" className="min-h-11" onClick={() => onOpenBook(file.document_id)}>처리 상세</Button></div><p className="text-xs text-muted-foreground">{count !== null ? `등록 완료 · ${count}문항` : file.status==='published'?'등록 완료':file.status==='failed'||file.phase==='held'?'등록 보류':file.status==='waiting_batch'?'응답·처리 순서 대기':file.phase==='pilot'?'전체 구조·대표 구간 확인':'원본 대조·풀이·어휘 보완'} · 사용 ${Number(file.spent_usd).toFixed(2)} · 예약 ${Number(file.reserved_usd).toFixed(2)} / $5</p>{count === null && (file.error||file.reason) && <p className="text-xs text-destructive">{file.error||file.reason}</p>}</div>
+    })}
     {bundle.files.some(f=>f.unit_count) && <p className="text-xs text-muted-foreground">검증·보완 완료 {bundle.files.reduce((n,f)=>n+(f.done_units??0),0)}/{bundle.files.reduce((n,f)=>n+(f.unit_count??0),0)}지문 · {bundle.files.reduce((n,f)=>n+(f.question_count??0),0)}문항</p>}
   </section>)}</div>
 }
