@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { mapBookProfile, bookUnitProfile } from '@/lib/book-pdf/profiles'
 import { resolveSourceMap, type SourcePage } from '@/lib/book-pdf/source-map'
 import type { BookUnitManifest } from '@/lib/book-pdf/types'
+import { BOOK_PDFIUM_SOURCE } from '@/lib/book-pdf/source-mode'
+import { bookPrintedChoiceIssue } from '@/lib/book-pdf/profile-layout'
 function fixture(kind: 'chapter'|'mini_test'|'type'|'practical'='chapter') {
   const key=kind==='chapter'?'reading:chapter:1:1':kind==='mini_test'?'reading:mini_test:1:1':kind==='type'?'suwan:type:1:practice:1':'suwan:practical:1:18'
   const number=kind==='practical'?18:1,label=kind==='chapter'?'[수능특강(영독) 1강 1번]':kind==='mini_test'?'[수능특강(영독) Mini Test 1회 1번]':kind==='type'?'[수능완성(유형편) 1강 Practice]':'[수능완성(실전편) 1회 18번]'
@@ -48,5 +50,49 @@ describe('format-specific native textbook adapters',()=>{
     expect(result.mapping).not.toBeNull()
     expect(resolveSourceMap([p,next],result.mapping!).groups[0].extraction.passage).toContain('* footnote 뜻')
     expect(p).toEqual(original)
+  })
+  it('links the given sentence to the prompt and requires the five locations in the separate passage box', () => {
+    const { p, unit } = fixture()
+    const left = p.lines.filter(line => line.x < 300 && line.y > 30)
+    p.lines = p.lines.filter(line => !left.includes(line) || line === left[0])
+    const line = (id: number, y: number, text: string) => ({ id, page: 2, x: 50, y, text, height: 10, width: 190, marks: [] })
+    p.lines.push(line(90, 805, '[01~02] 글의 흐름으로 보아, 주어진 문장이 들어가기에 가장'))
+    p.lines.push(line(91, 792, '적절한 곳을 고르시오.'))
+    p.lines.push(line(100, 770, '1 글의 흐름으로 보아 주어진 문장이 들어가기에 적절한 곳은?'))
+    p.lines.push(line(101, 735, 'This is the given sentence.'))
+    for (const [i, marker] of [...'①②③④⑤'].entries()) p.lines.push(line(102 + i, 680 - i * 20, `Body (${marker}) continues.`))
+    p.boxes = [{ left: 45, right: 280, bottom: 720, top: 752 }, { left: 45, right: 280, bottom: 580, top: 700 }]
+    const result = mapBookProfile([p], unit, BOOK_PDFIUM_SOURCE)
+    expect(result.reasons).toEqual([])
+    const resolved = resolveSourceMap([p], result.mapping!)
+    const value = resolved.groups[0].extraction
+    expect(value.questions[0].stem).toMatch(/곳은\?\n\nThis is the given sentence\.$/u)
+    expect(value.passage).not.toContain('given sentence')
+    expect(value.passage).not.toContain('고르시오')
+    expect(value.questions[0].answer).toBe(2)
+    p.lines.find(l => l.id === 102)!.text = 'Body (②) continues.'
+    expect(mapBookProfile([p], unit, BOOK_PDFIUM_SOURCE).reasons).toEqual(['uncertain_insertion_boxes_or_markers'])
+    p.boxes.shift()
+    expect(mapBookProfile([p], unit, BOOK_PDFIUM_SOURCE).mapping).toBeNull()
+  })
+  it('recognizes a split type keyword and keeps separate options for the three-word combination', () => {
+    const { p, unit } = fixture()
+    p.lines[1].text = '1 밑줄 친 부분이 의미'
+    p.lines.push({ ...p.lines[1], id: 99, y: 757, text: '하는 바로 가장 적절한 것은?' })
+    const split = mapBookProfile([p], unit, BOOK_PDFIUM_SOURCE)
+    expect(split.mapping?.groups[0].questions[0].type).toBe('implication')
+    p.lines[1].text = '1 (A), (B), (C)의 각 네모 안에서 문맥에 맞는 낱말로 가장 적절'
+    p.lines.at(-1)!.text = '한 것은?'
+    const combo = mapBookProfile([p], unit, BOOK_PDFIUM_SOURCE)
+    expect(combo.mapping?.groups[0].questions[0].type).toBe('vocabulary')
+    expect(combo.mapping?.groups[0].questions[0].choices).toHaveLength(5)
+    expect(resolveSourceMap([p], combo.mapping!).groups[0].extraction.questions[0].stem).toMatch(/^\(A\)/u)
+  })
+  it('recognizes a repeated printed number only with a complete single-question marker sequence', () => {
+    const { p, unit } = fixture()
+    p.lines.find(line => line.x < 300 && line.text === '②')!.text = '③'
+    expect(bookPrintedChoiceIssue([p], unit)).toContain('① ③ ③ ④ ⑤')
+    p.lines.find(line => line.x < 300 && line.text === '④')!.text = '⑤'
+    expect(bookPrintedChoiceIssue([p], unit)).toBeNull()
   })
 })

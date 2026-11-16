@@ -12,7 +12,7 @@ import { NATIVE_RECOVERY_REVISION, needsUpdatedNativeRecovery } from './recovery
 import { BookBatchPending } from './batch-policy'
 import { PdfBatchStopped } from '../pdf-import/batch-policy'
 import { BOOK_PROFILE_VERSION } from './profiles'
-import { BOOK_PDFIUM_SOURCE } from './source-mode'
+import { bookSourceMode } from './source-mode'
 import { prepareBookProfiles, saveBookProfilePlan } from './profile-preflight'
 import { classificationConflict, sourceClassificationConflict, getBook } from './catalog'
 import { BOOK_METADATA_REVISION, oldMetadataRevision } from './academic-year'
@@ -23,7 +23,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   if (bookRecoveryExcluded(job)) throw new PdfBatchStopped('이미 등록된 교재이므로 재처리 대상에서 제외했습니다.')
   const pdfHash = createHash('sha256').update(bytes).digest('hex')
   const profileMode = job.payload.bookProfile === BOOK_PROFILE_VERSION, context = getPdfWorkerContext()
-  const sourceMode = job.payload.bookSource === BOOK_PDFIUM_SOURCE ? BOOK_PDFIUM_SOURCE : undefined
+  const sourceMode = bookSourceMode(job.payload.bookSource)
   const resume = bookResume(job.payload)
   async function stage(unit: NativeBookResult | null, unitKey: string | null) {
     const { error } = await client.rpc('book_pdf_stage', { p_job_id: job.id, p_token: job.lease_token,

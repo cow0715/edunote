@@ -5,7 +5,8 @@ import { getPdfWorkerContext, reportPdfStage } from '../pdf-import/context'
 import { auditAndRepairSource } from './audit-source'
 import { readLayoutSource } from './layout-source'
 import { readPdfiumSource } from './pdfium-source'
-import type { BookSourceMode } from './source-mode'
+import { BOOK_PDFIUM_SOURCE, type BookSourceMode } from './source-mode'
+import { bookPrintedChoiceIssue } from './profile-layout'
 import { mapBookSource } from './map-source'
 import { bindBookMapping, nativeBookExtraction, validateNativeBookUnit } from './native-unit'
 import { normalizeAuditedBookLayout } from './inline-source-breaks'
@@ -124,12 +125,19 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
     let pages: Awaited<ReturnType<typeof readLayoutSource>>
     try {
       pages = input.prepared?.pages ?? (sourceMode
-        ? await readPdfiumSource(input.bytes, unit.pages, context?.signal)
+        ? await readPdfiumSource(input.bytes, unit.pages, context?.signal, sourceMode)
         : await readLayoutSource(input.bytes, unit.pages))
     }
     catch (error) { rethrowControl(error); return unresolved([error instanceof Error ? error.message : '원문 좌표 추출 실패'], 'preparation') }
     if (sourceMode && pages.some(page => page.issues.some(issue => issue.endsWith(':insufficient_native_text_requires_ocr')))) {
       return unresolved(['원문 텍스트가 부족해 OCR이 필요합니다.'], 'preparation')
+    }
+    if (sourceMode === BOOK_PDFIUM_SOURCE) {
+      const sourceHold = input.prepared?.sourceHold ?? bookPrintedChoiceIssue(pages, unit)
+      if (sourceHold) {
+        base.models = []
+        return unresolved([sourceHold], 'preparation')
+      }
     }
     const pdf = Buffer.from(input.bytes).toString('base64')
     const targets = unit.questions.map(({ key, label }) => ({ key, label }))

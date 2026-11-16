@@ -35,11 +35,19 @@ describe('native textbook worker pipeline', () => {
   it('feeds PDFium pages into the existing source mapping and audit path', async () => {
     mocks.pdfium.mockResolvedValue(fixture.pages)
     const result = await processNativeBookUnit({ ...input(), sourceMode: BOOK_PDFIUM_SOURCE })
-    expect(mocks.pdfium).toHaveBeenCalledWith(pdfBytes, fixture.unit.pages, undefined)
+    expect(mocks.pdfium).toHaveBeenCalledWith(pdfBytes, fixture.unit.pages, undefined, BOOK_PDFIUM_SOURCE)
     expect(mocks.read).not.toHaveBeenCalled()
     expect(mocks.map).toHaveBeenCalledWith(expect.objectContaining({ pages: fixture.pages }))
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ failureMode: 'hold' }))
     expect(result.verification.status).toBe('passed')
+  })
+  it('holds a source numbering defect before mapping or auditing', async () => {
+    mocks.pdfium.mockResolvedValue(fixture.pages)
+    const result = await processNativeBookUnit({ ...input(), sourceMode: BOOK_PDFIUM_SOURCE,
+      prepared: { pages: fixture.pages, mapping: null, reasons: [], sourceHold: '원문 선지 번호 중복' } })
+    expect(result.verification).toMatchObject({ status: 'unresolved', issues: ['원문 선지 번호 중복'], models: [] })
+    expect(mocks.map).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
   })
   it('reports the actual output ceiling and blocks enrichment/publication for a truncated image comparison', async () => {
     const error = new SourceOutputIncompleteError('audit', 6000, { stopReason: 'max_tokens', finishReason: 'length' } as LlmDetailedResult)

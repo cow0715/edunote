@@ -3,7 +3,8 @@ import { PdfBatchStopped, PdfBundleDeferred } from '../pdf-import/batch-policy'
 import { bookPageSlice } from './pdf'
 import { readLayoutSource } from './layout-source'
 import { readPdfiumSource } from './pdfium-source'
-import type { BookSourceMode } from './source-mode'
+import { BOOK_PDFIUM_SOURCE, type BookSourceMode } from './source-mode'
+import { bookPrintedChoiceIssue } from './profile-layout'
 import { bookFingerprint, bookSourceFingerprint } from './proof'
 import { BOOK_PROFILE_VERSION, bookUnitProfile, mapBookProfile } from './profiles'
 import type { SourceMap, SourcePage } from './source-map'
@@ -12,7 +13,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { PdfImportJob } from '../pdf-import/types'
 import { knownSourcePolicy } from './known-source-policy'
 
-export type ProfileSource = { pages: SourcePage[]; mapping: SourceMap | null; reasons: string[] }
+export type ProfileSource = { pages: SourcePage[]; mapping: SourceMap | null; reasons: string[]; sourceHold?: string }
 export function profileSourceKey(unit: BookUnitManifest, pdfHash: string, sourceMode?: BookSourceMode) {
   return bookFingerprint({ profile: BOOK_PROFILE_VERSION, pdfHash, source: bookSourceFingerprint(unit), ...(sourceMode ? { sourceMode } : {}) })
 }
@@ -40,16 +41,22 @@ export async function prepareBookProfiles(bytes: Uint8Array, manifest: BookManif
     if (!source) {
       const pdf = await bookPageSlice(bytes, unit.pages)
       const slice = new Uint8Array(Buffer.from(pdf, 'base64'))
-      const pages = sourceMode ? await readPdfiumSource(slice, unit.pages, context?.signal) : await readLayoutSource(slice, unit.pages)
-      const result = mapBookProfile(pages, unit)
-      source = { pages, mapping: result.mapping, reasons: result.reasons }
+      const pages = sourceMode ? await readPdfiumSource(slice, unit.pages, context?.signal, sourceMode) : await readLayoutSource(slice, unit.pages)
+      const sourceHold = sourceMode === BOOK_PDFIUM_SOURCE ? bookPrintedChoiceIssue(pages, unit) : null
+      if (sourceHold) source = { pages, mapping: null, reasons: [sourceHold], sourceHold }
+      else {
+        const result = mapBookProfile(pages, unit, sourceMode)
+        source = { pages, mapping: result.mapping, reasons: result.reasons }
+      }
       await context?.write(key, source)
     }
     sources.set(unit.key, source)
   })))
-  const ambiguous = manifest.units.filter(u => !sources.get(u.key)?.mapping)
+  const eligible = manifest.units.filter(u => !sources.get(u.key)?.sourceHold)
+  if (!eligible.length) throw new PdfBatchStopped('원문 선지 번호를 확인해야 하는 문항만 있어 AI 요청 전에 보류했습니다.')
+  const ambiguous = eligible.filter(u => !sources.get(u.key)?.mapping)
   if (ambiguous.length > Math.max(3, Math.ceil(manifest.units.length * .25))) throw new PdfBatchStopped(`형식별 코드 연결을 확정하지 못한 지문이 ${ambiguous.length}/${manifest.units.length}개입니다. 범용 AI 전체 전환 없이 보류했습니다.`)
-  const pilotKeys = bookPilotKeys(manifest.units, sources, pdfHash)
+  const pilotKeys = bookPilotKeys(eligible, sources, pdfHash)
   const plan = { version: BOOK_PROFILE_VERSION, pdf_hash: pdfHash, question_count: manifest.question_count,
     unit_count: manifest.units.length, pilot_keys: pilotKeys,
     pilot_labels: Object.fromEntries(pilotKeys.map(key => [key, manifest.units.find(u => u.key === key)!.questions.map(q => q.label)])),

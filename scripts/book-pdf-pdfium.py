@@ -63,6 +63,49 @@ def underline_strokes(page):
                 yield left, right, (y + y2) / 2
 
 
+def outlined_boxes(page):
+    """Pair four matching border rules using their page coordinates and color."""
+    horizontal, vertical = [], {}
+    for obj in page.get_objects(filter=[api.FPDF_PAGEOBJ_PATH], max_depth=1):
+        fill, stroke = c_int(), c_int()
+        if not api.FPDFPath_GetDrawMode(obj, byref(fill), byref(stroke)):
+            continue
+        bounds = [c_float() for _ in range(4)]
+        if not api.FPDFPageObj_GetBounds(obj, *map(byref, bounds)):
+            continue
+        left, bottom, right, top = (value.value for value in bounds)
+        width, height = right - left, top - bottom
+        rgba = [c_uint() for _ in range(4)]
+        get_color = api.FPDFPageObj_GetStrokeColor if stroke.value else api.FPDFPageObj_GetFillColor
+        if not (fill.value or stroke.value) or not get_color(obj, *map(byref, rgba)) or not rgba[3].value:
+            continue
+        color = tuple(value.value for value in rgba)
+        if width >= 80 and 0 <= height <= 3:
+            horizontal.append((left, bottom, right, top, color))
+        elif height >= 5 and 0 <= width <= 3:
+            x = round(left + right) / 2
+            vertical.setdefault((x, color), []).append((bottom, top))
+    sides = []
+    for (x, color), intervals in vertical.items():
+        merged = []
+        for low, high in sorted(intervals):
+            if merged and low <= merged[-1][1] + .5:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], high))
+            else:
+                merged.append((low, high))
+        sides.extend((x, low, high, color) for low, high in merged)
+    boxes = set()
+    for left, bottom, right, _, color in horizontal:
+        for x0, _, x1, top, top_color in horizontal:
+            if color != top_color or top - bottom < 12 or abs(left - x0) > 3 or abs(right - x1) > 3:
+                continue
+            aligned = [x for x, y0, y1, tint in sides
+                       if tint == color and abs(y0 - bottom) <= 3 and abs(y1 - top) <= 3]
+            if any(abs(x - left) <= 3 for x in aligned) and any(abs(x - right) <= 3 for x in aligned):
+                boxes.add((left, bottom, right, top))
+    return [dict(left=l, bottom=b, right=r, top=t) for l, b, r, t in sorted(boxes)]
+
+
 def read_page(page):
     width, height = page.get_size()
     strokes = list(underline_strokes(page))
@@ -132,7 +175,10 @@ if __name__ == "__main__":
         for index in range(len(document)):
             page = document[index]
             try:
-                pages.append(read_page(page))
+                result = read_page(page)
+                if "--boxes" in sys.argv:
+                    result["boxes"] = outlined_boxes(page)
+                pages.append(result)
             finally:
                 page.close()
         json.dump(pages, sys.stdout, separators=(",", ":"), allow_nan=False)

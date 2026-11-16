@@ -7,7 +7,8 @@ export type SourceLine = {
   marks: { start: number; end: number; bold: boolean; italic?: boolean; underline: boolean }[]
   glyphXs?: number[]
 }
-export type SourcePage = { page: number; width: number; height: number; lines: SourceLine[]; issues: string[] }
+export type SourceBox = { left: number; bottom: number; right: number; top: number }
+export type SourcePage = { page: number; width: number; height: number; lines: SourceLine[]; issues: string[]; boxes?: SourceBox[] }
 const ref = z.object({ s: z.number().int().positive(), e: z.number().int().positive().optional(), a: z.number().int().nonnegative().optional(), b: z.number().int().nonnegative().optional() }).strict()
   .transform(({ s, e, ...rest }) => ({ s, e: e ?? s, ...rest }))
 const refs = z.array(ref).max(200)
