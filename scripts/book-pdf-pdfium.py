@@ -3,7 +3,7 @@ import json
 import math
 import struct
 import sys
-from ctypes import byref, cast, c_double, c_float, c_int, c_size_t, c_ubyte, c_ulong, c_void_p
+from ctypes import byref, cast, c_double, c_float, c_int, c_size_t, c_ubyte, c_uint, c_void_p
 
 import pypdfium2 as pdfium
 import pypdfium2.raw as api
@@ -43,7 +43,7 @@ def underline_strokes(page):
             continue
         if not api.FPDFPath_GetDrawMode(obj, byref(fill), byref(stroke)) or not stroke.value:
             continue
-        rgba = [c_ulong() for _ in range(4)]
+        rgba = [c_uint() for _ in range(4)]
         if not api.FPDFPageObj_GetStrokeColor(obj, *map(byref, rgba)) or any(v.value for v in rgba[:3]) or not rgba[3].value:
             continue
         matrix = obj.get_matrix()
