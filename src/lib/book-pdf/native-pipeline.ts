@@ -4,6 +4,8 @@ import { enrichVerifiedMaterialDetailed } from '../llm/material-enrichment'
 import { getPdfWorkerContext, reportPdfStage } from '../pdf-import/context'
 import { auditAndRepairSource } from './audit-source'
 import { readLayoutSource } from './layout-source'
+import { readPdfiumSource } from './pdfium-source'
+import type { BookSourceMode } from './source-mode'
 import { mapBookSource } from './map-source'
 import { bindBookMapping, nativeBookExtraction, validateNativeBookUnit } from './native-unit'
 import { normalizeAuditedBookLayout } from './inline-source-breaks'
@@ -25,11 +27,12 @@ export type NativeBookResult = SourceResult & { enrichment: BookEnrichment | nul
 
 /** Source parsing and enrichment are separate checkpoints. A failed enrichment
  * never sends a verified PDF back through paid mapping/image-audit calls. */
-export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdfHash: string; bytes: Uint8Array; prepared?: ProfileSource }): Promise<NativeBookResult> {
-  const { unit, pdfHash } = input, context = getPdfWorkerContext()
+export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdfHash: string; bytes: Uint8Array; prepared?: ProfileSource; sourceMode?: BookSourceMode }): Promise<NativeBookResult> {
+  const { unit, pdfHash, sourceMode } = input, context = getPdfWorkerContext()
   const sourceHash = bookSourceFingerprint(unit), policy = knownSourcePolicy(pdfHash, sourceHash)
   const legacyScope = { pdfHash, sourceHash }
-  const scope = { ...legacyScope, ...(policy ? { sourceRevision: KNOWN_SOURCE_REVISION } : {}) }, questionKeys = unit.questions.map(q => q.key)
+  const revision = [sourceMode, policy ? KNOWN_SOURCE_REVISION : null].filter(Boolean).join(':')
+  const scope = { ...legacyScope, ...(revision ? { sourceRevision: revision } : {}) }, questionKeys = unit.questions.map(q => q.key)
   const complete = await readBookUnitStage<NativeBookResult>(scope, 'complete')
   if (complete) {
     if (complete.verification?.pdf_hash !== pdfHash || !bookProofMatches({ ...complete, manifest: unit, version: 1, verified_version: 1 })) throw new PdfBatchStopped('완료된 문항의 검증 기록이 달라 새 요청을 중지했습니다.')
@@ -59,9 +62,9 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
   // enrichment model. Keep them stable; proofs record the models actually used.
   const sourceKey = bookFingerprint({ pipeline: 'native-image-v1', unit: bookSourceFingerprint(unit), pdfHash, model: MODEL_IDS.sonnet55, render: 'poppler-2000' })
   const layoutKey = bookFingerprint({ pipeline: 'native-image-v1', layout: 1, unit: bookSourceFingerprint(unit), pdfHash, model: MODEL_IDS.sonnet55, render: 'poppler-2000' })
-  const revisedKey = policy ? bookFingerprint({ sourceKey, revision: KNOWN_SOURCE_REVISION }) : sourceKey
+  const revisedKey = revision ? bookFingerprint({ sourceKey, revision }) : sourceKey
   let archived: SourceResult | null = null
-  if (policy) {
+  if (policy && !sourceMode) {
     for (const saved of [await readBookUnitStage<SourceResult>(legacyScope, 'source'), await readBookUnitStage<SourceResult>(legacyScope, 'complete'),
       await context?.read<SourceResult>(sourceKey), await context?.read<SourceResult>(layoutKey)]) {
       if (saved?.extraction && saved.verification?.pdf_hash === pdfHash && bookSourceArchiveMatches(saved.verification, saved.extraction, unit)) { archived = saved; break }
@@ -71,7 +74,7 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
   if (source && (!source.extraction || source.verification?.pdf_hash !== pdfHash || !bookSourceProofMatches(source.verification, source.extraction, unit) || source.validation.errors.length)) throw new PdfBatchStopped('원본 검증 완료 기록이 달라 재파싱을 중지했습니다.')
   // Deployments must not invalidate paid, image-verified source material merely
   // because paragraph-layout support was added or removed from the request.
-  for (const key of [revisedKey, sourceKey, layoutKey]) {
+  for (const key of sourceMode ? [revisedKey] : [revisedKey, sourceKey, layoutKey]) {
     if (source) break
     const saved = await context?.read<SourceResult>(key)
     if (saved?.extraction && saved.verification?.pdf_hash === pdfHash && bookSourceProofMatches(saved.verification, saved.extraction, unit)
@@ -119,8 +122,15 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
     if (!unit.pages.length || unit.pages.length > 4) return unresolved(['지문 묶음이 이미지 검증 범위(1~4페이지)를 벗어났습니다. 원문을 잘라 처리하지 않습니다.'], 'preparation')
     await reportPdfStage(`${unit.questions[0].label}: 원문 좌표 추출·연결을 확인하는 중`)
     let pages: Awaited<ReturnType<typeof readLayoutSource>>
-    try { pages = input.prepared?.pages ?? await readLayoutSource(input.bytes, unit.pages) }
+    try {
+      pages = input.prepared?.pages ?? (sourceMode
+        ? await readPdfiumSource(input.bytes, unit.pages, context?.signal)
+        : await readLayoutSource(input.bytes, unit.pages))
+    }
     catch (error) { rethrowControl(error); return unresolved([error instanceof Error ? error.message : '원문 좌표 추출 실패'], 'preparation') }
+    if (sourceMode && pages.some(page => page.issues.some(issue => issue.endsWith(':insufficient_native_text_requires_ocr')))) {
+      return unresolved(['원문 텍스트가 부족해 OCR이 필요합니다.'], 'preparation')
+    }
     const pdf = Buffer.from(input.bytes).toString('base64')
     const targets = unit.questions.map(({ key, label }) => ({ key, label }))
     type MappingProgress = { nativeHash: string; attempt: number; attemptId?: string; previous?: unknown; errors: string[]; mapping: unknown; model?: string | null }

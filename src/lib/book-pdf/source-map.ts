@@ -2,7 +2,11 @@ import { z } from 'zod'
 import type { BookExtraction } from './types'
 
 /** Native text, not model-written text. Offsets use JavaScript UTF-16 indices. */
-export type SourceLine = { id: number; page: number; x: number; y: number; width: number; height: number; text: string; marks: { start: number; end: number; bold: boolean; italic?: boolean; underline: boolean }[] }
+export type SourceLine = {
+  id: number; page: number; x: number; y: number; width: number; height: number; text: string
+  marks: { start: number; end: number; bold: boolean; italic?: boolean; underline: boolean }[]
+  glyphXs?: number[]
+}
 export type SourcePage = { page: number; width: number; height: number; lines: SourceLine[]; issues: string[] }
 const ref = z.object({ s: z.number().int().positive(), e: z.number().int().positive().optional(), a: z.number().int().nonnegative().optional(), b: z.number().int().nonnegative().optional() }).strict()
   .transform(({ s, e, ...rest }) => ({ s, e: e ?? s, ...rest }))

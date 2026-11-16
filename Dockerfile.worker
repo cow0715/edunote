@@ -10,9 +10,12 @@ RUN npm run build:worker
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apt-get update && apt-get install -y --no-install-recommends libfontconfig1 fonts-dejavu-core fonts-noto-cjk poppler-utils && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends libfontconfig1 fonts-dejavu-core fonts-noto-cjk poppler-utils python3-venv ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /opt/pdfium && /opt/pdfium/bin/pip install --no-cache-dir --no-deps --only-binary=:all: pypdfium2==5.13.0
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/build/pdf-worker.cjs ./build/pdf-worker.cjs
+COPY scripts/book-pdf-pdfium.py ./scripts/book-pdf-pdfium.py
+ENV BOOK_PDFIUM_PYTHON=/opt/pdfium/bin/python
 USER node
 CMD ["node", "build/pdf-worker.cjs"]

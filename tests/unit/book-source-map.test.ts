@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { atomizeSourceLines, buildSourceLines, type NativePiece } from '@/lib/book-pdf/layout-source'
+import { atomizeSourceLines, buildSourceLines, sourceGlyphOrigin, type NativePiece } from '@/lib/book-pdf/layout-source'
 import { resolveSourceMap, sourceMapEvidence, sourceMapSchema, type SourceMap, type SourcePage } from '@/lib/book-pdf/source-map'
 
 const ref = (s: number, e = s) => ({ s, e })
@@ -179,6 +179,23 @@ describe('native source mapping', () => {
 
 const piece = (str: string, x: number, y: number): NativePiece => ({ str, x, y, width: 50, height: 10, bold: false, underline: false })
 describe('geometry based native lines', () => {
+  it('keeps per-glyph coordinates on the matching atoms after snapshot serialization', () => {
+    const source = ['①', 'a', 'b'].map((str, i) => ({ ...piece(str, 30 + 4 * i, 700), width: 4 }))
+    const atoms = atomizeSourceLines(buildSourceLines(source, 1, 600, 1, true))
+    const restored = JSON.parse(JSON.stringify(atoms)) as typeof atoms
+    expect(restored.map(line => line.text)).toEqual(['①', 'ab'])
+    expect(sourceGlyphOrigin(restored[1], 0)).toBe(34)
+    expect(sourceGlyphOrigin(restored[1], 1)).toBe(38)
+  })
+  it('preserves a printed space and keeps the neighboring column separate in glyph layout', () => {
+    const glyph = (str: string, x: number, width: number) => ({ ...piece(str, x, 700), width })
+    const source = [glyph('of', 264, 10), glyph(' ', 274, 2), glyph('finishing', 276, 16), glyph('01', 305, 10)]
+    expect(buildSourceLines(source, 1, 600, 1, true).map(line => line.text)).toEqual(['of finishing', '01'])
+  })
+  it('measures glyph row edges from visible text', () => {
+    const pieces = [{ ...piece('word', 34, 700), width: 15 }, { ...piece(' ', 49, 700), width: 3 }]
+    expect(buildSourceLines(pieces, 1, 600, 1, true)[0]).toMatchObject({ text: 'word', width: 15 })
+  })
   it('atomizes printed field labels and inline options without rewriting characters', () => {
     const original = buildSourceLines([piece('[소재] topic ①one②two', 30, 700)], 1, 600)
     const atoms = atomizeSourceLines(original)

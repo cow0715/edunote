@@ -12,6 +12,7 @@ import { NATIVE_RECOVERY_REVISION, needsUpdatedNativeRecovery } from './recovery
 import { BookBatchPending } from './batch-policy'
 import { PdfBatchStopped } from '../pdf-import/batch-policy'
 import { BOOK_PROFILE_VERSION } from './profiles'
+import { BOOK_PDFIUM_SOURCE } from './source-mode'
 import { prepareBookProfiles, saveBookProfilePlan } from './profile-preflight'
 import { classificationConflict, sourceClassificationConflict, getBook } from './catalog'
 import { BOOK_METADATA_REVISION, oldMetadataRevision } from './academic-year'
@@ -22,6 +23,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   if (bookRecoveryExcluded(job)) throw new PdfBatchStopped('이미 등록된 교재이므로 재처리 대상에서 제외했습니다.')
   const pdfHash = createHash('sha256').update(bytes).digest('hex')
   const profileMode = job.payload.bookProfile === BOOK_PROFILE_VERSION, context = getPdfWorkerContext()
+  const sourceMode = job.payload.bookSource === BOOK_PDFIUM_SOURCE ? BOOK_PDFIUM_SOURCE : undefined
   const resume = bookResume(job.payload)
   async function stage(unit: NativeBookResult | null, unitKey: string | null) {
     const { error } = await client.rpc('book_pdf_stage', { p_job_id: job.id, p_token: job.lease_token,
@@ -88,7 +90,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
     if (!unit || selected.source_hash !== bookSourceFingerprint(unit) || !old
       || (!bookProofMatches(old) && old.verification.failure?.stage !== selected.stage)) throw new PdfBatchStopped('선택한 보류 구간의 원문·실패 단계가 바뀌었습니다. 최신 상태를 확인해주세요.')
   }
-  const prepared = profileMode ? await prepareBookProfiles(bytes, manifest, pdfHash) : null
+  const prepared = profileMode ? await prepareBookProfiles(bytes, manifest, pdfHash, sourceMode) : null
   const phase = prepared ? await saveBookProfilePlan(client, job, prepared.plan) : null
   const pending = manifest.units.filter((unit) => {
     const selected = resume?.units.find(u => u.unit_key === unit.key)
@@ -122,7 +124,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
     try {
       const smallPdf = await bookPageSlice(bytes, unit.pages)
       verified = await withPdfUnit(unit.key, () => processNativeBookUnit({ unit, pdfHash, bytes: new Uint8Array(Buffer.from(smallPdf, 'base64')),
-        ...(prepared ? { prepared: prepared.sources.get(unit.key) } : {}) }), selected && resume ? { id: resume.id, stage: selected.stage } : undefined)
+        ...(sourceMode ? { sourceMode } : {}), ...(prepared ? { prepared: prepared.sources.get(unit.key) } : {}) }), selected && resume ? { id: resume.id, stage: selected.stage } : undefined)
     } catch (error) {
       if (error instanceof BookBatchPending || error instanceof PdfBatchStopped || context?.signal.aborted) throw error
       const reasons = [error instanceof Error ? error.message : 'PDF 구간 준비 실패']

@@ -8,6 +8,7 @@
 !scripts/
 !scripts/pdf-worker.ts
 !scripts/build-pdf-worker.mjs
+!scripts/book-pdf-pdfium.py
 **/.env*
 **/*.pdf
 **/*.pem

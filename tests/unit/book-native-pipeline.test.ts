@@ -4,8 +4,9 @@ import { pdfBytes, pdfHash } from '../fixtures/book-pdf'
 import { createCallLimiter, withPdfWorkerContext } from '@/lib/pdf-import/context'
 import { bookFingerprint, bookSourceFingerprint, bookProofMatches } from '@/lib/book-pdf/proof'
 import { BookBatchPending, BookBatchRequestFailed } from '@/lib/book-pdf/batch-policy'
-const mocks = vi.hoisted(() => ({ read: vi.fn(), map: vi.fn(), render: vi.fn(), audit: vi.fn(), enrich: vi.fn() }))
+const mocks = vi.hoisted(() => ({ read: vi.fn(), pdfium: vi.fn(), map: vi.fn(), render: vi.fn(), audit: vi.fn(), enrich: vi.fn() }))
 vi.mock('@/lib/book-pdf/layout-source', () => ({ readLayoutSource: mocks.read }))
+vi.mock('@/lib/book-pdf/pdfium-source', () => ({ readPdfiumSource: mocks.pdfium }))
 vi.mock('@/lib/book-pdf/map-source', () => ({ mapBookSource: mocks.map }))
 vi.mock('@/lib/book-pdf/render-source', () => ({ renderBookSourceImages: mocks.render }))
 vi.mock('@/lib/book-pdf/audit-source', () => ({ auditAndRepairSource: mocks.audit }))
@@ -18,6 +19,7 @@ import { KNOWN_SOURCE_REVISION } from '@/lib/book-pdf/known-source-policy'
 import { writeBookUnitStage } from '@/lib/book-pdf/unit-progress'
 import { SourceOutputIncompleteError } from '@/lib/book-pdf/source-output-policy'
 import type { LlmDetailedResult } from '@/lib/llm/types'
+import { BOOK_PDFIUM_SOURCE } from '@/lib/book-pdf/source-mode'
 let fixture = nativeFixture()
 const input = () => ({ unit: fixture.unit, pdfHash, bytes: pdfBytes })
 beforeEach(() => {
@@ -30,6 +32,15 @@ beforeEach(() => {
 })
 
 describe('native textbook worker pipeline', () => {
+  it('feeds PDFium pages into the existing source mapping and audit path', async () => {
+    mocks.pdfium.mockResolvedValue(fixture.pages)
+    const result = await processNativeBookUnit({ ...input(), sourceMode: BOOK_PDFIUM_SOURCE })
+    expect(mocks.pdfium).toHaveBeenCalledWith(pdfBytes, fixture.unit.pages, undefined)
+    expect(mocks.read).not.toHaveBeenCalled()
+    expect(mocks.map).toHaveBeenCalledWith(expect.objectContaining({ pages: fixture.pages }))
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ failureMode: 'hold' }))
+    expect(result.verification.status).toBe('passed')
+  })
   it('reports the actual output ceiling and blocks enrichment/publication for a truncated image comparison', async () => {
     const error = new SourceOutputIncompleteError('audit', 6000, { stopReason: 'max_tokens', finishReason: 'length' } as LlmDetailedResult)
     mocks.audit.mockRejectedValueOnce(error)

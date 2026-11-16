@@ -2,6 +2,8 @@ import { createCallLimiter, getPdfWorkerContext } from '../pdf-import/context'
 import { PdfBatchStopped, PdfBundleDeferred } from '../pdf-import/batch-policy'
 import { bookPageSlice } from './pdf'
 import { readLayoutSource } from './layout-source'
+import { readPdfiumSource } from './pdfium-source'
+import type { BookSourceMode } from './source-mode'
 import { bookFingerprint, bookSourceFingerprint } from './proof'
 import { BOOK_PROFILE_VERSION, bookUnitProfile, mapBookProfile } from './profiles'
 import type { SourceMap, SourcePage } from './source-map'
@@ -11,8 +13,8 @@ import type { PdfImportJob } from '../pdf-import/types'
 import { knownSourcePolicy } from './known-source-policy'
 
 export type ProfileSource = { pages: SourcePage[]; mapping: SourceMap | null; reasons: string[] }
-export function profileSourceKey(unit: BookUnitManifest, pdfHash: string) {
-  return bookFingerprint({ profile: BOOK_PROFILE_VERSION, pdfHash, source: bookSourceFingerprint(unit) })
+export function profileSourceKey(unit: BookUnitManifest, pdfHash: string, sourceMode?: BookSourceMode) {
+  return bookFingerprint({ profile: BOOK_PROFILE_VERSION, pdfHash, source: bookSourceFingerprint(unit), ...(sourceMode ? { sourceMode } : {}) })
 }
 /** Structural representatives, rather than the first few easy pages. */
 export function bookPilotKeys(units: BookUnitManifest[], sources: Map<string, ProfileSource>, pdfHash?: string) {
@@ -29,15 +31,16 @@ export function bookPilotKeys(units: BookUnitManifest[], sources: Map<string, Pr
   return [...keys]
 }
 /** Entire-file native preflight is durable and cannot create a model request. */
-export async function prepareBookProfiles(bytes: Uint8Array, manifest: BookManifest, pdfHash: string) {
+export async function prepareBookProfiles(bytes: Uint8Array, manifest: BookManifest, pdfHash: string, sourceMode?: BookSourceMode) {
   if (manifest.errors.length || manifest.units.some(u => !bookUnitProfile(u) || u.pages.length > 4)) throw new PdfBatchStopped('교재 형식·문항 경계를 확인하지 못했습니다. AI 요청 전에 보류했습니다.')
   const context = getPdfWorkerContext(), sources = new Map<string, ProfileSource>(), limit = createCallLimiter(2)
   await Promise.all(manifest.units.map(unit => limit(async () => {
-    const key = profileSourceKey(unit, pdfHash)
+    const key = profileSourceKey(unit, pdfHash, sourceMode)
     let source = await context?.read<ProfileSource>(key)
     if (!source) {
       const pdf = await bookPageSlice(bytes, unit.pages)
-      const pages = await readLayoutSource(new Uint8Array(Buffer.from(pdf, 'base64')), unit.pages)
+      const slice = new Uint8Array(Buffer.from(pdf, 'base64'))
+      const pages = sourceMode ? await readPdfiumSource(slice, unit.pages, context?.signal) : await readLayoutSource(slice, unit.pages)
       const result = mapBookProfile(pages, unit)
       source = { pages, mapping: result.mapping, reasons: result.reasons }
       await context?.write(key, source)

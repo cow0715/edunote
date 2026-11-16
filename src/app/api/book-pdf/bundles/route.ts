@@ -8,6 +8,7 @@ import { workerEnabled } from '@/lib/pdf-import/types'
 import { bookBundleSchema } from '@/lib/book-pdf/registration-schema'
 import { bookSelectionIssue } from '@/lib/book-pdf/registration-selection'
 import { BOOK_PROFILE_VERSION } from '@/lib/book-pdf/profiles'
+import { BOOK_PDFIUM_SOURCE } from '@/lib/book-pdf/source-mode'
 import type { BookDocument } from '@/lib/book-pdf/types'
 
 export async function GET() {
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
       if (!jobId && document!.status !== 'published') {
         const job = await registerPdfImport({ kind: 'bank_book', teacherId: teacher, authId: user, targetId: document!.id,
           storagePath: file.storagePath, deferDispatch: true, payload: { fileName: file.fileName, title: document!.title,
-            bookProcessing: 'batch-v1', bookProfile: BOOK_PROFILE_VERSION, bundleId } })
+            bookProcessing: 'batch-v1', bookProfile: BOOK_PROFILE_VERSION, bookSource: BOOK_PDFIUM_SOURCE, bundleId } })
         jobId = job.job_id
       }
       const attached = await db.rpc('book_pdf_bundle_attach', { p_bundle: bundleId, p_token: token, p_position: position, p_document: document!.id, p_job: jobId })

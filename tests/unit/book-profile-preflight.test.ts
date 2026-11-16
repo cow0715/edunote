@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-const m=vi.hoisted(()=>({slice:vi.fn(),read:vi.fn(),map:vi.fn()}))
+const m=vi.hoisted(()=>({slice:vi.fn(),read:vi.fn(),pdfium:vi.fn(),map:vi.fn()}))
 vi.mock('@/lib/book-pdf/pdf',()=>({bookPageSlice:m.slice}))
 vi.mock('@/lib/book-pdf/layout-source',()=>({readLayoutSource:m.read}))
+vi.mock('@/lib/book-pdf/pdfium-source',()=>({readPdfiumSource:m.pdfium}))
 vi.mock('@/lib/book-pdf/profiles',async original=>({...await original<typeof import('@/lib/book-pdf/profiles')>(),mapBookProfile:m.map}))
 import { bookPilotKeys, prepareBookProfiles, saveBookProfilePlan } from '@/lib/book-pdf/profile-preflight'
 import { withPdfWorkerContext, type PdfWorkerContext } from '@/lib/pdf-import/context'
@@ -11,6 +12,7 @@ import type { BookManifest } from '@/lib/book-pdf/types'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as knownSource from '@/lib/book-pdf/known-source-policy'
 import { bookSourceFingerprint } from '@/lib/book-pdf/proof'
+import { BOOK_PDFIUM_SOURCE } from '@/lib/book-pdf/source-mode'
 beforeEach(()=>{vi.clearAllMocks();m.slice.mockResolvedValue('JVBERi0=');m.read.mockResolvedValue(nativeFixture().pages);m.map.mockReturnValue({mapping:nativeFixture().mapping,reasons:[]})})
 function fixture(){
  const unit=nativeFixture().unit
@@ -51,6 +53,21 @@ describe('free whole-file preflight and pinned source snapshots',()=>{
  it('holds an unknown layout rather than switching a whole file to paid mapping',async()=>{
    const f=fixture();m.map.mockReturnValue({mapping:null,reasons:['unknown boundary']})
    await expect(withPdfWorkerContext(f.context,()=>prepareBookProfiles(new Uint8Array(),f.manifest,'a'.repeat(64)))).rejects.toThrow('범용 AI 전체 전환 없이')
+ })
+ it('feeds PDFium pages into the same profile mapper and keeps PDF.js checkpoints separate', async () => {
+   const f = fixture()
+   const pdfiumPages = structuredClone(nativeFixture().pages)
+   m.pdfium.mockResolvedValue(pdfiumPages)
+   const run = (mode?: typeof BOOK_PDFIUM_SOURCE) => withPdfWorkerContext(f.context,
+     () => prepareBookProfiles(new Uint8Array(), f.manifest, 'a'.repeat(64), mode))
+   await run()
+   m.map.mockClear()
+   await run(BOOK_PDFIUM_SOURCE)
+   expect(m.pdfium).toHaveBeenCalledTimes(10)
+   expect(m.read).toHaveBeenCalledTimes(10)
+   expect(m.map.mock.calls[0][0]).toBe(pdfiumPages)
+   await run(BOOK_PDFIUM_SOURCE)
+   expect(m.pdfium).toHaveBeenCalledTimes(10)
  })
  it('rejects unsupported families before extracting additional source windows',async()=>{
    const f=fixture();delete f.manifest.units[0].questions[0].source_kind

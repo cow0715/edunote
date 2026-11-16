@@ -19,6 +19,7 @@ export function atomizeSourceLines(lines: SourceLine[], firstId = 1): SourceLine
         // Position is a visual aid; field reconstruction uses exact characters.
         x: line.x + line.width * a / line.text.length, width: line.width * (b - a) / line.text.length,
         marks: line.marks.flatMap((m) => m.end > a && m.start < b ? [{ ...m, start: Math.max(m.start, a) - a, end: Math.min(m.end, b) - a }] : []) }
+      if (line.glyphXs) atom.glyphXs = line.glyphXs.slice(a, b)
       const origins = glyphOrigins.get(line)
       if (origins) glyphOrigins.set(atom, origins.slice(a, b))
       return [atom]
@@ -31,7 +32,7 @@ export function atomizeSourceLines(lines: SourceLine[], firstId = 1): SourceLine
 const glyphOrigins = new WeakMap<SourceLine, readonly number[]>()
 
 export function sourceGlyphOrigin(line: SourceLine, offset: number) {
-  return glyphOrigins.get(line)?.[offset]
+  return (line.glyphXs ?? glyphOrigins.get(line))?.[offset]
 }
 
 export function buildSourceLines(items: NativePiece[], page: number, width: number, firstId = 1, glyphLayout = false): SourceLine[] {
@@ -45,13 +46,19 @@ export function buildSourceLines(items: NativePiece[], page: number, width: numb
   for (const row of rows) {
     let parts: NativePiece[] = []
     const flush = () => {
+      if (glyphLayout) {
+        const first = parts.findIndex(piece => piece.str.trim())
+        const last = parts.findLastIndex(piece => piece.str.trim())
+        parts = first < 0 ? [] : parts.slice(first, last + 1)
+      }
       if (!parts.length) return
       let text = ''
       const marks: SourceLine['marks'] = []
       const origins: number[] = []
       for (let n = 0; n < parts.length; n++) {
         const p = parts[n], before = parts[n - 1]
-        if (before && p.x - before.x - before.width > 1.5) { text += ' '; origins.push(p.x) }
+        if (before && p.x - before.x - before.width > 1.5 &&
+            (!glyphLayout || (!/\s$/.test(before.str) && !/^\s/.test(p.str)))) { text += ' '; origins.push(p.x) }
         const start = text.length; text += p.str
         for (let i = 0; i < p.str.length; i++) origins.push(p.x)
         if (p.bold || p.italic || p.underline) {
@@ -67,7 +74,11 @@ export function buildSourceLines(items: NativePiece[], page: number, width: numb
     }
     for (const p of row.pieces.sort((a, b) => a.x - b.x)) {
       const before = parts.at(-1)
-      if (before && p.x - before.x - before.width > Math.max(12, Math.min(p.height, before.height) * 1.6)) flush()
+      if (before) {
+        const edge = before.x + before.width, gap = p.x - edge
+        const acrossGutter = glyphLayout && edge < width / 2 && p.x > width / 2 && gap >= 8
+        if (acrossGutter || gap > Math.max(12, Math.min(p.height, before.height) * 1.6)) flush()
+      }
       parts.push(p)
     }
     flush()
@@ -78,7 +89,8 @@ export function buildSourceLines(items: NativePiece[], page: number, width: numb
   const cuts = origins.slice(1).flatMap((x, i) => x - origins[i] > width * 0.16 ? [(x + origins[i]) / 2] : [])
   const column = (x: number) => cuts.filter((cut) => x > cut).length
   return fragments.sort((a, b) => column(a.x) - column(b.x) || b.y - a.y || a.x - b.x).map(({ origins, ...fragment }, i) => {
-    const line = { ...fragment, id: firstId + i }
+    // PDFium snapshots must keep glyph coordinates through a worker restart.
+    const line = { ...fragment, id: firstId + i, ...(glyphLayout ? { glyphXs: origins } : {}) }
     glyphOrigins.set(line, origins)
     return line
   })

@@ -6,6 +6,7 @@ import { registerPdfImport } from '@/lib/pdf-import/server'
 import { workerEnabled } from '@/lib/pdf-import/types'
 import { bookFileHints, getBook } from '@/lib/book-pdf/catalog'
 import { bookUploadSchema } from '@/lib/book-pdf/registration-schema'
+import { BOOK_PDFIUM_SOURCE } from '@/lib/book-pdf/source-mode'
 import type { BookDocument } from '@/lib/book-pdf/types'
 
 export async function GET() {
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
       return ok({ ...body, document_id: doc.id, job_id: linked?.id, status: linked?.status }, { status: response.status })
     }
     const job = await registerPdfImport({ kind: 'bank_book', teacherId: auth.teacherId!, authId: auth.user!.id, targetId: doc.id,
-      storagePath: p.storagePath, payload: { fileName: p.fileName, title: doc.title, mimeType: 'application/pdf', bookProcessing: 'batch-v1', bookCode: doc.book_code } })
+      storagePath: p.storagePath, payload: { fileName: p.fileName, title: doc.title, mimeType: 'application/pdf', bookProcessing: 'batch-v1', bookCode: doc.book_code, bookSource: BOOK_PDFIUM_SOURCE } })
     return ok({ ...job, document_id: job.target_id }, { status: 202 })
   } catch (error) {
     // Another tab can win the unique active-target reservation after our lookup.
