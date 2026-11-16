@@ -6,14 +6,19 @@ import { RegistrationPanel } from '@/components/exam-bank/registration-panel'
 import { Button } from '@/components/ui/button'
 import type { ImportJob } from '@/components/pdf-import/use-jobs'
 
+const holdReason = '원문 선지 번호가 중복되어 보류합니다. 인쇄 순서·정답·해설로 교정할 번호를 확정하지 못했습니다. (인쇄 순서 ① ③ ③ ④ ⑤)'
+const heldBook = { id: 'held-book', title: '2027학년도 수능특강 영어독해연습 · 상', academic_year: 2027, status: 'review', exam_bank_id: null, manifest: { question_count: 108, unit_count: 106, printed_years: [2027], filename_year: null, errors: [], warnings: [] } }
 const jobs: ImportJob[] = [
-  { id: 'sample-book', kind: 'bank_book', target_id: 'sample-book', status: 'waiting_batch', stage: '원본 검증 응답 대기', completed_calls: 1, attempt: 1, error: null, can_retry: false, result: null, display_title: '2027학년도 수능특강 영어독해연습 · 상', progress: { total: 106, completed: 12, questions: 108 } },
+  { id: 'held-job', kind: 'bank_book', target_id: heldBook.id, status: 'failed', stage: '원본 선지 번호 확인', completed_calls: 0, attempt: 1, error: null, can_retry: false, result: { verification_unresolved: true, book_failures: [{ unit_key: 'unit-4', source_hash: 'a'.repeat(64), labels: ['1강 4번'], reasons: [holdReason], stage: 'preparation', attempt_id: null }] }, display_title: heldBook.title, progress: { total: 106, completed: 105, questions: 108 } },
+  { id: 'sample-book', kind: 'bank_book', target_id: 'sample-book', status: 'waiting_batch', stage: '원본 검증 응답 대기', completed_calls: 1, attempt: 1, error: null, can_retry: false, result: null, display_title: '2027학년도 수능완성 · 실전편', progress: { total: 130, completed: 12, questions: 140 } },
   { id: 'sample-exam', kind: 'bank_explanation', target_id: 'sample-exam', status: 'failed', stage: '해설 연결 확인', completed_calls: 26, attempt: 3, error: null, can_retry: false, result: { issues: [{ stage: 'explanations', question_number: 25, code: 'unmatched', reason: '문제은행에 해당 번호의 문항이 없어 해설을 연결할 수 없습니다.', attempts: 3 }] }, display_title: '2022년 9월 고3 모의고사' },
 ]
 window.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
   if ((init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase() !== 'GET') return Response.json({ error: '미리보기에서는 등록을 실행할 수 없습니다.' }, { status: 405 })
-  if (url.startsWith('/api/book-pdf')) return Response.json({ enabled: true, documents: [] })
+  if (url === '/api/book-pdf/bundles') return Response.json({ bundles: [] })
+  if (url === '/api/book-pdf') return Response.json({ enabled: true, documents: [heldBook] })
+  if (url === '/api/book-pdf/held-book') return Response.json({ document: heldBook, units: [{ unit_key: 'unit-4', version: 1, verified_version: null, pages: [5], questions: [{ key: 'reading:chapter:1:4', label: '1강 4번', label_page: 5 }], verification: { status: 'unresolved', attempts: 0, issues: [holdReason] }, validation: { errors: [holdReason] } }] })
   if (url.startsWith('/api/pdf-import/jobs')) return Response.json(jobs)
   return Response.json({ error: '미리보기에서 지원하지 않는 요청입니다.' }, { status: 503 })
 }

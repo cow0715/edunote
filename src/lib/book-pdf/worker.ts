@@ -91,11 +91,11 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
       || (!bookProofMatches(old) && old.verification.failure?.stage !== selected.stage)) throw new PdfBatchStopped('선택한 보류 구간의 원문·실패 단계가 바뀌었습니다. 최신 상태를 확인해주세요.')
   }
   const prepared = profileMode ? await prepareBookProfiles(bytes, manifest, pdfHash, sourceMode) : null
-  const phase = prepared ? await saveBookProfilePlan(client, job, prepared.plan) : null
+  const phase = prepared?.plan ? await saveBookProfilePlan(client, job, prepared.plan) : null
   const pending = manifest.units.filter((unit) => {
     const selected = resume?.units.find(u => u.unit_key === unit.key)
     if (resume && !selected) return false
-    if (phase?.phase === 'pilot' && !phase.pilot_keys.includes(unit.key)) return false
+    if (phase?.phase === 'pilot' && !phase.pilot_keys.includes(unit.key) && !prepared?.sources.get(unit.key)?.sourceHold) return false
     const old = previous.get(unit.key)
     if (old && bookProofMatches(old) && old.verification.pdf_hash === pdfHash) return false
     if (old && heldBookUnit(old.verification, selected && resume ? { id: resume.id, stage: selected.stage } : undefined)) return false
@@ -118,7 +118,7 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
     getPdfWorkerContext()?.signal.throwIfAborted()
     // Once this batch is full, don't re-slice and re-read the rest of a large PDF
     // merely to discover that the paid request window is already exhausted.
-    if (getPdfWorkerContext()?.canPrepareUnit?.(unit.key) === false) throw new BookBatchPending()
+    if (!prepared?.sources.get(unit.key)?.sourceHold && getPdfWorkerContext()?.canPrepareUnit?.(unit.key) === false) throw new BookBatchPending()
     const selected = resume?.units.find(u => u.unit_key === unit.key)
     let verified: NativeBookResult
     try {
@@ -144,12 +144,12 @@ export async function importBookPdf(client: SupabaseClient, job: PdfImportJob, b
   const book_failures = failedBookUnits(heldRows.data as BookDraftUnit[])
   const failureResult = { book_failures, manual_resume_only: book_failures.length > 0, recovery_revision: NATIVE_RECOVERY_REVISION }
   if (phase?.phase === 'pilot') {
-    if (book_failures.length) return { document_id: job.target_id, auto_published: false, verification_unresolved: true,
+    if (book_failures.some(unit => phase.pilot_keys.includes(unit.unit_key))) return { document_id: job.target_id, auto_published: false, verification_unresolved: true,
       unresolved_units: book_failures.map(u => u.unit_key), ...failureResult }
     const { data, error } = await client.rpc('book_pdf_profile_pause', { p_job: job.id, p_token: job.lease_token })
     if (error) throw new PdfBatchStopped('대표 구간 확인 대기를 저장하지 못했습니다. 검토 단계 SQL을 확인해주세요.')
     if (!data?.ready) return { document_id: job.target_id, verification_unresolved: true, inventory_errors: [data?.reason || '대표 구간에 미완료 항목이 있습니다.'] }
-    return { document_id: job.target_id, pilot_review_required: true, pilot_review_approved: false, pilot_review: data.review, auto_published: false }
+    return { document_id: job.target_id, pilot_review_required: true, pilot_review_approved: false, pilot_review: data.review, auto_published: false, book_failures }
   }
   await reportPdfStage('검증 결과를 확정하고 문제은행에 등록하는 중')
   await stage(null, null)

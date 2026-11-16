@@ -14,7 +14,7 @@ const EMPTY_JOBS: ImportJob[] = []
 
 const labels: Record<PdfImportKind, string> = { bank_questions: '문제은행 등록', bank_explanation: '문제은행 해설', bank_book: '교재 추출', week_answers: '주차 PDF 등록' }
 
-export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedTargetIds = [] }: { weekId?: string; onOpenBook?: (id: string) => void; onOpenMaterial?: (id: string) => void; excludedTargetIds?: string[] }) {
+export function PdfImportJobList({ weekId, jobId, onOpenBook, onOpenMaterial, excludedTargetIds = [] }: { weekId?: string; jobId?: string; onOpenBook?: (id: string) => void; onOpenMaterial?: (id: string) => void; excludedTargetIds?: string[] }) {
   const client = useQueryClient()
   const completed = useRef(new Set<string>())
   const [retrying, setRetrying] = useState<string | null>(null)
@@ -27,7 +27,7 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedT
     const prefixes = weekId ? ['exam-questions', 'grade', 'week', 'answer-review'] : ['exam-bank', 'exam-bank-search', 'exam-bank-question-search', 'exam-bank-questions', 'book-pdf', 'vocab-collections']
     prefixes.forEach((prefix) => { void client.invalidateQueries({ queryKey: weekId ? [prefix, weekId] : [prefix] }) })
   }, [jobs, client, weekId])
-  const visible = jobs.filter(job => !excludedTargetIds.includes(job.target_id))
+  const visible = jobs.filter(job => (!jobId || job.id === jobId) && !excludedTargetIds.includes(job.target_id))
   const filtered = visible.filter((job) => job.status !== 'succeeded').concat(visible.filter((job) => job.status === 'succeeded').slice(0, weekId ? 3 : 30))
   if (query.error) return <div role="alert" className="rounded-xl border p-4 text-sm"><p>{query.error.message}</p><Button variant="outline" onClick={() => void query.refetch()}>다시 불러오기</Button></div>
   if (!filtered.length) return weekId ? null : <p className="text-sm text-muted-foreground">{query.isLoading ? '처리 내역을 불러오는 중…' : '등록 내역이 없습니다.'}</p>
@@ -57,8 +57,7 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedT
     } catch (error) { toast.error(error instanceof Error ? error.message : '재개 요청 실패') }
     finally { setRetrying(null); await client.invalidateQueries({ queryKey: ['pdf-import-jobs'] }) }
   }
-  return <div className="space-y-2 rounded-xl border bg-card p-4" aria-label="PDF 처리 작업" aria-live="polite">
-    <p className="text-sm font-medium">최근 등록·처리 내역</p>
+  return <div className="divide-y rounded-xl border bg-card px-4" aria-label="PDF 처리 작업" aria-live="polite">
     {filtered.map((job) => {
       const examJob = job.kind === 'bank_questions' || job.kind === 'bank_explanation'
       const excluded = job.result?.recovery_excluded === true
@@ -68,15 +67,31 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedT
       const storageError = typeof job.result?.storage_check_error === 'string' ? job.result.storage_check_error : null
       const skipped = examJob ? null : job.result?.skipped_questions ?? job.result?.skipped_pages
       const exclusions = Array.isArray(job.result?.excluded_questions) ? job.result.excluded_questions as ExamImportExclusion[] : []
-      return <div key={job.id} className="flex flex-wrap items-start justify-between gap-3 border-t py-3 text-sm">
-        <div>
+      const bookHeld = job.kind === 'bank_book' && (job.status === 'failed'
+        || (job.status === 'succeeded' && (bookIssues.length > 0 || job.result?.verification_unresolved === true)))
+      const state = excluded ? '등록 완료' : pilotWaiting ? '전체 처리 승인 대기' : bookHeld ? '등록 보류' : issues.length ? '문항 처리 미완료'
+        : storageError ? '저장 대조 확인 필요' : job.status === 'waiting_batch' ? '응답 대기' : job.status === 'queued' ? '접수 완료'
+          : job.status === 'succeeded' ? job.result?.needs_review ? '검토 초안 생성 완료' : '등록 완료' : job.status === 'failed' ? '처리 실패' : '처리 중'
+      const failed = !excluded && !pilotWaiting && (bookHeld || issues.length > 0 || !!storageError || job.status === 'failed')
+      return <article key={job.id} className="py-3 text-sm">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
           <p className="font-medium break-words">{job.display_title || labels[job.kind]}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{excluded ? '등록 완료' : pilotWaiting ? '확인 대기' : issues.length ? '문항 처리 미완료' : storageError ? '저장 대조 확인 필요' : job.status === 'waiting_batch' ? '응답 대기' : job.status === 'queued' ? '접수 완료' : job.status === 'succeeded' ? job.result?.needs_review ? '검토 초안 생성 완료' : '등록 완료' : job.status === 'failed' ? '등록 보류·처리 실패' : '처리 중'} · {job.stage}</p>
-          {job.progress && job.progress.total > 0 && <p className="text-sm text-muted-foreground">처리 완료 {job.progress.completed}/{job.progress.total}지문 · 전체 {job.progress.questions}문항</p>}
-          {job.updated_at && <p className="mt-1 text-xs text-muted-foreground">마지막 처리 {new Date(job.updated_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>}
-          {job.status === 'waiting_batch' && job.resume_after && <p className="text-xs text-muted-foreground">다음 상태 확인 {new Date(job.resume_after).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</p>}
-          {job.status === 'waiting_batch' && <p className="text-muted-foreground">이 화면을 닫아도 계속 처리되며, 배치 완료 후 자동으로 이어집니다.</p>}
-          {job.error && <p className="mt-1 text-destructive">{job.error}</p>}
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span className={`rounded-md px-2 py-1 font-semibold ${failed ? 'bg-destructive/10 text-destructive' : 'bg-muted text-foreground'}`}>{state}</span>
+            {job.progress && job.progress.total > 0 && (state === '등록 완료' ? <span>{job.progress.questions}문항</span> : <span>{job.progress.completed}/{job.progress.total}지문 처리</span>)}
+            {bookIssues.length > 0 && !excluded && <span>{bookIssues.length}지문 확인 필요</span>}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {job.kind === 'bank_book' && onOpenBook && <Button size="sm" variant="outline" className="min-h-11" onClick={() => onOpenBook(job.target_id)}>처리 상세</Button>}
+          {excluded && onOpenMaterial && typeof job.result?.registered_bank_id === 'string' && <Button size="sm" variant="outline" className="min-h-11" onClick={() => onOpenMaterial(job.result!.registered_bank_id as string)}>등록된 자료 보기</Button>}
+          {(job.status === 'succeeded' || issues.length > 0) && job.kind !== 'bank_book' && onOpenMaterial && <Button size="sm" variant="outline" className="min-h-11" onClick={() => onOpenMaterial(String(job.result?.exam_id ?? job.target_id))}>{issues.length ? '저장된 자료 보기' : '자료 보기'}</Button>}
+          {job.can_retry && <Button size="sm" variant="outline" className="min-h-11" disabled={retrying !== null} onClick={() => void retry(job.id)}>{retrying === job.id ? '요청 중' : job.result?.pilot_review_approved === true ? '전체 처리 재개' : '재실행'}</Button>}
+          {job.can_resume_failed && job.updated_at && <Button size="sm" variant="outline" className="min-h-11" disabled={retrying !== null} onClick={() => void resumeFailed(job)}>보류 {bookIssues.length}지문만 재개</Button>}
+        </div></div>
+        {!excluded && <div className="space-y-1">
+          {job.error && !bookIssues.length && <p className="mt-2 text-destructive">{job.error}</p>}
           {bookIssues.length > 0 && <details className="mt-2 text-destructive"><summary>보류 {bookIssues.length}지문 · 실패 구간과 사유</summary>
             <ul className="mt-1 space-y-1" aria-label="교재 보류 구간과 사유">{bookIssues.map(u => <li key={u.unit_key}>
               {u.labels.join(' · ')} — {{ preparation: 'PDF 준비', mapping: '문항 연결', audit: '원본 대조', enrichment: '풀이·어휘 보완' }[u.stage]}: {u.reasons.join(' / ')}
@@ -84,7 +99,7 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedT
             <p className="mt-1 text-muted-foreground">성공한 단계는 보존했습니다. 원인을 수정한 뒤 보류 구간만 재개할 수 있으며, 새 AI 요청에는 비용이 발생할 수 있습니다.</p>
           </details>}
           {storageError && storageError !== job.error && <p className="mt-1 text-destructive">{storageError}</p>}
-          {job.status === 'succeeded' && !issues.length && !storageError && <p className="text-muted-foreground">{job.kind === 'bank_book' ? job.result?.auto_published ? '자동 검증을 통과해 문제은행과 단어장에 등록했습니다.' : '자동 복구 후에도 확정하지 못한 항목이 있어 등록을 보류했습니다. 처리 결과에 사유를 남겼습니다.' : job.result?.needs_review ? '검토 초안을 만들었습니다. 아래에서 원문 정답을 확인하고 확정해 주세요. 기존 정답과 학생 답안은 변경하지 않았습니다.' : '완료됐습니다. 자료 목록에 반영했습니다.'}</p>}
+          {job.status === 'succeeded' && job.result?.needs_review === true && !issues.length && !storageError && <p className="text-muted-foreground">원문 정답을 확인하고 확정해 주세요. 기존 정답과 학생 답안은 변경하지 않았습니다.</p>}
           {issues.length > 0 && <div className="mt-2" role="alert">
             <p className="text-destructive">저장되지 않았거나 처리가 끝나지 않은 문항 {new Set(issues.map((issue) => issue.question_number)).size}개가 있습니다.</p>
             <ul className="mt-1 space-y-1 text-destructive" aria-label="미완료 문항과 사유">
@@ -97,17 +112,15 @@ export function PdfImportJobList({ weekId, onOpenBook, onOpenMaterial, excludedT
           {Array.isArray(skipped) && skipped.length > 0 && <p className="text-destructive">인식하지 못한 문항: {skipped.join(', ')}번</p>}
           {Number(job.result?.answers_deleted) > 0 && <p className="text-destructive">기존 학생 답안 {Number(job.result?.answers_deleted)}개가 삭제됐습니다. 해당 문항을 확인해주세요.</p>}
           {!!job.result?.subjective_grading_failed && <p className="text-destructive">서술형 재채점 결과를 확인해주세요.</p>}
-          {pilotWaiting && <PilotReview jobId={job.id} />}
+          {pilotWaiting && !onOpenBook && <PilotReview jobId={job.id} />}
           {Array.isArray(job.result?.known_source_holds) && <ul className="mt-2 text-muted-foreground">{(job.result.known_source_holds as { label: string; reason: string }[]).map(hold => <li key={hold.label}>{hold.label}: {hold.reason}</li>)}</ul>}
-        </div>
-        <div className="flex flex-wrap gap-2">
-        {job.kind === 'bank_book' && onOpenBook && <Button size="sm" variant="outline" className="min-h-11" onClick={() => onOpenBook(job.target_id)}>처리 상세</Button>}
-        {excluded && onOpenMaterial && typeof job.result?.registered_bank_id === 'string' && <Button size="sm" variant="outline" className="min-h-11" onClick={() => onOpenMaterial(job.result!.registered_bank_id as string)}>등록된 자료 보기</Button>}
-        {(job.status === 'succeeded' || issues.length > 0) && job.kind !== 'bank_book' && onOpenMaterial && <Button size="sm" variant="outline" className="min-h-11" onClick={() => onOpenMaterial(String(job.result?.exam_id ?? job.target_id))}>{issues.length ? '저장된 자료 보기' : '자료 보기'}</Button>}
-        {job.can_retry && <Button size="sm" variant="outline" disabled={retrying !== null} onClick={() => void retry(job.id)}>{retrying === job.id ? '요청 중' : job.result?.pilot_review_approved === true ? '전체 처리 재개' : '재실행'}</Button>}
-        {job.can_resume_failed && job.updated_at && <Button size="sm" variant="outline" disabled={retrying !== null} onClick={() => void resumeFailed(job)}>보류 {bookIssues.length}지문만 재개</Button>}
-        </div>
-      </div>
+        </div>}
+        {(job.stage || job.updated_at || job.resume_after) && <details className="text-xs text-muted-foreground"><summary className="min-h-11 cursor-pointer py-3">작업 기록</summary>
+          {job.stage && <p>{job.stage}</p>}
+          {job.updated_at && <p>마지막 처리 {new Date(job.updated_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>}
+          {job.status === 'waiting_batch' && job.resume_after && <p>다음 확인 {new Date(job.resume_after).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</p>}
+        </details>}
+      </article>
     })}
   </div>
 }

@@ -57,7 +57,7 @@ export async function prepareBookProfiles(bytes: Uint8Array, manifest: BookManif
     sources.set(unit.key, source)
   })))
   const eligible = manifest.units.filter(u => !sources.get(u.key)?.sourceHold)
-  if (!eligible.length) throw new PdfBatchStopped('원문 선지 번호를 확인해야 하는 문항만 있어 AI 요청 전에 보류했습니다.')
+  if (!eligible.length) return { sources, plan: null }
   const ambiguous = eligible.filter(u => !sources.get(u.key)?.mapping)
   if (ambiguous.length > Math.max(3, Math.ceil(manifest.units.length * .25))) throw new PdfBatchStopped(`형식별 코드 연결을 확정하지 못한 지문이 ${ambiguous.length}/${manifest.units.length}개입니다. 범용 AI 전체 전환 없이 보류했습니다.`)
   const pilotKeys = bookPilotKeys(eligible, sources, pdfHash)

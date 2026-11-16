@@ -20,9 +20,13 @@ export default function ExamBankPage() {
 function BankContents() {
   const router = useRouter(), pathname = usePathname(), params = useSearchParams()
   const tab = bankTab(params.get('tab')), jobs = usePdfImportJobs(), active = (jobs.data ?? []).filter(isActiveImport).length
-  function navigate(next: BankTab, key?: 'document' | 'material', id?: string) {
+  function navigate(next: BankTab, key?: 'document' | 'material', id?: string, showHistory = false) {
     const search = new URLSearchParams(window.location.search)
     search.set('tab', next)
+    if (next === 'import' && key !== 'document') search.delete('document')
+    if (next === 'import' && (showHistory || !key)) search.delete('material')
+    if (showHistory) search.set('view', 'history')
+    else search.delete('view')
     if (key && id) search.set(key, id)
     router.replace(`${pathname}?${search.toString()}`, { scroll: false })
   }
@@ -37,7 +41,7 @@ function BankContents() {
             자료 등록
           </Button>}
       </div>
-      {active > 0 && tab !== 'import' && <button onClick={() => navigate('import')} className="w-full rounded-xl bg-muted p-3 text-left text-sm">자료 {active}건 처리 중 · 등록·처리에서 확인</button>}
+      {active > 0 && tab !== 'import' && <button onClick={() => navigate('import', undefined, undefined, true)} className="w-full rounded-xl bg-muted p-3 text-left text-sm">자료 {active}건 처리 중 · 등록·처리에서 확인</button>}
       <Tabs value={tab} onValueChange={(value) => navigate(value as BankTab)}>
         <TabsList className="grid h-auto min-h-[52px] w-full grid-cols-4 sm:inline-flex sm:w-auto">
           <TabsTrigger className="min-h-11 min-w-0 px-2 text-xs sm:px-3 sm:text-sm" value="search">문제 검색</TabsTrigger>
@@ -57,7 +61,7 @@ function BankContents() {
         <TabsContent value="vocab" className="mt-4">
           <VocabCollections />
         </TabsContent>
-        <TabsContent value="import" className="mt-4"><RegistrationPanel documentId={params.get('document')} materialId={params.get('material')} onOpenBook={openBook} onOpenMaterial={(id) => navigate('list', 'material', id)} /></TabsContent>
+        <TabsContent value="import" className="mt-4"><RegistrationPanel documentId={params.get('document')} materialId={params.get('material')} showHistory={params.get('view') === 'history'} onOpenBook={openBook} onOpenMaterial={(id) => navigate('list', 'material', id)} /></TabsContent>
       </Tabs>
 
     </div>

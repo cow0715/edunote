@@ -9,13 +9,19 @@ import { NATIVE_RECOVERY_REVISION } from '@/lib/book-pdf/recovery-policy'
 import { BookBatchPending } from '@/lib/book-pdf/batch-policy'
 import { getPdfWorkerContext, withPdfWorkerContext } from '@/lib/pdf-import/context'
 import { BOOK_FAILURE_POLICY } from '@/lib/book-pdf/failure-policy'
-const mocks = vi.hoisted(() => ({ verify: vi.fn(), warm: vi.fn(), read: vi.fn(), slice: vi.fn(), inventory: vi.fn(), publish: vi.fn(),prepare:vi.fn(),plan:vi.fn() }))
+import { BOOK_PDFIUM_SOURCE } from '@/lib/book-pdf/source-mode'
+import { printedChoiceFixture } from '../fixtures/book-printed-choices'
+const mocks = vi.hoisted(() => ({ verify: vi.fn(), warm: vi.fn(), read: vi.fn(), slice: vi.fn(), inventory: vi.fn(), publish: vi.fn(),prepare:vi.fn(),plan:vi.fn(),pdfium:vi.fn(),audit:vi.fn(),render:vi.fn(),enrich:vi.fn() }))
 vi.mock('@/lib/book-pdf/pdf', () => ({ readBookPages: mocks.read, bookPageSlice: mocks.slice }))
 vi.mock('@/lib/book-pdf/inventory', () => ({ inventoryBook: mocks.inventory }))
 vi.mock('@/lib/llm/ranged', () => ({ prewarmPdfCache: mocks.warm }))
 vi.mock('@/lib/book-pdf/native-pipeline', () => ({ processNativeBookUnit: mocks.verify }))
 vi.mock('@/lib/book-pdf/publish', () => ({ publishVerifiedBook: mocks.publish }))
 vi.mock('@/lib/book-pdf/profile-preflight',()=>({prepareBookProfiles:mocks.prepare,saveBookProfilePlan:mocks.plan}))
+vi.mock('@/lib/book-pdf/pdfium-source', () => ({ readPdfiumSource: mocks.pdfium }))
+vi.mock('@/lib/book-pdf/audit-source', () => ({ auditAndRepairSource: mocks.audit }))
+vi.mock('@/lib/book-pdf/render-source', () => ({ renderBookSourceImages: mocks.render }))
+vi.mock('@/lib/llm/material-enrichment', () => ({ enrichVerifiedMaterialDetailed: mocks.enrich }))
 import { importBookPdf } from '@/lib/book-pdf/worker'
 function database(status = 'processing', completed = false, leaseLost = false) {
   const doc = { ...document(), status }, rows: BookDraftUnit[] = completed ? [draft()] : []
@@ -51,6 +57,40 @@ beforeEach(() => {
   mocks.publish.mockResolvedValue('bank')
 })
 describe('automatic textbook worker', () => {
+  it.each([false, true])('stages source-number results through the actual native upload worker (ambiguous=%s)', async ambiguous => {
+    const db = database()
+    const { pages, unit, answer } = printedChoiceFixture(true)
+    unit.key = 'unit-1'
+    if (ambiguous) pages[0].lines.find(line => line.text === '[해설]')!.text = '[근거 없음]'
+    mocks.inventory.mockReturnValue({ ...manifest, units: [unit], question_count: 1 })
+    const native = await vi.importActual<typeof import('@/lib/book-pdf/native-pipeline')>('@/lib/book-pdf/native-pipeline')
+    const preflight = await vi.importActual<typeof import('@/lib/book-pdf/profile-preflight')>('@/lib/book-pdf/profile-preflight')
+    mocks.verify.mockImplementation(native.processNativeBookUnit)
+    mocks.prepare.mockImplementation(preflight.prepareBookProfiles)
+    mocks.pdfium.mockResolvedValue(pages)
+    // Isolate the paid boundaries. A real unit proof and the corrected extraction still go through worker staging.
+    const f = nativeFixture()
+    mocks.plan.mockResolvedValue({ phase: 'bulk', pilot_keys: [unit.key] })
+    mocks.render.mockResolvedValue([{ ...f.images[0], page: unit.pages[0] }])
+    mocks.audit.mockImplementation(async ({ draft, mapping }) => ({ status: 'audited', groups: draft, mapping, audits: [{ status: 'pass' }], errors: [] }))
+    mocks.enrich.mockResolvedValue({ model: f.enrichment.model, supplement: { questions: [{ ...f.enrichment.questions[0], key: unit.questions[0].key }] } })
+    const result = await importBookPdf(db.client, { ...job, payload: { bookProfile: 'jugis-two-column-v1', bookSource: BOOK_PDFIUM_SOURCE } }, pdfBytes)
+    if (ambiguous) {
+      expect(result).toMatchObject({ auto_published: false, verification_unresolved: true, book_failures: [{ unit_key: unit.key,
+        labels: [unit.questions[0].label], reasons: [expect.stringContaining('원문 선지 번호가 중복')] }] })
+      expect(db.rows[0].verification.models).toEqual([])
+      expect(mocks.plan).not.toHaveBeenCalled()
+      expect(mocks.audit).not.toHaveBeenCalled()
+      expect(mocks.enrich).not.toHaveBeenCalled()
+      expect(mocks.publish).not.toHaveBeenCalled()
+    } else {
+      expect(result).toMatchObject({ auto_published: true, exam_id: 'bank' })
+      expect(db.rows[0].verification.printed_choice_correction).toMatchObject({ from: '③', to: '④', answer })
+      expect(db.rows[0].extraction?.questions[0].answer).toBe(answer)
+      expect(db.rows[0].extraction?.questions[0].solution).toContain('secure를 insecure로')
+      expect(mocks.publish).toHaveBeenCalledOnce()
+    }
+  })
   it('resumes only explicitly selected failed units and leaves successful and unselected units untouched', async () => {
     const db = database('processing', true), second = { ...manifest.units[0], key: 'unit-2', order: 2 }, third = { ...manifest.units[0], key: 'unit-3', order: 3 }
     const failed = (unit: typeof second): BookDraftUnit => ({ ...draft(), unit_key: unit.key, manifest: unit, verified_version: null,
@@ -80,6 +120,26 @@ describe('automatic textbook worker', () => {
     expect(result).toMatchObject({pilot_review_required:true,pilot_review_approved:false,auto_published:false})
     expect(mocks.verify).toHaveBeenCalledOnce();expect(mocks.verify.mock.calls[0][0].unit.key).toBe(manifest.units[0].key)
     expect(mocks.publish).not.toHaveBeenCalled()
+  })
+  it('records a deterministic hold outside the pilot window without treating it as a failed representative', async () => {
+    const db = database(), rpc = db.client.rpc.bind(db.client), originalUnit = manifest.units[0]
+    const { unit: held, pages } = printedChoiceFixture(true)
+    held.key = 'unit-2'; held.order = 2
+    pages[0].lines.find(line => line.text === '[해설]')!.text = '[근거 없음]'
+    const reason = '원문 선지 번호가 중복되어 보류합니다.'
+    mocks.inventory.mockReturnValue({ ...manifest, units: [originalUnit, held], question_count: 2 })
+    mocks.prepare.mockResolvedValue({ sources: new Map([[held.key, { pages, mapping: null, reasons: [reason], sourceHold: reason }]]), plan: {} })
+    mocks.plan.mockResolvedValue({ phase: 'pilot', pilot_keys: [originalUnit.key] })
+    const native = await vi.importActual<typeof import('@/lib/book-pdf/native-pipeline')>('@/lib/book-pdf/native-pipeline')
+    const original = mocks.verify.getMockImplementation()!
+    mocks.verify.mockImplementation(input => input.unit.key === held.key ? native.processNativeBookUnit(input) : original(input))
+    db.client.rpc = vi.fn(async (name, args) => name === 'book_pdf_profile_pause' ? { data: { ready: true, review: {} }, error: null } : rpc(name, args)) as unknown as typeof db.client.rpc
+    const result = await importBookPdf(db.client, { ...job, payload: { bookProfile: 'jugis-two-column-v1', bookSource: BOOK_PDFIUM_SOURCE } }, pdfBytes)
+    expect(result).toMatchObject({ pilot_review_required: true, auto_published: false, book_failures: [{ unit_key: held.key, reasons: [reason] }] })
+    expect(db.rows[0].verification.status).toBe('passed')
+    expect(db.rows[1].verification.status).toBe('unresolved')
+    expect(mocks.publish).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
   })
   it('excludes an already registered volume before reading or mutating anything',async()=>{
     const db=database()

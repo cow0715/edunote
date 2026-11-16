@@ -45,7 +45,7 @@ describe('free whole-file preflight and pinned source snapshots',()=>{
  })
  it('reuses immutable native snapshots and a stable plan on restart',async()=>{
    const f=fixture(),run=()=>withPdfWorkerContext(f.context,()=>prepareBookProfiles(new Uint8Array(),f.manifest,'a'.repeat(64)))
-   const first=await run();expect(first.plan.pilot_keys).toHaveLength(6);expect(m.slice).toHaveBeenCalledTimes(10)
+   const first=await run();expect(first.plan?.pilot_keys).toHaveLength(6);expect(m.slice).toHaveBeenCalledTimes(10)
    for(const [key,value] of f.saved)f.saved.set(key,JSON.parse(JSON.stringify(value)))
    m.slice.mockClear();m.read.mockClear();const second=await run()
    expect(second.plan).toEqual(first.plan);expect(m.slice).not.toHaveBeenCalled();expect(m.read).not.toHaveBeenCalled()

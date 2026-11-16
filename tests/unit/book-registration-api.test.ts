@@ -6,6 +6,7 @@ vi.mock('@/lib/supabase/service',()=>({createServiceClient:m.service}))
 vi.mock('@/lib/pdf-import/server',()=>({registerPdfImport:m.register}))
 vi.mock('@/app/api/book-pdf/bundles/route',()=>({POST:m.bundle}))
 import {POST} from '@/app/api/book-pdf/route'
+import { BOOK_PDFIUM_SOURCE } from '@/lib/book-pdf/source-mode'
 const valid={bookCode:'suteuk_english',academicYear:2027,volume:'upper',fileName:'수능특강 영어(상).pdf',storagePath:'user/source.pdf'}
 const request=(patch:Record<string,unknown>={})=>new Request('https://app/api/book-pdf',{method:'POST',body:JSON.stringify({...valid,...patch})})
 beforeEach(()=>{
@@ -35,7 +36,7 @@ describe('structured textbook registration',()=>{
   it('hashes the actual owned PDF and uses the verified Batch worker',async()=>{
     expect((await POST(request())).status).toBe(202)
     expect(m.rpc).toHaveBeenCalledWith('book_pdf_reserve',expect.objectContaining({p_hash:createHash('sha256').update('%PDF-fixture').digest('hex'),p_code:'suteuk_english',p_year:2027,p_volume:'upper'}))
-    expect(m.register).toHaveBeenCalledWith(expect.objectContaining({kind:'bank_book',payload:expect.objectContaining({bookProcessing:'batch-v1'})}))
+    expect(m.register).toHaveBeenCalledWith(expect.objectContaining({kind:'bank_book',payload:expect.objectContaining({bookProcessing:'batch-v1',bookSource:BOOK_PDFIUM_SOURCE})}))
   })
   it('opens the published book without creating another job or reparsing',async()=>{
     m.rpc.mockResolvedValue({data:{id:'old',status:'published',exam_bank_id:'bank',reused:true},error:null})
