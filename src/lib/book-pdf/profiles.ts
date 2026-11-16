@@ -1,7 +1,7 @@
 import { findBookSourceLabels } from './source-label'
 import { resolveSourceMap, type SourceLine, type SourceMap, type SourcePage, type SourceRef } from './source-map'
 import type { BookUnitManifest } from './types'
-import { BOOK_PDFIUM_SOURCE, type BookSourceMode } from './source-mode'
+import { hasBookLayoutEvidence, type BookSourceMode } from './source-mode'
 import { findBookInsertionParts } from './profile-layout'
 
 export const BOOK_PROFILE_VERSION = 'jugis-two-column-v1'
@@ -41,7 +41,7 @@ export function profileQuestionType(stem: string, shared: boolean, enhanced = fa
  * pass the same independent ownership check as an AI-produced mapping. */
 export function mapBookProfile(pages: SourcePage[], unit: BookUnitManifest, sourceMode?: BookSourceMode): { mapping: SourceMap | null; reasons: string[]; profile: BookProfile | null } {
   const profile = bookUnitProfile(unit), reasons: string[] = []
-  const enhanced = sourceMode === BOOK_PDFIUM_SOURCE
+  const enhanced = hasBookLayoutEvidence(sourceMode)
   const finish = (mapping: SourceMap | null, errors: string[] = reasons) => ({ profile, mapping, reasons: errors })
   if (!profile || unit.visual_required) return finish(null, ['profile_requires_targeted_mapping'])
   const q = unit.questions.map(ref => ({ id: ref.key, label: [] as SourceRef[], type: 'other', stem: [] as SourceRef[],

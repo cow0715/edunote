@@ -5,8 +5,10 @@ import { getPdfWorkerContext, reportPdfStage } from '../pdf-import/context'
 import { auditAndRepairSource } from './audit-source'
 import { readLayoutSource } from './layout-source'
 import { readPdfiumSource } from './pdfium-source'
-import { BOOK_PDFIUM_SOURCE, type BookSourceMode } from './source-mode'
+import { BOOK_PDFIUM_BOX_SOURCE, BOOK_PDFIUM_SOURCE, type BookSourceMode } from './source-mode'
 import { bookPrintedChoiceIssue } from './profile-layout'
+import { checkBookPrintedChoices } from './printed-choice-repair'
+import { applyBookChoiceRepair } from './printed-choice-source'
 import { mapBookSource } from './map-source'
 import { bindBookMapping, nativeBookExtraction, validateNativeBookUnit } from './native-unit'
 import { normalizeAuditedBookLayout } from './inline-source-breaks'
@@ -132,13 +134,15 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
     if (sourceMode && pages.some(page => page.issues.some(issue => issue.endsWith(':insufficient_native_text_requires_ocr')))) {
       return unresolved(['원문 텍스트가 부족해 OCR이 필요합니다.'], 'preparation')
     }
-    if (sourceMode === BOOK_PDFIUM_SOURCE) {
-      const sourceHold = input.prepared?.sourceHold ?? bookPrintedChoiceIssue(pages, unit)
-      if (sourceHold) {
-        base.models = []
-        return unresolved([sourceHold], 'preparation')
-      }
+    const choiceCheck = sourceMode === BOOK_PDFIUM_SOURCE ? checkBookPrintedChoices(pages, unit) : null
+    const sourceHold = input.prepared?.sourceHold ?? (choiceCheck?.status === 'hold' ? choiceCheck.reason
+      : sourceMode === BOOK_PDFIUM_BOX_SOURCE ? bookPrintedChoiceIssue(pages, unit) : null)
+    if (sourceHold) {
+      base.models = []
+      return unresolved([sourceHold], 'preparation')
     }
+    const repair = choiceCheck?.status === 'repair' ? choiceCheck.repair : undefined
+    const correctedPages = repair ? applyBookChoiceRepair(pages, repair) : pages
     const pdf = Buffer.from(input.bytes).toString('base64')
     const targets = unit.questions.map(({ key, label }) => ({ key, label }))
     type MappingProgress = { nativeHash: string; attempt: number; attemptId?: string; previous?: unknown; errors: string[]; mapping: unknown; model?: string | null }
@@ -157,7 +161,9 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
     const mappingAttempt = context?.bookResume?.stage === 'mapping' ? context.bookResume.id : undefined
     if (mappingAttempt && savedMapping?.attemptId !== mappingAttempt && !savedMapping?.mapping) savedMapping = null
     let previous: unknown = savedMapping?.previous, errors: string[] = savedMapping?.errors ?? [], mapping: ReturnType<typeof sourceMapSchema.parse> | null = null
-    if (savedMapping?.mapping) {
+    if (choiceCheck?.status === 'repair') {
+      mapping = bindBookMapping(unit, choiceCheck.mapping)
+    } else if (savedMapping?.mapping) {
       mapping = bindBookMapping(unit, sourceMapSchema.parse(savedMapping.mapping))
       if (resolveSourceMap(pages, mapping).errors.some(e => !pages.flatMap(p => p.issues).includes(e))) throw new PdfBatchStopped('저장된 문항 연결이 유효하지 않아 새 요청을 중지했습니다.')
       if (savedMapping.model) base.models = [...new Set([...base.models, savedMapping.model])]
@@ -198,12 +204,20 @@ export async function processNativeBookUnit(input: { unit: BookUnitManifest; pdf
     await reportPdfStage(`${unit.questions[0].label}: 원본 이미지 대조 중 · 불일치 시 보류`)
     try {
       await reportBookUnitProgress(scope, questionKeys, 'audit', 'waiting')
-      const result = await auditAndRepairSource({ pages, images, mapping, draft: initial, checkpoint: scope, failureMode: 'hold' })
+      const result = await auditAndRepairSource({ pages, images, mapping, draft: initial, checkpoint: scope, failureMode: 'hold',
+        ...(repair ? { printedChoiceRepair: repair } : {}) })
       base.attempts = result.audits.length
       base.models = [...new Set([...base.models, ...(result.models ?? [])])]
       if (result.groups.length === 1) extraction = nativeBookExtraction(unit, result.groups[0].extraction)
       if (result.status !== 'audited' || !extraction) return unresolved(result.errors.length ? result.errors : ['원본 이미지 검증을 통과하지 못했습니다.'], 'audit')
-      if (result.mapping.groups.length === 1) extraction = normalizeAuditedBookLayout(extraction, pages, result.mapping.groups[0])
+      if (repair) {
+        if (bookFingerprint(result.mapping) !== bookFingerprint(mapping) || bookFingerprint(result.groups) !== bookFingerprint(initial)) {
+          return unresolved(['원문 검수 결과가 선지 번호 교정의 근거와 일치하지 않습니다.'], 'audit')
+        }
+        extraction = nativeBookExtraction(unit, resolveSourceMap(correctedPages, mapping).groups[0].extraction)
+        base.printed_choice_correction = repair
+      }
+      if (result.mapping.groups.length === 1) extraction = normalizeAuditedBookLayout(extraction, correctedPages, result.mapping.groups[0])
       const validation = validateNativeBookUnit(unit, extraction)
       if (validation.errors.length) return unresolved(validation.errors, 'audit')
       const extractionHash = bookFingerprint(extraction)

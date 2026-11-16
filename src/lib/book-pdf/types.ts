@@ -31,6 +31,7 @@ export type BookVerification = {
   failure?: import('./failure-policy').BookFailure;
   source_revision?: string;
   local_correction?: { revision: string; base_hash: string; replayed: boolean };
+  printed_choice_correction?: import('./printed-choice-source').BookChoiceRepair;
   source_regions?: import('./visual-regions').BookVisualRegion[]
   protocol: 1 | 2; status: 'pending' | 'passed' | 'unresolved'; attempts: number; models: string[]; issues: string[];
   source_hash: string; pdf_hash: string; extraction_hash: string | null; checks: BookBlindCheck['checks'] | null

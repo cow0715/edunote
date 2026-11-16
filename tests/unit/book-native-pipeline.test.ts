@@ -20,6 +20,7 @@ import { writeBookUnitStage } from '@/lib/book-pdf/unit-progress'
 import { SourceOutputIncompleteError } from '@/lib/book-pdf/source-output-policy'
 import type { LlmDetailedResult } from '@/lib/llm/types'
 import { BOOK_PDFIUM_SOURCE } from '@/lib/book-pdf/source-mode'
+import { printedChoiceFixture } from '../fixtures/book-printed-choices'
 let fixture = nativeFixture()
 const input = () => ({ unit: fixture.unit, pdfHash, bytes: pdfBytes })
 beforeEach(() => {
@@ -48,6 +49,30 @@ describe('native textbook worker pipeline', () => {
     expect(result.verification).toMatchObject({ status: 'unresolved', issues: ['원문 선지 번호 중복'], models: [] })
     expect(mocks.map).not.toHaveBeenCalled()
     expect(mocks.audit).not.toHaveBeenCalled()
+  })
+  it.each([false, true])('audits the printed glyph and saves the code correction only after a pass (inline=%s)', async inline => {
+    const { pages, unit, sequence, answer } = printedChoiceFixture(inline)
+    const result = await processNativeBookUnit({ ...input(), unit, sourceMode: BOOK_PDFIUM_SOURCE,
+      prepared: { pages, mapping: null, reasons: [] } })
+    expect(mocks.map).not.toHaveBeenCalled()
+    const call = mocks.audit.mock.calls[0][0]
+    const original = call.draft[0].extraction
+    const text = inline ? original.passage : original.questions[0].choices.join(' ')
+    expect(text.match(/[①②③④⑤]/gu).join('')).toBe(sequence)
+    expect(call.pages).toEqual(pages)
+    expect(result.verification).toMatchObject({ status: 'passed', printed_choice_correction: { from: '③', to: inline ? '④' : '②', answer } })
+    expect(result.extraction?.questions[0].answer).toBe(answer)
+    expect(result.extraction?.questions[0].solution.replace(/\s+/gu, '')).toBe(original.questions[0].solution.replace(/\s+/gu, ''))
+  })
+  it('holds conflicting duplicate-number evidence before all model stages', async () => {
+    const { pages, unit } = printedChoiceFixture(true)
+    unit.questions[0].printed_answer = 3
+    const result = await processNativeBookUnit({ ...input(), unit, sourceMode: BOOK_PDFIUM_SOURCE,
+      prepared: { pages, mapping: null, reasons: [] } })
+    expect(result.verification).toMatchObject({ status: 'unresolved', models: [] })
+    expect(mocks.map).not.toHaveBeenCalled()
+    expect(mocks.audit).not.toHaveBeenCalled()
+    expect(mocks.enrich).not.toHaveBeenCalled()
   })
   it('reports the actual output ceiling and blocks enrichment/publication for a truncated image comparison', async () => {
     const error = new SourceOutputIncompleteError('audit', 6000, { stopReason: 'max_tokens', finishReason: 'length' } as LlmDetailedResult)

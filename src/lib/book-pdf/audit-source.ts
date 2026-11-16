@@ -1,5 +1,6 @@
 import { buildFileBlock, callLlmTextDetailed, parseJsonObjectResponse, type ContentBlock } from '../llm/client'
 import { resolveSourceMap, sourceMapEvidence, type SourceMap, type SourcePage } from './source-map'
+import { applyBookChoiceRepair } from './printed-choice-source'
 import { applySelectiveSourceRepair, normalizeSourceAuditEnvelope, parseSourceRepairResponse, sourceAuditErrors, sourceAuditEvidence, parseSourceAuditResponse, sourceDraftHash, sourceRepairPages, type SourceAudit, type SourceDraft } from './source-audit-state'
 import { readCachedBookCall } from './checkpoints'
 import { LEGACY_LAYOUT_SOURCE_AUDIT_PROMPT, LEGACY_LAYOUT_SOURCE_REPAIR_PROMPT } from './legacy-prompts'
@@ -128,6 +129,7 @@ async function imageCall(images: SourceAuditImage[], kind: 'audit' | 'repair', r
 /** Fresh image comparison after each bounded repair. The worker binds the
  * returned audit to source/image hashes before publication. */
 export async function auditAndRepairSource(input: { pages: SourcePage[]; images: SourceAuditImage[]; mapping: SourceMap; draft: SourceDraft;
+  printedChoiceRepair?: import('./printed-choice-source').BookChoiceRepair;
   failureMode?: 'hold';
   checkpoint?: BookUnitScope;
   resume?: { audit: SourceAudit; draftHash: string; repairsAlreadyUsed: number } }) {
@@ -137,8 +139,10 @@ export async function auditAndRepairSource(input: { pages: SourcePage[]; images:
   const errors: string[] = [], images = new Map(input.images.map((i) => [i.page, i]))
   if (!input.pages.length || input.pages.length > 4 || input.pages.some((p) => !images.has(p.page))) throw Error('Audit needs original images for a bounded page window')
   const nativeWarnings = new Set(input.pages.flatMap((p) => p.issues))
-  const structuralErrors = resolveSourceMap(input.pages, mapping).errors.filter((e) => !nativeWarnings.has(e))
-  const binding = bookFingerprint({ pages: input.pages, images: input.images.map(i => [i.page, i.sha256]), mapping, draft })
+  const structuralPages = input.printedChoiceRepair ? applyBookChoiceRepair(input.pages, input.printedChoiceRepair) : input.pages
+  const structuralErrors = resolveSourceMap(structuralPages, mapping).errors.filter((e) => !nativeWarnings.has(e))
+  const binding = bookFingerprint({ pages: input.pages, images: input.images.map(i => [i.page, i.sha256]), mapping, draft,
+    ...(input.printedChoiceRepair ? { printedChoiceRepair: input.printedChoiceRepair } : {}) })
   type PendingVerdict = { audit: SourceAudit; compact: boolean; proposedRepair?: unknown; recorded: boolean }
   type AuditProgress = { binding: string; mapping: SourceMap; draft: SourceDraft; audits: SourceAudit[]; ledger: typeof ledger;
     repairs: number; pending: PendingVerdict | null; finished: 'audited' | 'unresolved' | null; errors: string[]; models?: string[]; replayOnly?: boolean; manualAttempt?: string }

@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { z } from 'zod'
 import { atomizeSourceLines, buildSourceLines } from './layout-source'
 import type { SourcePage } from './source-map'
-import { BOOK_PDFIUM_SOURCE, type BookSourceMode } from './source-mode'
+import { hasBookLayoutEvidence, type BookSourceMode } from './source-mode'
 
 const pageSchema = z.object({
   width: z.number().positive(), height: z.number().positive(),
@@ -19,7 +19,7 @@ export async function readPdfiumSource(bytes: Uint8Array, originalPages: number[
   if (originalPages.length < 1 || originalPages.length > 4) throw Error('PDFium 원문 추출은 1~4쪽 묶음을 지원합니다.')
   const script = process.env.BOOK_PDFIUM_READER || resolve('scripts/book-pdf-pdfium.py')
   const stdout = await new Promise<string>((accept, reject) => {
-    const child = execFile(process.env.BOOK_PDFIUM_PYTHON || 'python3', mode === BOOK_PDFIUM_SOURCE ? [script, '--boxes'] : [script], {
+    const child = execFile(process.env.BOOK_PDFIUM_PYTHON || 'python3', hasBookLayoutEvidence(mode) ? [script, '--boxes'] : [script], {
       timeout: 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, signal,
     }, (error, output) => error ? reject(new Error('PDFium 원문 추출에 실패했습니다. 워커 설치와 PDF 상태를 확인해주세요.')) : accept(output))
     child.stdin?.on('error', reject)

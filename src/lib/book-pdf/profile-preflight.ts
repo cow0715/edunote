@@ -3,8 +3,9 @@ import { PdfBatchStopped, PdfBundleDeferred } from '../pdf-import/batch-policy'
 import { bookPageSlice } from './pdf'
 import { readLayoutSource } from './layout-source'
 import { readPdfiumSource } from './pdfium-source'
-import { BOOK_PDFIUM_SOURCE, type BookSourceMode } from './source-mode'
+import { BOOK_PDFIUM_BOX_SOURCE, BOOK_PDFIUM_SOURCE, type BookSourceMode } from './source-mode'
 import { bookPrintedChoiceIssue } from './profile-layout'
+import { checkBookPrintedChoices } from './printed-choice-repair'
 import { bookFingerprint, bookSourceFingerprint } from './proof'
 import { BOOK_PROFILE_VERSION, bookUnitProfile, mapBookProfile } from './profiles'
 import type { SourceMap, SourcePage } from './source-map'
@@ -42,8 +43,11 @@ export async function prepareBookProfiles(bytes: Uint8Array, manifest: BookManif
       const pdf = await bookPageSlice(bytes, unit.pages)
       const slice = new Uint8Array(Buffer.from(pdf, 'base64'))
       const pages = sourceMode ? await readPdfiumSource(slice, unit.pages, context?.signal, sourceMode) : await readLayoutSource(slice, unit.pages)
-      const sourceHold = sourceMode === BOOK_PDFIUM_SOURCE ? bookPrintedChoiceIssue(pages, unit) : null
+      const choiceCheck = sourceMode === BOOK_PDFIUM_SOURCE ? checkBookPrintedChoices(pages, unit) : null
+      const sourceHold = choiceCheck?.status === 'hold' ? choiceCheck.reason
+        : sourceMode === BOOK_PDFIUM_BOX_SOURCE ? bookPrintedChoiceIssue(pages, unit) : null
       if (sourceHold) source = { pages, mapping: null, reasons: [sourceHold], sourceHold }
+      else if (choiceCheck?.status === 'repair') source = { pages, mapping: choiceCheck.mapping, reasons: [] }
       else {
         const result = mapBookProfile(pages, unit, sourceMode)
         source = { pages, mapping: result.mapping, reasons: result.reasons }
