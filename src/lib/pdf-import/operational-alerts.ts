@@ -17,7 +17,7 @@ export async function reportFinalPdfFailure(
 ) {
   const area = pdfImportAlertArea(kind)
   if (!saved || status !== 'failed' || !area || process.env.PDF_WORKER_ALERT_ENV !== 'production' ||
-      !process.env.CLOUD_RUN_JOB || process.env.PDF_IMPORT_CACHE_ONLY === 'true') return
+      !process.env.CLOUD_RUN_JOB) return
 
   const areas = new Set(stages.length ? stages.map(stage =>
     stage === 'explanations' ? 'bank-explanation-upload' as const : 'bank-questions-upload' as const

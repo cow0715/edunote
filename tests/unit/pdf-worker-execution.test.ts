@@ -70,6 +70,23 @@ describe('single-job worker execution', () => {
     expect(sentry.flush).toHaveBeenCalledWith(2_000)
   })
 
+  it('reports a saved terminal exam failure in production cache-only mode', async () => {
+    vi.stubEnv('PDF_WORKER_ALERT_ENV', 'production')
+    vi.stubEnv('CLOUD_RUN_JOB', 'edunote-bank-pdf')
+    vi.stubEnv('PDF_IMPORT_CACHE_ONLY', 'true')
+    vi.stubEnv('SENTRY_DSN', 'configured')
+    mocks.run.mockResolvedValue({ exam_incomplete: true })
+
+    await main()
+
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'failed' }))
+    expect(sentry.captureMessage).toHaveBeenCalledExactlyOnceWith(
+      'EduNote bank-questions-upload: worker-incomplete',
+      expect.objectContaining({ tags: { edunote_area: 'bank-questions-upload', edunote_failure: 'worker-incomplete' } }),
+    )
+    expect(batchMock.submit).not.toHaveBeenCalled()
+  })
+
   it('does not report a terminal failure from a non-production worker', async () => {
     vi.stubEnv('PDF_WORKER_ALERT_ENV', 'preview')
     vi.stubEnv('CLOUD_RUN_JOB', 'edunote-bank-pdf')
