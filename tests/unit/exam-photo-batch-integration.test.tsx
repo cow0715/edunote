@@ -4,8 +4,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { ExamPhotoBatchDialog } from '@/components/grade/exam-photo-batch-dialog'
 import type { GradeRow } from '@/hooks/use-grade'
 import type { ExamQuestion } from '@/lib/types'
+import { PDFDocument } from 'pdf-lib'
 
-vi.mock('@/lib/image-compress', () => ({ compressImageForUpload: vi.fn(async () => ({ base64: 'YQ==', mimeType: 'image/jpeg' })) }))
+vi.mock('@/lib/image-compress', () => ({ compressImageForUpload: vi.fn(async () => ({
+  base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jT2QAAAAASUVORK5CYII=',
+  mimeType: 'image/png',
+})) }))
 vi.mock('@/components/grade/mobile-capture', () => ({
   MobileCapture: ({ active, onConfirm }: { active: boolean; onConfirm: (files: File[]) => Promise<void> }) => active ? (
     <button onClick={() => onConfirm([new File(['one'], 'one.jpg', { type: 'image/jpeg' }), new File(['two'], 'two.jpg', { type: 'image/jpeg' })])}>촬영한 두 장 확인 완료</button>
@@ -35,6 +39,48 @@ async function confirmAllExamStudents() {
 }
 
 describe('촬영 확인 → 기존 일괄 처리 연결', () => {
+  it('같은 판독 코드의 앞뒷장을 한 학생의 채점 작업과 PDF 한 건으로 연결한다', async () => {
+    let nextPage = 2
+    const photoPath = 'week/a/job'
+    const onFinalize = vi.fn(async () => {})
+    const prepareOcr = vi.fn(() => { throw new Error('stop before grading in this test') })
+    request.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      const body = JSON.parse(String(init.body ?? '{}'))
+      if (url.endsWith('vocab-photo-name')) {
+        expect(body.kind).toBe('reading')
+        return Response.json({ studentId: 'a', confidence: 'high', codeMatch: 'matched', sheetPage: nextPage-- })
+      }
+      if (url.endsWith('exam-photo-job')) {
+        if (init.method !== 'POST') return Response.json({ job: null })
+        expect(body.studentIds).toEqual(['a'])
+        return Response.json({ id: 'job' })
+      }
+      expect(url).toContain('/ocr-exam-photo')
+      expect(body.studentId).toBe('a')
+      if (body.storeOnly) {
+        expect(body.mimeType).toBe('application/pdf')
+        expect((await PDFDocument.load(body.fileData)).getPageCount()).toBe(2)
+        return Response.json({ photoPath })
+      }
+      expect(body.useStored).toBe(true)
+      return Response.json({ results: [] })
+    })
+    render(<ExamPhotoBatchDialog open onOpenChange={vi.fn()} weekId="week" students={students}
+      questionCount={2} questions={[]} prepareOcr={prepareOcr} onFinalize={onFinalize} />)
+    fireEvent.click(await screen.findByRole('button', { name: '촬영한 두 장 확인 완료' }))
+    const confirm = await screen.findByRole('button', { name: '코드 일치 2장 확인' })
+    const start = screen.getByRole('button', { name: '1명 답안 인식 및 채점' }) as HTMLButtonElement
+    expect(start.disabled).toBe(true)
+    fireEvent.click(confirm)
+    expect(start.disabled).toBe(false)
+    expect(prepareOcr).not.toHaveBeenCalled()
+    fireEvent.click(start)
+    await waitFor(() => expect(prepareOcr).toHaveBeenCalledExactlyOnceWith('a', [], photoPath))
+    expect(onFinalize).not.toHaveBeenCalled()
+    const ocrRequests = request.mock.calls.filter(([url]) => url.endsWith('ocr-exam-photo'))
+    expect(ocrRequests).toHaveLength(2)
+  })
+
   it('15장 중 OCR 502가 난 한 장만 새로고침 후 재시도하고 모두 확정한다', async () => {
     const roster = Array.from({ length: 15 }, (_, index) => ({
       student_id: `student-${index + 1}`, student_name: `학생 ${index + 1}`, present: true, hasExisting: false,

@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { useCaptureRuntime } from './capture-runtime'
 import type { ExamOcrResult } from './exam-photo-button'
 import { requireExamPhotoPath } from '@/lib/exam-photo'
+import { packExamPhotos } from '@/lib/exam-photo-upload'
 import { MobileCapture } from './mobile-capture'
 import { ExamStudentConfirmationCard } from './exam-student-confirmation-card'
 import { duplicateExamStudents, isExamStudentConfirmed } from '@/lib/exam-student-confirmation'
@@ -37,6 +38,8 @@ type Item = {
   rawName: string | null
   /** 동명이인이라 자동 매칭이 거부된 경우 */
   duplicateName: boolean
+  codeMatch?: 'matched' | 'unmatched'
+  sheetPage?: number
   status: 'idle' | 'reading-name' | 'ready' | 'reading' | 'done' | 'error'
   error?: string
   photoPath?: string
@@ -48,6 +51,11 @@ type Item = {
 // 반 정원이 15명 이하라 전 학생 동시 실행 — 학생당 별도 서버 요청이라 서로 안 막힌다.
 // LLM 요청 한도에 걸려 개별 실패하면 항목별 오류 + 재시도 버튼으로 복구.
 const CONCURRENCY = 15
+
+function pdfPreview(base64: string) {
+  const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
+  return URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
+}
 
 type PhotoJob = { id: string; items: {
   student_id: string; photo_path: string | null; mime_type: string | null; ocr_results: ExamOcrResult[] | null
@@ -177,20 +185,22 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
     await runPool(fresh, CONCURRENCY, async (it, index) => {
       patch(it.id, { status: 'reading-name' })
       await runOrReport(async () => {
-        const { base64: b64, mimeType } = await compress(list[index])
+        const { base64: b64, mimeType } = await compress(list[index], { forceJpeg: true })
         patch(it.id, { b64, mimeType })
         const resp = await request(`/api/weeks/${weekId}/vocab-photo-name`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileData: b64, mimeType }),
+          body: JSON.stringify({ fileData: b64, mimeType, kind: 'reading' }),
         })
-        const data = await resp.json() as { studentId: string | null; rawName: string | null; confidence: Confidence; duplicate?: boolean }
+        const data = await resp.json() as { studentId: string | null; rawName: string | null; confidence: Confidence; duplicate?: boolean; codeMatch?: Item['codeMatch']; sheetPage?: number }
         const ok = data.studentId && presentStudents.some((s) => s.student_id === data.studentId)
         patch(it.id, {
           studentId: ok ? data.studentId : null,
           confidence: ok ? data.confidence : 'none',
           rawName: data.rawName ?? null,
           duplicateName: data.duplicate ?? false,
+          codeMatch: data.codeMatch === 'matched' && !ok ? 'unmatched' : data.codeMatch,
+          sheetPage: data.sheetPage,
           status: 'ready',
         })
       }, () => patch(it.id, { status: 'ready', confidence: 'none' }))
@@ -206,14 +216,26 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
     })
   }
 
-  // 같은 학생에 사진이 2장 이상 붙었는지
-  const duplicateStudentIds = useMemo(() => duplicateExamStudents(items), [items])
-
+  // 판독이 끝난 뒤 재배정할 때는 이미 처리한 학생의 답안을 덮어쓰지 않는다.
+  const duplicateStudentIds = useMemo(() => phase === 'done' ? duplicateExamStudents(items) : new Set<string>(), [items, phase])
   const unmatched = items.filter((it) => !it.studentId).length
   const readyToRead = items.filter((it) => it.studentId && (it.b64 || it.photoPath))
+  const photosByStudent = new Map<string, Item[]>()
+  for (const item of readyToRead) {
+    const pages = photosByStudent.get(item.studentId!)
+    if (pages) pages.push(item)
+    else photosByStudent.set(item.studentId!, [item])
+  }
   const confirmedCount = items.filter((it) => isExamStudentConfirmed(it, duplicateStudentIds)).length
   const allConfirmed = items.length > 0 && confirmedCount === items.length && readyToRead.length === items.length
-  const overwriteCount = readyToRead.filter((it) => students.find((s) => s.student_id === it.studentId)?.hasExisting).length
+  const overwriteCount = students.filter((student) => student.hasExisting && photosByStudent.has(student.student_id)).length
+  const pendingCodeMatches = readyToRead.filter((item) => item.codeMatch === 'matched' && item.confirmedStudentId !== item.studentId).length
+
+  function confirmCodeMatches() {
+    if (phase !== 'review') return
+    setItems((current) => current.map((item) => item.codeMatch === 'matched' && item.b64
+      ? { ...item, confirmedStudentId: item.studentId } : item))
+  }
 
   const readOne = useCallback(async (it: Item) => {
     patch(it.id, { status: 'reading', error: undefined })
@@ -349,15 +371,14 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
     else setPhase('done')
   }
 
-  async function attachMissingPhoto(item: Item, file: File) {
+  async function attachMissingPhoto(item: Item, files: File[]) {
     setCaptureBusy(true)
     try {
-      const { base64, mimeType } = await compress(file)
-      if (!base64) throw new Error('빈 사진 파일입니다.')
+      const { base64, mimeType } = await packExamPhotos(await Promise.all(files.map((file) => compress(file, { forceJpeg: true }))))
       if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
-      patch(item.id, { b64: base64, mimeType, previewUrl: URL.createObjectURL(file), error: '사진 추가됨 · 실패 재시도로 저장하세요.' })
-    } catch {
-      patch(item.id, { error: '사진을 읽지 못했습니다. 다른 파일을 선택해 주세요.' })
+      patch(item.id, { b64: base64, mimeType, previewUrl: files.length === 1 ? URL.createObjectURL(files[0]) : pdfPreview(base64), error: '사진 추가됨 · 실패 재시도로 저장하세요.' })
+    } catch (error) {
+      patch(item.id, { error: error instanceof Error ? error.message : '사진을 읽지 못했습니다. 다른 파일을 선택해 주세요.' })
     } finally {
       setCaptureBusy(false)
     }
@@ -365,22 +386,42 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
 
   async function startReading() {
     if (phase !== 'review' || !allConfirmed) return
-    if (prepareOcr) {
-      if (job !== null) return
-      setPhase('uploading')
-      try {
-        const { id } = await post('exam-photo-job', { studentIds: readyToRead.map((item) => item.studentId) })
-        setJob({ id, items: [] })
-        await processBatch(id, readyToRead)
-      } catch (error) {
-        setBatchError(error instanceof Error ? error.message : '채점 작업을 시작하지 못했습니다.')
-        setPhase('review')
+    if (prepareOcr && job !== null) return
+    setPhase('uploading')
+    setBatchError('')
+    try {
+      const targets: Item[] = []
+      for (const pages of photosByStudent.values()) {
+        const first = pages[0]
+        if (pages.length === 1) {
+          targets.push(first)
+        } else {
+          const pageNumbers = new Set(pages.map((page) => page.sheetPage))
+          const orderedPages = pageNumbers.size === pages.length && !pageNumbers.has(undefined)
+            ? [...pages].sort((a, b) => a.sheetPage! - b.sheetPage!) : pages
+          const { base64, mimeType } = await packExamPhotos(orderedPages.map((page) => ({ base64: page.b64!, mimeType: page.mimeType })))
+          targets.push({ ...first, id: `${first.id}:pdf`, b64: base64, mimeType, previewUrl: '' })
+        }
       }
-      return
+      const newJob = prepareOcr ? await post('exam-photo-job', { studentIds: targets.map((item) => item.studentId) }) : null
+      const targetIds = new Set(targets.map((item) => item.id))
+      for (const item of items) {
+        if (!targetIds.has(item.id)) URL.revokeObjectURL(item.previewUrl)
+      }
+      const uploads = targets.map((item) => item.previewUrl ? item : { ...item, previewUrl: pdfPreview(item.b64!) })
+      setItems(uploads)
+      if (newJob) {
+        setJob({ id: newJob.id, items: [] })
+        await processBatch(newJob.id, uploads)
+      } else {
+        setPhase('reading')
+        await runPool(uploads, CONCURRENCY, readOne)
+        setPhase('done')
+      }
+    } catch (error) {
+      setBatchError(error instanceof Error ? error.message : '채점 작업을 시작하지 못했습니다.')
+      setPhase('review')
     }
-    setPhase('reading')
-    await runPool(readyToRead, CONCURRENCY, readOne)
-    setPhase('done')
   }
 
   async function retryFailed() {
@@ -522,8 +563,8 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
           <DialogTitle className="text-base">{prepareOcr && phase === 'done' ? (remainingReview ? '서술형 검토' : '독해 채점 결과') : PHASE_TITLES[phase]}</DialogTitle>
           <DialogDescription className="text-xs text-gray-500">
             {phase === 'pick' && '답안지를 촬영하거나 사진을 추가해 주세요.'}
-            {phase === 'matching' && '학생 이름을 인식하고 있습니다.'}
-            {phase === 'review' && '답안지에 적힌 이름과 학생을 확인해 주세요. 모든 답안지를 확인하면 답안 인식을 시작할 수 있습니다.'}
+            {phase === 'matching' && '답안지의 이름과 판독 코드를 확인하고 있습니다.'}
+            {phase === 'review' && '각 답안지의 학생을 확인해 주세요. 여러 페이지는 같은 학생을 선택하면 합쳐집니다.'}
             {phase === 'uploading' && '학생별 사진을 먼저 저장하고 있어요.'}
             {phase === 'reading' && (prepareOcr ? '저장된 사진에서 답안을 인식하고 있어요.' : '답안을 인식하고 있습니다.')}
             {phase === 'grading' && '답안을 채점하고 있어요. 이 화면을 열어 두세요.'}
@@ -598,6 +639,9 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
                 if (prepareOcr && phase === 'done' && it.status === 'done') return null
                 const student = students.find((s) => s.student_id === it.studentId)
                 const isDupPhoto = !!it.studentId && duplicateStudentIds.has(it.studentId)
+                const previous = items[index - 1]
+                const previousStudent = phase === 'review' && !it.studentId && !it.codeMatch && !it.duplicateName && it.b64 && previous?.confirmedStudentId
+                  ? presentStudents.find((s) => s.student_id === previous.confirmedStudentId) : undefined
                 return (
                   <li key={it.id}>
                     <ExamStudentConfirmationCard
@@ -610,7 +654,7 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
                       confirmed={isExamStudentConfirmed(it, duplicateStudentIds)}
                       duplicate={isDupPhoto}
                       disabled={isBusy || it.status === 'done' || !!job}
-                      onStudentChange={(studentId) => patch(it.id, { studentId, confirmedStudentId: null })}
+                      onStudentChange={(studentId) => patch(it.id, { studentId, confirmedStudentId: null, codeMatch: undefined })}
                       onConfirm={() => {
                         if ((phase === 'review' || phase === 'done') && it.studentId && !isDupPhoto) patch(it.id, { confirmedStudentId: it.studentId })
                       }}
@@ -620,18 +664,28 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
                         {it.status === 'reading-name' && <span className="text-[var(--share-muted)]">이름 인식 중</span>}
                         {prepareOcr && it.status === 'ready' && !it.b64 && <span role="alert" className="text-[var(--share-red)]">파일을 읽지 못했습니다. 이 사진을 제외한 뒤 다시 추가해 주세요.</span>}
                         {it.duplicateName && <span className="text-[var(--share-muted)]">동명이인입니다. 학생을 직접 선택해 주세요.</span>}
+                        {it.codeMatch === 'matched' && <span className="text-[var(--share-body)]">판독 코드 일치{it.sheetPage ? ` · ${it.sheetPage}쪽` : ''}</span>}
+                        {it.codeMatch === 'unmatched' && <span className="text-[var(--share-red)]">판독 코드와 명단이 일치하지 않습니다. 답안지를 확인해 주세요.</span>}
+                        {phase === 'review' && it.studentId && (photosByStudent.get(it.studentId)?.length ?? 0) > 1 && (
+                          <span className="text-[var(--share-body)]">{student?.student_name} 답안지 {photosByStudent.get(it.studentId)?.length}장으로 합칩니다.</span>
+                        )}
                         {it.status === 'reading' && <><Loader2 className="size-3.5 animate-spin" /><span>답안 인식 중</span></>}
                         {it.status === 'done' && it.result && <><CheckCircle2 className="size-3.5 text-[var(--share-blue)]" /><span>{it.result.applied}/{it.result.total}문항 반영</span></>}
                         {it.status === 'error' && <><XCircle className="size-3.5 shrink-0 text-[var(--share-red)]" /><span role="alert" className="text-[var(--share-red)]">{it.error}</span></>}
                         {student?.hasExisting && it.status === 'ready' && <span className="text-[var(--share-muted)]">기존 답안을 새 인식 결과로 변경합니다</span>}
                       </div>
+                      {previousStudent && (
+                        <Button type="button" size="sm" variant="outline" className="mt-2 min-h-11" onClick={() => patch(it.id, {
+                          studentId: previousStudent.student_id, confirmedStudentId: previousStudent.student_id,
+                        })}>앞 사진과 같은 학생 · {previousStudent.student_name}</Button>
+                      )}
                       {job && phase === 'done' && !it.photoPath && !it.b64 && (
                         <label className="block pt-2 text-sm">
                           {student?.student_name} 사진 다시 추가
-                          <input type="file" className="block max-w-full py-2" accept="image/*,application/pdf" disabled={isBusy}
+                          <input type="file" multiple className="block max-w-full py-2" accept="image/*,application/pdf" disabled={isBusy}
                             onChange={(event) => {
-                              const file = event.target.files?.[0]
-                              if (file) void attachMissingPhoto(it, file)
+                              const files = Array.from(event.target.files ?? [])
+                              if (files.length) void attachMissingPhoto(it, files)
                             }} />
                         </label>
                       )}
@@ -663,6 +717,11 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
             {duplicateStudentIds.size > 0 && ` · 같은 학생 중복 ${duplicateStudentIds.size}명`}
           </p>
           <div className="flex flex-wrap items-center gap-2">
+            {phase === 'review' && pendingCodeMatches > 0 && (
+              <Button type="button" size="sm" variant="outline" className="min-h-11" onClick={confirmCodeMatches} disabled={isBusy}>
+                코드 일치 {pendingCodeMatches}장 확인
+              </Button>
+            )}
             <Button variant="outline" size="sm" className={prepareOcr ? 'min-h-11' : undefined} onClick={requestClose} disabled={isBusy || reviewWrites > 0}>
               {phase === 'done' ? '닫기' : '취소'}
             </Button>
@@ -682,7 +741,7 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
             {(phase === 'matching' || phase === 'review' || phase === 'reading' || (phase === 'pick' && canAddPhotos)) && (
               <Button size="sm" variant="action" className={prepareOcr ? 'min-h-11' : undefined} onClick={startReading} disabled={isBusy || !allConfirmed}>
                 {phase === 'reading' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-                {items.length > 0 ? `${items.length}명 ` : ''}{prepareOcr ? '답안 인식 및 채점' : '답안 인식'}
+                {items.length > 0 ? `${photosByStudent.size + items.length - readyToRead.length}명 ` : ''}{prepareOcr ? '답안 인식 및 채점' : '답안 인식'}
               </Button>
             )}
           </div>
