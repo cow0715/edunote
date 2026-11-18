@@ -1,4 +1,4 @@
-import type { OperationalArea } from '../operational-alerts'
+import type { OperationalArea, PdfWorkerFailure, PdfWorkerFailureStage } from '../operational-alerts'
 import { captureOperationalFailure, operationalSentryOptions } from '../operational-sentry'
 import type { ExamImportIssue } from './exam-completeness'
 import type { PdfImportKind, PdfImportStatus } from './types'
@@ -12,7 +12,8 @@ export async function reportFinalPdfFailure(
   kind: PdfImportKind,
   status: PdfImportStatus,
   saved: boolean,
-  failure: 'worker-incomplete' | 'worker-batch-stopped' | 'worker-retries-exhausted',
+  failure: PdfWorkerFailure,
+  stage: PdfWorkerFailureStage,
   stages: readonly ExamImportIssue['stage'][] = [],
 ) {
   const area = pdfImportAlertArea(kind)
@@ -28,7 +29,15 @@ export async function reportFinalPdfFailure(
   try {
     const Sentry = await import('@sentry/node')
     Sentry.init(operationalSentryOptions(process.env.SENTRY_DSN, process.env.SENTRY_RELEASE))
-    await Promise.all([...areas].map(affectedArea => captureOperationalFailure(Sentry, affectedArea, failure)))
+    const taskAttempt = process.env.CLOUD_RUN_TASK_ATTEMPT
+    const worker = {
+      stage,
+      attempt: taskAttempt && /^\d+$/.test(taskAttempt) ? Number(taskAttempt) + 1 : undefined,
+      project: process.env.GCP_PROJECT_ID,
+      region: process.env.GCP_WORKER_REGION,
+      execution: process.env.CLOUD_RUN_EXECUTION,
+    }
+    await Promise.all([...areas].map(affectedArea => captureOperationalFailure(Sentry, affectedArea, failure, worker)))
   } catch {
     console.error('[operational-alert] worker_sentry_capture_failed')
   }

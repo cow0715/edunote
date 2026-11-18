@@ -1,4 +1,6 @@
 import { createHmac } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { PGlite } from '@electric-sql/pglite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiKeyError, ClientError, MessageNotReceivedError, NetworkError } from 'solapi'
 import { readSentryAlert, verifySentrySignature } from '@/lib/kakao-operational-alerts'
@@ -7,6 +9,7 @@ import { isLlmProviderFailure, LlmError } from '@/lib/llm/errors'
 import { isSolapiProviderFailure } from '@/lib/solapi'
 import { register } from '@/instrumentation'
 import { POST as sentryWebhook } from '@/app/api/webhooks/sentry-alert/route'
+import { operationalSentryOptions } from '@/lib/operational-sentry'
 
 const webhook = vi.hoisted(() => ({
   callbacks: [] as (() => unknown)[],
@@ -22,7 +25,7 @@ vi.mock('@sentry/nextjs', () => ({ init: webhook.initSentry }))
 const now = Date.parse('2026-11-18T04:00:00Z')
 const id = 'a'.repeat(32)
 
-function eventBody(area = 'exam-photo', environment = 'production', date = new Date(now).toISOString(), failure?: unknown) {
+function eventBody(area = 'exam-photo', environment = 'production', date = new Date(now).toISOString(), failure?: unknown, workerStage?: unknown) {
   return JSON.stringify({
     action: 'triggered',
     data: {
@@ -35,6 +38,7 @@ function eventBody(area = 'exam-photo', environment = 'production', date = new D
           ['edunote_environment', environment],
           ['edunote_area', area],
           ...(failure === undefined ? [] : [['edunote_failure', failure]]),
+          ...(workerStage === undefined ? [] : [['edunote_worker_stage', workerStage]]),
         ],
         request: { data: 'private student response' },
       },
@@ -44,6 +48,7 @@ function eventBody(area = 'exam-photo', environment = 'production', date = new D
 
 afterEach(() => {
   vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
   webhook.callbacks.length = 0
   webhook.initSentry.mockClear()
@@ -86,6 +91,42 @@ describe('Sentry operational alerts', () => {
     expect(verifySentrySignature(body, signature, 'secret')).toBe(true)
     expect(verifySentrySignature(Buffer.concat([body, Buffer.from(' ')]), signature, 'secret')).toBe(false)
     expect(verifySentrySignature(body, 'invalid', 'secret')).toBe(false)
+  })
+
+  it('includes the allowlisted PDF stage, attempt and execution log link with no raw details', async () => {
+    const options = operationalSentryOptions('configured')
+    const event = {
+      type: undefined,
+      timestamp: now / 1_000,
+      tags: { edunote_area: 'bank-explanation-upload', edunote_failure: 'worker-retries-exhausted', other: 'secret' },
+      contexts: { pdf_worker: {
+        stage: 'source-download', attempt: 4, project: 'edunote-511708', region: 'asia-northeast3',
+        execution: 'edunote-bank-pdf-x8l5g', error: 'private document content', logs_url: 'https://untrusted.test/',
+      } },
+    }
+    const filtered = await options.beforeSend!(event, {})
+    expect(filtered?.tags).toEqual({
+      edunote_area: 'bank-explanation-upload', edunote_failure: 'worker-retries-exhausted',
+      edunote_environment: 'production', edunote_worker_stage: 'source-download',
+    })
+    const logsQuery = [
+      'resource.type="cloud_run_job"',
+      'resource.labels.location="asia-northeast3"',
+      'labels."run.googleapis.com/execution_name"="edunote-bank-pdf-x8l5g"',
+      'timestamp >= "2026-11-17T04:00:00.000Z"',
+      'timestamp <= "2026-11-18T04:05:00.000Z"',
+    ].join('\n')
+    expect(filtered?.contexts).toEqual({ pdf_worker: {
+      stage: 'source-download', attempt: 4,
+      logs_url: `https://console.cloud.google.com/logs/query;query=${encodeURIComponent(logsQuery)}?project=edunote-511708`,
+    } })
+
+    const invalid = await options.beforeSend!({
+      ...event, contexts: { pdf_worker: { ...event.contexts.pdf_worker, execution: '" injected filter', attempt: -1 } },
+    }, {})
+    expect(invalid?.contexts).toEqual({ pdf_worker: { stage: 'source-download' } })
+    const unrelated = await options.beforeSend!({ ...event, tags: { ...event.tags, edunote_area: 'exam-photo' } }, {})
+    expect(unrelated?.contexts).toBeUndefined()
   })
 
   it('extracts only the routing fields and rejects other projects, environments and stale deliveries', () => {
@@ -138,6 +179,67 @@ describe('Sentry operational alerts', () => {
     expect((await sentryWebhook(request(signature))).status).toBe(202)
     expect(webhook.callbacks).toHaveLength(1)
   })
+
+  it('sends one Korean PDF failure message and keeps one delivery for a repeated signed webhook', async () => {
+    const db = new PGlite()
+    try {
+      await db.exec('create role anon; create role authenticated; create role service_role;')
+      await db.exec(readFileSync('supabase/migrations/20261118095239_kakao_operational_alerts.sql', 'utf8'))
+      vi.stubEnv('VERCEL_ENV', 'production')
+      vi.stubEnv('SENTRY_ALERT_WEBHOOK_SECRET', 'test-secret')
+      vi.stubEnv('SENTRY_ALERT_PROJECT_ID', '42')
+      vi.stubEnv('SENTRY_ALERT_ISSUE_ORIGIN', 'https://edunote.sentry.io')
+      vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://db.test')
+      vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
+      vi.stubEnv('KAKAO_ALERT_REST_API_KEY', 'test-app-key')
+
+      const messages: unknown[] = []
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init)
+        const url = new URL(request.url)
+        if (url.origin === 'https://db.test' && url.pathname === '/rest/v1/kakao_operational_delivery') {
+          expect(url.searchParams.get('on_conflict')).toBe('event_id')
+          expect(request.headers.get('prefer')).toContain('resolution=ignore-duplicates')
+          const { event_id } = await request.json() as { event_id: string }
+          const { rows } = await db.query('insert into public.kakao_operational_delivery(event_id) values ($1) on conflict (event_id) do nothing returning event_id', [event_id])
+          return Response.json(rows)
+        }
+        if (url.origin === 'https://db.test' && url.pathname === '/rest/v1/kakao_operational_token') {
+          return Response.json([{ access_token: 'test-access-token', access_expires_at: new Date(Date.now() + 3_600_000).toISOString() }])
+        }
+        if (request.url === 'https://kapi.kakao.com/v2/api/talk/memo/default/send') {
+          messages.push(JSON.parse((await request.formData()).get('template_object') as string))
+          return Response.json({ result_code: 0 })
+        }
+        throw new Error(`Unexpected test request ${request.url}`)
+      }))
+
+      const body = eventBody('bank-questions-upload', 'production', new Date().toISOString(), 'worker-retries-exhausted', 'source-download')
+      const signature = createHmac('sha256', 'test-secret').update(body).digest('hex')
+      const replayWebhook = async () => {
+        const response = await sentryWebhook(new Request('https://edunote.test/api/webhooks/sentry-alert', {
+          method: 'POST', body,
+          headers: { 'sentry-hook-signature': signature, 'sentry-hook-resource': 'event_alert' },
+        }))
+        expect(response.status).toBe(202)
+        const callback = webhook.callbacks.shift()
+        expect(callback).toBeDefined()
+        await callback?.()
+      }
+      await replayWebhook()
+      expect(messages).toEqual([{
+        object_type: 'text',
+        text: 'EduNote 운영 · 문제지 업로드\nPDF 워커 최종 실패 (자동 재시도 소진)\n원인 · 원본 PDF 읽기 실패',
+        link: { web_url: 'https://edunote.sentry.io/issues/1234/', mobile_web_url: 'https://edunote.sentry.io/issues/1234/' },
+        button_title: 'Sentry에서 확인',
+      }])
+      await replayWebhook()
+      expect(messages).toHaveLength(1)
+      expect((await db.query('select event_id from public.kakao_operational_delivery')).rows).toEqual([{ event_id: id }])
+    } finally {
+      await db.close()
+    }
+  }, 30_000)
 
   it('reports only production server failures without changing the response or reading its content', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {})

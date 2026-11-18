@@ -11,6 +11,7 @@ import { bookFailures, failedBookUnits } from '../src/lib/book-pdf/failure-polic
 import { NATIVE_RECOVERY_REVISION } from '../src/lib/book-pdf/recovery-policy'
 import type { BookDraftUnit } from '../src/lib/book-pdf/types'
 import { reportFinalPdfFailure } from '../src/lib/pdf-import/operational-alerts'
+import type { PdfWorkerFailureStage } from '../src/lib/operational-alerts'
 
 export async function main() {
   if (process.argv.includes('--help')) {
@@ -53,10 +54,14 @@ export async function main() {
   process.once('SIGTERM', terminate)
   process.once('SIGINT', terminate)
   let beating = false
-  const heartbeat = async (stage?: string) => {
+  let failureStage: PdfWorkerFailureStage = 'prepare'
+  const heartbeat = async (stage?: string, nextFailureStage?: PdfWorkerFailureStage) => {
     controller.signal.throwIfAborted()
+    const currentStage = nextFailureStage ?? failureStage
+    if (stage) failureStage = 'progress-write'
     const { data, error } = await client.rpc('pdf_import_heartbeat', { p_id: id, p_token: token, p_stage: stage ?? null })
     if (error || !data) throw new Error('워커 작업 권한을 갱신하지 못했습니다.')
+    if (stage) failureStage = currentStage
   }
   const timer = setInterval(() => {
     if (beating) return
@@ -88,6 +93,7 @@ export async function main() {
   let batch: PdfBatchTransport | undefined
   let alertKind = job.kind
   const suspend = async (submit?: () => Promise<void>) => {
+    failureStage = 'batch-processing'
     // Arrange the future execution before releasing the lease. A crash after
     // scheduling can create duplicate wakes, never an unowned waiting job.
     const { scheduleBookBatchWake } = await import('../src/lib/pdf-import/batch-wake')
@@ -104,6 +110,7 @@ export async function main() {
       throw new PdfBatchStopped('교재는 비용 보호가 적용된 Batch 모드에서만 새 요청을 보낼 수 있습니다. 기존 응답 복구는 가능합니다.')
     }
     if (isPdfBatchJob(job)) {
+      failureStage = 'batch-processing'
       const { PdfBatchTransport, anthropicPdfBatchProvider, cachedPdfBatchProvider } = await import('../src/lib/pdf-import/batch-transport')
       batch = new PdfBatchTransport(client, { ...job, lease_token: token }, context,
         context.cacheOnly ? cachedPdfBatchProvider() : anthropicPdfBatchProvider(controller.signal))
@@ -112,9 +119,13 @@ export async function main() {
       if (job.kind === 'bank_book') context.rememberBookCall = batch.rememberBookCall
     }
     const { runPdfImport } = await import('../src/lib/pdf-import/handlers')
+    failureStage = 'teacher-lookup'
     let result: Record<string, unknown>
     try {
-      result = await withPdfWorkerContext(context, () => runPdfImport(client, job!, () => { alertKind = 'bank_explanation' }))
+      result = await withPdfWorkerContext(context, () => runPdfImport(client, job!, () => {
+        alertKind = 'bank_explanation'
+        failureStage = 'source-download'
+      }))
     } catch (error) {
       if (error instanceof PdfBundleDeferred) { await suspend(); return }
       if (!(error instanceof PdfBatchPending) || !batch) throw error
@@ -132,13 +143,14 @@ export async function main() {
     const incomplete = examIssues.length > 0 || result.exam_incomplete === true
     const held = bookFailures(result)
     const status = pilotReview || unresolved || incomplete ? 'failed' : 'succeeded'
+    failureStage = 'finish-write'
     const { data, error } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: status,
       p_result: incomplete ? { ...result, exam_incomplete: true } : result,
       p_error: pilotReview ? '대표 구간 검증 완료 · 전체 처리 승인과 별도 재개를 기다립니다.' : incomplete ? `자동 복구 후에도 미완료 문항 ${examIssues.length}개가 남았습니다. 문항별 사유를 확인해주세요.`
         : unresolved ? held.length ? `${held.length}지문 처리 보류 · 자동 재시도하지 않습니다. ${held[0].labels.join('·')}: ${held[0].reasons[0]}`.slice(0,500)
           : Array.isArray(result.inventory_errors) ? '원문 문항 경계를 확정하지 못해 등록을 보류했습니다.' : '원본 대조 결과를 확정하지 못해 등록을 보류했습니다.' : null })
     if (error || !data) throw new Error('완료 상태 저장 실패')
-    await reportFinalPdfFailure(alertKind, status, true, 'worker-incomplete', examIssues.map(issue => issue.stage))
+    await reportFinalPdfFailure(alertKind, status, true, 'worker-incomplete', 'quality-check', examIssues.map(issue => issue.stage))
     // Quality recovery already exhausted its bounded budget; don't start another paid platform retry.
     if (pilotReview || unresolved || incomplete) { console.log(`[pdf-worker] verification-unresolved ${id}`); return }
     console.log(`[pdf-worker] completed ${id}`)
@@ -166,7 +178,7 @@ export async function main() {
       const { data, error: finishError } = await client.rpc('pdf_import_finish', { p_id: id, p_token: token,
         p_status: 'failed', p_result: { ...progress, ...(error instanceof PdfCostStopped ? { cost_control: error.summary } : {}), ...(error instanceof PdfBatchRequestFailed ? { batch_exhausted: true } : { batch_stopped: true }) }, p_error: message.slice(0,500) })
       if (finishError || !data) throw new Error('배치 중단 상태 저장 실패')
-      await reportFinalPdfFailure(alertKind, 'failed', true, 'worker-batch-stopped')
+      await reportFinalPdfFailure(alertKind, 'failed', true, 'worker-batch-stopped', failureStage)
       console.log(`[pdf-worker] batch-stopped ${id}`)
       return
     }
@@ -178,7 +190,7 @@ export async function main() {
     const attempt = Number(process.env.CLOUD_RUN_TASK_ATTEMPT ?? '3')
     const status = attempt < 3 ? 'queued' : 'failed'
     const saved = await client.rpc('pdf_import_finish', { p_id: id, p_token: token, p_status: status, p_result: progress, p_error: message.slice(0, 500) })
-    await reportFinalPdfFailure(alertKind, status, !saved.error && !!saved.data, 'worker-retries-exhausted')
+    await reportFinalPdfFailure(alertKind, status, !saved.error && !!saved.data, 'worker-retries-exhausted', failureStage)
     throw error
   } finally {
     clearInterval(timer)

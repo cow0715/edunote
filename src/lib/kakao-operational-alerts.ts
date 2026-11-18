@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { isOperationalArea, operationalAreas } from './operational-alerts'
+import { isOperationalArea, isPdfWorkerFailure, isPdfWorkerFailureStage, operationalAreas, pdfWorkerFailureStages } from './operational-alerts'
 import { createServiceClient } from './supabase/service'
 
 const TOKEN_TABLE = 'kakao_operational_token'
@@ -75,11 +75,16 @@ export function readSentryAlert(body: string, projectId: string, now = Date.now(
   const area = tags.get('edunote_area')
   if (tags.get('edunote_environment') !== 'production' || !isOperationalArea(area) || area === 'kakao-delivery') return null
 
-  const stage = failureStageLabel(tags.get('edunote_failure'))
+  const failure = tags.get('edunote_failure')
+  const workerStage = tags.get('edunote_worker_stage')
+  const stage = failureStageLabel(failure)
+  const cause = isPdfWorkerFailure(area, failure) && isPdfWorkerFailureStage(workerStage)
+    ? `\n원인 · ${pdfWorkerFailureStages[workerStage]}`
+    : ''
   return {
     eventId: event.event_id,
     issueId: event.issue_id,
-    message: `EduNote 운영 · ${operationalAreas[area]}\n${stage}`,
+    message: `EduNote 운영 · ${operationalAreas[area]}\n${stage}${cause}`,
   }
 }
 
@@ -196,9 +201,9 @@ export async function deliverSentryAlert(event: NonNullable<ReturnType<typeof re
   const db = createServiceClient()
   const { data, error } = await db.from(DELIVERY_TABLE)
     .upsert({ event_id: event.eventId }, { onConflict: 'event_id', ignoreDuplicates: true })
-    .select('event_id').maybeSingle()
+    .select('event_id')
   if (error) throw new Error('kakao-delivery-claim')
-  if (!data) return
+  if (!data?.length) return
   await sendKakao(db, event.message, event.issueId)
 }
 

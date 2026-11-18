@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
 import type { CallLlmOptions, LlmDetailedResult } from '../llm/types'
+import type { PdfWorkerFailureStage } from '../operational-alerts'
 
 /** A worker-scoped checkpoint store. Normal web requests never acquire this context. */
 export type PdfWorkerContext = {
@@ -19,7 +20,7 @@ export type PdfWorkerContext = {
   /** Lease-checked mutable textbook progress; ordinary paid checkpoints stay immutable. */
   writeBookProgress?: (key: string, value: unknown) => Promise<void>
   rememberBookCall?: (options: CallLlmOptions, key: string, result: LlmDetailedResult) => Promise<void>
-  stage: (message: string) => Promise<void>
+  stage: (message: string, failureStage?: PdfWorkerFailureStage) => Promise<void>
   batchCall?: (options: CallLlmOptions, key: string) => Promise<LlmDetailedResult>
 }
 const storage = new AsyncLocalStorage<PdfWorkerContext>()
@@ -80,8 +81,9 @@ export async function checkpointBatchPhase<T>(input: unknown, work: () => Promis
   return result
 }
 
-export async function reportPdfStage(message: string) {
+export async function reportPdfStage(message: string, failureStage?: PdfWorkerFailureStage) {
   const context = storage.getStore()
   context?.signal.throwIfAborted()
-  await context?.stage(message)
+  if (failureStage) await context?.stage(message, failureStage)
+  else await context?.stage(message)
 }

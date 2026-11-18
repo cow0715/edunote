@@ -48,6 +48,9 @@ describe('single-job worker execution', () => {
     vi.stubEnv('CLOUD_RUN_JOB', 'edunote-bank-pdf')
     vi.stubEnv('PDF_IMPORT_CACHE_ONLY', 'false')
     vi.stubEnv('SENTRY_DSN', 'configured')
+    vi.stubEnv('GCP_PROJECT_ID', 'edunote-511708')
+    vi.stubEnv('GCP_WORKER_REGION', 'asia-northeast3')
+    vi.stubEnv('CLOUD_RUN_EXECUTION', 'edunote-bank-pdf-x8l5g')
     const terminal = new Error('private document contents')
     mocks.run.mockImplementation(async (_client, _job, onExplanationStart) => {
       onExplanationStart()
@@ -65,9 +68,37 @@ describe('single-job worker execution', () => {
     await expect(main()).rejects.toBe(terminal)
     expect(sentry.captureMessage).toHaveBeenCalledExactlyOnceWith(
       'EduNote bank-explanation-upload: worker-retries-exhausted',
-      expect.objectContaining({ tags: { edunote_area: 'bank-explanation-upload', edunote_failure: 'worker-retries-exhausted' } }),
+      expect.objectContaining({
+        tags: { edunote_area: 'bank-explanation-upload', edunote_failure: 'worker-retries-exhausted' },
+        contexts: { pdf_worker: {
+          stage: 'source-download',
+          attempt: 4,
+          project: 'edunote-511708',
+          region: 'asia-northeast3',
+          execution: 'edunote-bank-pdf-x8l5g',
+        } },
+      }),
     )
     expect(sentry.flush).toHaveBeenCalledWith(2_000)
+  })
+
+  it('emits zero alerts when a retried source read succeeds', async () => {
+    vi.stubEnv('PDF_WORKER_ALERT_ENV', 'production')
+    vi.stubEnv('CLOUD_RUN_JOB', 'edunote-bank-pdf')
+    vi.stubEnv('PDF_IMPORT_CACHE_ONLY', 'true')
+    vi.stubEnv('SENTRY_DSN', 'configured')
+    const transient = new Error('source not yet available')
+    mocks.run.mockImplementationOnce(async () => {
+      await reportPdfStage('원본 파일을 읽는 중', 'source-download')
+      throw transient
+    })
+    await expect(main()).rejects.toBe(transient)
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'queued' }))
+
+    vi.stubEnv('CLOUD_RUN_TASK_ATTEMPT', '1')
+    await expect(main()).resolves.toBeUndefined()
+    expect(mocks.rpc).toHaveBeenLastCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'succeeded' }))
+    expect(sentry.captureMessage).not.toHaveBeenCalled()
   })
 
   it('reports a saved terminal exam failure in production cache-only mode', async () => {
