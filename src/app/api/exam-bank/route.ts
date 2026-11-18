@@ -6,6 +6,8 @@ import type { PipelineFile } from '@/lib/llm/pipeline'
 import { getMegastudyStats } from '@/lib/megastudy'
 import { workerEnabled } from '@/lib/pdf-import/types'
 import { registerPdfImport } from '@/lib/pdf-import/server'
+import { SaveError } from '@/lib/db/errors'
+import { identifyFailureStage, monitorApi, reportOperationalFailure } from '@/lib/report-operational-failure'
 
 export const maxDuration = 300
 
@@ -79,21 +81,22 @@ async function fetchAndApplyStats(
 // 출력 범위 분할(캐시 예열 → 5범위 병렬): 기출은 번호가 18~45 고정이라 출력을 선험 분할할 수 있고,
 // 매 콜 문서 전체를 보므로 지문 분리 문제가 없다. 실측(8p 모평, 2026-08-26): whole 256s →
 // 입력 청킹 133s → 범위 분할이 추가 단축. 필터는 걸린 범위만 skip 하고 결손 번호를 보고한다.
-export async function POST(request: Request) {
+async function uploadQuestions(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증 필요', 401)
 
   const teacherId = await getTeacherId(supabase, user.id)
   if (!teacherId) return err('선생님 정보 없음', 403)
 
-  const body = await request.json()
+  const body = await request.json().catch(() => null)
+  if (!body || typeof body !== 'object') return err('요청 데이터 파싱 실패')
   const { title, exam_year, exam_month, grade, source, form_type, mimeType } = body
   const storagePath: string | undefined = body.storagePath
 
   if (!title || !exam_year || !exam_month || !grade) {
     return err('필수 정보 누락 (title, exam_year, exam_month, grade)')
   }
-  if (!storagePath || !mimeType) {
+  if (typeof storagePath !== 'string' || !storagePath || typeof mimeType !== 'string' || !mimeType) {
     return err('파일 필요')
   }
 
@@ -101,9 +104,13 @@ export async function POST(request: Request) {
     try {
       const job = await registerPdfImport({ kind: 'bank_questions', teacherId, authId: user.id, storagePath,
         explanationStoragePath: typeof body.explanationStoragePath === 'string' ? body.explanationStoragePath : undefined,
+        onDispatchFailure: () => reportOperationalFailure('bank-questions-upload', 'worker-dispatch'),
         payload: { title, exam_year, exam_month, grade, source, form_type, mimeType } })
       return ok(job, { status: 202 })
-    } catch (error) { return err(error instanceof Error ? error.message : '작업 등록 실패', 503) }
+    } catch (error) {
+      if (error instanceof SaveError) return err(error.message, error.status)
+      return identifyFailureStage(err(error instanceof Error ? error.message : '작업 등록 실패', 503), 'upload-register')
+    }
   }
 
   const serviceClient = createServiceClient()
@@ -112,6 +119,7 @@ export async function POST(request: Request) {
   try {
     files = await downloadTempFiles(serviceClient, [storagePath], mimeType)
   } catch (e) {
+    reportOperationalFailure('bank-questions-upload', 'upload-download')
     return err(e instanceof Error ? e.message : '파일 다운로드 실패')
   }
   void serviceClient.storage.from('exam-pdf-temp').remove([storagePath])
@@ -121,7 +129,10 @@ export async function POST(request: Request) {
     .insert({ teacher_id: teacherId, title, exam_year, exam_month, grade, source: source || '교육청', form_type: form_type || '홀수형' })
     .select()
     .single()
-  if (examError) return err(examError.message)
+  if (examError) {
+    reportOperationalFailure('bank-questions-upload', 'exam-write')
+    return err(examError.message)
+  }
 
   try {
     const [file] = files
@@ -131,6 +142,7 @@ export async function POST(request: Request) {
     const skippedQuestions = result.skippedNumbers
 
     if (questions.length === 0) {
+      reportOperationalFailure('bank-questions-upload', 'inline-parsing')
       await supabase.from('exam_bank').delete().eq('id', exam.id)
       return err('문항을 추출할 수 없습니다. PDF를 확인해주세요.', 422)
     }
@@ -148,6 +160,7 @@ export async function POST(request: Request) {
 
     const { error: insertError } = await supabase.from('exam_bank_question').insert(rows)
     if (insertError) {
+      reportOperationalFailure('bank-questions-upload', 'questions-write')
       await supabase.from('exam_bank').delete().eq('id', exam.id)
       return err(`문항 저장 실패: ${insertError.message}`)
     }
@@ -166,6 +179,8 @@ export async function POST(request: Request) {
   } catch (e) {
     await supabase.from('exam_bank').delete().eq('id', exam.id)
     console.error('[exam-bank] 파싱 실패', e)
+    reportOperationalFailure('bank-questions-upload', 'inline-processing')
     return err('PDF 파싱 실패. 파일을 확인해주세요.', 422)
   }
 }
+export const POST = monitorApi('bank-questions-upload', uploadQuestions)

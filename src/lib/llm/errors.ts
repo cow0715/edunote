@@ -21,3 +21,8 @@ export function isContentFilterError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
   return message.includes('Output blocked') || message.includes('content filtering')
 }
+
+export function isLlmProviderFailure(error: unknown): boolean {
+  return error instanceof LlmError &&
+    ['configuration', 'authentication', 'rate_limit', 'network', 'timeout', 'provider'].includes(error.kind)
+}

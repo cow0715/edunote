@@ -7,6 +7,8 @@ import { BOOK_FAILURE_POLICY } from '@/lib/book-pdf/failure-policy'
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), run: vi.fn(), single: vi.fn(), read: vi.fn(), units: [] as unknown[] }))
 const batchMock = vi.hoisted(() => ({ poll: vi.fn(), submit: vi.fn(), call: vi.fn(), wake: vi.fn() }))
+const sentry = vi.hoisted(() => ({ init: vi.fn(), captureMessage: vi.fn(), flush: vi.fn().mockResolvedValue(true) }))
+vi.mock('@sentry/node', () => sentry)
 vi.mock('@/lib/pdf-import/batch-transport', () => ({
   PdfBatchTransport: class { poll = batchMock.poll; submit = batchMock.submit; call = batchMock.call },
   anthropicPdfBatchProvider: vi.fn(),
@@ -41,6 +43,42 @@ beforeEach(() => {
 })
 afterEach(() => { vi.unstubAllEnvs() })
 describe('single-job worker execution', () => {
+  it('reports only a saved terminal failure, and attributes combined work to the explanation phase', async () => {
+    vi.stubEnv('PDF_WORKER_ALERT_ENV', 'production')
+    vi.stubEnv('CLOUD_RUN_JOB', 'edunote-bank-pdf')
+    vi.stubEnv('PDF_IMPORT_CACHE_ONLY', 'false')
+    vi.stubEnv('SENTRY_DSN', 'configured')
+    const terminal = new Error('private document contents')
+    mocks.run.mockImplementation(async (_client, _job, onExplanationStart) => {
+      onExplanationStart()
+      throw terminal
+    })
+    await expect(main()).rejects.toBe(terminal)
+    expect(sentry.captureMessage).not.toHaveBeenCalled()
+
+    vi.stubEnv('CLOUD_RUN_TASK_ATTEMPT', '3')
+    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pdf_import_claim' ? [job] : false, error: null }))
+    await expect(main()).rejects.toBe(terminal)
+    expect(sentry.captureMessage).not.toHaveBeenCalled()
+
+    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pdf_import_claim' ? [job] : true, error: null }))
+    await expect(main()).rejects.toBe(terminal)
+    expect(sentry.captureMessage).toHaveBeenCalledExactlyOnceWith(
+      'EduNote bank-explanation-upload: worker-retries-exhausted',
+      expect.objectContaining({ tags: { edunote_area: 'bank-explanation-upload', edunote_failure: 'worker-retries-exhausted' } }),
+    )
+    expect(sentry.flush).toHaveBeenCalledWith(2_000)
+  })
+
+  it('does not report a terminal failure from a non-production worker', async () => {
+    vi.stubEnv('PDF_WORKER_ALERT_ENV', 'preview')
+    vi.stubEnv('CLOUD_RUN_JOB', 'edunote-bank-pdf')
+    vi.stubEnv('SENTRY_DSN', 'configured')
+    mocks.run.mockResolvedValue({ exam_incomplete: true })
+    await main()
+    expect(mocks.rpc).toHaveBeenCalledWith('pdf_import_finish', expect.objectContaining({ p_status: 'failed' }))
+    expect(sentry.captureMessage).not.toHaveBeenCalled()
+  })
   it('blocks legacy direct-generation textbook jobs before the import handler',async()=>{
     mocks.rpc.mockImplementation(async(name:string)=>({data:name==='pdf_import_claim'?[{...job,kind:'bank_book',payload:{}}]:true,error:null}))
     await expect(main()).resolves.toBeUndefined()

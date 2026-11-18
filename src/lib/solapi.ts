@@ -1,4 +1,4 @@
-import { SolapiMessageService } from 'solapi'
+import { ApiKeyError, ClientError, MessageNotReceivedError, NetworkError, ServerError, SolapiMessageService } from 'solapi'
 import { recordUsage } from './costs/record'
 
 const apiKey = process.env.SOLAPI_API_KEY!
@@ -24,7 +24,17 @@ export type SendResult = {
   error?: string
 }
 
-export async function sendMessages(targets: SendTarget[]): Promise<SendResult[]> {
+function hasProviderFailureCode(messages: ReadonlyArray<{ statusCode: string }> = []) {
+  return messages.some(({ statusCode }) => statusCode === '1024' || statusCode === '1030')
+}
+
+export function isSolapiProviderFailure(error: unknown) {
+  if (error instanceof MessageNotReceivedError) return hasProviderFailureCode(error.failedMessageList)
+  return error instanceof ApiKeyError || error instanceof NetworkError || error instanceof ServerError ||
+    (error instanceof ClientError && [401, 403, 429].includes(error.httpStatus))
+}
+
+export async function sendMessages(targets: SendTarget[], onProviderFailure?: () => void): Promise<SendResult[]> {
   const service = new SolapiMessageService(apiKey, apiSecret)
 
   const settled = await Promise.allSettled(
@@ -36,6 +46,11 @@ export async function sendMessages(targets: SendTarget[]): Promise<SendResult[]>
     )
   )
 
+  if (onProviderFailure && settled.some((result) => result.status === 'rejected'
+    ? isSolapiProviderFailure(result.reason)
+    : hasProviderFailureCode(result.value.failedMessageList))) {
+    onProviderFailure()
+  }
   await recordUsage({ provider: 'solapi', feature: '문자 발송 요청', units: targets.length })
   return targets.map((t, i) => {
     const result = settled[i]

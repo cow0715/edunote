@@ -1,3 +1,5 @@
+import { isLlmProviderFailure } from '@/lib/llm/errors'
+import { monitorApi, reportOperationalFailure } from '@/lib/report-operational-failure'
 import { saveGradePlan } from '@/lib/services/grade-save'
 import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
@@ -41,7 +43,7 @@ function one<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null
 }
 
-export async function POST(request: Request, args: { params: Promise<{ id: string }> }) {
+async function monitoredPOST(request: Request, args: { params: Promise<{ id: string }> }) {
   try { return await handlePost(request, args) } catch (error) { return saveErrorResponse(error) }
 }
 
@@ -190,6 +192,7 @@ async function handlePost(request: Request, { params }: { params: Promise<{ id: 
     })
   } catch (e) {
     console.error('[grade-vocab-photo] AI 채점 실패', e)
+    if (isLlmProviderFailure(e)) reportOperationalFailure('vocab-photo', 'ocr-provider')
     return err('단어 채점 실패. 사진을 확인해주세요.', 422)
   }
 
@@ -310,3 +313,5 @@ async function handlePost(request: Request, { params }: { params: Promise<{ id: 
 
   return ok({ ...saved, vocab_correct: vocabCorrect, vocab_total: answerInserts.length, missing_numbers: missingNumbers, results })
 }
+
+export const POST = monitorApi('vocab-photo', monitoredPOST)

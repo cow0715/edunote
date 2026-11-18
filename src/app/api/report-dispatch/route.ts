@@ -1,3 +1,4 @@
+import { monitorApi, reportOperationalFailure } from '@/lib/report-operational-failure'
 import { withTeacherTransaction } from '@/lib/db/transaction'
 import { saveErrorResponse } from '@/lib/db/errors'
 import { publishMonthlyBatch, publishMockBatch } from '@/lib/services/report-dispatch'
@@ -295,7 +296,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function monitoredPOST(request: Request) {
   const { supabase, user } = await getAuth()
   if (!user) return err('인증이 필요합니다', 401)
 
@@ -505,7 +506,7 @@ export async function POST(request: Request) {
       return ok({ sent_count: 0, failed_count: 0, results: [], skipped })
     }
 
-    const sendResults = await sendMessages(targets)
+    const sendResults = await sendMessages(targets, () => reportOperationalFailure('report-dispatch', 'sms-provider'))
     const logs = sendResults.map((result, index) => {
       const meta = metas[index]
       return {
@@ -525,7 +526,10 @@ export async function POST(request: Request) {
 
     if (logs.length > 0) {
       const { error: logError } = await supabase.from('message_log').insert(logs)
-      if (logError) console.error('[report-dispatch] message_log insert failed:', logError)
+      if (logError) {
+        console.error('[report-dispatch] message_log insert failed:', logError)
+        reportOperationalFailure('report-dispatch', 'delivery-history-write')
+      }
     }
 
     return ok({
@@ -538,3 +542,5 @@ export async function POST(request: Request) {
     return saveErrorResponse(error)
   }
 }
+
+export const POST = monitorApi('report-dispatch', monitoredPOST)

@@ -1,3 +1,4 @@
+import { monitorApi } from '@/lib/report-operational-failure'
 import { assertWeekOwner, err, getAuth, getTeacherId, ok } from '@/lib/api'
 import { createServiceClient } from '@/lib/supabase/service'
 import { EXAM_PHOTO_BUCKET } from '@/lib/photo-buckets'
@@ -52,7 +53,7 @@ export async function GET(_request: Request, context: Context) {
   return closeError ? err('채점 작업을 정리하지 못했습니다.', 503) : ok({ job: null })
 }
 
-export async function PATCH(request: Request, context: Context) {
+async function monitoredPATCH(request: Request, context: Context) {
   const auth = await authorize(context)
   if (auth instanceof Response) return auth
   const { db, weekId, teacherId } = auth
@@ -85,7 +86,7 @@ export async function PATCH(request: Request, context: Context) {
   return ok({ revision })
 }
 
-export async function POST(request: Request, context: Context) {
+async function monitoredPOST(request: Request, context: Context) {
   const auth = await authorize(context)
   if (auth instanceof Response) return auth
   const { db, weekId, teacherId } = auth
@@ -103,3 +104,6 @@ export async function POST(request: Request, context: Context) {
   if (error) return err('채점 작업을 시작하지 못했습니다. 학생 연결을 확인해 주세요.', 503)
   return ok({ id })
 }
+
+export const PATCH = monitorApi('exam-photo-job', monitoredPATCH, 'patch')
+export const POST = monitorApi('exam-photo-job', monitoredPOST, 'post')

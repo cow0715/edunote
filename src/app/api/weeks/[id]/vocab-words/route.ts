@@ -3,8 +3,9 @@ import { sql } from 'drizzle-orm'
 import { captureWeekVersion, saveWeekPlan } from '@/lib/services/week-save'
 import { insertRows, updateRows, deleteRows, type Statement } from '@/lib/db/statements'
 import { saveErrorResponse, SaveError } from '@/lib/db/errors'
-import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
+import { getAuth, getTeacherId, assertWeekOwner, err, ok, type SupabaseServerClient } from '@/lib/api'
 import { gradeVocabItems } from '@/lib/anthropic'
+import { reportOperationalFailure } from '@/lib/report-operational-failure'
 
 export const maxDuration = 60
 
@@ -151,10 +152,26 @@ async function handlePost(request: Request, { params }: { params: Promise<{ id: 
     sourceType?: 'xlsx' | 'legacy_ai'
     sourceFileName?: string | null
   }
-  if (!words?.length) return err('단어 없음')
+  if (!Array.isArray(words) || !words.length) return err('단어 없음')
+
+  try {
+    return await saveWords(supabase, user.id, weekId, words, sourceType, sourceFileName)
+  } catch (error) {
+    const response = saveErrorResponse(error)
+    if (response.status >= 500 && (sourceType === 'xlsx' || sourceType === 'legacy_ai')) {
+      reportOperationalFailure('vocab-upload', 'words-write')
+    }
+    return response
+  }
+}
+
+async function saveWords(
+  supabase: SupabaseServerClient, authId: string, weekId: string, words: VocabWordInput[],
+  sourceType?: 'xlsx' | 'legacy_ai', sourceFileName?: string | null,
+) {
   const isSourceUpload = !!sourceType
 
-  const version = await captureWeekVersion(user.id, weekId)
+  const version = await captureWeekVersion(authId, weekId)
   const statements: Statement[] = []
   // ── 1. 기존 vocab_word ID 조회 ────────────────────────────────────────
   const { data: oldWords, error: oldWordsError } = await supabase
@@ -413,7 +430,7 @@ async function handlePost(request: Request, { params }: { params: Promise<{ id: 
   }
 
   statements.push(updateRows('week', weekUpdate, sql`id=${weekId}::uuid`, true))
-  await saveWeekPlan(user.id, weekId, version, statements)
+  await saveWeekPlan(authId, weekId, version, statements)
 
   return ok({ ok: true, saved: words.length, regraded: !isSourceUpload && backup.length > 0, words: newWords })
 }

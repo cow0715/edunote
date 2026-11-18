@@ -8,6 +8,7 @@ import { isPdfBatchKind, PDF_BATCH_MODE } from './batch-policy'
 import { examImportIssues, examRecoveryBlocked } from './exam-completeness'
 import { bookRecoveryExcluded, bookPilotAwaitingApproval } from '../book-pdf/pilot-review'
 import { canResumeBookFailures } from '../book-pdf/failure-policy'
+import { SaveError } from '../db/errors'
 
 export async function weekImportSnapshot(client: SupabaseClient, weekId: string) {
   const { data: questions, error } = await client.from('exam_question').select('*').eq('week_id', weekId).eq('exam_type', 'reading').order('id')
@@ -27,6 +28,7 @@ export async function registerPdfImport(input: {
   storagePath: string; payload: Record<string, unknown>
   explanationStoragePath?: string
   deferDispatch?: boolean
+  onDispatchFailure?: () => void
 }) {
   gcpWorkerConfig(input.kind) // Fail before reserving work when configuration is missing.
   const client = createServiceClient()
@@ -35,11 +37,11 @@ export async function registerPdfImport(input: {
   if (previous) return { job_id: previous.id, target_id: previous.target_id, status: previous.status, accepted: true }
   const allowedPrefix = input.kind === 'week_answers'
     ? `week-import/${input.targetId}/` : `${input.authId}/`
-  if (!input.storagePath.startsWith(allowedPrefix) || input.storagePath.includes('..')) throw new Error('업로드 파일 경로가 올바르지 않습니다. 파일을 다시 올려주세요.')
+  if (!input.storagePath.startsWith(allowedPrefix) || input.storagePath.includes('..')) throw new SaveError('업로드 파일 경로가 올바르지 않습니다. 파일을 다시 올려주세요.')
   const id = randomUUID()
   const sourcePath = `${input.teacherId}/${id}.pdf`
   const explanationPath = input.explanationStoragePath ? `${input.teacherId}/${id}-explanation.pdf` : null
-  if (input.explanationStoragePath && (!input.explanationStoragePath.startsWith(allowedPrefix) || input.explanationStoragePath.includes('..'))) throw new Error('해설 업로드 경로가 올바르지 않습니다.')
+  if (input.explanationStoragePath && (!input.explanationStoragePath.startsWith(allowedPrefix) || input.explanationStoragePath.includes('..'))) throw new SaveError('해설 업로드 경로가 올바르지 않습니다.')
   const { error: copyError } = await client.storage.from('exam-pdf-temp').copy(input.storagePath, sourcePath, { destinationBucket: 'pdf-import-sources' })
   if (copyError) throw new Error(`원본 파일 보관 실패: ${copyError.message}`)
   if (input.explanationStoragePath && explanationPath) {
@@ -58,7 +60,7 @@ export async function registerPdfImport(input: {
   })
   if (error) {
     await client.storage.from('pdf-import-sources').remove([sourcePath, ...(explanationPath ? [explanationPath] : [])])
-    if (error.code === '23505') throw new Error('이미 이 자료를 처리 중입니다. 작업 목록에서 진행 상황을 확인해주세요.')
+    if (error.code === '23505') throw new SaveError('이미 이 자료를 처리 중입니다. 작업 목록에서 진행 상황을 확인해주세요.', 409)
     throw new Error(`작업 등록 실패: ${error.message}`)
   }
   // Immutable source is now durable; queued work does not depend on the temporary object.
@@ -69,6 +71,7 @@ export async function registerPdfImport(input: {
     if (!input.deferDispatch) await dispatchPdfJob(id, input.kind)
   } catch {
     // The HTTP outcome may be uncertain. Preserve queued work and let the owner retry safely.
+    input.onDispatchFailure?.()
     try {
       await client.from('pdf_import_job').update({ error: '워커 실행 요청을 확인하지 못했습니다. 작업 목록에서 재실행해주세요.' }).eq('id', id).eq('status', 'queued')
     } catch { /* A queued job remains discoverable even if the warning write fails. */ }

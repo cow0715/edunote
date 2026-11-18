@@ -6,6 +6,8 @@ import { mergeExamVocabularyText, syncExamQuestionVocabulary } from '@/lib/exam-
 import { enrichExamQuestionVocabulary } from '@/lib/vocab-enrichment'
 import { workerEnabled } from '@/lib/pdf-import/types'
 import { registerPdfImport } from '@/lib/pdf-import/server'
+import { SaveError } from '@/lib/db/errors'
+import { identifyFailureStage, monitorApi, reportOperationalFailure } from '@/lib/report-operational-failure'
 
 export const maxDuration = 300
 
@@ -16,7 +18,7 @@ function isHakpyung(month: number): boolean {
   return HAKPYUNG_MONTHS.includes(month)
 }
 
-export async function POST(
+async function uploadExplanation(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -27,26 +29,31 @@ export async function POST(
   if (!teacherId) return err('선생님 정보 없음', 403)
 
   const { id } = await params
-  const { storagePath } = await request.json()
-
-  if (!storagePath) return err('파일 경로 필요')
+  const body = await request.json().catch(() => null)
+  const storagePath: unknown = body?.storagePath
+  if (typeof storagePath !== 'string' || !storagePath) return err('파일 경로 필요')
 
   // 소유권 + 시험 월 확인
-  const { data: exam } = await supabase
+  const { data: exam, error: examError } = await supabase
     .from('exam_bank')
     .select('id, exam_month, material_kind')
     .eq('id', id)
     .eq('teacher_id', teacherId)
-    .single()
+    .maybeSingle()
 
+  if (examError) reportOperationalFailure('bank-explanation-upload', 'exam-lookup')
   if (!exam) return err('시험을 찾을 수 없습니다', 404)
   if (exam.material_kind === 'textbook') return err('교재 해설은 교재 원문 검토에서 확인해주세요.')
 
   if (workerEnabled()) {
     try {
       return ok(await registerPdfImport({ kind: 'bank_explanation', teacherId, authId: user.id, targetId: id,
+        onDispatchFailure: () => reportOperationalFailure('bank-explanation-upload', 'worker-dispatch'),
         storagePath, payload: { mimeType: 'application/pdf' } }), { status: 202 })
-    } catch (error) { return err(error instanceof Error ? error.message : '작업 등록 실패', 503) }
+    } catch (error) {
+      if (error instanceof SaveError) return err(error.message, error.status)
+      return identifyFailureStage(err(error instanceof Error ? error.message : '작업 등록 실패', 503), 'upload-register')
+    }
   }
 
   const hakpyung = isHakpyung(exam.exam_month)
@@ -58,6 +65,7 @@ export async function POST(
     .download(storagePath)
 
   if (downloadErr || !fileBlob) {
+    reportOperationalFailure('bank-explanation-upload', 'upload-download')
     return err(`파일 다운로드 실패: ${downloadErr?.message}`)
   }
 
@@ -78,21 +86,25 @@ export async function POST(
     explanations = parsed.items
     skippedQuestions = parsed.skippedNumbers
   } catch (e) {
+    reportOperationalFailure('bank-explanation-upload', 'inline-parsing')
     const msg = e instanceof Error ? e.message : String(e)
     return err(`해설 PDF 파싱 실패: ${msg}`, 422)
   }
   if (explanations.length === 0) {
+    reportOperationalFailure('bank-explanation-upload', 'inline-parsing')
     return err('해설을 추출할 수 없습니다. PDF를 확인해주세요.', 422)
   }
 
-  const { data: questionRows } = await supabase
+  const { data: questionRows, error: questionsError } = await supabase
     .from('exam_bank_question')
     .select('id, question_number, question_type, passage, explanation_vocabulary')
     .eq('exam_bank_id', id)
+  if (questionsError) reportOperationalFailure('bank-explanation-upload', 'questions-lookup')
   const questionMap = new Map((questionRows ?? []).map((q) => [q.question_number, q]))
 
   // 문항번호 매칭하여 UPDATE (빈 값은 skip하여 기존 데이터 보존)
   let updated = 0
+  let updateFailed = false
   const normalizedWords = new Set<string>()
   for (const ex of explanations) {
     const question = questionMap.get(ex.question_number)
@@ -118,7 +130,8 @@ export async function POST(
       .eq('exam_bank_id', id)
       .eq('question_number', ex.question_number)
 
-    if (!error) {
+    if (error) updateFailed = true
+    else {
       if (question && vocabulary) {
         const synced = await syncExamQuestionVocabulary(supabase, question.id, vocabulary, question.question_type, question.passage)
         for (const word of synced.normalizedWords) normalizedWords.add(word)
@@ -126,6 +139,7 @@ export async function POST(
       updated++
     }
   }
+  if (updateFailed) reportOperationalFailure('bank-explanation-upload', 'explanations-write')
 
   // 단어 DB 보강 (기존 generate-explanation 라우트에서 이식 — 뜻·예문 없는 신규 단어 채우기)
   let enriched = { candidates: 0, generated: 0, updated: 0 }
@@ -141,3 +155,4 @@ export async function POST(
     enriched,
   })
 }
+export const POST = monitorApi('bank-explanation-upload', uploadExplanation)

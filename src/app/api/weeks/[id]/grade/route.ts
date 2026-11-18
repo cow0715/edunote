@@ -1,3 +1,4 @@
+import { monitorApi } from '@/lib/report-operational-failure'
 import { warmDatabaseConnection } from '@/lib/db/pool'
 import { rosterAtDate } from '@/lib/week-roster'
 import type { GradeSaveResult, GradeVersion } from '@/lib/atomic-grade'
@@ -26,7 +27,7 @@ function one<T>(value: T | T[] | null | undefined): T | null {
 }
 
 // 과제/메모 단순 저장 (AI 채점 없음)
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function monitoredPATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
@@ -149,7 +150,7 @@ async function handleGET(_: Request, { params }: { params: Promise<{ id: string 
 }
 
 // 일괄 저장 + 서술형 AI 배치 채점
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function monitoredPOST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     return await handlePost(request, params)
   } catch (e) {
@@ -522,3 +523,6 @@ async function handlePost(request: Request, params: Promise<{ id: string }>) {
   if (process.env.NODE_ENV === 'development' && answersOnlyDraft) console.info('[grade-draft-timing]', timings.join(', '))
   return ok({ ...savedResult }, { headers: { 'Server-Timing': timings.join(', ') } })
 }
+
+export const POST = monitorApi('grade-save', monitoredPOST, 'post')
+export const PATCH = monitorApi('grade-save', monitoredPATCH, 'patch')

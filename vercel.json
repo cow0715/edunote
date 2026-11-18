@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/sync-costs",
       "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/cron/kakao-alerts",
+      "schedule": "0 20 * * *"
     }
   ]
 }

@@ -13,7 +13,7 @@ import { examImportIssues } from './exam-completeness'
 import { bookRecoveryExcluded } from '../book-pdf/pilot-review'
 import { PdfBatchStopped } from './batch-policy'
 
-export async function runPdfImport(client: SupabaseClient, job: PdfImportJob): Promise<Record<string, unknown>> {
+export async function runPdfImport(client: SupabaseClient, job: PdfImportJob, onCombinedExplanationStart?: () => void): Promise<Record<string, unknown>> {
   if (bookRecoveryExcluded(job)) throw new PdfBatchStopped('이미 등록된 교재이므로 재처리 대상에서 제외했습니다.')
   const { data: teacher, error: teacherError } = await client.from('teacher').select('id').eq('id', job.teacher_id).eq('approval_status', 'approved').single()
   if (teacherError || !teacher) throw new Error('승인된 강사 정보를 찾지 못했습니다.')
@@ -31,6 +31,7 @@ export async function runPdfImport(client: SupabaseClient, job: PdfImportJob): P
     const result = await checkpointBatchPhase({ phase: 'bank-questions-saved-v1', job: job.id },
       () => importBankQuestions(client, job, base64, mimeType))
     if (typeof job.payload.explanationSourcePath === 'string') {
+      onCombinedExplanationStart?.()
       const { data: explanation, error } = await client.storage.from('pdf-import-sources').download(job.payload.explanationSourcePath)
       if (error || !explanation) throw new Error('문항은 저장됐지만 해설 원본을 읽지 못했습니다.')
       const explanationResult = await importBankExplanation(client, job, await explanation.arrayBuffer())

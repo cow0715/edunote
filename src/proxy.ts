@@ -2,6 +2,11 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function proxy(request: NextRequest) {
+  // These routes verify their own signatures or secrets and must work without a browser session.
+  const pathname = request.nextUrl.pathname
+  if (pathname === '/api/webhooks/sentry-alert' || pathname === '/api/cron/kakao-alerts') {
+    return NextResponse.next({ request })
+  }
   // This POST route verifies getUser itself and refreshes cookies in its Route
   // Handler, then checks approved-teacher ownership inside the write transaction.
   // Do not verify the same session twice or trust forwarded identity headers.
@@ -36,8 +41,6 @@ export async function proxy(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser()
-
-  const { pathname } = request.nextUrl
 
   // 공개 경로: /login, /signup, 학생/학부모 공유 링크
   const isPublic =

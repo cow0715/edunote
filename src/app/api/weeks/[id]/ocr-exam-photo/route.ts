@@ -1,3 +1,4 @@
+import { identifyFailureStage, monitorApi } from '@/lib/report-operational-failure'
 import { sortQuestionsByPdf } from '@/lib/question-presentation'
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { ocrExamAnswers, ExamOcrQuestion } from '@/lib/anthropic'
@@ -9,7 +10,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 
 export const maxDuration = 60
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function monitoredPOST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { supabase, user } = await getAuth()
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
@@ -102,12 +103,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       if (uploadError && !jobDb) {
         console.error('[ocr-exam-photo] 사진 업로드 실패', uploadError)
         await logExamPhotos(weekId, targets, 'upload', 'failed', 503)
-        return err('답안지 사진 저장에 실패했습니다. 판독을 시작하지 않았습니다. 사진을 다시 업로드해주세요.', 503)
+        return identifyFailureStage(err('답안지 사진 저장에 실패했습니다. 판독을 시작하지 않았습니다. 사진을 다시 업로드해주세요.', 503), 'upload')
       }
     } catch (e) {
       console.error('[ocr-exam-photo] 사진 업로드 예외', e)
       await logExamPhotos(weekId, targets, 'upload', 'failed', 503)
-      return err('답안지 사진 저장에 실패했습니다. 판독을 시작하지 않았습니다. 사진을 다시 업로드해주세요.', 503)
+      return identifyFailureStage(err('답안지 사진 저장에 실패했습니다. 판독을 시작하지 않았습니다. 사진을 다시 업로드해주세요.', 503), 'upload')
     }
 
   }
@@ -118,11 +119,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (photoError || !photo || !((photo.size ?? 0) > 0)) {
       console.error('[ocr-exam-photo] photo_verify_failed', { weekId, studentId, deployment: process.env.VERCEL_DEPLOYMENT_ID })
       await logExamPhotos(weekId, targets, 'verify', 'failed', 503)
-      return err('답안지 사진 파일의 저장을 확인하지 못했습니다. 판독을 시작하지 않았습니다. 사진을 다시 업로드해주세요.', 503)
+      return identifyFailureStage(err('답안지 사진 파일의 저장을 확인하지 못했습니다. 판독을 시작하지 않았습니다. 사진을 다시 업로드해주세요.', 503), 'verify-storage')
     }
   } catch {
     await logExamPhotos(weekId, targets, 'verify', 'failed', 503)
-    return err('답안지 사진 파일의 저장을 확인하지 못했습니다. 판독을 시작하지 않았습니다. 사진을 다시 업로드해주세요.', 503)
+    return identifyFailureStage(err('답안지 사진 파일의 저장을 확인하지 못했습니다. 판독을 시작하지 않았습니다. 사진을 다시 업로드해주세요.', 503), 'verify-storage')
   }
 
   console.info('[ocr-exam-photo] photo_verified', { weekId, studentId, deployment: process.env.VERCEL_DEPLOYMENT_ID })
@@ -131,7 +132,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (jobDb) {
       const { error } = await jobDb.from('exam_photo_job_item').update({ photo_path: storagePath, mime_type: imageMime })
         .eq('job_id', jobId).eq('student_id', studentId).is('photo_path', null)
-      if (error) return err('저장한 사진을 채점 작업에 연결하지 못했습니다. 다시 시도해 주세요.', 503)
+      if (error) return identifyFailureStage(err('저장한 사진을 채점 작업에 연결하지 못했습니다. 다시 시도해 주세요.', 503), 'link-job-photo')
     }
     return ok({ ok: true, photoPath: storagePath })
   }
@@ -186,7 +187,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         .update({ ocr_results: results, ocr_lease_until: null })
         .eq('job_id', jobId).eq('student_id', studentId).eq('ocr_lease_until', lease)
         .select('student_id').maybeSingle()
-      if (error || !saved) return err('인식 결과를 채점 작업에 저장하지 못했습니다. 다시 시도해 주세요.', 503)
+      if (error || !saved) return identifyFailureStage(err('인식 결과를 채점 작업에 저장하지 못했습니다. 다시 시도해 주세요.', 503), 'ocr-result-write')
     }
     await logExamPhotos(weekId, targets, 'ocr', 'succeeded', 200)
     return ok({ ok: true, results, photoPath: storagePath })
@@ -199,3 +200,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       .eq('job_id', jobId).eq('student_id', studentId).eq('ocr_lease_until', lease)
   }
 }
+
+export const POST = monitorApi('exam-photo', monitoredPOST)

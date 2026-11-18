@@ -1,5 +1,7 @@
 import * as XLSX from 'xlsx'
 
+export class VocabWorkbookFormatError extends Error {}
+
 export type ParsedVocabEntry = {
   number: number
   passage_label: string | null
@@ -134,7 +136,7 @@ function cell(row: unknown[], index: number) {
 export function parseVocabRows(rows: unknown[][]): ParsedVocabEntry[] {
   const header = findHeader(rows)
   if (!header) {
-    throw new Error('본문 단어/본문 의미 헤더가 있는 시트를 찾을 수 없습니다.')
+    throw new VocabWorkbookFormatError('본문 단어/본문 의미 헤더가 있는 시트를 찾을 수 없습니다.')
   }
 
   const words: ParsedVocabEntry[] = []
@@ -182,5 +184,5 @@ export function parseVocabWorkbookBuffer(buffer: Buffer | ArrayBuffer | Uint8Arr
     if (findHeader(rows)) return parseVocabRows(rows)
   }
 
-  throw new Error('단어장 형식의 시트를 찾을 수 없습니다.')
+  throw new VocabWorkbookFormatError('단어장 형식의 시트를 찾을 수 없습니다.')
 }
