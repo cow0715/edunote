@@ -39,7 +39,7 @@ export function createSampleCaptureRuntime(subject: '독해' | '단어', individ
       if (photos !== undefined) drafts.set(key, photos)
       return drafts.get(key) ?? []
     },
-    pickFiles: async (multiple) => multiple ? sampleStudents.map((entry) => fileFor(entry.student_id)) : [fileFor(currentStudent())],
+    pickFiles: async (multiple) => multiple && !individualId ? sampleStudents.map((entry) => fileFor(entry.student_id)) : [fileFor(currentStudent())],
     getMedia: async () => {
       cameraCanvas = document.createElement('canvas')
       cameraCanvas.width = 600; cameraCanvas.height = 840

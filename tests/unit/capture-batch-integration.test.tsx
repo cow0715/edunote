@@ -2,9 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ExamBatchGradeDialog } from '@/components/grade/exam-batch-grade-dialog'
+import { PDFDocument } from 'pdf-lib'
 import { VocabBatchGradeDialog } from '@/components/grade/vocab-batch-grade-dialog'
 
-vi.mock('@/lib/image-compress', () => ({ compressImageForUpload: vi.fn(async () => ({ base64: 'YQ==', mimeType: 'image/jpeg' })) }))
+vi.mock('@/lib/image-compress', () => ({ compressImageForUpload: vi.fn(async () => ({ base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jT2QAAAAASUVORK5CYII=', mimeType: 'image/png' })) }))
 vi.mock('@/components/grade/mobile-capture', () => ({
   MobileCapture: ({ active, onConfirm }: { active: boolean; onConfirm: (files: File[]) => Promise<void> }) => active ? (
     <button onClick={() => onConfirm([new File(['one'], 'one.jpg', { type: 'image/jpeg' }), new File(['two'], 'two.jpg', { type: 'image/jpeg' })])}>촬영한 두 장 확인 완료</button>
@@ -155,13 +156,52 @@ describe('촬영 확인 → 기존 일괄 처리 연결', () => {
     expect(screen.getByText(/답안 확인이 끝났습니다/)).toBeTruthy()
   })
 
-  it.each(['exam', 'vocab'])('%s: 같은 학생에게 두 장이 매칭되면 처리를 차단한다', async (kind) => {
+  it('같은 인쇄 코드를 가진 앞뒷장을 PDF 한 건으로 묶어서 판독한다', async () => {
+    const onApplied = vi.fn(() => 2)
+    let page = 2
+    request.mockImplementation(async (url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string)
+      if (url.endsWith('vocab-photo-name')) {
+        expect(body.kind).toBe('reading')
+        return Response.json({ studentId: 'a', confidence: 'high', codeMatch: 'matched', sheetPage: page-- })
+      }
+      expect(body.studentId).toBe('a')
+      expect(body.mimeType).toBe('application/pdf')
+      expect((await PDFDocument.load(body.fileData)).getPageCount()).toBe(2)
+      return Response.json({ ok: true, photoPath: 'week/a/photo', results: [] })
+    })
+    render(<ExamBatchGradeDialog open onOpenChange={vi.fn()} weekId="week" students={students} questionCount={2} onApplied={onApplied} />)
+    fireEvent.click(screen.getByRole('button', { name: '촬영한 두 장 확인 완료' }))
+    const confirm = await screen.findByRole('button', { name: '코드 일치 2장 확인' })
+    const start = screen.getByRole('button', { name: '1명 답안 인식' }) as HTMLButtonElement
+    expect(start.disabled).toBe(true)
+    fireEvent.click(confirm)
+    expect(start.disabled).toBe(false)
+    fireEvent.click(start)
+    await waitFor(() => expect(onApplied).toHaveBeenCalledExactlyOnceWith('a', [], 'week/a/photo'))
+    expect(request.mock.calls.filter(([url]) => url.endsWith('ocr-exam-photo'))).toHaveLength(1)
+  })
+
+  it('예전 답안지의 이름 없는 뒷장을 앞 사진의 학생에게 한 번에 연결한다', async () => {
+    let nameIndex = 0
+    request.mockImplementation(async (url: string) => url.endsWith('vocab-photo-name')
+      ? Response.json({ studentId: nameIndex++ === 0 ? 'a' : null, confidence: 'high' })
+      : Response.json({ ok: true, photoPath: 'week/a', results: [] }))
+    const onApplied = vi.fn(() => 1)
+    render(<ExamBatchGradeDialog open onOpenChange={vi.fn()} weekId="week" students={students} questionCount={1} onApplied={onApplied} />)
+    fireEvent.click(screen.getByRole('button', { name: '촬영한 두 장 확인 완료' }))
+    fireEvent.click(await screen.findByRole('button', { name: '사진 1: 학생 가 학생 확인' }))
+    fireEvent.click(await screen.findByRole('button', { name: '앞 사진과 같은 학생 · 학생 가' }))
+    fireEvent.click(screen.getByRole('button', { name: '1명 답안 인식' }))
+    await waitFor(() => expect(onApplied).toHaveBeenCalledExactlyOnceWith('a', [], 'week/a'))
+  })
+
+  it('단어 시험에서 같은 학생에게 두 장이 매칭되면 처리를 차단한다', async () => {
     request.mockResolvedValue({ json: async () => ({ studentId: 'a', confidence: 'high' }) })
-    if (kind === 'exam') render(<ExamBatchGradeDialog open onOpenChange={vi.fn()} weekId="week" students={students} questionCount={1} onApplied={vi.fn()} />)
-    else render(<VocabBatchGradeDialog open onOpenChange={vi.fn()} weekId="week" students={students} onGraded={vi.fn()} />)
+    render(<VocabBatchGradeDialog open onOpenChange={vi.fn()} weekId="week" students={students} onGraded={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: '촬영한 두 장 확인 완료' }))
     await waitFor(() => expect(screen.getAllByRole('combobox').every((select) => (select as HTMLSelectElement).value === 'a')).toBe(true))
-    const start = screen.getByRole('button', { name: kind === 'exam' ? '2명 답안 인식' : '2명 채점 시작' })
+    const start = screen.getByRole('button', { name: '2명 채점 시작' })
     expect(start.hasAttribute('disabled')).toBe(true)
     // Fix one assignment and the existing workflow becomes available again.
     fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'b' } })

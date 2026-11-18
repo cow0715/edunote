@@ -16,6 +16,7 @@ import { runOrReport } from '@/lib/async-ui'
 import { useCaptureRuntime } from './capture-runtime'
 import type { ExamOcrResult } from './exam-photo-button'
 import { requireExamPhotoPath } from '@/lib/exam-photo'
+import { packExamPhotos } from '@/lib/exam-photo-upload'
 import { BatchGradePanel } from './batch-grade-panel'
 import { duplicateExamStudents, isExamStudentConfirmed } from '@/lib/exam-student-confirmation'
 
@@ -37,6 +38,8 @@ type Item = {
   rawName: string | null
   /** 동명이인이라 자동 매칭이 거부된 경우 */
   duplicateName: boolean
+  codeMatch?: 'matched' | 'unmatched'
+  sheetPage?: number
   status: 'idle' | 'reading-name' | 'ready' | 'reading' | 'done' | 'error'
   error?: string
   result?: { applied: number; total: number }
@@ -122,20 +125,22 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
     await runPool(fresh, CONCURRENCY, async (it) => {
       patch(it.id, { status: 'reading-name' })
       await runOrReport(async () => {
-        const { base64: b64, mimeType } = await compress(it.file)
+        const { base64: b64, mimeType } = await compress(it.file, { forceJpeg: true })
         patch(it.id, { b64, mimeType })
         const resp = await request(`/api/weeks/${weekId}/vocab-photo-name`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileData: b64, mimeType }),
+          body: JSON.stringify({ fileData: b64, mimeType, kind: 'reading' }),
         })
-        const data = await resp.json() as { studentId: string | null; rawName: string | null; confidence: Confidence; duplicate?: boolean }
+        const data = await resp.json() as { studentId: string | null; rawName: string | null; confidence: Confidence; duplicate?: boolean; codeMatch?: Item['codeMatch']; sheetPage?: number }
         const ok = data.studentId && students.some((s) => s.student_id === data.studentId)
         patch(it.id, {
           studentId: ok ? data.studentId : null,
           confidence: ok ? data.confidence : 'none',
           rawName: data.rawName ?? null,
           duplicateName: data.duplicate ?? false,
+          codeMatch: data.codeMatch === 'matched' && !ok ? 'unmatched' : data.codeMatch,
+          sheetPage: data.sheetPage,
           status: 'ready',
         })
       }, () => patch(it.id, { status: 'ready', confidence: 'none' }))
@@ -151,10 +156,16 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
     })
   }
 
-  // 같은 학생에 사진이 2장 이상 붙었는지
-  const duplicateStudentIds = useMemo(() => duplicateExamStudents(items), [items])
+  // 여러 장은 판독 전에 묶고, 결과 화면의 재배정에는 중복 학생 검사를 유지한다.
+  const duplicateStudentIds = useMemo(() => phase === 'done' ? duplicateExamStudents(items) : new Set<string>(), [items, phase])
 
   const readyToRead = items.filter((it) => it.studentId && it.b64)
+  const photosByStudent = new Map<string, Item[]>()
+  for (const item of readyToRead) {
+    const pages = photosByStudent.get(item.studentId!)
+    if (pages) pages.push(item)
+    else photosByStudent.set(item.studentId!, [item])
+  }
   const confirmedCount = items.filter((it) => isExamStudentConfirmed(it, duplicateStudentIds)).length
   const allConfirmed = items.length > 0 && confirmedCount === items.length && readyToRead.length === items.length
 
@@ -185,9 +196,31 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
 
   async function startReading() {
     if (phase !== 'review' || !allConfirmed) return
+    setContinueError(null)
     setPhase('reading')
-    await runPool(readyToRead, CONCURRENCY, readOne)
-    setPhase('done')
+    try {
+      const groups = [...photosByStudent.values()]
+      const uploads = await Promise.all(groups.map(async (pages) => {
+        const first = pages[0]
+        if (pages.length === 1) return first
+        const pageNumbers = new Set(pages.map((page) => page.sheetPage))
+        const ordered = pageNumbers.size === pages.length && !pageNumbers.has(undefined)
+          ? [...pages].sort((a, b) => a.sheetPage! - b.sheetPage!) : pages
+        const { base64, mimeType } = await packExamPhotos(ordered.map((page) => ({ base64: page.b64!, mimeType: page.mimeType })))
+        const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
+        const file = new File([bytes], 'answer-sheet.pdf', { type: mimeType })
+        return { ...first, id: `${first.id}:pdf`, b64: base64, mimeType, file, previewUrl: '' }
+      }))
+      const targets = uploads.map((item) => item.previewUrl ? item : { ...item, previewUrl: URL.createObjectURL(item.file) })
+      const targetIds = new Set(targets.map((item) => item.id))
+      for (const item of items) if (!targetIds.has(item.id)) URL.revokeObjectURL(item.previewUrl)
+      setItems(targets)
+      await runPool(targets, CONCURRENCY, readOne)
+      setPhase('done')
+    } catch (error) {
+      setContinueError(error instanceof Error ? error.message : '답안지 파일을 합치지 못했습니다.')
+      setPhase('review')
+    }
   }
 
   async function retryFailed() {
@@ -230,8 +263,11 @@ export function ExamBatchGradeDialog({ open, onOpenChange, weekId, students, que
       } finally { setContinuing(false) }
     } : undefined}
     items={items.map(item => ({...item, status: item.status === 'reading-name' || item.status === 'idle' ? 'matching' : item.status === 'reading' ? 'processing' : item.status, message: item.error ?? (item.result ? `${item.result.applied}/${item.result.total}문항 반영` : undefined)}))}
-    students={students} busy={isBusy || captureBusy} readyCount={readyToRead.length} duplicateIds={duplicateStudentIds} canStart={allConfirmed}
+    students={students} busy={isBusy || captureBusy} readyCount={photosByStudent.size} duplicateIds={duplicateStudentIds} canStart={allConfirmed}
     onClose={requestClose} onBack={()=>setPhase('pick')} onConfirm={addFiles} onCaptureBusy={setCaptureBusy}
-    onSelect={(id,studentId)=>patch(id,{studentId,confirmedStudentId:null})} onRemove={removeItem} onStart={startReading} onRetry={retryFailed}
+    onConfirmCodeMatches={() => setItems((current) => current.map((item) =>
+      item.studentId && item.codeMatch === 'matched' && item.b64 ? { ...item, confirmedStudentId: item.studentId } : item))}
+    onAttachPrevious={(id, studentId) => patch(id, { studentId, confirmedStudentId: studentId })}
+    onSelect={(id,studentId)=>patch(id,{studentId,confirmedStudentId:null,codeMatch:undefined})} onRemove={removeItem} onStart={startReading} onRetry={retryFailed}
     onConfirmStudent={id=>{ const item=items.find(item=>item.id===id); if ((phase==='review'||phase==='done') && item?.studentId && !duplicateStudentIds.has(item.studentId)) patch(id,{confirmedStudentId:item.studentId}) }}/>
 }

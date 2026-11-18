@@ -660,6 +660,7 @@ ${EXAM_OCR_RULES}`
 
 export function buildExamOcrVisionPrompt(questions: ExamOcrQuestion[]): string {
   return `이 시험 답안지에서 각 문항의 학생 답안을 추출하세요.
+답안지가 여러 페이지면 같은 학생의 답안입니다. 마지막 페이지까지 읽고, 모든 페이지에서 찾은 답을 하나의 JSON 배열로 반환하세요. 각 question_number와 sub_label 조합은 한 번만 출력하세요.
 
 문항 목록:
 ${buildExamQuestionList(questions)}

@@ -1,3 +1,5 @@
+import { Fragment } from 'react'
+import { paginateAnswerSheetRows } from '@/lib/answer-sheet-pagination'
 import { answerSheetSlots, type SlotQuestion } from '@/lib/answer-sheet-slots'
 import { groupQuestionParents, questionLabel, type QuestionPresentation } from '@/lib/question-presentation'
 import { oxChoiceLabels, oxNotationForGroup } from '@/lib/ox-grading'
@@ -9,23 +11,42 @@ export type PrintQuestion = QuestionPresentation & SlotQuestion & {
   correct_answer_text: string | null
 }
 
-function buildRows(questions: PrintQuestion[]) {
-  const rows = groupQuestionParents(questions).map(({ qNum, group }) => {
-    const style = group[0]?.question_style
-    const short = ['objective', 'multi_select', 'ox'].includes(style)
-    const stacked = group.length > 3 && style !== 'find_error'
-    return {
-      qNum, group, stacked,
-      minHeight: style === 'find_error' ? answerSheetSlots(group).count * 20 + 24 : (short ? 36 : 44) * (stacked ? group.length : 1),
-      weight: style === 'find_error' ? 3.2 : short ? 1 : 2.4,
-    }
-  })
-  const minTotal = rows.reduce((sum, row) => sum + row.minHeight, 0)
-  const weightTotal = rows.reduce((sum, row) => sum + row.weight, 0)
-  const extra = Math.max(0, 255 * 72 / 25.4 - minTotal)
-  // Crowded sheets can flow to another page; never shrink below a usable writing height.
-  return rows.map(row => ({ ...row, heightPt: Math.floor(row.minHeight + extra * row.weight / weightTotal) }))
+type AnswerRow = {
+  qNum: number
+  group: PrintQuestion[]
+  stacked: boolean
+  minHeight: number
+  weight: number
+  part?: number
+  slotCount?: number
 }
+
+export function buildAnswerSheetPages(questions: PrintQuestion[]) {
+  const groups = groupQuestionParents(questions)
+  const rows = groups.flatMap<AnswerRow>(({ qNum, group }) => {
+    const style = group[0]?.question_style
+    if (style === 'find_error') {
+      const { count } = answerSheetSlots(group)
+      const limit = 32
+      return Array.from({ length: Math.ceil(count / limit) }, (_, part) => {
+        const slotCount = Math.min(limit, count - part * limit)
+        return { qNum, group, stacked: false, part, slotCount, minHeight: slotCount * 20 + 24, weight: 3.2 }
+      })
+    }
+    const short = ['objective', 'multi_select', 'ox'].includes(style)
+    const stacked = group.length > 3
+    const rowHeight = short ? 36 : 44
+    const perPage = stacked ? Math.floor(690 / rowHeight) : group.length
+    return Array.from({ length: Math.ceil(group.length / perPage) }, (_, part) => {
+      const entries = group.slice(part * perPage, (part + 1) * perPage)
+      return { qNum, group: entries, stacked, part, minHeight: rowHeight * (stacked ? entries.length : 1), weight: short ? 1 : 2.4 }
+    })
+  })
+  return { pages: paginateAnswerSheetRows(rows), questionCount: groups.length }
+}
+
+type PageRows = ReturnType<typeof buildAnswerSheetPages>['pages'][number]
+type PrintCopy = { name: string; code: string }
 
 const NUMBER_MARKS = ['①', '②', '③', '④', '⑤']
 const LETTER_MARKS = ['ⓐ', 'ⓑ', 'ⓒ', 'ⓓ', 'ⓔ']
@@ -43,11 +64,11 @@ function ResponseGuide({ question, group }: { question: PrintQuestion; group: Pr
   return null
 }
 
-function AnswerArea({ row }: { row: ReturnType<typeof buildRows>[number] }) {
+function AnswerArea({ row }: { row: PageRows[number] }) {
   const first = row.group[0]
   const hasSub = row.group.length > 1 || first.sub_label != null
   if (first.question_style === 'find_error') {
-    const { count } = answerSheetSlots(row.group)
+    const count = row.slotCount ?? 0
     return <div className="print-error-slots" style={{ minHeight: `${row.heightPt}pt` }}>
       {Array.from({ length: count }, (_, i) => <div className="print-error-slot" key={i}>
         <span>번호·기호 [&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;]</span><span>고친 표현:</span><span className="print-error-line" />
@@ -68,22 +89,36 @@ function AnswerArea({ row }: { row: ReturnType<typeof buildRows>[number] }) {
   </div>
 }
 
-export function AnswerSheetDocument({ questions, weekLabel }: { questions: PrintQuestion[]; weekLabel: string }) {
-  const rows = buildRows(questions)
+export function AnswerSheetDocument({ questions, weekLabel, pages = buildAnswerSheetPages(questions).pages, copies = [{ name: '', code: '' }], duplex = false }: {
+  questions: PrintQuestion[]
+  weekLabel: string
+  pages?: PageRows[]
+  copies?: PrintCopy[]
+  duplex?: boolean
+}) {
   return <>
-    <section className="answer-print-page" aria-label={`${weekLabel} 진단평가 답안지`}>
-      <header className="answer-print-header">
-        <h2>{weekLabel} 진단평가 답안지</h2>
-        <div className="answer-print-identity"><span>학번: __________________</span><span>이름: __________________</span></div>
-      </header>
-      <table className="answer-table" aria-label="학생 작성용 답안 표">
-        <colgroup><col className="print-number-col" /><col /></colgroup>
-        <tbody>{rows.map(row => <tr key={row.qNum}>
-          <th scope="row" className="print-question-number">{questionLabel(row.group[0], false)}</th>
-          <td className="print-response-cell"><AnswerArea row={row} /></td>
-        </tr>)}</tbody>
-      </table>
-    </section>
+    {copies.map((copy, copyIndex) => <Fragment key={copyIndex}>
+      {pages.map((rows, index) => <section key={index} className="answer-print-page" aria-label={`${weekLabel} 진단평가 답안지 ${index + 1}쪽`}>
+        <header className="answer-print-header">
+          <h2>{weekLabel} 진단평가 답안지</h2>
+          <div className="answer-print-identity">
+            <span>{index + 1} / {pages.length}쪽</span>
+            <span>{copy.name ? `이름: ${copy.name}` : '학번: ________________　 이름: ________________'}</span>
+            {copy.code && <span>판독 코드 <code>{copy.code}</code></span>}
+          </div>
+        </header>
+        <table className="answer-table" aria-label="학생 작성용 답안 표">
+          <colgroup><col className="print-number-col" /><col /></colgroup>
+          <tbody>{rows.map(row => <tr key={`${row.qNum}-${row.part ?? 0}`}>
+            <th scope="row" className="print-question-number">{questionLabel(row.group[0], false)}{row.part ? <><br />계속</> : null}</th>
+            <td className="print-response-cell"><AnswerArea row={row} /></td>
+          </tr>)}</tbody>
+        </table>
+      </section>)}
+      {duplex && pages.length % 2 === 1 && copyIndex < copies.length - 1 && (
+        <div className="answer-print-page answer-print-blank" aria-hidden="true" />
+      )}
+    </Fragment>)}
     <style>{ANSWER_SHEET_PRINT_CSS}</style>
   </>
 }
@@ -91,17 +126,19 @@ export function AnswerSheetDocument({ questions, weekLabel }: { questions: Print
 export const ANSWER_SHEET_PRINT_CSS = `
   @page { size: A4 portrait; margin: 10mm; }
   .answer-print-page {
-    width: 210mm; min-height: 297mm; padding: 10mm; margin: 0 auto;
+    width: 210mm; min-height: 297mm; padding: 10mm; margin: 0 auto 8mm;
     box-sizing: border-box; background: #fff; color: #191F28; color-scheme: light;
     font-family: 'Malgun Gothic', Arial, sans-serif;
   }
   .answer-print-header { margin-bottom: 9pt; }
   .answer-print-header h2 { margin: 0; text-align: center; font-size: 14pt; font-weight: 800; line-height: 1.4; }
-  .answer-print-identity { display: flex; justify-content: flex-end; gap: 24pt; margin-top: 6pt; font-size: 9pt; font-weight: 600; }
+  .answer-print-identity { display: flex; justify-content: space-between; align-items: baseline; gap: 10pt; margin-top: 6pt; font-size: 10pt; font-weight: 700; }
+  .answer-print-identity code { letter-spacing: .08em; }
+  .answer-print-blank { display: none; }
   .answer-table { width: 100%; border-collapse: collapse; border: 1.25pt solid #333D4B; table-layout: fixed; }
   .answer-table tr { break-inside: avoid; page-break-inside: avoid; }
   .answer-table th, .answer-table td { border: .75pt solid #6B7684; vertical-align: middle; }
-  .print-number-col { width: 46pt; }
+  .print-number-col { width: 54pt; }
   .print-question-number { padding: 4pt; text-align: center; font-size: 9pt; font-weight: 700; white-space: nowrap; background: #F2F4F6; }
   .print-response-cell { padding: 0; }
   .print-single-response { display: flex; align-items: center; padding: 5pt 12pt; box-sizing: border-box; }
@@ -117,7 +154,11 @@ export const ANSWER_SHEET_PRINT_CSS = `
   .print-error-slot { display: flex; align-items: flex-end; gap: 5pt; font-size: 9pt; }
   .print-error-line { flex: 1; height: 12pt; border-bottom: .5pt solid #8B95A1; }
   @media print {
-    html, body { width: auto; background: #fff !important; }
-    .answer-print-page { width: auto; min-height: auto; padding: 0; margin: 0; }
+    html, body { width: auto; margin: 0; background: #fff !important; }
+    .answer-print { padding: 0; }
+    .answer-print-controls { display: none; }
+    .answer-print-page { width: auto; min-height: auto; padding: 0; margin: 0; break-inside: avoid; print-color-adjust: exact; }
+    .answer-print-page + .answer-print-page { break-before: page; page-break-before: always; }
+    .answer-print-blank { display: block; height: 1mm; }
   }
 `

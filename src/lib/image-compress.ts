@@ -39,12 +39,12 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 /**
  * 이미지 파일을 긴 변 maxLongEdge 이하 JPEG 로 압축해 base64 로 돌려준다.
  * - PDF/비이미지: 원본 그대로 base64
- * - 이미 작으면(긴 변 ≤ max 이고 파일이 400KB 이하) 원본 그대로 (재인코딩 손실 방지)
+ * - forceJpeg 없이 이미 작으면(긴 변 ≤ max 이고 파일이 400KB 이하) 원본 그대로
  * - EXIF 회전은 브라우저가 <img> 디코딩 시 이미 적용(image-orientation: from-image 기본)하므로 별도 처리 없음
  */
 export async function compressImageForUpload(
   file: File,
-  opts: { maxLongEdge?: number; quality?: number } = {},
+  opts: { maxLongEdge?: number; quality?: number; forceJpeg?: boolean } = {},
 ): Promise<CompressedImage> {
   const maxLongEdge = opts.maxLongEdge ?? IMAGE_COMPRESS_MAX_LONG_EDGE
   const quality = opts.quality ?? IMAGE_COMPRESS_JPEG_QUALITY
@@ -68,7 +68,7 @@ export async function compressImageForUpload(
 
   const { naturalWidth: w, naturalHeight: h } = img
   const longEdge = Math.max(w, h)
-  if (longEdge <= maxLongEdge && file.size <= 400 * 1024) {
+  if (!opts.forceJpeg && longEdge <= maxLongEdge && file.size <= 400 * 1024) {
     return { base64: dataUrl.split(',')[1] ?? '', mimeType: file.type, originalBytes, bytes: file.size, width: w, height: h }
   }
 

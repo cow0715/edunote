@@ -29,4 +29,18 @@ describe('printable diagnostic answer sheet', () => {
     expect(screen.queryByText('(d)')).toBeNull()
     expect(screen.queryByText('SECRET ANSWER')).toBeNull()
   })
+  it('repeats each student’s code and starts the next student on the front side', () => {
+    const copies = [{ name: '가학생', code: 'ED-ABC12-DEF34' }, { name: '나학생', code: 'ED-ABC12-DEF35' }]
+    const single = [question(1, null)]
+    const view = render(<AnswerSheetDocument weekLabel="1주차" questions={single} copies={copies} duplex />)
+    expect(view.container.querySelectorAll('.answer-print-blank')).toHaveLength(1)
+    const twoPages = Array.from({ length: 18 }, (_, index) => question(index + 1, null))
+    view.rerender(<AnswerSheetDocument weekLabel="1주차" questions={twoPages} copies={copies} duplex />)
+    expect(screen.getAllByRole('table')).toHaveLength(4)
+    expect(screen.getAllByText('2 / 2쪽')).toHaveLength(2)
+    expect(screen.getAllByText(copies[0].code)).toHaveLength(2)
+    expect(screen.getAllByText(copies[1].code)).toHaveLength(2)
+    expect(view.container.querySelectorAll('.answer-print-blank')).toHaveLength(0)
+  })
+
 })

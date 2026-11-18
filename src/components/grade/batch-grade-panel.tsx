@@ -19,6 +19,8 @@ export type BatchPhotoView = {
   status: 'matching' | 'ready' | 'processing' | 'done' | 'error'
   message?: string
   duplicateName?: boolean
+  codeMatch?: 'matched' | 'unmatched'
+  sheetPage?: number
 }
 
 type Props = {
@@ -36,6 +38,8 @@ type Props = {
   readyCount: number
   canStart: boolean
   onConfirmStudent: (id:string)=>void
+  onConfirmCodeMatches?: () => void
+  onAttachPrevious?: (id: string, studentId: string) => void
   duplicateIds: Set<string>
   onClose: () => void
   onBack: () => void
@@ -54,6 +58,9 @@ export function BatchGradePanel(props: Props) {
   const done = items.filter((item) => item.status === 'done').length
   const failed = items.filter((item) => item.status === 'error').length
   const unmatched = items.filter((item) => !item.studentId).length
+  const pendingCodes = items.filter((item) => item.studentId && item.codeMatch === 'matched' && item.confirmedStudentId !== item.studentId).length
+  const pageCounts = new Map<string, number>()
+  for (const { studentId } of items) if (studentId) pageCounts.set(studentId, (pageCounts.get(studentId) ?? 0) + 1)
   const issue = (item: BatchPhotoView) => !item.studentId || duplicateIds.has(item.studentId) || item.confidence === 'low' || item.duplicateName
   const needsCheck = items.filter(item=>!item.studentId || duplicateIds.has(item.studentId) || item.confirmedStudentId !== item.studentId).length
   const ordered = phase === 'review' ? [...items.filter(issue), ...items.filter((item) => !issue(item))] : items
@@ -63,7 +70,7 @@ export function BatchGradePanel(props: Props) {
   const title = phase === 'pick' ? captureView === 'camera' ? '답안 촬영' : captureView === 'review' ? '사진 확인' : kind === 'exam' ? '독해 사진 채점' : '단어 사진 채점'
     : phase === 'matching' ? '학생 이름을 읽고 있어요' : phase === 'review' ? '학생 확인'
       : phase === 'processing' ? kind === 'exam' ? '답안을 읽고 있어요' : '채점하고 있어요' : '처리 결과'
-  const description = phase === 'pick' ? '학생당 한 장 · 이름과 답안 전체가 나오게 준비해주세요.'
+  const description = phase === 'pick' ? kind === 'exam' ? '답안지가 여러 쪽이면 앞뒷장을 모두 추가해주세요.' : '학생당 한 장 · 이름과 답안 전체가 나오게 준비해주세요.'
     : phase === 'review' ? '사진과 학생이 맞는지 확인해주세요.'
       : phase === 'done' ? kind === 'exam' ? '답안 확인이 끝났습니다. 채점하고 저장하세요.' : '채점 결과가 저장되었습니다.'
         : '창을 닫지 말고 잠시 기다려주세요.'
@@ -103,11 +110,20 @@ export function BatchGradePanel(props: Props) {
                   const index = items.findIndex((original) => original.id === item.id)
                   const duplicate = !!item.studentId && duplicateIds.has(item.studentId)
                   const confirmed = !!item.studentId && !duplicate && item.confirmedStudentId === item.studentId
+                  const previousId = items[index - 1]?.confirmedStudentId
+                  const previousStudent = kind === 'exam' && phase === 'review' && !item.studentId && !item.codeMatch && !item.duplicateName
+                    ? students.find((student) => student.student_id === previousId) : undefined
+                  const pageCount = item.studentId ? pageCounts.get(item.studentId) ?? 0 : 0
                   const existing = students.find(student=>student.student_id===item.studentId)?.hasExisting
                   return <li key={item.id}><ExamStudentConfirmationCard number={index+1} previewUrl={item.previewUrl} mimeType={item.file.type}
                     studentId={item.studentId} students={students} rawName={item.rawName}
                     confirmed={confirmed} duplicate={duplicate} disabled={busy||item.status==='done'}
                     onStudentChange={studentId=>onSelect(item.id,studentId)} onConfirm={()=>onConfirmStudent(item.id)} onRemove={()=>onRemove(item.id)}>
+                    {item.codeMatch === 'matched' && <p className="text-xs text-[var(--share-body)]">판독 코드 일치{item.sheetPage ? ` · ${item.sheetPage}쪽` : ''}</p>}
+                    {item.codeMatch === 'unmatched' && <p className="text-xs text-[var(--share-red)]">판독 코드와 명단이 일치하지 않습니다. 답안지를 확인해주세요.</p>}
+                    {kind === 'exam' && phase === 'review' && pageCount > 1 && <p className="text-xs text-[var(--share-body)]">같은 학생 답안지 {pageCount}장으로 묶습니다.</p>}
+                    {previousStudent && props.onAttachPrevious && <Button type="button" size="sm" variant="outline" className="mt-2 min-h-11"
+                      onClick={() => props.onAttachPrevious?.(item.id, previousStudent.student_id)}>앞 사진과 같은 학생 · {previousStudent.student_name}</Button>}
                     {existing && <p className="text-xs text-[var(--share-muted)]">기존 답안을 새 결과로 반영합니다.{kind==='vocab' ? ' 교사 확정 답안은 유지됩니다.' : ''}</p>}
                     {item.message && <p role={item.status==='error'?'alert':undefined} className="break-words text-xs">{item.message}</p>}
                   </ExamStudentConfirmationCard></li>
@@ -120,6 +136,8 @@ export function BatchGradePanel(props: Props) {
         {phase !== 'pick' && <footer className="border-t border-[var(--share-line)] px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))] sm:px-6">
           <div className="mx-auto max-w-[520px] space-y-3">
             {phase === 'review' && <>
+              {pendingCodes > 0 && props.onConfirmCodeMatches && <Button type="button" variant="outline" disabled={busy}
+                onClick={props.onConfirmCodeMatches} className="min-h-11 w-full">코드 일치 {pendingCodes}장 확인</Button>}
               {(duplicateIds.size > 0 || unmatched > 0) && <p className="text-xs text-[var(--share-muted)]">{duplicateIds.size > 0 ? `중복 학생 ${duplicateIds.size}명을 확인하세요.` : `미선택 ${unmatched}장의 학생을 선택하세요.`}</p>}
               <Button type="button" variant="action" disabled={busy || !canStart || readyCount === 0 || duplicateIds.size > 0} onClick={onStart} className="h-12 w-full rounded-xl">{readyCount}명 {kind === 'exam' ? '답안 인식' : '채점 시작'}</Button>
             </>}

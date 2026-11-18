@@ -1,5 +1,6 @@
 import { getAuth, getTeacherId, assertWeekOwner, err, ok } from '@/lib/api'
 import { readVocabSheetName } from '@/lib/anthropic'
+import { matchAnswerSheetCode } from '@/lib/answer-sheet-identity'
 
 export const maxDuration = 30
 
@@ -12,7 +13,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id: weekId } = await params
   if (!user) return err('인증 필요', 401)
 
-  const { fileData, mimeType } = await request.json() as { fileData?: string; mimeType?: string }
+  const { fileData, mimeType, kind } = await request.json() as { fileData?: string; mimeType?: string; kind?: 'reading' }
   if (!fileData || !mimeType) return err('필수 파라미터 없음')
 
   const teacherId = await getTeacherId(supabase, user.id)
@@ -38,7 +39,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (candidates.length === 0) return ok({ studentId: null, name: null, confidence: 'none' })
 
   try {
-    const result = await readVocabSheetName(fileData, mimeType, candidates.map((c) => c.name))
+    const result = await readVocabSheetName(fileData, mimeType, candidates.map((c) => c.name), { readSheetCode: kind === 'reading' })
+    if (kind === 'reading' && result.sheetCode) {
+      const matched = matchAnswerSheetCode(weekId, result.sheetCode, candidates, result.rawName)
+      return ok({ studentId: matched?.studentId ?? null, name: matched?.name ?? null, rawName: result.rawName,
+        confidence: matched ? 'high' : 'none', codeMatch: matched ? 'matched' : 'unmatched', sheetPage: result.sheetPage })
+    }
     const sameName = result.name ? candidates.filter((c) => c.name === result.name) : []
     // 동명이인이면 자동 매칭이 틀릴 수 있다 — 미매칭으로 돌려 강사가 직접 고르게 한다
     const matched = sameName.length === 1 ? sameName[0] : null

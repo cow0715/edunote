@@ -259,7 +259,7 @@ export function ExamSheetContent({ row, questions, readingTotal, examPhotoPath, 
       {photoUrl && <button type="button" onClick={() => setPhotoOpen(true)} className="m-4 flex min-h-11 items-center gap-2 rounded-xl border px-4 text-sm"><ImageIcon className="size-4" />원본 사진 보기</button>}
 
       {/* 답안지 사진 전체보기 오버레이 */}
-      <AnswerPhotoDialog open={photoOpen} onOpenChange={setPhotoOpen} url={photoUrl} title="답안지 원본 사진" />
+      <AnswerPhotoDialog open={photoOpen} onOpenChange={setPhotoOpen} url={photoUrl} title="답안지 원본 사진" allowPdf />
 
       {/* 미응시 토글 */}
       {(questions.length > 0 || readingTotal > 0) && (

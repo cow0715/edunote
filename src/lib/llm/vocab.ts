@@ -187,6 +187,8 @@ export type VocabSheetNameResult = {
   /** 이미지에서 읽은 그대로 (매칭 실패 시 강사가 참고) */
   rawName: string | null
   confidence: 'high' | 'low' | 'none'
+  sheetCode?: string
+  sheetPage?: number
 }
 
 /** 두 문자열이 한 글자 차이(치환/누락/추가) 이내인지 */
@@ -209,12 +211,13 @@ function withinOneChar(a: string, b: string): boolean {
  * (명단만 주고 고르게 했더니 명단에 없는 이름도 가장 비슷한 학생에 붙이는 걸 확인함.
  *  잘못 매칭이 미매칭보다 훨씬 나쁘므로 확신 없으면 null — 강사가 확인 단계에서 직접 고른다.)
  */
-export async function readVocabSheetName(fileData: string, mimeType: string, candidateNames: string[], options: TaskCallOptions = {}): Promise<VocabSheetNameResult> {
+export async function readVocabSheetName(fileData: string, mimeType: string, candidateNames: string[], options: TaskCallOptions & { readSheetCode?: boolean } = {}): Promise<VocabSheetNameResult> {
   const fileContent = buildFileBlock(fileData, mimeType)
+  const { readSheetCode } = options
 
-  const prompt = `이 시험지 상단 "이름" 칸에 손으로 쓴 학생 이름을 읽으세요.
+  const prompt = `이 시험지 상단 "이름" 칸에 ${readSheetCode ? '쓰여 있는' : '손으로 쓴'} 학생 이름을 읽으세요.
 
-1단계 — rawName: 보이는 글자를 **그대로** 옮기세요. 명단은 보지 말고 손글씨만 보고 읽으세요.
+1단계 — rawName: 보이는 글자를 **그대로** 옮기세요. 명단은 보지 말고 이름 칸만 읽으세요.
 2단계 — name: 아래 명단 중 rawName 과 같은 이름이 있으면 그 이름. 같은 이름이 없으면 null.
         비슷하다고 억지로 고르지 마세요 — 없으면 null 이 정답입니다.
 
@@ -223,39 +226,52 @@ export async function readVocabSheetName(fileData: string, mimeType: string, can
 이름 칸이 비었거나 못 읽으면 둘 다 null.
 JSON 만 출력: {"rawName": "홍길동", "name": "홍길동"} / {"rawName": "홍길둥", "name": null} / {"rawName": null, "name": null}`
 
+  const identityPrompt = readSheetCode ? `
+[진단평가 답안지]
+- 이름란에 학생 이름이 인쇄되어 있으면 인쇄 이름도 rawName으로 읽으세요.
+- 상단에 '판독 코드'가 있으면 그 옆의 ED-XXXXX-XXXXX 코드를 sheetCode에 보이는 그대로 옮기세요. 이름이 비어 있어도 코드는 읽으세요.
+- 코드가 없으면 sheetCode는 null. 코드에 읽을 수 없는 문자가 있으면 해당 문자만 ?로 기록하세요. 문항 번호, 학번, 다른 숫자 또는 명단으로 코드를 추정하지 마세요.
+- 상단에 '2 / 3쪽'처럼 인쇄된 쪽수가 있으면 앞 숫자(예: 2)를 sheetPage에 기록하세요. 안 보이면 null입니다.
+- JSON 키는 rawName, name, sheetCode, sheetPage입니다.` : ''
+
   const raw = await callLlmText({
     task: 'vocab.sheetName',
     execution: options.execution,
-    maxTokens: 120,
-    content: [fileContent, { type: 'text', text: prompt }],
+    maxTokens: readSheetCode ? 200 : 120,
+    content: [fileContent, { type: 'text', text: prompt + identityPrompt }],
   })
   let rawName: string | null = null
   let modelName: string | null = null
+  let sheetCode: string | undefined
+  let sheetPage: number | undefined
   try {
-    const parsed = parseJsonObjectResponse<{ rawName?: unknown; name?: unknown }>(raw, 'readVocabSheetName')
+    const parsed = parseJsonObjectResponse<{ rawName?: unknown; name?: unknown; sheetCode?: unknown; sheetPage?: unknown }>(raw, 'readVocabSheetName')
     rawName = typeof parsed.rawName === 'string' && parsed.rawName.trim() ? parsed.rawName.trim() : null
     modelName = typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim() : null
+    if (readSheetCode && typeof parsed.sheetCode === 'string') sheetCode = parsed.sheetCode.trim().slice(0, 32) || undefined
+    if (readSheetCode && typeof parsed.sheetPage === 'number' && Number.isSafeInteger(parsed.sheetPage) && parsed.sheetPage > 0) sheetPage = parsed.sheetPage
   } catch {
     return { name: null, rawName: null, confidence: 'none' }
   }
-  if (!rawName) return { name: null, rawName: null, confidence: 'none' }
+  const identity = sheetCode ? { sheetCode, sheetPage } : {}
+  if (!rawName) return { name: null, rawName: null, confidence: 'none', ...identity }
 
   const norm = (s: string) => s.replace(/\s+/g, '')
   const target = norm(rawName)
 
   // 1) 코드 기준 정확 일치가 최우선
   const exact = candidateNames.find((c) => norm(c) === target)
-  if (exact) return { name: exact, rawName, confidence: 'high' }
+  if (exact) return { name: exact, rawName, confidence: 'high', ...identity }
 
   // 2) 모델이 고른 이름이 명단에 있고 rawName 과 한 글자 이내면 low 로 제안
   if (modelName && candidateNames.includes(modelName) && withinOneChar(norm(modelName), target)) {
-    return { name: modelName, rawName, confidence: 'low' }
+    return { name: modelName, rawName, confidence: 'low', ...identity }
   }
 
   // 3) 코드 기준 한 글자 차이 후보가 정확히 하나면 low 로 제안 (둘 이상이면 판단 불가 → none)
   const near = candidateNames.filter((c) => withinOneChar(norm(c), target))
-  if (near.length === 1) return { name: near[0], rawName, confidence: 'low' }
-  return { name: null, rawName, confidence: 'none' }
+  if (near.length === 1) return { name: near[0], rawName, confidence: 'low', ...identity }
+  return { name: null, rawName, confidence: 'none', ...identity }
 }
 
 // ── 단어 PDF 파싱 ────────────────────────────────────────────────────────

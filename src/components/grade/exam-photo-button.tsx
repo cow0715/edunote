@@ -7,6 +7,7 @@ import { useRef, useState } from 'react'
 import { runWithLoading } from '@/lib/async-ui'
 import { useCaptureRuntime } from './capture-runtime'
 import { requireExamPhotoPath } from '@/lib/exam-photo'
+import { packExamPhotos } from '@/lib/exam-photo-upload'
 
 export type ExamOcrResult = {
   question_number: number
@@ -27,22 +28,25 @@ export function ExamPhotoButton({ weekId, studentId, disabled, onResult }: {
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = Array.from(e.target.files ?? [])
     e.target.value = ''
-    await processFile(file)
+    if (files.length) await processFiles(files)
   }
 
-  async function processFile(file: File) {
+  async function processFiles(files: File[]) {
     setError(null)
     await runWithLoading(setLoading, async () => {
-      // 원본(폰 사진 3~6MB)을 그대로 보내면 exam-photos 에 그대로 쌓이고 요청 본문도 4/3 로 커진다 —
-      // 일괄 판독 다이얼로그와 같은 압축을 태운다.
-      const { base64: b64, mimeType } = await compress(file)
+      let upload
+      try {
+        upload = await packExamPhotos(await Promise.all(files.map((file) => compress(file, { forceJpeg: files.length > 1 }))))
+      } catch (error) {
+        setError(error instanceof Error ? error.message : '답안지 파일을 읽지 못했습니다.')
+        return
+      }
       const resp = await request(`/api/weeks/${weekId}/ocr-exam-photo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileData: b64, mimeType, studentId }),
+        body: JSON.stringify({ fileData: upload.base64, mimeType: upload.mimeType, studentId }),
       })
       const data = await resp.json()
       if (resp.ok && data.ok) {
@@ -58,10 +62,14 @@ export function ExamPhotoButton({ weekId, studentId, disabled, onResult }: {
     }, () => setError('네트워크 오류'))
   }
 
-const beforeSelect = () => { if (!pickFiles) return true; void pickFiles(false).then(files => { if (files[0]) return processFile(files[0]) }); return false }
+  const beforeSelect = (multiple: boolean) => () => {
+    if (!pickFiles) return true
+    void pickFiles(multiple).then((files) => { if (files.length) return processFiles(files) })
+    return false
+  }
   return (<div className="flex flex-wrap gap-2 [&_button]:min-h-12">
-    <FileUpload compact iconOnly icon={<Camera aria-hidden="true" className="size-5" />} label="카메라로 촬영" accept="image/*" capture="environment" onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect}/>
-    <FileUpload compact iconOnly icon={<ImagePlus aria-hidden="true" className="size-5" />} label={loading ? 'OCR 중...' : '사진 선택'} accept="image/*" inputRef={fileRef} onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect}/>
+    <FileUpload compact iconOnly icon={<Camera aria-hidden="true" className="size-5" />} label="카메라로 촬영" accept="image/*" capture="environment" onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect(false)}/>
+    <FileUpload compact iconOnly icon={<ImagePlus aria-hidden="true" className="size-5" />} label={loading ? 'OCR 중...' : '사진 선택'} accept="image/*,application/pdf" multiple inputRef={fileRef} onChange={handleFile} disabled={disabled} loading={loading} beforeSelect={beforeSelect(true)}/>
     {error && <span role="alert" className="text-xs text-red-500">{error}</span>}
   </div>)
 }
