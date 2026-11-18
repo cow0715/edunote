@@ -1,4 +1,3 @@
-import { Fragment } from 'react'
 import { paginateAnswerSheetRows } from '@/lib/answer-sheet-pagination'
 import { answerSheetSlots, type SlotQuestion } from '@/lib/answer-sheet-slots'
 import { groupQuestionParents, questionLabel, type QuestionPresentation } from '@/lib/question-presentation'
@@ -46,7 +45,6 @@ export function buildAnswerSheetPages(questions: PrintQuestion[]) {
 }
 
 type PageRows = ReturnType<typeof buildAnswerSheetPages>['pages'][number]
-type PrintCopy = { name: string; code: string }
 
 const NUMBER_MARKS = ['①', '②', '③', '④', '⑤']
 const LETTER_MARKS = ['ⓐ', 'ⓑ', 'ⓒ', 'ⓓ', 'ⓔ']
@@ -89,22 +87,18 @@ function AnswerArea({ row }: { row: PageRows[number] }) {
   </div>
 }
 
-export function AnswerSheetDocument({ questions, weekLabel, pages = buildAnswerSheetPages(questions).pages, copies = [{ name: '', code: '' }], duplex = false }: {
+export function AnswerSheetDocument({ questions, weekLabel, pages = buildAnswerSheetPages(questions).pages }: {
   questions: PrintQuestion[]
   weekLabel: string
   pages?: PageRows[]
-  copies?: PrintCopy[]
-  duplex?: boolean
 }) {
   return <>
-    {copies.map((copy, copyIndex) => <Fragment key={copyIndex}>
-      {pages.map((rows, index) => <section key={index} className="answer-print-page" aria-label={`${weekLabel} 진단평가 답안지 ${index + 1}쪽`}>
+    {pages.map((rows, index) => <section key={index} className="answer-print-page" aria-label={`${weekLabel} 진단평가 답안지 ${index + 1}쪽`}>
         <header className="answer-print-header">
           <h2>{weekLabel} 진단평가 답안지</h2>
           <div className="answer-print-identity">
             <span>{index + 1} / {pages.length}쪽</span>
-            <span>{copy.name ? `이름: ${copy.name}` : '학번: ________________　 이름: ________________'}</span>
-            {copy.code && <span>판독 코드 <code>{copy.code}</code></span>}
+            <span>학번: ________________　 이름: ________________</span>
           </div>
         </header>
         <table className="answer-table" aria-label="학생 작성용 답안 표">
@@ -115,10 +109,6 @@ export function AnswerSheetDocument({ questions, weekLabel, pages = buildAnswerS
           </tr>)}</tbody>
         </table>
       </section>)}
-      {duplex && pages.length % 2 === 1 && copyIndex < copies.length - 1 && (
-        <div className="answer-print-page answer-print-blank" aria-hidden="true" />
-      )}
-    </Fragment>)}
     <style>{ANSWER_SHEET_PRINT_CSS}</style>
   </>
 }
@@ -133,8 +123,6 @@ export const ANSWER_SHEET_PRINT_CSS = `
   .answer-print-header { margin-bottom: 9pt; }
   .answer-print-header h2 { margin: 0; text-align: center; font-size: 14pt; font-weight: 800; line-height: 1.4; }
   .answer-print-identity { display: flex; justify-content: space-between; align-items: baseline; gap: 10pt; margin-top: 6pt; font-size: 10pt; font-weight: 700; }
-  .answer-print-identity code { letter-spacing: .08em; }
-  .answer-print-blank { display: none; }
   .answer-table { width: 100%; border-collapse: collapse; border: 1.25pt solid #333D4B; table-layout: fixed; }
   .answer-table tr { break-inside: avoid; page-break-inside: avoid; }
   .answer-table th, .answer-table td { border: .75pt solid #6B7684; vertical-align: middle; }
@@ -159,6 +147,5 @@ export const ANSWER_SHEET_PRINT_CSS = `
     .answer-print-controls { display: none; }
     .answer-print-page { width: auto; min-height: auto; padding: 0; margin: 0; break-inside: avoid; print-color-adjust: exact; }
     .answer-print-page + .answer-print-page { break-before: page; page-break-before: always; }
-    .answer-print-blank { display: block; height: 1mm; }
   }
 `

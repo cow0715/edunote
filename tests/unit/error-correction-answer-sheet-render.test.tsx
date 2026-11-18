@@ -14,6 +14,8 @@ import PrintPage from '@/app/(admin)/dashboard/[classId]/weeks/[weekId]/answer-s
 it('renders exactly two slots for the reported question, and five slots without guidance for all-selection', async () => {
   let html = renderToStaticMarkup(await PrintPage({ params: Promise.resolve({ classId: 'class', weekId: 'week' }) }))
   expect(html.match(/class="print-error-slot"/g)).toHaveLength(2)
+  expect(html).toContain('>인쇄</button>')
+  expect(html).not.toContain('학생별 답안지')
   expect(html).not.toContain('필요한 칸만 작성')
   state.stem = '잘못된 것을 있는 대로 골라 고치시오.\nⓐ 지문 참조\n<보기>\n(A) A\n(B) B\n(C) C\n(D) D\n(E) E'
   html = renderToStaticMarkup(await PrintPage({ params: Promise.resolve({ classId: 'class', weekId: 'week' }) }))
