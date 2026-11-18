@@ -22,7 +22,7 @@ vi.mock('@sentry/nextjs', () => ({ init: webhook.initSentry }))
 const now = Date.parse('2026-11-18T04:00:00Z')
 const id = 'a'.repeat(32)
 
-function eventBody(area = 'exam-photo', environment = 'production', date = new Date(now).toISOString()) {
+function eventBody(area = 'exam-photo', environment = 'production', date = new Date(now).toISOString(), failure?: unknown) {
   return JSON.stringify({
     action: 'triggered',
     data: {
@@ -31,7 +31,11 @@ function eventBody(area = 'exam-photo', environment = 'production', date = new D
         issue_id: '1234',
         project: 42,
         datetime: date,
-        tags: [['edunote_environment', environment], ['edunote_area', area]],
+        tags: [
+          ['edunote_environment', environment],
+          ['edunote_area', area],
+          ...(failure === undefined ? [] : [['edunote_failure', failure]]),
+        ],
         request: { data: 'private student response' },
       },
     },
@@ -85,11 +89,33 @@ describe('Sentry operational alerts', () => {
   })
 
   it('extracts only the routing fields and rejects other projects, environments and stale deliveries', () => {
-    expect(readSentryAlert(eventBody(), '42', now)).toEqual({ eventId: id, issueId: '1234', area: 'exam-photo' })
+    expect(readSentryAlert(eventBody(), '42', now)).toEqual({
+      eventId: id,
+      issueId: '1234',
+      message: 'EduNote 운영 · 답안지 사진 저장·판독\n실패 단계 미확인',
+    })
     expect(readSentryAlert(eventBody(), '43', now)).toBeNull()
     expect(readSentryAlert(eventBody('exam-photo', 'preview'), '42', now)).toBeNull()
     expect(readSentryAlert(eventBody('kakao-delivery'), '42', now)).toBeNull()
     expect(readSentryAlert(eventBody(), '42', now + 90_000_000)).toBeNull()
+  })
+
+  it.each([
+    ['bank-questions-upload', 'worker-retries-exhausted', '문제지 업로드', 'PDF 워커 최종 실패 (자동 재시도 소진)'],
+    ['bank-explanation-upload', 'explanations-write', '해설지 업로드', '해설 DB 저장 실패'],
+    ['vocab-upload', 'pdf-parse', '단어장 업로드', 'PDF 파싱 실패'],
+    ['vocab-upload', 'xlsx-parse', '단어장 업로드', '엑셀 파싱 실패'],
+    ['vocab-upload', 'words-write', '단어장 업로드', '단어 DB 저장 실패'],
+    ['grade-save', 'patch-503', '채점 저장', 'API 서버 오류 (HTTP 503)'],
+    ['alert-test', 'manual', '운영 알림 테스트', '테스트 메시지'],
+  ])('formats %s / %s for KakaoTalk', (area, failure, feature, stage) => {
+    const body = eventBody(area, 'production', new Date(now).toISOString(), failure)
+    expect(readSentryAlert(body, '42', now)?.message).toBe(`EduNote 운영 · ${feature}\n${stage}`)
+  })
+
+  it.each(['unknown-code', 'private student response', 503])('uses a safe fallback for an unknown failure tag (%s)', (failure) => {
+    const body = eventBody('exam-photo', 'production', new Date(now).toISOString(), failure)
+    expect(readSentryAlert(body, '42', now)?.message).toBe('EduNote 운영 · 답안지 사진 저장·판독\n실패 단계 미확인')
   })
 
   it('schedules a signed production webhook and rejects unsigned and preview requests', async () => {

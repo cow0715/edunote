@@ -1,10 +1,48 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { isOperationalArea, operationalAreas, type OperationalArea } from './operational-alerts'
+import { isOperationalArea, operationalAreas } from './operational-alerts'
 import { createServiceClient } from './supabase/service'
 
 const TOKEN_TABLE = 'kakao_operational_token'
 const DELIVERY_TABLE = 'kakao_operational_delivery'
 const DAY_MS = 86_400_000
+const failureStages = new Map([
+  ['manual', '테스트 메시지'],
+  ['exam-lookup', '시험지 조회 실패'],
+  ['questions-lookup', '문항 조회 실패'],
+  ['upload-register', 'PDF 처리 작업 등록 실패'],
+  ['upload-download', '업로드 파일 다운로드 실패'],
+  ['worker-dispatch', 'PDF 워커 실행 요청 실패'],
+  ['inline-parsing', '업로드 API에서 PDF 파싱 실패'],
+  ['inline-processing', '업로드 API에서 PDF 처리 실패'],
+  ['exam-write', '시험지 DB 저장 실패'],
+  ['questions-write', '문항 DB 저장 실패'],
+  ['explanations-write', '해설 DB 저장 실패'],
+  ['worker-incomplete', 'PDF 워커 최종 실패 (미완료 문항)'],
+  ['worker-batch-stopped', 'PDF 워커 최종 실패 (배치 중단)'],
+  ['worker-retries-exhausted', 'PDF 워커 최종 실패 (자동 재시도 소진)'],
+  ['pdf-parse', 'PDF 파싱 실패'],
+  ['xlsx-parse', '엑셀 파싱 실패'],
+  ['words-write', '단어 DB 저장 실패'],
+  ['upload', '답안지 사진 저장 실패'],
+  ['verify-storage', '답안지 사진 저장 확인 실패'],
+  ['link-job-photo', '채점 작업에 답안지 사진 연결 실패'],
+  ['ocr-result-write', '답안지 판독 결과 저장 실패'],
+  ['ocr-provider', '외부 사진 판독 서비스 호출 실패'],
+  ['sms-provider', '문자 발송 서비스 호출 실패'],
+  ['delivery-history-write', '발송 이력 저장 실패'],
+  ['http-exception', 'API 처리 중 예외 발생'],
+  ['post-exception', '등록 API 처리 중 예외 발생'],
+  ['patch-exception', '수정 API 처리 중 예외 발생'],
+])
+
+function failureStageLabel(code: unknown) {
+  if (typeof code !== 'string') return '실패 단계 미확인'
+  const knownStage = failureStages.get(code)
+  if (knownStage) return knownStage
+
+  const status = /^(?:http|post|patch)-(5\d\d)$/.exec(code)
+  return status ? `API 서버 오류 (HTTP ${status[1]})` : '실패 단계 미확인'
+}
 
 export function verifySentrySignature(body: Buffer, signature: string | null, secret: string) {
   if (!signature || !/^[a-f0-9]{64}$/i.test(signature)) return false
@@ -37,7 +75,12 @@ export function readSentryAlert(body: string, projectId: string, now = Date.now(
   const area = tags.get('edunote_area')
   if (tags.get('edunote_environment') !== 'production' || !isOperationalArea(area) || area === 'kakao-delivery') return null
 
-  return { eventId: event.event_id, issueId: event.issue_id, area }
+  const stage = failureStageLabel(tags.get('edunote_failure'))
+  return {
+    eventId: event.event_id,
+    issueId: event.issue_id,
+    message: `EduNote 운영 · ${operationalAreas[area]}\n${stage}`,
+  }
 }
 
 function readKakaoConfig() {
@@ -126,7 +169,7 @@ function sentryIssueLink(issueId?: string) {
   return new URL(issueId ? `/issues/${issueId}/` : '/issues/', url.origin).href
 }
 
-async function sendKakao(db: ReturnType<typeof createServiceClient>, area: OperationalArea, issueId?: string) {
+async function sendKakao(db: ReturnType<typeof createServiceClient>, message: string, issueId: string) {
   const link = sentryIssueLink(issueId)
   const token = await accessToken(db)
   const response = await fetch('https://kapi.kakao.com/v2/api/talk/memo/default/send', {
@@ -136,7 +179,7 @@ async function sendKakao(db: ReturnType<typeof createServiceClient>, area: Opera
     body: new URLSearchParams({
       template_object: JSON.stringify({
         object_type: 'text',
-        text: `EduNote 운영 · ${operationalAreas[area]}`,
+        text: message,
         link: { web_url: link, mobile_web_url: link },
         button_title: 'Sentry에서 확인',
       }),
@@ -156,7 +199,7 @@ export async function deliverSentryAlert(event: NonNullable<ReturnType<typeof re
     .select('event_id').maybeSingle()
   if (error) throw new Error('kakao-delivery-claim')
   if (!data) return
-  await sendKakao(db, event.area, event.issueId)
+  await sendKakao(db, event.message, event.issueId)
 }
 
 export async function maintainKakaoAlerts() {
