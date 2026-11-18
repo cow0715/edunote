@@ -2,10 +2,62 @@
 
 import { Button } from '@/components/ui/button'
 import type { GradeRow } from '@/hooks/use-grade'
-import { questionLabel } from '@/lib/question-presentation'
+import { questionLabel, sortQuestionsByPdf } from '@/lib/question-presentation'
 import type { ExamQuestion } from '@/lib/types'
+import type { ExamOcrResult } from './exam-photo-button'
 
 type Answer = GradeRow['answers'][number]
+
+function hasRecognizedAnswer(question: ExamQuestion, answer?: {
+  student_answer?: number | null
+  student_answer_text?: string | null
+  ox_selection?: string | null
+}) {
+  if (!answer) return false
+  if (question.question_style === 'objective') {
+    const choice = answer.student_answer
+    return typeof choice === 'number' && Number.isInteger(choice) && choice >= 1 && choice <= 5
+  }
+  return !!(answer.student_answer_text?.trim() || answer.ox_selection)
+}
+
+export function ExamRecognitionSummary({ rows, questions, photos }: {
+  rows: GradeRow[]
+  questions: ExamQuestion[]
+  photos: { studentId: string | null; ocrResults?: ExamOcrResult[]; previewUrl: string }[]
+}) {
+  const ordered = sortQuestionsByPdf(questions.filter((question) => !question.is_void))
+  if (!ordered.length) return null
+  const photoByStudent = new Map(photos.map((photo) => [photo.studentId, photo]))
+
+  return (
+    <section aria-labelledby="exam-recognition-summary" className="space-y-2">
+      <h3 id="exam-recognition-summary" className="text-sm font-semibold">답안 인식 내역</h3>
+      <p className="text-xs text-muted-foreground">미인식에는 빈 답안도 포함됩니다. 확정 전에 원본을 확인해 주세요.</p>
+      <ul className="divide-y divide-[var(--share-line-strong)] rounded-xl bg-[var(--share-card)] px-4">
+        {rows.map((row) => {
+          const photo = photoByStudent.get(row.student_id)
+          const results = photo?.ocrResults && new Map(photo.ocrResults.map((answer) => [
+            `${answer.question_number}:${answer.sub_label ?? ''}`, answer,
+          ]))
+          const draft = results ? undefined : new Map(row.answers.map((answer) => [answer.exam_question_id, answer]))
+          const missing = ordered.filter((question) => results
+            ? !hasRecognizedAnswer(question, results.get(`${question.question_number}:${question.sub_label ?? ''}`))
+            : !hasRecognizedAnswer(question, draft?.get(question.id)))
+          return (
+            <li key={row.student_id} className="py-3 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <p><span className="font-semibold">{row.student_name}</span> · {ordered.length - missing.length}/{ordered.length}문항 인식</p>
+                {photo?.previewUrl && <a className="inline-flex min-h-11 items-center font-medium text-[var(--share-blue)]" href={photo.previewUrl} target="_blank" rel="noopener noreferrer">원본 보기</a>}
+              </div>
+              {missing.length > 0 && <p className="mt-1 text-[var(--share-red-deep)]">미인식 · {missing.map((question) => questionLabel(question)).join(', ')}</p>}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
 
 export function needsExamBatchReview(answer: Answer, questions?: ExamQuestion[]) {
   return !!answer.needs_review && !!questions?.some((question) =>

@@ -153,6 +153,17 @@ describe('vocabulary grading task routing', () => {
     expect(await readVocabSheetName('photo-data', 'image/png', ['홍길동'], { execution })).toEqual({ name: null, rawName: '김테스트', confidence: 'none' })
     expect(mocks.text.mock.calls[1][0]).toMatchObject({ task: 'vocab.sheetName', execution, maxTokens: 120 })
   })
+
+  it('keeps printed page numbers without a code in the existing name-reading call', async () => {
+    mocks.text
+      .mockResolvedValueOnce('{"rawName":"홍길동","name":"홍길동","sheetCode":null,"sheetPage":2}')
+      .mockResolvedValueOnce('{"rawName":null,"sheetCode":null,"sheetPage":1,"sheetPages":[1,1,null,-1]}')
+    expect(await readVocabSheetName('photo', 'image/jpeg', ['홍길동'], { readSheetCode: true }))
+      .toMatchObject({ name: '홍길동', sheetPage: 2 })
+    expect(await readVocabSheetName('pdf', 'application/pdf', ['홍길동'], { readSheetCode: true }))
+      .toMatchObject({ name: null, sheetPage: 1, sheetPages: [1, 1, null, null] })
+    expect(mocks.text).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('SMS task routing', () => {

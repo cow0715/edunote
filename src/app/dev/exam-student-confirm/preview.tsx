@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { ExamBatchGradeDialog } from '@/components/grade/exam-batch-grade-dialog'
+import { ExamPhotoBatchDialog } from '@/components/grade/exam-photo-batch-dialog'
 import { VocabBatchGradeDialog } from '@/components/grade/vocab-batch-grade-dialog'
 import { ExamSheetContent } from '@/components/grade/exam-sheet-content'
 import { VocabSheetContent, type VocabAnswerRow } from '@/components/grade/vocab-sheet-content'
@@ -13,6 +14,7 @@ import type { ExamOcrResult } from '@/components/grade/exam-photo-button'
 import type { GradeRow } from '@/hooks/use-grade'
 import type { ExamQuestion } from '@/lib/types'
 import { createSampleCaptureRuntime, sampleStudents, sampleWeek } from './sample-runtime'
+import { buildAnswerSheetPages } from '@/lib/answer-sheet-layout'
 
 type Subject = '독해' | '단어'
 type Mode = '일괄' | '개별'
@@ -24,6 +26,41 @@ const questions: ExamQuestion[] = Array.from({ length: 10 }, (_, index) => ({
   source_bbox: null, source_image_path: null, exam_type: 'reading', question_style: 'objective',
   is_void: false, all_correct: false, created_at: '',
 }))
+const duplexQuestions = [...questions, ...questions.map((question) => ({
+  ...question, id: `sample-question-${question.question_number + 10}`, question_number: question.question_number + 10,
+}))]
+
+export function DuplexAnswerSheetPreview() {
+  const [runtime] = useState(() => createSampleCaptureRuntime('독해', undefined, true))
+  const [open, setOpen] = useState(false)
+  return (
+    <CaptureRuntimeProvider value={runtime}>
+      <main className="mx-auto max-w-xl space-y-4 p-6 text-[var(--share-ink)]">
+        <h1 className="text-[23px] font-bold">양면 답안지 채점 미리보기</h1>
+        <p className="text-sm text-[var(--share-body)]">사진 추가를 누르면 뒷장이 빠진 답안과 앞장이 중복된 답안이 들어갑니다. 모든 답안과 판독 결과는 가상입니다.</p>
+        <Button variant="action" onClick={() => setOpen(true)}>양면 채점 열기</Button>
+        <ExamPhotoBatchDialog
+          open={open} onOpenChange={setOpen} weekId={sampleWeek} students={sampleStudents}
+          questionCount={duplexQuestions.length} questions={duplexQuestions}
+          expectedPageCount={buildAnswerSheetPages(duplexQuestions).pages.length}
+          prepareOcr={(studentId, results, path) => ({
+            applied: results.length,
+            row: {
+              ...sampleStudents.find((student) => student.student_id === studentId)!,
+              grade_version: { score_id: null, revision: null }, vocab_correct: null,
+              reading_present: true, reading_correct: null, homework_done: null, memo: '', exam_photo_path: path,
+              answers: duplexQuestions.map((question) => ({
+                exam_question_id: question.id,
+                student_answer: results.find((answer) => answer.question_number === question.question_number)?.student_answer ?? null,
+              })),
+            },
+          })}
+          onFinalize={async () => {}}
+        />
+      </main>
+    </CaptureRuntimeProvider>
+  )
+}
 function initialRows(): GradeRow[] {
   return sampleStudents.map((student) => ({ ...student, grade_version: { score_id: `score-${student.student_id}`, revision: 0 },
     vocab_correct: null, reading_present: true, reading_correct: null, homework_done: null, memo: '',

@@ -8,14 +8,14 @@ export const sampleStudents = [
 ]
 export const sampleWeek = 'sample-week'
 
-export function samplePhoto(name: string, subject = '독해') {
+export function samplePhoto(name: string, subject = '독해', duplex = false) {
   const words = ['apple　사과', 'bright　밝은', 'decide　결정하다', 'earth　지구', 'friend　친구']
   const rows = Array.from({ length: 10 }, (_, index) => `<text x="45" y="${175 + index * 46}" font-size="15">${index + 1}　${subject === '단어' ? words[index % words.length] : '①　②　③　④　⑤'}</text><path d="M40 ${190 + index * 46}H565" stroke="#e5e8eb"/>`).join('')
-  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="840" viewBox="0 0 600 840"><rect width="600" height="840" fill="#fff"/><text x="40" y="46" font-family="sans-serif" font-size="19" font-weight="700" fill="#191f28">EduNote · ${subject} 답안지</text><text x="365" y="88" font-family="sans-serif" font-size="17" fill="#6b7684">이름</text><text x="414" y="90" font-family="cursive" font-size="29" fill="#234576" transform="rotate(-3 414 90)">${name}</text><path d="M410 101H560" stroke="#8b95a1"/><path d="M40 125H565" stroke="#191f28"/><g fill="#4e5968" font-family="sans-serif">${rows}</g></svg>`)}`
+  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="840" viewBox="0 0 600 840"><rect width="600" height="840" fill="#fff"/><text x="40" y="46" font-family="sans-serif" font-size="19" font-weight="700" fill="#191f28">EduNote · ${subject} 답안지</text>${duplex ? '<text x="40" y="88" font-family="sans-serif" font-size="17" fill="#6b7684">1 / 2쪽</text>' : ''}<text x="365" y="88" font-family="sans-serif" font-size="17" fill="#6b7684">이름</text><text x="414" y="90" font-family="cursive" font-size="29" fill="#234576" transform="rotate(-3 414 90)">${name}</text><path d="M410 101H560" stroke="#8b95a1"/><path d="M40 125H565" stroke="#191f28"/><g fill="#4e5968" font-family="sans-serif">${rows}</g></svg>`)}`
 }
 
 /** No fallback to fetch, media devices, localStorage or IndexedDB. */
-export function createSampleCaptureRuntime(subject: '독해' | '단어', individualId?: string): CaptureRuntime {
+export function createSampleCaptureRuntime(subject: '독해' | '단어', individualId?: string, duplex = false): CaptureRuntime {
   const drafts = new Map<string, CapturePhoto[]>()
   const names = new Map<string, string>()
   let nextPhoto = 0, revision = 0
@@ -23,14 +23,14 @@ export function createSampleCaptureRuntime(subject: '독해' | '단어', individ
   const currentStudent = () => individualId ?? sampleStudents[nextPhoto % sampleStudents.length].student_id
   const fileFor = (id: string) => {
     const student = sampleStudents.find((entry) => entry.student_id === id)!
-    const svg = decodeURIComponent(samplePhoto(student.student_name, subject).split(',')[1])
+    const svg = decodeURIComponent(samplePhoto(student.student_name, subject, duplex).split(',')[1])
     return new File([svg], `${id}-${subject}.svg`, { type: 'image/svg+xml' })
   }
   async function drawCamera() {
     if (!cameraCanvas) return
     const student = sampleStudents.find((entry) => entry.student_id === currentStudent())!
     const image = new Image()
-    image.src = samplePhoto(student.student_name, subject)
+    image.src = samplePhoto(student.student_name, subject, duplex)
     await image.decode()
     cameraCanvas.getContext('2d')?.drawImage(image, 0, 0, 600, 840)
   }
@@ -39,7 +39,9 @@ export function createSampleCaptureRuntime(subject: '독해' | '단어', individ
       if (photos !== undefined) drafts.set(key, photos)
       return drafts.get(key) ?? []
     },
-    pickFiles: async (multiple) => multiple && !individualId ? sampleStudents.map((entry) => fileFor(entry.student_id)) : [fileFor(currentStudent())],
+    pickFiles: async (multiple) => multiple && !individualId
+      ? [...sampleStudents, ...(duplex ? [sampleStudents[1]] : [])].map((entry) => fileFor(entry.student_id))
+      : [fileFor(currentStudent())],
     getMedia: async () => {
       cameraCanvas = document.createElement('canvas')
       cameraCanvas.width = 600; cameraCanvas.height = 840
@@ -66,15 +68,24 @@ export function createSampleCaptureRuntime(subject: '독해' | '단어', individ
         const student = sampleStudents.find((entry) => path.includes(entry.student_id))
         return Response.json({ url: samplePhoto(student?.student_name ?? '샘플 학생', subject) })
       }
-      const body = JSON.parse(String(init?.body ?? '{}')) as { fileData?: string; studentId?: string; grade_version?: { revision: number }; items?: { number: number; student_answer: string }[] }
+      const body = JSON.parse(String(init?.body ?? '{}')) as { fileData?: string; studentId?: string; grade_version?: { revision: number }; items?: { number: number; student_answer: string }[]; storeOnly?: boolean; preview?: boolean; rows?: unknown }
       const id = body.studentId ?? names.get(body.fileData ?? '')
       const student = sampleStudents.find((entry) => entry.student_id === id)
       if (url === `/api/weeks/${sampleWeek}/vocab-photo-name` && student) {
-        return Response.json({ studentId: student.student_id, rawName: student.student_name, confidence: 'high' })
+        return Response.json({ studentId: student.student_id, rawName: student.student_name, confidence: 'high', sheetPage: duplex ? 1 : undefined })
+      }
+      if (duplex && url === `/api/weeks/${sampleWeek}/exam-photo-job`) {
+        return Response.json(init?.method === 'POST' ? { id: 'sample-job' } : { job: null })
+      }
+      if (duplex && url === `/api/weeks/${sampleWeek}/grade` && body.preview) {
+        return Response.json({ rows: body.rows })
       }
       if (url === `/api/weeks/${sampleWeek}/ocr-exam-photo` && student) {
-        return Response.json({ ok: true, photoPath: `${sampleWeek}/${student.student_id}/sample-photo`,
-          results: Array.from({ length: 10 }, (_, index) => ({ question_number: index + 1, sub_label: null, student_answer: index % 5 + 1 })) })
+        const photoPath = `${sampleWeek}/${student.student_id}/sample-photo`
+        const results = Array.from({ length: duplex && student === sampleStudents[1] ? 8 : 10 }, (_, index) => ({
+          question_number: index + 1, sub_label: null, student_answer: index % 5 + 1,
+        }))
+        return Response.json({ ok: true, photoPath, ...(body.storeOnly ? {} : { results }) })
       }
       if (url === `/api/weeks/${sampleWeek}/grade-vocab-photo` && student) {
         return Response.json({ ok: true, vocab_correct: 9, vocab_total: 10, missing_numbers: [],

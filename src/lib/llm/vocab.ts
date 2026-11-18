@@ -189,6 +189,7 @@ export type VocabSheetNameResult = {
   confidence: 'high' | 'low' | 'none'
   sheetCode?: string
   sheetPage?: number
+  sheetPages?: (number | null)[]
 }
 
 /** 두 문자열이 한 글자 차이(치환/누락/추가) 이내인지 */
@@ -231,8 +232,9 @@ JSON 만 출력: {"rawName": "홍길동", "name": "홍길동"} / {"rawName": "�
 - 이름란에 학생 이름이 인쇄되어 있으면 인쇄 이름도 rawName으로 읽으세요.
 - 상단에 '판독 코드'가 있으면 그 옆의 ED-XXXXX-XXXXX 코드를 sheetCode에 보이는 그대로 옮기세요. 이름이 비어 있어도 코드는 읽으세요.
 - 코드가 없으면 sheetCode는 null. 코드에 읽을 수 없는 문자가 있으면 해당 문자만 ?로 기록하세요. 문항 번호, 학번, 다른 숫자 또는 명단으로 코드를 추정하지 마세요.
-- 상단에 '2 / 3쪽'처럼 인쇄된 쪽수가 있으면 앞 숫자(예: 2)를 sheetPage에 기록하세요. 안 보이면 null입니다.
-- JSON 키는 rawName, name, sheetCode, sheetPage입니다.` : ''
+- 판독 코드가 없어도 상단에 '2 / 3쪽'처럼 인쇄된 쪽수의 앞 숫자(예: 2)를 sheetPage에 기록하세요. 안 보이면 null입니다.
+- PDF이면 문서의 각 페이지에서 읽은 인쇄 쪽수를 파일 순서대로 sheetPages 배열에 기록하세요. 쪽수가 안 보이는 페이지 자리는 null로 남기고, 이미지는 sheetPages를 null로 반환하세요.
+- JSON 키는 rawName, name, sheetCode, sheetPage, sheetPages입니다.` : ''
 
   const raw = await callLlmText({
     task: 'vocab.sheetName',
@@ -244,16 +246,22 @@ JSON 만 출력: {"rawName": "홍길동", "name": "홍길동"} / {"rawName": "�
   let modelName: string | null = null
   let sheetCode: string | undefined
   let sheetPage: number | undefined
+  let sheetPages: (number | null)[] | undefined
+  const pageNumber = (value: unknown) =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
   try {
-    const parsed = parseJsonObjectResponse<{ rawName?: unknown; name?: unknown; sheetCode?: unknown; sheetPage?: unknown }>(raw, 'readVocabSheetName')
+    const parsed = parseJsonObjectResponse<{ rawName?: unknown; name?: unknown; sheetCode?: unknown; sheetPage?: unknown; sheetPages?: unknown }>(raw, 'readVocabSheetName')
     rawName = typeof parsed.rawName === 'string' && parsed.rawName.trim() ? parsed.rawName.trim() : null
     modelName = typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim() : null
     if (readSheetCode && typeof parsed.sheetCode === 'string') sheetCode = parsed.sheetCode.trim().slice(0, 32) || undefined
-    if (readSheetCode && typeof parsed.sheetPage === 'number' && Number.isSafeInteger(parsed.sheetPage) && parsed.sheetPage > 0) sheetPage = parsed.sheetPage
+    if (readSheetCode) {
+      sheetPage = pageNumber(parsed.sheetPage) ?? undefined
+      if (mimeType === 'application/pdf' && Array.isArray(parsed.sheetPages)) sheetPages = parsed.sheetPages.map(pageNumber)
+    }
   } catch {
     return { name: null, rawName: null, confidence: 'none' }
   }
-  const identity = sheetCode ? { sheetCode, sheetPage } : {}
+  const identity = { ...(sheetCode && { sheetCode }), ...(sheetPage && { sheetPage }), ...(sheetPages && { sheetPages }) }
   if (!rawName) return { name: null, rawName: null, confidence: 'none', ...identity }
 
   const norm = (s: string) => s.replace(/\s+/g, '')

@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
-import { ExamStudentConfirmPreview } from './preview'
+import { DuplexAnswerSheetPreview, ExamStudentConfirmPreview } from './preview'
 
-export default function ExamStudentConfirmPage() {
+export default async function ExamStudentConfirmPage({ searchParams }: { searchParams: Promise<{ duplex?: string }> }) {
   if (process.env.NODE_ENV !== 'development') notFound()
-  return <ExamStudentConfirmPreview />
+  return (await searchParams).duplex === '1' ? <DuplexAnswerSheetPreview /> : <ExamStudentConfirmPreview />
 }

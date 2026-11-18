@@ -42,6 +42,11 @@ describe('진단평가 인쇄 코드로 학생 찾기', () => {
     expect(await (await scan('reading')).json()).toMatchObject({ studentId: null, codeMatch: 'unmatched' })
   })
 
+  it('판독 코드와 학생 이름이 없어도 인쇄 쪽수를 전달한다', async () => {
+    mock.read.mockResolvedValueOnce({ rawName: null, name: null, sheetPage: 2, sheetPages: [2, null] })
+    expect(await (await scan('reading')).json()).toMatchObject({ studentId: null, sheetPage: 2, sheetPages: [2, null] })
+  })
+
   it('단어 시험은 기존 이름 중복 규칙을 사용한다', async () => {
     mock.read.mockResolvedValueOnce({ rawName: '김학생', name: '김학생', sheetCode: answerSheetCode('week', 'first') })
     expect(await (await scan()).json()).toMatchObject({ studentId: null, duplicate: true })

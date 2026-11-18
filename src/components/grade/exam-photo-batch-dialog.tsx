@@ -10,12 +10,13 @@ import { useCaptureRuntime } from './capture-runtime'
 import type { ExamOcrResult } from './exam-photo-button'
 import { requireExamPhotoPath } from '@/lib/exam-photo'
 import { packExamPhotos } from '@/lib/exam-photo-upload'
+import { checkAnswerSheetPages } from '@/lib/answer-sheet-page-check'
 import { MobileCapture } from './mobile-capture'
 import { ExamStudentConfirmationCard } from './exam-student-confirmation-card'
 import { duplicateExamStudents, isExamStudentConfirmed } from '@/lib/exam-student-confirmation'
 import type { GradeRow } from '@/hooks/use-grade'
 import type { ExamQuestion } from '@/lib/types'
-import { ExamBatchReview, needsExamBatchReview } from './exam-batch-review'
+import { ExamBatchReview, ExamRecognitionSummary, needsExamBatchReview } from './exam-batch-review'
 
 type Student = { student_id: string; student_name: string; present: boolean; hasExisting: boolean }
 
@@ -40,6 +41,9 @@ type Item = {
   duplicateName: boolean
   codeMatch?: 'matched' | 'unmatched'
   sheetPage?: number
+  sheetPages?: (number | null)[]
+  pageCount?: number
+  isReplacement?: boolean
   status: 'idle' | 'reading-name' | 'ready' | 'reading' | 'done' | 'error'
   error?: string
   photoPath?: string
@@ -55,6 +59,14 @@ const CONCURRENCY = 15
 function pdfPreview(base64: string) {
   const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
   return URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
+}
+
+async function countUploadPages(base64: string, mimeType: string) {
+  if (mimeType !== 'application/pdf') return 1
+  const { PDFDocument } = await import('pdf-lib')
+  const pages = (await PDFDocument.load(base64)).getPageCount()
+  if (!pages) throw new Error('빈 PDF입니다. 답안지 페이지가 있는 파일을 추가해 주세요.')
+  return pages
 }
 
 type PhotoJob = { id: string; items: {
@@ -86,13 +98,14 @@ type BatchCallbacks = {
   onFinalize?: never
 }
 
-export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, questionCount, onApplied, questions, prepareOcr, onFinalize, statusDetails }: {
+export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, questionCount, expectedPageCount = 0, onApplied, questions, prepareOcr, onFinalize, statusDetails }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   weekId: string
   students: Student[]
   /** 채점 대상 문항 수 (무효 제외) — 판독 결과 요약 표시용 */
   questionCount: number
+  expectedPageCount?: number
   statusDetails?: ReactNode
 } & BatchCallbacks) {
   const { request, compress, pickFiles } = useCaptureRuntime()
@@ -103,6 +116,7 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
   const [gradedRows, setGradedRows] = useState<GradeRow[]>([])
   const [pendingRows, setPendingRows] = useState<GradeRow[]>([])
   const [batchError, setBatchError] = useState('')
+  const [acknowledgedPageWarnings, setAcknowledgedPageWarnings] = useState('')
   const [job, setJob] = useState<PhotoJob | null | undefined>(undefined)
   const [jobLoadError, setJobLoadError] = useState('')
   const [jobReload, setJobReload] = useState(0)
@@ -122,6 +136,7 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
   if (syncedOpen !== open) {
     setSyncedOpen(open)
     if (!open) {
+      setAcknowledgedPageWarnings('')
       items.forEach((it) => URL.revokeObjectURL(it.previewUrl))
       setItems([])
       setPhase('pick')
@@ -186,13 +201,14 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
       patch(it.id, { status: 'reading-name' })
       await runOrReport(async () => {
         const { base64: b64, mimeType } = await compress(list[index], { forceJpeg: true })
-        patch(it.id, { b64, mimeType })
+        const pageCount = await countUploadPages(b64, mimeType)
+        patch(it.id, { b64, mimeType, pageCount })
         const resp = await request(`/api/weeks/${weekId}/vocab-photo-name`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileData: b64, mimeType, kind: 'reading' }),
         })
-        const data = await resp.json() as { studentId: string | null; rawName: string | null; confidence: Confidence; duplicate?: boolean; codeMatch?: Item['codeMatch']; sheetPage?: number }
+        const data = await resp.json() as { studentId: string | null; rawName: string | null; confidence: Confidence; duplicate?: boolean; codeMatch?: Item['codeMatch']; sheetPage?: number; sheetPages?: Item['sheetPages'] }
         const ok = data.studentId && presentStudents.some((s) => s.student_id === data.studentId)
         patch(it.id, {
           studentId: ok ? data.studentId : null,
@@ -200,7 +216,8 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
           rawName: data.rawName ?? null,
           duplicateName: data.duplicate ?? false,
           codeMatch: data.codeMatch === 'matched' && !ok ? 'unmatched' : data.codeMatch,
-          sheetPage: data.sheetPage,
+          sheetPage: data.sheetPages?.[0] ?? data.sheetPage,
+          sheetPages: data.sheetPages,
           status: 'ready',
         })
       }, () => patch(it.id, { status: 'ready', confidence: 'none' }))
@@ -228,6 +245,16 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
   }
   const confirmedCount = items.filter((it) => isExamStudentConfirmed(it, duplicateStudentIds)).length
   const allConfirmed = items.length > 0 && confirmedCount === items.length && readyToRead.length === items.length
+  const pageWarnings = expectedPageCount > 0 && (phase === 'review' || phase === 'done')
+    ? [...photosByStudent].flatMap(([id, files]) => {
+      const checked = phase === 'review' ? files : files.filter((file) => file.isReplacement && !file.photoPath)
+      if (!checked.length) return []
+      const issues = checkAnswerSheetPages(checked, expectedPageCount)
+      return issues.length ? [{ id, issues, files: checked.map((file) => file.id) }] : []
+    })
+    : []
+  const pageWarningKey = JSON.stringify(pageWarnings)
+  const pageWarningsAccepted = !pageWarnings.length || acknowledgedPageWarnings === pageWarningKey
   const overwriteCount = students.filter((student) => student.hasExisting && photosByStudent.has(student.student_id)).length
   const pendingCodeMatches = readyToRead.filter((item) => item.codeMatch === 'matched' && item.confirmedStudentId !== item.studentId).length
 
@@ -345,7 +372,7 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
         if (!Array.isArray(results)) throw new Error('인식한 답안을 확인하지 못했습니다.')
         const { row, applied } = prepareOcr!(studentId, results, photoPath)
         drafts.push(row)
-        patch(item.id, { status: 'done', result: { applied, total: questionCount } })
+        patch(item.id, { status: 'done', ocrResults: results, result: { applied, total: questionCount } })
       } catch (error) {
         const reason = error instanceof Error ? error.message : '처리 중 오류가 발생했습니다.'
         patch(item.id, { status: 'error', error: `사진 저장됨 · ${reason}` })
@@ -375,8 +402,9 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
     setCaptureBusy(true)
     try {
       const { base64, mimeType } = await packExamPhotos(await Promise.all(files.map((file) => compress(file, { forceJpeg: true }))))
+      const pageCount = await countUploadPages(base64, mimeType)
       if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
-      patch(item.id, { b64: base64, mimeType, previewUrl: files.length === 1 ? URL.createObjectURL(files[0]) : pdfPreview(base64), error: '사진 추가됨 · 실패 재시도로 저장하세요.' })
+      patch(item.id, { b64: base64, mimeType, pageCount, isReplacement: true, previewUrl: files.length === 1 ? URL.createObjectURL(files[0]) : pdfPreview(base64), error: '사진 추가됨 · 실패 재시도로 저장하세요.' })
     } catch (error) {
       patch(item.id, { error: error instanceof Error ? error.message : '사진을 읽지 못했습니다. 다른 파일을 선택해 주세요.' })
     } finally {
@@ -385,7 +413,7 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
   }
 
   async function startReading() {
-    if (phase !== 'review' || !allConfirmed) return
+    if (phase !== 'review' || !allConfirmed || !pageWarningsAccepted) return
     if (prepareOcr && job !== null) return
     setPhase('uploading')
     setBatchError('')
@@ -397,7 +425,7 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
           targets.push(first)
         } else {
           const pageNumbers = new Set(pages.map((page) => page.sheetPage))
-          const orderedPages = pageNumbers.size === pages.length && !pageNumbers.has(undefined)
+          const orderedPages = pages.every((page) => (page.pageCount ?? 1) === 1) && pageNumbers.size === pages.length && !pageNumbers.has(undefined)
             ? [...pages].sort((a, b) => a.sheetPage! - b.sheetPage!) : pages
           const { base64, mimeType } = await packExamPhotos(orderedPages.map((page) => ({ base64: page.b64!, mimeType: page.mimeType })))
           targets.push({ ...first, id: `${first.id}:pdf`, b64: base64, mimeType, previewUrl: '' })
@@ -425,7 +453,7 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
   }
 
   async function retryFailed() {
-    if (phase !== 'done' || pendingRows.length > 0) return
+    if (phase !== 'done' || pendingRows.length > 0 || !pageWarningsAccepted) return
     const failed = items.filter((it) => it.status === 'error' && (it.b64 || it.photoPath) && isExamStudentConfirmed(it, duplicateStudentIds))
     if (failed.length === 0) return
     if (prepareOcr) {
@@ -664,7 +692,12 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
                         {it.status === 'reading-name' && <span className="text-[var(--share-muted)]">이름 인식 중</span>}
                         {prepareOcr && it.status === 'ready' && !it.b64 && <span role="alert" className="text-[var(--share-red)]">파일을 읽지 못했습니다. 이 사진을 제외한 뒤 다시 추가해 주세요.</span>}
                         {it.duplicateName && <span className="text-[var(--share-muted)]">동명이인입니다. 학생을 직접 선택해 주세요.</span>}
-                        {it.codeMatch === 'matched' && <span className="text-[var(--share-body)]">판독 코드 일치{it.sheetPage ? ` · ${it.sheetPage}쪽` : ''}</span>}
+                        {it.codeMatch === 'matched' && <span className="text-[var(--share-body)]">판독 코드 일치</span>}
+                        {phase === 'review' && (it.sheetPages?.length || it.sheetPage) && (
+                          <span className="text-[var(--share-body)]">인쇄 쪽수 {it.sheetPages?.length
+                            ? it.sheetPages.map((page) => page ? `${page}쪽` : '확인 필요').join(', ')
+                            : `${it.sheetPage}쪽`}</span>
+                        )}
                         {it.codeMatch === 'unmatched' && <span className="text-[var(--share-red)]">판독 코드와 명단이 일치하지 않습니다. 답안지를 확인해 주세요.</span>}
                         {phase === 'review' && it.studentId && (photosByStudent.get(it.studentId)?.length ?? 0) > 1 && (
                           <span className="text-[var(--share-body)]">{student?.student_name} 답안지 {photosByStudent.get(it.studentId)?.length}장으로 합칩니다.</span>
@@ -695,16 +728,33 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
               })}
             </ul>
           )}
+          {pageWarnings.length > 0 && (
+            <section className="space-y-1 rounded-xl bg-[var(--share-red-bg)] px-4 py-3 text-sm text-[var(--share-red-deep)]">
+              <h3 className="font-semibold">답안지 쪽수를 확인해 주세요</h3>
+              <ul aria-live="polite" className="space-y-1">
+                {pageWarnings.map(({ id, issues }) => (
+                  <li key={id}>{students.find((student) => student.student_id === id)?.student_name} · {issues.join(' · ')}</li>
+                ))}
+              </ul>
+              <label className="flex min-h-11 items-center gap-2 font-medium">
+                <input type="checkbox" checked={pageWarningsAccepted} onChange={(event) => setAcknowledgedPageWarnings(event.target.checked ? pageWarningKey : '')} />
+                원본을 확인했고 현재 답안지로 계속합니다
+              </label>
+            </section>
+          )}
           {questions && gradedRows.length > 0 && (
-            <ExamBatchReview
-              rows={gradedRows}
-              questions={questions}
-              previews={new Map(items.flatMap((item) => item.studentId ? [[item.studentId, item.previewUrl]] : []))}
-              busy={isBusy}
-              onEdit={(studentId, questionId, student_answer_text) => updateReviewAnswer(studentId, questionId, { student_answer_text, ai_feedback: '' })}
-              onVerdict={(studentId, questionId, is_correct) => updateReviewAnswer(studentId, questionId, { is_correct, teacher_confirmed: true, needs_review: false })}
-              onRegrade={regrade}
-            />
+            <>
+              <ExamRecognitionSummary rows={gradedRows} questions={questions} photos={items} />
+              <ExamBatchReview
+                rows={gradedRows}
+                questions={questions}
+                previews={new Map(items.flatMap((item) => item.studentId ? [[item.studentId, item.previewUrl]] : []))}
+                busy={isBusy}
+                onEdit={(studentId, questionId, student_answer_text) => updateReviewAnswer(studentId, questionId, { student_answer_text, ai_feedback: '' })}
+                onVerdict={(studentId, questionId, is_correct) => updateReviewAnswer(studentId, questionId, { is_correct, teacher_confirmed: true, needs_review: false })}
+                onRegrade={regrade}
+              />
+            </>
           )}
         </div>
 
@@ -713,6 +763,7 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
           <p aria-live="polite" className="text-xs text-[var(--share-body)]">
             {items.length > 0 && `${confirmedCount} / ${items.length}장 확인`}
             {unmatched > 0 && ` · 학생 미선택 ${unmatched}장`}
+            {pageWarnings.length > 0 && ` · 쪽수 확인 ${pageWarnings.length}명`}
             {overwriteCount > 0 && ` · 기존 답안 변경 ${overwriteCount}명`}
             {duplicateStudentIds.size > 0 && ` · 같은 학생 중복 ${duplicateStudentIds.size}명`}
           </p>
@@ -726,7 +777,7 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
               {phase === 'done' ? '닫기' : '취소'}
             </Button>
             {phase === 'done' && errorCount > 0 && pendingRows.length === 0 && (
-              <Button size="sm" variant="outline" className={prepareOcr ? 'min-h-11' : undefined} onClick={retryFailed} disabled={isBusy || !allConfirmed}>
+              <Button size="sm" variant="outline" className={prepareOcr ? 'min-h-11' : undefined} onClick={retryFailed} disabled={isBusy || !allConfirmed || !pageWarningsAccepted}>
                 <RefreshCw className="mr-1 h-3.5 w-3.5" /> 실패 재시도
               </Button>
             )}
@@ -739,7 +790,7 @@ export function ExamPhotoBatchDialog({ open, onOpenChange, weekId, students, que
               </Button>
             )}
             {(phase === 'matching' || phase === 'review' || phase === 'reading' || (phase === 'pick' && canAddPhotos)) && (
-              <Button size="sm" variant="action" className={prepareOcr ? 'min-h-11' : undefined} onClick={startReading} disabled={isBusy || !allConfirmed}>
+              <Button size="sm" variant="action" className={prepareOcr ? 'min-h-11' : undefined} onClick={startReading} disabled={isBusy || !allConfirmed || !pageWarningsAccepted}>
                 {phase === 'reading' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
                 {items.length > 0 ? `${photosByStudent.size + items.length - readyToRead.length}명 ` : ''}{prepareOcr ? '답안 인식 및 채점' : '답안 인식'}
               </Button>

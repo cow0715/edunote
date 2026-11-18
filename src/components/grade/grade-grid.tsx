@@ -25,6 +25,7 @@ import { MobileGradeCards } from './mobile-grade-cards'
 import { SubjectiveReviewPanel } from './subjective-review-panel'
 import { VocabBatchGradeDialog } from './vocab-batch-grade-dialog'
 import { ExamPhotoBatchDialog } from './exam-photo-batch-dialog'
+import { buildAnswerSheetPages } from '@/lib/answer-sheet-layout'
 import type { ExamOcrResult } from './exam-photo-button'
 import { mergeGradeDrafts } from '@/lib/grade-draft-merge'
 import { createGradeSaveQueue } from '@/lib/atomic-grade'
@@ -617,6 +618,7 @@ export function GradeGrid({ classId, attendanceDate, weekId, vocabTotal, reading
             onOpenChange={setExamBatchOpen}
             weekId={weekId}
             questionCount={activeQuestions.length}
+            expectedPageCount={examBatchOpen ? buildAnswerSheetPages(questions).pages.length : 0}
             students={rows.map((r) => ({
               student_id: r.student_id,
               student_name: r.student_name,

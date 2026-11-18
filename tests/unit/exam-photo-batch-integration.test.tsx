@@ -81,6 +81,53 @@ describe('촬영 확인 → 기존 일괄 처리 연결', () => {
     expect(ocrRequests).toHaveLength(2)
   })
 
+  it('같은 면 두 장에 경고하고 확정 전에 미인식 문항을 표시한다', async () => {
+    const onFinalize = vi.fn(async () => {})
+    const questions = ['front', 'back'].map((id, index) => ({
+      id, question_number: index + 1, question_style: 'objective',
+    } as ExamQuestion))
+    request.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      const body = JSON.parse(String(init.body ?? '{}'))
+      if (url.endsWith('/vocab-photo-name')) return Response.json({ studentId: 'a', sheetPage: 1 })
+      if (url.endsWith('/exam-photo-job')) {
+        return Response.json(init.method === 'POST' ? { id: 'job' } : { job: null })
+      }
+      if (url.endsWith('/ocr-exam-photo')) {
+        return Response.json({ photoPath: 'week/a/job', results: [
+          { question_number: 1, student_answer: 2 },
+          { question_number: 2, student_answer: null },
+        ] })
+      }
+      expect(url).toBe('/api/weeks/week/grade')
+      expect(body.preview).toBe(true)
+      return Response.json({ rows: body.rows })
+    })
+    render(<ExamPhotoBatchDialog open onOpenChange={vi.fn()} weekId="week" students={students}
+      questionCount={2} expectedPageCount={2} questions={questions} onFinalize={onFinalize}
+      prepareOcr={(studentId, _results, path) => ({
+        applied: 1,
+        row: {
+          ...students[0], student_id: studentId, grade_version: { score_id: null, revision: null },
+          vocab_correct: null, reading_present: true, reading_correct: null, homework_done: null, memo: '',
+          exam_photo_path: path, answers: [{ exam_question_id: 'front', student_answer: 2 }, { exam_question_id: 'back', student_answer: null }],
+        },
+      })}
+    />)
+    fireEvent.click(await screen.findByRole('button', { name: '촬영한 두 장 확인 완료' }))
+    await confirmAllExamStudents()
+    expect(screen.getByText('학생 가 · 2쪽 누락 · 1쪽 중복')).toBeTruthy()
+    const start = screen.getByRole<HTMLButtonElement>('button', { name: '1명 답안 인식 및 채점' })
+    expect(start.disabled).toBe(true)
+    expect(request.mock.calls.some(([url, init]) => url.endsWith('/exam-photo-job') && init?.method === 'POST')).toBe(false)
+    fireEvent.click(screen.getByRole('checkbox', { name: '원본을 확인했고 현재 답안지로 계속합니다' }))
+    expect(start.disabled).toBe(false)
+    fireEvent.click(start)
+    expect(await screen.findByText(/1\/2문항 인식/)).toBeTruthy()
+    expect(screen.getByText('미인식 · 2번')).toBeTruthy()
+    expect(screen.getByRole('link', { name: '원본 보기' })).toBeTruthy()
+    expect(onFinalize).not.toHaveBeenCalled()
+  })
+
   it('15장 중 OCR 502가 난 한 장만 새로고침 후 재시도하고 모두 확정한다', async () => {
     const roster = Array.from({ length: 15 }, (_, index) => ({
       student_id: `student-${index + 1}`, student_name: `학생 ${index + 1}`, present: true, hasExisting: false,
