@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Camera, FileText, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { FileUpload } from '@/components/ui/file-upload'
 import { type CapturePhoto } from '@/lib/capture-draft'
 import { useCaptureRuntime } from './capture-runtime'
@@ -25,6 +26,7 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
   const [error, setError] = useState('')
   const [cameraUnavailable, setCameraUnavailable] = useState(false)
   const [camera, setCamera] = useState(false)
+  const [cameraReady, setCameraReady] = useState(false)
   const [review, setReview] = useState(false)
   if (!active && camera) { setCamera(false); setReview(photos.length > 0) }
   const [selected, setSelected] = useState<string | null>(null)
@@ -35,6 +37,7 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
   const current = useRef<Photo[]>([])
   const fileInput = useRef<HTMLInputElement>(null)
   const cameraInput = useRef<HTMLInputElement>(null)
+  const cameraButton = useRef<HTMLButtonElement>(null)
   const mounted = useRef(false)
 
   const releaseCamera = useCallback(() => {
@@ -46,6 +49,7 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
   const stopCamera = useCallback(() => {
     releaseCamera()
     setCamera(false)
+    setCameraReady(false)
     const hasPhotos = current.current.length > 0
     setReview(hasPhotos)
     onViewChange?.(hasPhotos ? 'review' : 'add')
@@ -84,9 +88,10 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
     return () => document.removeEventListener('visibilitychange', pause)
   }, [active, releaseCamera, stopCamera])
 
-  useEffect(() => {
-    if (camera && video.current) video.current.srcObject = stream.current
-  }, [camera])
+  const attachPreview = useCallback((element: HTMLVideoElement | null) => {
+    video.current = element
+    if (element) element.srcObject = stream.current
+  }, [])
 
   async function startCamera() {
     if (!loaded || locked.current) return
@@ -104,6 +109,7 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
       stream.current?.getTracks().forEach((track) => track.stop())
       stream.current = media
       setReview(false)
+      setCameraReady(!!captureFile)
       setCamera(true)
       setCameraUnavailable(false)
       setSelected(null)
@@ -182,78 +188,109 @@ export function MobileCapture({ draftKey, active, onConfirm, onBusyChange, onVie
   async function submit() { stopCamera(); setSelected(null); await operate(async()=>{await onConfirm(current.current.map(photo=>new File([photo.blob],photo.name,{type:photo.blob.type,lastModified:photo.lastModified})))}) }
 
   const enlarged = photos.find((photo) => photo.id === selected)
+  const latest = photos.at(-1)
 
   return (
-    <section hidden={!active} className={`${active ? 'grid' : 'hidden'} min-h-0 grid-rows-[minmax(0,1fr)_auto]`} aria-label="연속 촬영 사진 보관함">
-      <div className="min-h-0 overflow-y-auto">
-        <div className={`mx-auto flex min-h-full w-full max-w-[430px] flex-col gap-4 px-4 py-5 sm:px-6 ${!photos.length && !camera ? 'justify-center' : ''}`}>
-          {!camera && <>
-            <div className={photos.length ? 'flex gap-2' : 'grid grid-cols-2 gap-3'}>
-              <Button type="button" variant="outline" disabled={!loaded || busy} onClick={startCamera} className={photos.length ? 'h-11 flex-1 rounded-xl shadow-none' : 'h-28 flex-col rounded-xl bg-[var(--share-card)] shadow-none sm:order-2'}><Camera className="size-6" />{photos.length ? '더 촬영' : '촬영하기'}</Button>
-              <FileUpload compact className={photos.length ? 'flex-1 [&>button]:h-11 [&>button]:w-full' : 'sm:order-1 [&>button]:h-28 [&>button]:w-full [&>button]:flex-col'} beforeSelect={() => { if (!pickFiles) return true; void pickFiles(true).then(addFiles); return false }} label="파일 추가" description="이미지 또는 PDF · 여러 파일 선택 가능" accept="image/*,application/pdf" multiple inputRef={fileInput} disabled={!loaded || busy} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files) }} />
-            </div>
-          </>}
-
-          {error && <div className="space-y-3 rounded-xl bg-[var(--share-red-bg)] p-4">
-            <p role="alert" className="text-xs leading-relaxed text-[var(--share-red)]">{error}</p>
-            {cameraUnavailable && <Button type="button" variant="outline" disabled={!loaded || busy} className="h-11 rounded-xl shadow-none" onClick={() => { stopCamera(); cameraInput.current?.click() }}>기본 카메라로 촬영</Button>}
-          </div>}
-          <input ref={cameraInput} aria-label="기본 카메라로 촬영" type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files) }} />
-
-          {camera && active && <>
-            <video ref={video} autoPlay playsInline muted aria-label="답안지 카메라 미리보기" className="max-h-[calc(100dvh-330px)] min-h-40 w-full flex-1 rounded-xl bg-black object-contain sm:max-h-[450px]" />
-            <p className="text-center text-xs text-[var(--share-muted)]">종이가 잘리지 않게 맞춘 뒤 촬영해주세요.</p>
-            {photos.length > 0 && <div className="flex justify-center gap-2" aria-label="최근 촬영 답안">
-              {photos.slice(-4).map((photo) => <button type="button" key={photo.id} disabled={busy} onClick={() => { stopCamera(); setSelected(photo.id) }} aria-label="촬영한 답안 확인" className="rounded-lg border border-[var(--share-line-strong)] p-1">
-                {photo.blob.type.startsWith('image/') ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={photo.url} alt="최근 답안" className="h-12 w-9 rounded object-contain" />
-                ) : <FileText className="h-12 w-9 p-2" />}
-              </button>)}
-            </div>}
-          </>}
-
-          {!camera && photos.length > 0 && <>
-            {enlarged ? <div className="space-y-3">
-              <Button type="button" variant="ghost" className="min-h-11 px-0" onClick={() => setSelected(null)}><ArrowLeft className="size-4" />목록으로</Button>
-              {enlarged.blob.type.startsWith('image/') ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={enlarged.url} alt="선택한 답안지 확대" className="max-h-[55dvh] w-full rounded-xl bg-[var(--share-card)] object-contain" />
-              ) : <div className="space-y-3 rounded-xl bg-[var(--share-card)] p-6 text-center"><FileText className="mx-auto size-10" /><p className="break-words text-sm">{enlarged.name}</p><a href={enlarged.url} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center text-sm underline">PDF 열기</a></div>}
-              <Button type="button" variant="outline" className="h-11 w-full rounded-xl shadow-none" disabled={busy} onClick={() => operate(async () => { await save(current.current.filter((photo) => photo.id !== enlarged.id)); setSelected(null); if (!current.current.length) { setReview(false); onViewChange?.('add') } })}><Trash2 className="size-4" />이 사진 삭제</Button>
-              <p className="text-center text-xs text-[var(--share-muted)]">흐린 사진은 삭제하고 다시 촬영해주세요.</p>
-            </div> : <>
-              <p className="text-sm font-bold">보관한 답안 {photos.length}장 <span className="ml-1 text-xs font-normal text-[var(--share-muted)]">눌러서 크게 확인</span></p>
-              <div className="grid grid-cols-2 gap-3">
-                {photos.map((photo, index) => <div key={photo.id} className="relative overflow-hidden rounded-xl bg-[var(--share-card)]">
-                  <button type="button" aria-label={`사진 ${index + 1} 크게 확인`} onClick={() => setSelected(photo.id)} className="w-full p-3 text-left focus-visible:outline-2">
-                    {photo.blob.type.startsWith('image/') ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={photo.url} alt={`답안지 ${index + 1}`} className="aspect-[3/4] w-full rounded-lg object-contain" />
-                    ) : <div className="flex aspect-[3/4] flex-col items-center justify-center gap-2"><FileText className="size-10 text-[var(--share-muted)]" /><span className="text-xs">PDF</span></div>}
-                    <p className="mt-2 text-xs font-semibold">답안 {index + 1}</p><p className="mt-1 truncate text-[11px] text-[var(--share-muted)]">{photo.name}</p>
-                  </button>
-                  <button type="button" aria-label={`답안 ${index + 1} 삭제`} disabled={busy} className="absolute top-1 right-1 flex size-11 items-center justify-center rounded-full bg-[var(--share-canvas)]/90 text-[var(--share-muted)] focus-visible:outline-2" onClick={() => operate(async () => { await save(current.current.filter((item) => item.id !== photo.id)); if (!current.current.length) { setReview(false); onViewChange?.('add') } })}><X className="size-4" /></button>
-                </div>)}
+    <>
+      <section hidden={!active} className={`${active ? 'grid' : 'hidden'} min-h-0 grid-rows-[minmax(0,1fr)_auto]`} aria-label="연속 촬영 사진 보관함">
+        <div className="min-h-0 overflow-y-auto">
+          <div className={`mx-auto flex min-h-full w-full max-w-[430px] flex-col gap-4 px-4 py-5 sm:px-6 ${!photos.length && !camera ? 'justify-center' : ''}`}>
+            {!camera && <>
+              <div className={photos.length ? 'flex gap-2' : 'grid grid-cols-2 gap-3'}>
+                <Button ref={cameraButton} type="button" variant="outline" aria-haspopup="dialog" disabled={!loaded || busy} onClick={startCamera} className={photos.length ? 'h-11 flex-1 rounded-xl shadow-none' : 'h-28 flex-col rounded-xl bg-[var(--share-card)] shadow-none sm:order-2'}><Camera className="size-6" />{photos.length ? '더 촬영' : '촬영하기'}</Button>
+                <FileUpload compact className={photos.length ? 'flex-1 [&>button]:h-11 [&>button]:w-full' : 'sm:order-1 [&>button]:h-28 [&>button]:w-full [&>button]:flex-col'} beforeSelect={() => { if (!pickFiles) return true; void pickFiles(true).then(addFiles); return false }} label="파일 추가" description="이미지 또는 PDF · 여러 파일 선택 가능" accept="image/*,application/pdf" multiple inputRef={fileInput} disabled={!loaded || busy} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files) }} />
               </div>
             </>}
-            <details className="border-t border-[var(--share-line)] pt-3 text-xs text-[var(--share-muted)]">
-              <summary className="min-h-11 cursor-pointer py-3">보관함 관리</summary>
-              <p className="py-2 leading-relaxed">이 기기·브라우저에만 보관됩니다. 채점 후 필요 없어진 사진은 정리해주세요. 브라우저 데이터를 삭제하면 복구되지 않습니다.</p>
-              <button type="button" disabled={busy} className="min-h-11 rounded-lg py-2 text-[var(--share-red)] focus-visible:outline-2" onClick={() => { if (window.confirm('이 주차의 보관 사진을 모두 삭제할까요?')) void operate(async () => { await save([]); setSelected(null); setReview(false); onViewChange?.('add') }) }}>보관 사진 모두 삭제</button>
-            </details>
-          </>}
+
+            {error && <div className="space-y-3 rounded-xl bg-[var(--share-red-bg)] p-4">
+              <p role="alert" className="text-xs leading-relaxed text-[var(--share-red)]">{error}</p>
+              {cameraUnavailable && <Button type="button" variant="outline" disabled={!loaded || busy} className="h-11 rounded-xl shadow-none" onClick={() => { stopCamera(); cameraInput.current?.click() }}>기본 카메라로 촬영</Button>}
+            </div>}
+            <input ref={cameraInput} aria-label="기본 카메라로 촬영" type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void addFiles(files) }} />
+
+            {!camera && photos.length > 0 && <>
+              {enlarged ? <div className="space-y-3">
+                <Button type="button" variant="ghost" className="min-h-11 px-0" onClick={() => setSelected(null)}><ArrowLeft className="size-4" />목록으로</Button>
+                {enlarged.blob.type.startsWith('image/') ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={enlarged.url} alt="선택한 답안지 확대" className="max-h-[55dvh] w-full rounded-xl bg-[var(--share-card)] object-contain" />
+                ) : <div className="space-y-3 rounded-xl bg-[var(--share-card)] p-6 text-center"><FileText className="mx-auto size-10" /><p className="break-words text-sm">{enlarged.name}</p><a href={enlarged.url} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center text-sm underline">PDF 열기</a></div>}
+                <Button type="button" variant="outline" className="h-11 w-full rounded-xl shadow-none" disabled={busy} onClick={() => operate(async () => { await save(current.current.filter((photo) => photo.id !== enlarged.id)); setSelected(null); if (!current.current.length) { setReview(false); onViewChange?.('add') } })}><Trash2 className="size-4" />이 사진 삭제</Button>
+                <p className="text-center text-xs text-[var(--share-muted)]">흐린 사진은 삭제하고 다시 촬영해주세요.</p>
+              </div> : <>
+                <p className="text-sm font-bold">보관한 답안 {photos.length}장 <span className="ml-1 text-xs font-normal text-[var(--share-muted)]">눌러서 크게 확인</span></p>
+                <div className="grid grid-cols-2 gap-3">
+                  {photos.map((photo, index) => <div key={photo.id} className="relative overflow-hidden rounded-xl bg-[var(--share-card)]">
+                    <button type="button" aria-label={`사진 ${index + 1} 크게 확인`} onClick={() => setSelected(photo.id)} className="w-full p-3 text-left focus-visible:outline-2">
+                      {photo.blob.type.startsWith('image/') ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={photo.url} alt={`답안지 ${index + 1}`} className="aspect-[3/4] w-full rounded-lg object-contain" />
+                      ) : <div className="flex aspect-[3/4] flex-col items-center justify-center gap-2"><FileText className="size-10 text-[var(--share-muted)]" /><span className="text-xs">PDF</span></div>}
+                      <p className="mt-2 text-xs font-semibold">답안 {index + 1}</p><p className="mt-1 truncate text-[11px] text-[var(--share-muted)]">{photo.name}</p>
+                    </button>
+                    <button type="button" aria-label={`답안 ${index + 1} 삭제`} disabled={busy} className="absolute top-1 right-1 flex size-11 items-center justify-center rounded-full bg-[var(--share-canvas)]/90 text-[var(--share-muted)] focus-visible:outline-2" onClick={() => operate(async () => { await save(current.current.filter((item) => item.id !== photo.id)); if (!current.current.length) { setReview(false); onViewChange?.('add') } })}><X className="size-4" /></button>
+                  </div>)}
+                </div>
+              </>}
+              <details className="border-t border-[var(--share-line)] pt-3 text-xs text-[var(--share-muted)]">
+                <summary className="min-h-11 cursor-pointer py-3">보관함 관리</summary>
+                <p className="py-2 leading-relaxed">이 기기·브라우저에만 보관됩니다. 채점 후 필요 없어진 사진은 정리해주세요. 브라우저 데이터를 삭제하면 복구되지 않습니다.</p>
+                <button type="button" disabled={busy} className="min-h-11 rounded-lg py-2 text-[var(--share-red)] focus-visible:outline-2" onClick={() => { if (window.confirm('이 주차의 보관 사진을 모두 삭제할까요?')) void operate(async () => { await save([]); setSelected(null); setReview(false); onViewChange?.('add') }) }}>보관 사진 모두 삭제</button>
+              </details>
+            </>}
+          </div>
         </div>
-      </div>
-      <footer className="border-t border-[var(--share-line)] px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))] sm:px-6">
-        <div className="mx-auto max-w-[430px] space-y-3">
-          <p role="status" className="text-center text-xs text-[var(--share-muted)]">{!loaded ? '보관한 사진 불러오는 중…' : busy ? '처리 중…' : photos.length ? `${photos.length}장 기기에 보관됨` : ''}</p>
-          {camera ? <div className="flex items-center justify-center gap-5">
-            <Button type="button" variant="outline" aria-label="답안지 촬영" className="size-16 rounded-full border-4 border-[var(--share-line-strong)] bg-[var(--share-box)] p-0 shadow-none" disabled={busy} onClick={shoot}><Camera className="size-6" /></Button>
-            <Button type="button" variant="outline" disabled={busy} className="h-12 rounded-xl shadow-none" onClick={() => { if (photos.length) void submit(); else stopCamera() }}>{photos.length ? `촬영 완료 · 학생 확인` : '촬영 나가기'}</Button>
-          </div> : review && photos.length > 0 ? <Button type="button" variant="action" disabled={busy} className="h-12 w-full rounded-xl" onClick={submit}>{photos.length}장 학생 확인</Button> : null}
-        </div>
-      </footer>
-    </section>
+        <footer className="border-t border-[var(--share-line)] px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))] sm:px-6">
+          <div className="mx-auto max-w-[430px] space-y-3">
+            {!camera && <p role="status" className="text-center text-xs text-[var(--share-muted)]">{!loaded ? '보관한 사진 불러오는 중…' : busy ? '처리 중…' : photos.length ? `${photos.length}장 기기에 보관됨` : ''}</p>}
+            {!camera && review && photos.length > 0 && <Button type="button" variant="action" disabled={busy} className="h-12 w-full rounded-xl" onClick={submit}>{photos.length}장 학생 확인</Button>}
+          </div>
+        </footer>
+      </section>
+      <Dialog open={active && camera} onOpenChange={(open) => { if (!open && !locked.current) stopCamera() }}>
+        <DialogContent
+          showCloseButton={false}
+          className="top-0 left-0 h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-none border-0 bg-black p-0 text-white sm:max-w-none data-[state=open]:animate-none data-[state=closed]:animate-none"
+          onEscapeKeyDown={(event) => { if (locked.current) event.preventDefault() }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            cameraButton.current?.focus({ preventScroll: true })
+          }}
+        >
+          <header className="grid grid-cols-[3rem_minmax(0,1fr)_3rem] items-center bg-neutral-950 pt-[env(safe-area-inset-top)] pr-[max(12px,env(safe-area-inset-right))] pl-[max(12px,env(safe-area-inset-left))]">
+            <Button type="button" variant="ghost" aria-label="촬영 나가기" disabled={busy} onClick={stopCamera} className="size-12 rounded-full px-0 text-white hover:bg-white/15 hover:text-white"><X className="size-5" /></Button>
+            <div className="text-center">
+              <DialogTitle className="text-sm">답안 촬영</DialogTitle>
+              <DialogDescription className="sr-only">종이 전체가 화면에 들어오도록 맞춘 뒤 촬영하세요.</DialogDescription>
+              <p role="status" className="mt-1 text-xs text-neutral-300">{busy ? '사진 보관 중…' : photos.length ? `${photos.length}장 기기에 보관됨` : '0장 촬영'}</p>
+            </div>
+          </header>
+
+          <div className="relative min-h-0 overflow-hidden bg-black">
+            <video ref={attachPreview} autoPlay playsInline muted onCanPlay={() => setCameraReady(true)} aria-label="답안지 카메라 미리보기" className="absolute inset-0 h-full w-full object-contain" />
+            {error ? <p role="alert" className="absolute inset-x-4 top-2 mx-auto max-w-sm rounded-xl bg-[var(--share-red-bg)] p-3 text-sm text-[var(--share-red-deep)]">{error}</p> : (
+              <p aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-2 mx-auto w-fit max-w-[calc(100%-2rem)] rounded-full bg-black/65 px-3 py-1.5 text-center text-xs text-white">종이 전체가 보이게 맞춰 주세요</p>
+            )}
+          </div>
+
+          <footer className="bg-neutral-950 pt-2 pr-[max(16px,env(safe-area-inset-right))] pb-[max(12px,env(safe-area-inset-bottom))] pl-[max(16px,env(safe-area-inset-left))]">
+            <div className="mx-auto grid max-w-sm grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center">
+              <div>
+                {latest && <Button type="button" variant="ghost" disabled={busy} onClick={() => { stopCamera(); setSelected(latest.id) }} aria-label="촬영한 답안 확인" className="size-12 overflow-hidden rounded-lg border border-white/30 p-0 text-white hover:bg-white/15 hover:text-white">
+                  {latest.blob.type.startsWith('image/') ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={latest.url} alt="" className="size-full object-contain" />
+                  ) : <FileText className="size-5" />}
+                </Button>}
+              </div>
+              <Button type="button" variant="ghost" aria-label="답안지 촬영" className="size-16 rounded-full border-2 border-white p-1 hover:bg-white/15" disabled={busy || !cameraReady} onClick={shoot}>
+                <span className="size-full rounded-full bg-white" />
+              </Button>
+              <Button type="button" variant="ghost" aria-label="촬영 완료 · 학생 확인" disabled={busy || !photos.length} onClick={submit} className="h-12 justify-self-end px-3 font-semibold text-white hover:bg-white/15 hover:text-white">완료</Button>
+            </div>
+          </footer>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

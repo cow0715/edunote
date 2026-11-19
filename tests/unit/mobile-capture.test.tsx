@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MobileCapture } from '@/components/grade/mobile-capture'
 import { captureDraft, type CapturePhoto } from '@/lib/capture-draft'
 import { compressImageForUpload } from '@/lib/image-compress'
@@ -112,11 +112,19 @@ describe('연속 촬영 사진 보관함', () => {
     render(<MobileCapture draftKey="exam:week1" active onConfirm={onConfirm} />)
     await ready()
     fireEvent.click(screen.getByRole('button', { name: '촬영하기' }))
-    const video = await screen.findByLabelText('답안지 카메라 미리보기')
+    const camera = within(await screen.findByRole('dialog', { name: '답안 촬영' }))
+    const video = camera.getByLabelText<HTMLVideoElement>('답안지 카메라 미리보기')
+    const shutter = camera.getByRole<HTMLButtonElement>('button', { name: '답안지 촬영' })
+    expect(video.srcObject).toBe(media)
+    expect(shutter.disabled).toBe(true)
+    expect(camera.getByRole<HTMLButtonElement>('button', { name: '촬영 완료 · 학생 확인' }).disabled).toBe(true)
+    expect(screen.queryByRole('button', { name: '파일 추가' })).toBeNull()
     Object.defineProperties(video, { videoWidth: { value: 1920 }, videoHeight: { value: 1080 } })
-    fireEvent.click(screen.getByRole('button', { name: '답안지 촬영' }))
+    fireEvent.canPlay(video)
+    expect(shutter.disabled).toBe(false)
+    fireEvent.click(shutter)
     await screen.findByText(/1장 기기에 보관됨/)
-    fireEvent.click(screen.getByRole('button', { name: '답안지 촬영' }))
+    fireEvent.click(shutter)
     await screen.findByText(/2장 기기에 보관됨/)
     expect(getUserMedia).toHaveBeenCalledOnce()
     expect(onConfirm).not.toHaveBeenCalled()
